@@ -271,6 +271,29 @@ check_absent "label gone"     "Flaky Test"      label list -t CORE
 b issue show "$A" --json > "$J"
 check_json "label detached from issue" "$J" "!d.labels.includes('Flaky Test')"
 
+echo "=== agent identities ==="
+check  "seeded agent user"     "Agent"           user list
+check  "user add agent"        "Created agent"   user add "Codex" --agent
+check  "user add human"        "Created user"    user add "Ada Clone"
+if b user list 2>/dev/null | grep -q '^Codex.*agent'; then PASS=$((PASS+1)); else echo "FAIL  agent kind marker on user list"; FAIL=$((FAIL+1)); fi
+if b user list 2>/dev/null | grep -q '^Ada Clone' && ! b user list 2>/dev/null | grep -q '^Ada Clone.*agent'; then PASS=$((PASS+1)); else echo "FAIL  human user not marked agent"; FAIL=$((FAIL+1)); fi
+
+echo "=== issue handoff ==="
+BRANCH="$(echo "$KEY" | tr '[:upper:]' '[:lower:]')-renamed-issue"
+check  "handoff includes title"  "renamed issue"  issue handoff "$KEY"
+check  "handoff includes branch" "$BRANCH"        issue handoff "$KEY"
+check  "handoff suggests report-back" "state to Done" issue handoff "$KEY"
+b issue handoff "$KEY" --json > "$WORK/h.json"
+check_json "handoff json shape" "$WORK/h.json" "d.key==='$KEY'&&d.title==='renamed issue'&&d.branchName==='$BRANCH'&&d.prompt.includes('renamed issue')&&d.url.includes('/#/issue/')"
+check_rc "handoff unknown issue" 1 issue handoff "NOPE-99"
+# --copy failure path: strip PATH so no clipboard helper exists (avoids clobbering the real clipboard)
+NODE_BIN=$(command -v node)
+if PATH="" "$NODE_BIN" bin/baseline.js issue handoff "$KEY" --copy >/dev/null 2>&1; then
+  echo "FAIL  handoff --copy missing-clipboard error path"; FAIL=$((FAIL+1))
+else
+  PASS=$((PASS+1))
+fi
+
 echo "=== export / import ==="
 b export --out "$WORK/export.json"
 check_json "export has issues" "$WORK/export.json" "d.issues.length>5&&d.teams.length>=2&&Array.isArray(d.projects)"
@@ -280,6 +303,7 @@ BASELINE_DB="$DB2" $BIN issue list -q "renamed issue" --json > "$J"
 check_json "imported issue round-trips" "$J" "d.length===1&&d[0].key==='$KEY'&&d[0].title==='renamed issue'"
 BASELINE_DB="$DB2" $BIN project list --json > "$WORK/p3.json"
 check_json "imported projects round-trip" "$WORK/p3.json" "d.some(p=>p.name==='Agent Handoff')"
+if BASELINE_DB="$DB2" $BIN user list 2>/dev/null | grep -q '^Codex.*agent'; then PASS=$((PASS+1)); else echo "FAIL  agent kind survives export/import"; FAIL=$((FAIL+1)); fi
 
 echo "=== seed ==="
 DB3=$(newdb 3)

@@ -1,6 +1,6 @@
 ---
 name: baseline
-description: Manage tasks and projects in the Baseline tracker via its CLI — create/update/list/search issues, change status, priority, assignees, labels, sub-issues, relations, comments; create projects, post progress updates and milestones; back up or restore the workspace. Use whenever the user mentions Baseline, their tracker, backlog, tasks, issues, or project status, asks to check off, move, triage, or break down work, or wants project state read or updated — even if they don't say "Baseline".
+description: Manage tasks and projects in the Baseline tracker via its CLI — create/update/list/search issues, change status, priority, assignees, labels, sub-issues, relations, comments; create projects, post progress updates and milestones; take hand-off briefs for coding agents (`issue handoff`); back up or restore the workspace. Use whenever the user mentions Baseline, their tracker, backlog, tasks, issues, or project status, asks to check off, move, triage, or break down work, or wants project state read or updated — even if they don't say "Baseline".
 ---
 
 # Baseline CLI
@@ -48,13 +48,15 @@ If `dist/` is missing, build once first: `cd /Users/parthbatra/sideones/baseline
 ```bash
 # discover
 baseline team list                          # teams, their states, issue counts
-baseline user list                          # who can be assigned
+baseline user list                          # who can be assigned (agents marked `agent`)
+baseline user add "Codex" --agent           # add a named agent identity
 baseline label list [-t CORE]               # labels per team
 baseline search "query"                     # issues + projects by substring
 
 # read issues
 baseline issue list [-t CORE] [-s Todo] [-a me] [-j Project] [-p high] [-L Bug] [-q text] [--archived] [--json] [--limit N]
 baseline issue show CORE-3 [--json]         # description, sub-issues, relations, comments, activity
+baseline issue handoff CORE-3 [--copy|--json]   # ready-to-paste agent prompt + suggested branch name
 
 # create / update issues
 baseline issue create "Title" -t CORE -s "In Progress" -p high -a "Ada Osei" \
@@ -130,6 +132,23 @@ baseline export --out /tmp/ws.json
 BASELINE_DB=/tmp/scratch.db baseline import /tmp/ws.json
 # …experiment freely with --db /tmp/scratch.db, then run the real commands
 ```
+
+## Handoff loop (picking up an issue handed to you)
+
+A human picks an issue, copies its brief (web button, or `baseline issue handoff KEY --copy`), and pastes it into your prompt. The brief names the issue key and a suggested branch. Your side of the loop:
+
+```bash
+baseline issue show CORE-3 --json          # full context: description, comments, blockers
+git checkout -b core-3-short-token-audit   # branch from the brief ("Branch:" line); main as base
+baseline issue update CORE-3 -s "In Progress"   # claim it so the human sees it's picked up
+# …do the work, committing in small steps…
+baseline issue comment CORE-3 "Shipped X; Y still open because Z"   # progress note
+baseline issue update CORE-3 -s Done       # only when truly finished; otherwise leave the state and say what remains
+```
+
+- Report back even on partial work — the comment is the deliverable the human reads.
+- MCP writes are attributed for you: the MCP server stamps comments/status changes on the agent identity configured at launch (`baseline mcp --agent "Codex"`, or `BASELINE_AGENT` env; default is the workspace's "Agent" user). CLI writes attribute to the current user, so if you work via CLI and want agent attribution, assign the issue to the agent user instead.
+- Template overrides live in the web app under Settings ▸ Handoff; `issue handoff --json` always reflects the current template.
 
 ## Conventions the store enforces (why your updates look the way they do)
 
