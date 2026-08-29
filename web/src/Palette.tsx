@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp } from './store.js';
+import { useApp, copyText } from './store.js';
 import { api } from './api.js';
 import { Modal } from './ui.js';
 import { StateIcon } from './pickers.js';
@@ -91,8 +91,8 @@ export function CommandPalette() {
         keywords: 'handoff agent paste cli branch coding',
         action: async () => {
           const { handoff } = await api.getHandoff(current!.id);
-          await navigator.clipboard.writeText(handoff.prompt);
-          useApp.getState().toast({ title: `Copied prompt for ${handoff.key}` });
+          if (await copyText(handoff.prompt)) useApp.getState().toast({ title: `Copied prompt for ${handoff.key}` });
+          else useApp.getState().toast({ title: 'Clipboard unavailable', line: <>{handoff.key} — bring the app tab into focus and retry</> });
         },
       });
     }

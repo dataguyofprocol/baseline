@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, LIST_GROUP_ORDER } from './store.js';
+import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, LIST_GROUP_ORDER, copyText } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, MenuInput } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
@@ -239,13 +239,13 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
       <MenuSep />
       <MenuItem icon={<IconPrompt size={14} />} label="Copy as prompt" onClick={async () => {
         const { handoff } = await api.getHandoff(props.issue.id);
-        await navigator.clipboard.writeText(handoff.prompt);
-        toast({ title: `Copied prompt for ${key}`, line: <>branch: <b>{handoff.branchName}</b></> });
+        if (await copyText(handoff.prompt)) toast({ title: `Copied prompt for ${key}`, line: <>branch: <b>{handoff.branchName}</b></> });
+        else toast({ title: 'Clipboard unavailable', line: <>{key} — bring the app tab into focus and retry</> });
       }} />
       <MenuItem label="Copy branch name" onClick={async () => {
         const { handoff } = await api.getHandoff(props.issue.id);
-        await navigator.clipboard.writeText(handoff.branchName);
-        toast({ title: `Copied branch ${handoff.branchName}` });
+        if (await copyText(handoff.branchName)) toast({ title: `Copied branch ${handoff.branchName}` });
+        else toast({ title: 'Clipboard unavailable', line: <>branch: <b>{handoff.branchName}</b></> });
       }} />
       <MenuItem
         label="Copy issue ID"

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, useHelpers, relTime, shortDate } from './store.js';
+import { useApp, useHelpers, relTime, shortDate, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
@@ -420,13 +420,13 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   };
   const copyPrompt = async () => {
     const { handoff } = await api.getHandoff(issue.id);
-    await navigator.clipboard.writeText(handoff.prompt);
-    toast({ title: `Copied prompt for ${handoff.key}`, line: <>branch: <b>{handoff.branchName}</b></> });
+    if (await copyText(handoff.prompt)) toast({ title: `Copied prompt for ${handoff.key}`, line: <>branch: <b>{handoff.branchName}</b></> });
+    else toast({ title: 'Clipboard unavailable', line: <>{handoff.key} — bring the app tab into focus and retry</> });
   };
   const copyBranch = async () => {
     const { handoff } = await api.getHandoff(issue.id);
-    await navigator.clipboard.writeText(handoff.branchName);
-    toast({ title: `Copied branch ${handoff.branchName}` });
+    if (await copyText(handoff.branchName)) toast({ title: `Copied branch ${handoff.branchName}` });
+    else toast({ title: 'Clipboard unavailable', line: <>branch: <b>{handoff.branchName}</b></> });
   };
 
   return (
