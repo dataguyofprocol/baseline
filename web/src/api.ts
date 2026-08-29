@@ -1,4 +1,4 @@
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate } from '../../src/core/types.js';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -21,6 +21,10 @@ export const api = {
   unarchiveIssue: (id: string) => req<{ ok: true }>('POST', `/api/issues/${id}/unarchive`),
   bulkIssues: (b: { ids: string[]; patch?: Record<string, unknown>; delete?: boolean; archive?: boolean }) => req<{ ok: true; count: number }>('POST', '/api/issues/bulk', b),
   moveIssue: (id: string, beforeId: string | null, afterId: string | null) => req<{ ok: true }>('POST', `/api/issues/${id}/move`, { beforeId, afterId }),
+  getHandoff: (id: string) => req<{ handoff: Handoff }>('GET', `/api/issues/${id}/handoff`),
+  createTemplate: (b: { teamId: string; name: string; title?: string; description?: string }) => req<{ template: IssueTemplate }>('POST', '/api/issue-templates', b),
+  updateTemplate: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/issue-templates/${id}`, patch),
+  deleteTemplate: (id: string) => req<{ ok: true }>('DELETE', `/api/issue-templates/${id}`),
   addComment: (issueId: string, body: string) => req<{ comment: Comment }>('POST', `/api/issues/${issueId}/comments`, { body }),
   updateComment: (commentId: string, body: string) => req<{ ok: true }>('PATCH', `/api/comments/${commentId}`, { body }),
   deleteComment: (commentId: string) => req<{ ok: true }>('DELETE', `/api/comments/${commentId}`),
@@ -58,4 +62,4 @@ export const api = {
   reseed: () => req<{ ok: true }>('POST', '/api/seed', {}),
 };
 
-export type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone };
+export type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate };

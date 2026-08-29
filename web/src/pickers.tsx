@@ -5,7 +5,7 @@ import { api } from './api.js';
 import type { Issue, Priority, Team } from '../../src/core/types.js';
 import {
   StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled,
-  PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconUsers,
+  PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconUsers, IconBot,
   IconCycle, IconEstimate, IconClose, IconBlocks, IconBlocked, IconRelated, IconDuplicate,
 } from './icons.js';
 import { STATUS_ORDER } from './store.js';
@@ -27,9 +27,16 @@ export function PriorityIcon({ priority, size = 14 }: { priority: Priority; size
   return <PrioNone size={size} style={{ color: 'var(--text-dim)' }} />;
 }
 
-export function Avatar({ user, size = 20 }: { user?: { name: string; initials: string; color: string } | null; size?: number }) {
+export function Avatar({ user, size = 20 }: { user?: { name: string; initials: string; color: string; kind?: 'human' | 'agent' } | null; size?: number }) {
   if (!user) {
     return <span className="avatar placeholder" style={{ width: size, height: size }}><IconUser size={12} /></span>;
+  }
+  if (user.kind === 'agent') {
+    return (
+      <span className="avatar agent" title={`${user.name} (agent)`} style={{ width: size, height: size, background: user.color }}>
+        <IconBot size={Math.max(10, Math.round(size * 0.62))} />
+      </span>
+    );
   }
   return (
     <span className="avatar" title={user.name} style={{ width: size, height: size, background: user.color, fontSize: size * 0.42 }}>
@@ -120,7 +127,7 @@ export function AssigneeMenu(props: { issue: Issue; children: (p: { isOpen: bool
       {anchor && (
         <Menu anchor={anchor} onClose={close} width={224}>
           <div className="menu-header"><span>Assign to…</span></div>
-          {snap.users.map(u => (
+          {snap.users.filter(u => u.kind !== 'agent').map(u => (
             <MenuItem
               key={u.id}
               icon={<Avatar user={u} size={18} />}
@@ -129,6 +136,21 @@ export function AssigneeMenu(props: { issue: Issue; children: (p: { isOpen: bool
               onClick={() => pick(u.id)}
             />
           ))}
+          {snap.users.some(u => u.kind === 'agent') && (
+            <>
+              <MenuSep />
+              <div className="menu-header"><span>Agents</span></div>
+              {snap.users.filter(u => u.kind === 'agent').map(u => (
+                <MenuItem
+                  key={u.id}
+                  icon={<Avatar user={u} size={18} />}
+                  label={u.name}
+                  selected={props.issue.assigneeId === u.id}
+                  onClick={() => pick(u.id)}
+                />
+              ))}
+            </>
+          )}
           <MenuSep />
           <MenuItem icon={<IconUser size={14} />} label="No assignee" selected={!props.issue.assigneeId} onClick={() => pick(null)} />
         </Menu>

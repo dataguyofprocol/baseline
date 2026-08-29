@@ -6,7 +6,7 @@ import { Menu, MenuItem, MenuSep, useMenu, MenuInput } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import {
   IconChevronDown, IconChevronRight, IconPlus, IconFilter, IconClose, IconArchive, IconTrash,
-  IconCalendar, IconCycle, IconFocus,
+  IconCalendar, IconCycle, IconFocus, IconPrompt,
 } from './icons.js';
 import type { Issue, Priority, ViewFilters, GroupBy, OrderBy } from '../../src/core/types.js';
 
@@ -237,6 +237,16 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
       <MenuItem label="Assign to…" right={<span className="kbd">A</span>} onClick={() => openQuick('assignee')} />
       <MenuItem label="Set labels…" right={<span className="kbd">L</span>} onClick={() => openQuick('labels')} />
       <MenuSep />
+      <MenuItem icon={<IconPrompt size={14} />} label="Copy as prompt" onClick={async () => {
+        const { handoff } = await api.getHandoff(props.issue.id);
+        await navigator.clipboard.writeText(handoff.prompt);
+        toast({ title: `Copied prompt for ${key}`, line: <>branch: <b>{handoff.branchName}</b></> });
+      }} />
+      <MenuItem label="Copy branch name" onClick={async () => {
+        const { handoff } = await api.getHandoff(props.issue.id);
+        await navigator.clipboard.writeText(handoff.branchName);
+        toast({ title: `Copied branch ${handoff.branchName}` });
+      }} />
       <MenuItem
         label="Copy issue ID"
         onClick={async () => { await navigator.clipboard.writeText(key); toast({ title: 'Copied issue ID' }); }}

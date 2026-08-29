@@ -3,7 +3,7 @@ import { useApp, refresh, shortDate } from './store.js';
 import { api } from './api.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconClose, IconExpand, IconEmoji, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue } from './icons.js';
+import { IconClose, IconExpand, IconEmoji, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc } from './icons.js';
 import type { Priority, Team } from '../../src/core/types.js';
 
 const SUGGESTIONS: Array<[RegExp, string]> = [
@@ -48,6 +48,7 @@ export function CreateIssueModal() {
   const [createMore, setCreateMore] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [appliedTemplateId, setAppliedTemplateId] = useState<string | undefined>(undefined);
 
   const titleRef = useRef<HTMLInputElement>(null);
   const teamMenu = useMenu();
@@ -57,6 +58,7 @@ export function CreateIssueModal() {
   const labelsMenu = useMenu();
   const projectMenu = useMenu();
   const moreMenu = useMenu();
+  const templateMenu = useMenu();
 
   useEffect(() => {
     if (state.open && snap) {
@@ -72,6 +74,7 @@ export function CreateIssueModal() {
       setEstimate(null);
       setCreateMore(false);
       setMoreOpen(false);
+      setAppliedTemplateId(undefined);
       const existing = (state.parentId ? null : loadDraft(tid ?? ''));
       setDraft(existing);
       if (existing) {
@@ -101,6 +104,15 @@ export function CreateIssueModal() {
     : undefined;
   const parent = state.parentId && snap ? snap.issues.find(i => i.id === state.parentId) : undefined;
   const parentKey = parent ? `${snap?.teams.find(t => t.id === parent.teamId)?.key}-${parent.number}` : '';
+  const templates = snap?.templates.filter(t => t.teamId === team?.id) ?? [];
+  const appliedTemplate = templates.find(t => t.id === appliedTemplateId);
+  const applyTemplate = (tplId: string | null) => {
+    setAppliedTemplateId(tplId ?? undefined);
+    const tpl = templates.find(t => t.id === tplId);
+    if (!tpl) return;
+    setDescription(tpl.description);
+    if (tpl.title && !title.trim()) setTitle(tpl.title);
+  };
 
   const saveDraft = () => {
     if (!team) return;
@@ -154,6 +166,7 @@ export function CreateIssueModal() {
     setTeamId(t.id);
     setStatusId(snap.states.find(s => s.teamId === t.id && s.type === 'unstarted')?.id ?? snap.states.find(s => s.teamId === t.id)?.id);
     setLabelIds(prev => prev.filter(lid => snap.labels.find(l => l.id === lid)?.teamId === t.id));
+    setAppliedTemplateId(undefined);
   };
 
   return (
@@ -221,6 +234,32 @@ export function CreateIssueModal() {
             {suggestion[1]}
           </button>
         </div>
+      )}
+
+      {templates.length > 0 && (
+        <div className="cm-suggest">
+          <IconDoc size={13} style={{ color: 'var(--text-dim)', display: 'flex' }} />
+          Template
+          <button
+            className="label-pill" style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)', gap: 4 }}
+            onClick={templateMenu.open}
+          >
+            {appliedTemplate?.name ?? 'None'}
+            <IconChevronDown size={10} style={{ color: 'var(--text-dim)' }} />
+          </button>
+        </div>
+      )}
+      {templateMenu.anchor && (
+        <Menu anchor={templateMenu.anchor} onClose={templateMenu.close} width={220}>
+          <div className="menu-header"><span>Apply template</span></div>
+          {templates.map(tpl => (
+            <MenuItem key={tpl.id} label={tpl.name} selected={appliedTemplateId === tpl.id}
+              onClick={() => { applyTemplate(tpl.id); templateMenu.close(); }} />
+          ))}
+          <MenuSep />
+          <MenuItem label="No template" selected={!appliedTemplateId}
+            onClick={() => { applyTemplate(null); setDescription(''); templateMenu.close(); }} />
+        </Menu>
       )}
 
       <div className="cm-pills">
