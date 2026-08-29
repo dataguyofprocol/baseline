@@ -549,9 +549,9 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
           </div>
         </div>
       </div>
-      </div>
 
       <PropertiesRail issue={issue} />
+      </div>
     </div>
   );
 }

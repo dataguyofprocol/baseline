@@ -209,7 +209,11 @@ export function IssueRow(props: {
           </span>
         ))}
         {display.assignee && <Avatar user={assignee} />}
-        <span className="row-date" title={props.issue.updatedAt}>{relTime(props.issue.updatedAt)}</span>
+        <span className="row-date" title={props.issue.updatedAt}>
+          {Date.now() - new Date(props.issue.updatedAt).getTime() < 7 * 86400000
+            ? relTime(props.issue.updatedAt)
+            : shortDate(props.issue.updatedAt)}
+        </span>
       </span>
       {issueMenu.anchor && <IssueContextMenu anchor={issueMenu.anchor} onClose={issueMenu.close} issue={props.issue} />}
     </div>
