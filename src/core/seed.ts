@@ -21,6 +21,8 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   const me = store.createUser(opts.userName ?? 'Parth Batra', 'parth@local', true);
   const ada = store.createUser('Ada Osei', 'ada@local');
   const jun = store.createUser('Jun Watanabe', 'jun@local');
+  const agent = store.createUser('Agent', 'agent@local', false, 'agent');
+  store.updateUser(agent.id, { color: '#4cb782' });
   setMeta(db, 'currentUser', me.id);
 
   // teams with default workflow states

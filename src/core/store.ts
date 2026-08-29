@@ -1,14 +1,16 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { getMeta, setMeta } from './db.js';
 import { id, nowIso, midSort } from './util.js';
+import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import type {
-  ActivityItem, ActivityType, Comment, Cycle, Favorite, Initiative, InitiativeUpdate,
-  Issue, IssueRelation, Label, Milestone, Notification, Priority, Project, ProjectUpdate,
+  ActivityItem, ActivityType, Comment, Cycle, Favorite, Handoff, Initiative, InitiativeUpdate,
+  Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType,
 } from './types.js';
 
 interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; }
+interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
 
@@ -28,15 +30,16 @@ export class Store {
   // ---------- snapshot ----------
   snapshot(): Snapshot {
     const rows = <T>(sql: string): T[] => this.db.prepare(sql).all() as unknown as T[];
-    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin }));
+    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human' }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
-    const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts() };
+    const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE };
     const currentUser = users.find(u => u.id === (getMeta(this.db, 'currentUser') ?? '')) ?? users[0];
     return {
       workspace, users, currentUser: currentUser!,
       teams: rows<{ id: string; key: string; name: string; icon: string; color: string; description: string; position: number }>('SELECT * FROM teams ORDER BY position').map(t => ({ id: t.id, key: t.key, name: t.name, icon: t.icon, color: t.color, description: t.description, position: t.position })),
       states: rows<{ id: string; team_id: string; name: string; type: WorkflowStateType; color: string; position: number }>('SELECT * FROM states ORDER BY position').map(s => ({ id: s.id, teamId: s.team_id, name: s.name, type: s.type, color: s.color, position: s.position })),
       labels: rows<{ id: string; team_id: string; name: string; color: string; description: string }>('SELECT * FROM labels').map(l => ({ id: l.id, teamId: l.team_id, name: l.name, color: l.color, description: l.description })),
+      templates: rows<TemplateRow>('SELECT * FROM issue_templates ORDER BY position, created_at').map(t => ({ id: t.id, teamId: t.team_id, name: t.name, title: t.title, description: t.description, position: t.position, createdAt: t.created_at })),
       issues: rows<IssueRow>('SELECT * FROM issues WHERE archived_at IS NULL AND deleted_at IS NULL').map(this.mapIssue),
       comments: rows<{ id: string; issue_id: string; user_id: string; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null }>('SELECT * FROM comments ORDER BY created_at').map(c => ({ id: c.id, issueId: c.issue_id, userId: c.user_id, body: c.body, createdAt: c.created_at, editedAt: c.edited_at, reactions: JSON.parse(c.reactions), resolvedAt: c.resolved_at })),
       relations: rows<{ id: string; issue_id: string; related_id: string; type: string }>('SELECT * FROM relations').map(r => ({ id: r.id, issueId: r.issue_id, relatedIssueId: r.related_id, type: r.type as RelationType })),
@@ -54,12 +57,18 @@ export class Store {
   }
 
   // ---------- users ----------
-  createUser(name: string, email = '', admin = false): User {
+  createUser(name: string, email = '', admin = false, kind: User['kind'] = 'human'): User {
     const initials = name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
     const colors = ['#5e6ad2', '#c770f4', '#f2994a', '#4cb782', '#eb5757', '#307ec6'];
-    const user: User = { id: id('u'), name, email, initials, color: colors[Math.floor(Math.random() * colors.length)], admin };
-    this.db.prepare('INSERT INTO users (id, name, email, initials, color, admin) VALUES (?, ?, ?, ?, ?, ?)').run(user.id, user.name, user.email, user.initials, user.color, admin ? 1 : 0);
+    const user: User = { id: id('u'), name, email, initials, color: colors[Math.floor(Math.random() * colors.length)], admin, kind };
+    this.db.prepare('INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES (?, ?, ?, ?, ?, ?, ?)').run(user.id, user.name, user.email, user.initials, user.color, admin ? 1 : 0, kind);
     return user;
+  }
+
+  /** agent identity writes are attributed to: explicit actorId > first agent user > current user */
+  agentActor(): User | undefined {
+    const snap = this.snapshot();
+    return snap.users.find(u => u.kind === 'agent') ?? snap.currentUser;
   }
 
   // ---------- teams ----------
@@ -136,6 +145,40 @@ export class Store {
     this.db.prepare('DELETE FROM labels WHERE id = ?').run(labelId);
   }
 
+  // ---------- issue templates ----------
+  createTemplate(teamId: string, name: string, title = '', description = ''): IssueTemplate {
+    const t: IssueTemplate = { id: id('tpl'), teamId, name, title, description, position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM issue_templates WHERE team_id = ?').get(teamId) as { p: number }).p, createdAt: ts() };
+    this.db.prepare('INSERT INTO issue_templates (id, team_id, name, title, description, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(t.id, t.teamId, t.name, t.title, t.description, t.position, t.createdAt);
+    return t;
+  }
+  updateTemplate(templateId: string, patch: Partial<Pick<IssueTemplate, 'name' | 'title' | 'description' | 'position'>>): void {
+    const sets: string[] = []; const vals: (string | number)[] = [];
+    for (const [k, v] of Object.entries(patch)) { sets.push(`${k} = ?`); vals.push(v as string | number); }
+    if (!sets.length) return;
+    vals.push(templateId);
+    this.db.prepare(`UPDATE issue_templates SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+  deleteTemplate(templateId: string): void {
+    this.db.prepare('DELETE FROM issue_templates WHERE id = ?').run(templateId);
+  }
+
+  // ---------- handoff ----------
+  handoffFor(issueId: string): Handoff | undefined {
+    const issue = this.getIssue(issueId);
+    if (!issue) return undefined;
+    const snap = this.snapshot();
+    const template = getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
+    return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels }, template);
+  }
+  getHandoffTemplate(): string {
+    return getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
+  }
+  /** null resets to the built-in default */
+  setHandoffTemplate(template: string | null): void {
+    if (template == null) this.db.prepare('DELETE FROM meta WHERE key = ?').run('handoffPromptTemplate');
+    else setMeta(this.db, 'handoffPromptTemplate', template);
+  }
+
   // ---------- issues ----------
   private nextNumber(teamId: string): number {
     return (this.db.prepare('SELECT COALESCE(MAX(number), 0) + 1 AS n FROM issues WHERE team_id = ?').get(teamId) as { n: number }).n;
@@ -146,7 +189,7 @@ export class Store {
     return s.id;
   }
 
-  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null }): Issue {
+  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null }, actorId?: string): Issue {
     const now = ts();
     const stateId = input.stateId ?? this.defaultState(input.teamId);
     const maxOrder = (this.db.prepare('SELECT COALESCE(MAX(sort_order), 0) m FROM issues WHERE team_id = ?').get(input.teamId) as { m: number }).m;
@@ -160,12 +203,12 @@ export class Store {
     };
     this.db.prepare(`INSERT INTO issues (id, team_id, number, title, description, state_id, priority, assignee_id, project_id, cycle_id, parent_id, estimate, due_date, sort_order, labels, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(issue.id, issue.teamId, issue.number, issue.title, issue.description, issue.stateId, issue.priority, issue.assigneeId, issue.projectId, issue.cycleId, issue.parentId, issue.estimate, issue.dueDate, issue.sortOrder, JSON.stringify(issue.labelIds), now, now);
-    this.logActivity({ issueId: issue.id, type: 'created', data: { title: issue.title } });
+    this.logActivity({ issueId: issue.id, type: 'created', data: { title: issue.title } }, actorId);
     if (issue.assigneeId) this.notifyAssign(issue.id, issue.assigneeId);
     return issue;
   }
 
-  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt'>>): Issue | undefined {
+  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt'>>, actorId?: string): Issue | undefined {
     // drop explicitly-undefined keys so partial patches never clobber values
     const patch = Object.fromEntries(Object.entries(rawPatch).filter(([, v]) => v !== undefined)) as typeof rawPatch;
     const row = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(issueId) as IssueRow | undefined;
@@ -203,7 +246,7 @@ export class Store {
       for (const lid of before.labelIds) if (!patch.labelIds.includes(lid)) acts.push(['unlabeled', { labelId: lid }]);
     }
     if (patch.archivedAt !== undefined) acts.push([patch.archivedAt ? 'archived' : 'restored', {}]);
-    for (const [type, data] of acts) this.logActivity({ issueId, type, data });
+    for (const [type, data] of acts) this.logActivity({ issueId, type, data }, actorId);
     return next;
   }
 
@@ -266,7 +309,7 @@ export class Store {
     const now = ts();
     const c: Comment = { id: id('c'), issueId, userId, body, createdAt: now, editedAt: null, reactions: {}, resolvedAt: null };
     this.db.prepare('INSERT INTO comments (id, issue_id, user_id, body, created_at, reactions) VALUES (?, ?, ?, ?, ?, ?)').run(c.id, issueId, userId, body, now, '{}');
-    this.logActivity({ issueId, type: 'commented', data: { commentId: c.id } });
+    this.logActivity({ issueId, type: 'commented', data: { commentId: c.id } }, userId);
     if (userId !== getMeta(this.db, 'currentUser')) {
       this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id('n'), 'issueCommented', userId, issueId, body.slice(0, 140), now);
     }
@@ -285,7 +328,7 @@ export class Store {
   }
 
   // ---------- relations ----------
-  setRelation(issueId: string, relatedId: string, type: RelationType): IssueRelation {
+  setRelation(issueId: string, relatedId: string, type: RelationType, actorId?: string): IssueRelation {
     // blocks/blocked_by are directional; store the inverse row too so both issues see it
     const rel: IssueRelation = { id: id('r'), issueId, relatedIssueId: relatedId, type };
     this.db.prepare('INSERT INTO relations (id, issue_id, related_id, type) VALUES (?, ?, ?, ?)').run(rel.id, issueId, relatedId, type);
@@ -293,7 +336,7 @@ export class Store {
       const inverse: RelationType = type === 'blocks' ? 'blocked_by' : 'blocks';
       this.db.prepare('INSERT INTO relations (id, issue_id, related_id, type) VALUES (?, ?, ?, ?)').run(id('r'), relatedId, issueId, inverse);
     }
-    this.logActivity({ issueId, type: 'related', data: { relatedId, type } });
+    this.logActivity({ issueId, type: 'related', data: { relatedId, type } }, actorId);
     return rel;
   }
   removeRelation(relationId: string): void {
@@ -444,8 +487,8 @@ export class Store {
   markAllNotificationsRead(): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL').run(ts()); }
 
   // ---------- activity ----------
-  logActivity(e: { issueId?: string; projectId?: string; type: ActivityType; data?: Record<string, unknown> }): void {
-    const uid = getMeta(this.db, 'currentUser');
+  logActivity(e: { issueId?: string; projectId?: string; type: ActivityType; data?: Record<string, unknown> }, actorId?: string): void {
+    const uid = actorId ?? getMeta(this.db, 'currentUser');
     this.db.prepare('INSERT INTO activity (id, issue_id, project_id, user_id, type, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id('a'), e.issueId ?? null, e.projectId ?? null, uid, e.type, JSON.stringify(e.data ?? {}), ts());
   }
@@ -495,12 +538,13 @@ export class Store {
     const insert = (table: string, cols: string[], row: Record<string, unknown>) => {
       this.db.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map(c => row[c] as string | number | null));
     };
-    for (const u of arr<Record<string, unknown>>(data.users)) insert('users', ['id', 'name', 'email', 'initials', 'color', 'admin'], { ...u, admin: u.admin ? 1 : 0 });
+    for (const u of arr<Record<string, unknown>>(data.users)) insert('users', ['id', 'name', 'email', 'initials', 'color', 'admin', 'kind'], { ...u, admin: u.admin ? 1 : 0, kind: u.kind ?? 'human' });
     const cu = data.currentUser as { id?: string } | undefined;
     if (cu?.id) setMeta(this.db, 'currentUser', cu.id);
     for (const t of arr<Record<string, unknown>>(data.teams)) insert('teams', ['id', 'key', 'name', 'icon', 'color', 'description', 'position'], t);
     for (const s of arr<Record<string, unknown>>(data.states)) insert('states', ['id', 'team_id', 'name', 'type', 'color', 'position'], { ...s, team_id: s.teamId });
     for (const l of arr<Record<string, unknown>>(data.labels)) insert('labels', ['id', 'team_id', 'name', 'color', 'description'], { ...l, team_id: l.teamId });
+    for (const t of arr<Record<string, unknown>>(data.templates)) insert('issue_templates', ['id', 'team_id', 'name', 'title', 'description', 'position', 'created_at'], { ...t, team_id: t.teamId, title: t.title ?? '', description: t.description ?? '', position: t.position ?? 0, created_at: t.createdAt ?? ts() });
     for (const i of arr<Record<string, unknown>>(data.issues)) insert('issues',
       ['id', 'team_id', 'number', 'title', 'description', 'state_id', 'priority', 'assignee_id', 'project_id', 'cycle_id', 'parent_id', 'estimate', 'due_date', 'sort_order', 'labels', 'created_at', 'updated_at', 'archived_at', 'completed_at', 'canceled_at', 'deleted_at'],
       { ...i, team_id: i.teamId, state_id: i.stateId, assignee_id: i.assigneeId, project_id: i.projectId, cycle_id: i.cycleId, parent_id: i.parentId, due_date: i.dueDate, sort_order: i.sortOrder, labels: JSON.stringify(i.labelIds ?? []), created_at: i.createdAt, updated_at: i.updatedAt, archived_at: i.archivedAt, completed_at: i.completedAt, canceled_at: i.canceledAt, deleted_at: i.deletedAt });
@@ -520,7 +564,7 @@ export class Store {
     for (const a of arr<Record<string, unknown>>(data.activity)) insert('activity', ['id', 'issue_id', 'project_id', 'user_id', 'type', 'data', 'created_at'], { ...a, issue_id: a.issueId, project_id: a.projectId, user_id: a.userId, data: JSON.stringify(a.data ?? {}), created_at: a.createdAt });
   }
   wipe(): void {
-    for (const t of ['activity', 'notifications', 'favorites', 'views', 'milestones', 'cycles', 'initiative_updates', 'initiatives', 'project_updates', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
+    for (const t of ['activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'initiative_updates', 'initiatives', 'project_updates', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
   }

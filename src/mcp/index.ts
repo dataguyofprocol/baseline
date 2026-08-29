@@ -3,22 +3,39 @@
  * Baseline MCP server (stdio).
  * Register in an MCP client:
  *   { "command": "node", "args": ["<repo>/dist/mcp/index.js"], "env": { "BASELINE_DB": "..." } }
+ * Writes are attributed to an agent identity: --agent <name> / BASELINE_AGENT env,
+ * falling back to the workspace's default agent user.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { openDb, resolveDbPath } from '../core/db.js';
 import { Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
 import { issueKey } from '../core/types.js';
-import type { Priority, WorkflowStateType, RelationType } from '../core/types.js';
+import type { Priority, User, WorkflowStateType, RelationType } from '../core/types.js';
 
+export async function startMcp(agentFlag?: string): Promise<void> {
 const db = openDb(resolveDbPath());
 const store = new Store(db);
 const hasWorkspace = db.prepare('SELECT COUNT(*) AS n FROM meta').get() as { n: number };
 if (Number(hasWorkspace.n) === 0) seedWorkspace(db);
 
 const snap = () => store.snapshot();
+
+// write attribution: named agent (--agent / BASELINE_AGENT) > first agent user > current user
+const agentName = agentFlag ?? process.env.BASELINE_AGENT;
+const actor: User = (() => {
+  const s = snap();
+  const named = agentName
+    ? (s.users.find(u => u.kind === 'agent' && u.name.toLowerCase() === agentName.toLowerCase())
+      ?? s.users.find(u => u.name.toLowerCase() === agentName.toLowerCase()))
+    : undefined;
+  if (agentName && !named) console.error(`[baseline] no user named "${agentName}" — using default agent identity`);
+  return named ?? s.users.find(u => u.kind === 'agent') ?? s.currentUser;
+})();
 const keyOf = (issueId: string) => {
   const s = snap();
   const i = s.issues.find(x => x.id === issueId);
@@ -50,6 +67,8 @@ server.tool(
     const summary = {
       workspace: s.workspace.name,
       currentUser: s.currentUser.name,
+      writingAs: actor.name,
+      users: s.users.map(u => ({ name: u.name, kind: u.kind })),
       teams: s.teams.map(t => ({
         key: t.key, name: t.name,
         states: s.states.filter(st => st.teamId === t.id).map(st => `${st.name} (${st.type})`),
@@ -87,7 +106,7 @@ server.tool(
     const issue = store.createIssue({
       teamId: t.id, title, description, stateId: st?.id, priority: priorityNum,
       assigneeId: assignee === null ? null : assigneeUser?.id, projectId: proj?.id ?? null, labelIds,
-    });
+    }, actor.id);
     return { content: [{ type: 'text', text: `Created ${issueKey(issue, snap().teams)} — ${issue.title}` }] };
   },
 );
@@ -118,8 +137,8 @@ server.tool(
       title, description, stateId: st?.id, priority: priorityNum,
       assigneeId: assignee === null ? null : (assigneeUser?.id ?? undefined),
       projectId: proj === null ? null : (proj?.id ?? undefined),
-    });
-    if (comment) store.addComment(i.id, snap().currentUser.id, comment);
+    }, actor.id);
+    if (comment) store.addComment(i.id, actor.id, comment);
     return { content: [{ type: 'text', text: `Updated ${issue}` }] };
   },
 );
@@ -214,7 +233,7 @@ server.tool(
   async ({ issue, body }) => {
     const i = store.getByKey(issue);
     if (!i) return { content: [{ type: 'text', text: `Unknown issue "${issue}"` }] };
-    store.addComment(i.id, snap().currentUser.id, body);
+    store.addComment(i.id, actor.id, body);
     return { content: [{ type: 'text', text: `Commented on ${issue}` }] };
   },
 );
@@ -250,7 +269,7 @@ server.tool(
   async ({ issue, related, type }) => {
     const a = store.getByKey(issue); const b = store.getByKey(related);
     if (!a || !b) return { content: [{ type: 'text', text: 'Unknown issue key(s)' }] };
-    store.setRelation(a.id, b.id, type as RelationType);
+    store.setRelation(a.id, b.id, type as RelationType, actor.id);
     return { content: [{ type: 'text', text: `${issue} ${type} ${related}` }] };
   },
 );
@@ -268,4 +287,11 @@ server.tool(
 );
 
 await server.connect(new StdioServerTransport());
-console.error('[baseline] MCP server running on stdio');
+console.error(`[baseline] MCP server running on stdio (writing as ${actor.name})`);
+} // startMcp
+
+// runnable directly: node dist/mcp/index.js [--agent Name]
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const flagIdx = process.argv.indexOf('--agent');
+  await startMcp(flagIdx !== -1 ? process.argv[flagIdx + 1] : undefined);
+}

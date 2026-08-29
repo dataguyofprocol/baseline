@@ -79,6 +79,10 @@ export function createApp(dbPath: string) {
     store.moveIssue(c.req.param('id'), b.beforeId ?? null, b.afterId ?? null);
     return c.json({ ok: true });
   });
+  app.get('/api/issues/:id/handoff', (c) => {
+    const handoff = store.handoffFor(c.req.param('id'));
+    return handoff ? c.json({ handoff }) : c.json({ error: 'not found' }, 404);
+  });
 
   // ---------- comments ----------
   app.post('/api/issues/:id/comments', async (c) => {
@@ -168,10 +172,25 @@ export function createApp(dbPath: string) {
   });
   app.delete('/api/labels/:id', (c) => { store.deleteLabel(c.req.param('id')); return c.json({ ok: true }); });
 
+  // ---------- issue templates ----------
+  app.get('/api/issue-templates', (c) => c.json({ templates: store.snapshot().templates }));
+  app.post('/api/issue-templates', async (c) => {
+    const b = await c.req.json();
+    if (!b.teamId || !b.name) return c.json({ error: 'teamId and name are required' }, 400);
+    const template = store.createTemplate(b.teamId, b.name, b.title ?? '', b.description ?? '');
+    return c.json({ template }, 201);
+  });
+  app.patch('/api/issue-templates/:id', async (c) => {
+    const b = await c.req.json();
+    store.updateTemplate(c.req.param('id'), b);
+    return c.json({ ok: true });
+  });
+  app.delete('/api/issue-templates/:id', (c) => { store.deleteTemplate(c.req.param('id')); return c.json({ ok: true }); });
+
   // ---------- users ----------
   app.post('/api/users', async (c) => {
     const b = await c.req.json();
-    const user = store.createUser(b.name, b.email ?? '', b.admin ?? false);
+    const user = store.createUser(b.name, b.email ?? '', b.admin ?? false, b.kind === 'agent' ? 'agent' : 'human');
     return c.json({ user }, 201);
   });
   app.patch('/api/users/:id', async (c) => {
@@ -241,6 +260,7 @@ export function createApp(dbPath: string) {
     const b = await c.req.json();
     if (b.name) store.setWorkspaceName(b.name);
     if (b.currentUserId) store.setCurrentUser(b.currentUserId);
+    if ('handoffPromptTemplate' in b) store.setHandoffTemplate(b.handoffPromptTemplate ?? null);
     return c.json({ ok: true });
   });
 
