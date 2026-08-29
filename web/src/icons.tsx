@@ -117,3 +117,5 @@ export const IconEdit = (p: P) => <S {...p}><path d="M8.9 3.2l2.9 2.9-6.4 6.4-3.
 export const IconFocus = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.2" {...stroke} /><circle cx="7.5" cy="7.5" r="1.6" fill="currentColor" /></S>;
 export const IconGauge = (p: P) => <S {...p}><path d="M2.6 10.5a5.2 5.2 0 1 1 9.8 0" {...stroke} /><path d="M7.5 7.5 9.6 5" {...stroke} /></S>;
 export const IconInboxArrow = (p: P) => <S {...p}><path d="M2.6 7.5h9.8M9 4.1l3.4 3.4L9 10.9" {...stroke} /></S>;
+export const IconBot = (p: P) => <S {...p}><rect x="2.8" y="4.4" width="9.4" height="7.6" rx="2" {...stroke} /><path d="M7.5 2.2v2.2" {...stroke} /><circle cx="5.4" cy="8.2" r="0.9" fill="currentColor" /><circle cx="9.6" cy="8.2" r="0.9" fill="currentColor" /><path d="M6 10.6h3" {...stroke} /></S>;
+export const IconPrompt = (p: P) => <S {...p}><path d="M4.6 4.4 2 7.5l2.6 3.1M10.4 4.4 13 7.5l-2.6 3.1" {...stroke} /><path d="m8.4 3.4-1.8 8.2" {...stroke} /></S>;

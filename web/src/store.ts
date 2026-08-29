@@ -146,6 +146,28 @@ export const STATUS_ORDER = ['backlog', 'unstarted', 'started', 'completed', 'ca
 /** list view groups started work first, then todo, then backlog (matches reference) */
 export const LIST_GROUP_ORDER = ['started', 'unstarted', 'backlog', 'completed', 'canceled'] as const;
 
+/** clipboard write that degrades to a legacy fallback and reports failure instead of throwing */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export async function refresh() {
   await useApp.getState().bootstrap();
 }

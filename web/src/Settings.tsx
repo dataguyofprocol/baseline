@@ -4,11 +4,12 @@ import { useApp } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash } from './icons.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconBot } from './icons.js';
+import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
 import type { WorkflowStateType, Priority } from '../../src/core/types.js';
 
 const NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
-  { sec: 'Workspace settings', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Labels', 'labels'], ['Appearance', 'appearance'], ['Import & export', 'data'], ['Keyboard shortcuts', 'shortcuts']] },
+  { sec: 'Workspace settings', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Labels', 'labels'], ['Templates', 'templates'], ['Handoff', 'handoff'], ['Appearance', 'appearance'], ['Import & export', 'data'], ['Keyboard shortcuts', 'shortcuts']] },
 ];
 
 const STATE_TYPES: Array<[WorkflowStateType, string]> = [
@@ -39,6 +40,8 @@ export function SettingsLayout() {
         {section === 'teams' && <TeamsSettings />}
         {section === 'members' && <MembersSettings />}
         {section === 'labels' && <LabelsSettings />}
+        {section === 'templates' && <TemplatesSettings />}
+        {section === 'handoff' && <HandoffSettings />}
         {section === 'appearance' && <AppearanceSettings />}
         {section === 'data' && <DataSettings />}
         {section === 'shortcuts' && <ShortcutSettings />}
@@ -300,12 +303,13 @@ function MembersSettings() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const [name, setName] = useState('');
+  const [asAgent, setAsAgent] = useState(false);
   const create = async () => {
     if (!name.trim()) return;
-    await api.createUser({ name: name.trim() });
+    await api.createUser({ name: name.trim(), kind: asAgent ? 'agent' : 'human' });
     setName('');
     await useApp.getState().bootstrap();
-    toast({ title: 'Member added' });
+    toast({ title: asAgent ? 'Agent identity added' : 'Member added' });
   };
   return (
     <div className="settings-card">
@@ -315,6 +319,7 @@ function MembersSettings() {
           <div key={u.id} className="prop-row">
             <Avatar user={u} size={22} />
             <span style={{ flex: 1 }}>{u.name}{u.id === snap.currentUser.id ? <span style={{ color: 'var(--text-dim)' }}> (you)</span> : null}</span>
+            {u.kind === 'agent' && <span className="kbd" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconBot size={11} /> Agent</span>}
             {u.admin && <span className="kbd">Admin</span>}
             {u.id !== snap.currentUser.id && (
               <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={async () => {
@@ -327,10 +332,18 @@ function MembersSettings() {
         ))}
       </div>
       <div className="field-row" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-        <div><div className="field-label">Add member</div><div className="field-help">Local members let you assign issues and simulate collaboration.</div></div>
+        <div>
+          <div className="field-label">Add member</div>
+          <div className="field-help">Agents (Claude, Codex, OpenCode…) can be assigned issues; MCP writes land under their name when launched with <code>--agent "Name"</code>.</div>
+        </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <input className="text-input" placeholder="Full name" value={name} onChange={e => setName(e.target.value)}
+          <input className="text-input" placeholder={asAgent ? 'Agent name' : 'Full name'} value={name} onChange={e => setName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && create()} />
+          <div style={{ display: 'flex', gap: 4 }}>
+            {(['human', 'agent'] as const).map(k => (
+              <button key={k} className={`seg ${asAgent === (k === 'agent') ? 'selected' : ''}`} style={{ textTransform: 'capitalize' }} onClick={() => setAsAgent(k === 'agent')}>{k}</button>
+            ))}
+          </div>
           <button className="btn primary" onClick={create}>Add</button>
         </div>
       </div>
@@ -417,6 +430,158 @@ function LabelsSettings() {
             ))}
           </div>
           <input className="text-input" placeholder="Label name" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} />
+          <button className="btn primary" onClick={create}>Create</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- handoff (prompt template for coding agents) ---------------- */
+function HandoffSettings() {
+  const snap = useApp(s => s.snap)!;
+  const toast = useApp(s => s.toast);
+  const saved = snap.workspace.handoffPromptTemplate || DEFAULT_PROMPT_TEMPLATE;
+  const [draft, setDraft] = useState(saved);
+  const dirty = draft !== saved;
+
+  const save = async () => {
+    await api.updateWorkspace({ handoffPromptTemplate: draft });
+    await useApp.getState().bootstrap();
+    toast({ title: 'Handoff template saved' });
+  };
+  const reset = async () => {
+    await api.updateWorkspace({ handoffPromptTemplate: null });
+    await useApp.getState().bootstrap();
+    setDraft(DEFAULT_PROMPT_TEMPLATE);
+    toast({ title: 'Template reset to default' });
+  };
+
+  // live preview against a real issue so you see exactly what gets pasted
+  const sample = snap.issues[0];
+  const preview = sample
+    ? buildHandoff(sample, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels }, draft || DEFAULT_PROMPT_TEMPLATE)
+    : null;
+
+  return (
+    <div className="settings-card">
+      <h1>Handoff</h1>
+      <div className="field-help" style={{ marginBottom: 12 }}>
+        “Copy as prompt” turns an issue into a ready-to-paste brief for a coding agent CLI. Edit the template below;
+        the same prompt is served to the web app, <code>baseline issue handoff</code> and the palette.
+      </div>
+      <textarea
+        className="text-input"
+        style={{ width: '100%', minHeight: 190, fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, lineHeight: 1.55, resize: 'vertical' }}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        spellCheck={false}
+      />
+      <div style={{ display: 'flex', gap: 6, marginTop: 10, alignItems: 'center' }}>
+        <button className="btn primary" disabled={!dirty} onClick={save}>Save template</button>
+        <button className="btn" onClick={reset}>Reset to default</button>
+        {dirty && <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>Unsaved changes</span>}
+      </div>
+      <div className="field-row" style={{ borderTop: '1px solid var(--border)', marginTop: 18, paddingTop: 14, display: 'block' }}>
+        <div className="field-label" style={{ marginBottom: 8 }}>Variables</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {PROMPT_TEMPLATE_VARS.map(([v, d]) => (
+            <span key={v} className="kbd" title={d} style={{ fontWeight: 400 }}>{v}</span>
+          ))}
+        </div>
+      </div>
+      {preview && (
+        <div className="field-row" style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 14, display: 'block' }}>
+          <div className="field-label" style={{ marginBottom: 8 }}>Preview — {preview.key}</div>
+          <pre style={{ margin: 0, padding: '10px 12px', background: 'var(--bg-secondary, #141414)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--font-mono, monospace)', fontSize: 12, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{preview.prompt}</pre>
+          <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 6 }}>branch: <code>{preview.branchName}</code></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- issue templates ---------------- */
+function TemplatesSettings() {
+  const snap = useApp(s => s.snap)!;
+  const toast = useApp(s => s.toast);
+  const [teamId, setTeamId] = useState(snap.teams[0]?.id ?? '');
+  const [name, setName] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ name: '', title: '', description: '' });
+
+  const create = async () => {
+    if (!name.trim() || !teamId) return;
+    await api.createTemplate({ teamId, name: name.trim() });
+    setName('');
+    await useApp.getState().bootstrap();
+  };
+  const startEdit = (id: string, name: string, title: string, description: string) => {
+    setEditing(id);
+    setDraft({ name, title, description });
+  };
+  const saveEdit = async (id: string) => {
+    await api.updateTemplate(id, draft);
+    setEditing(null);
+    await useApp.getState().bootstrap();
+    toast({ title: 'Template saved' });
+  };
+
+  return (
+    <div className="settings-card">
+      <h1>Templates</h1>
+      <div className="field-help" style={{ marginBottom: 12 }}>
+        Starter text for new issues. Templates are offered in the create modal and make hand-off prompts consistently rich.
+      </div>
+      {snap.teams.map(t => {
+        const tpls = snap.templates.filter(x => x.teamId === t.id);
+        return (
+          <div key={t.id} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>{t.name}</div>
+            <div className="card" style={{ padding: '6px 10px' }}>
+              {tpls.map(tpl => (
+                <div key={tpl.id} className="prop-row group" style={{ alignItems: 'flex-start' }}>
+                  {editing === tpl.id ? (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input className="text-input" style={{ height: 26, width: 160 }} value={draft.name} placeholder="Template name" onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} />
+                        <input className="text-input" style={{ height: 26, flex: 1 }} value={draft.title} placeholder="Title template (optional)" onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} />
+                      </div>
+                      <textarea className="text-input" style={{ minHeight: 90, fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, lineHeight: 1.5, resize: 'vertical' }} value={draft.description} placeholder="Description body (markdown)…" onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} />
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn primary" style={{ height: 26, fontSize: 12 }} onClick={() => saveEdit(tpl.id)}>Save</button>
+                        <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => setEditing(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <span style={{ flex: 1 }}>
+                        {tpl.name}
+                        {tpl.description && <span style={{ color: 'var(--text-dim)', fontSize: 12 }}> — {tpl.description.slice(0, 60).replace(/\n/g, ' ')}{tpl.description.length > 60 ? '…' : ''}</span>}
+                      </span>
+                      <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Edit template" onClick={() => startEdit(tpl.id, tpl.name, tpl.title, tpl.description)}>
+                        <span style={{ fontSize: 11 }}>✎</span>
+                      </button>
+                      <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Delete template"
+                        onClick={async () => { await api.deleteTemplate(tpl.id); await useApp.getState().bootstrap(); toast({ title: `Template “${tpl.name}” deleted` }); }}>
+                        <IconTrash size={13} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+              {tpls.length === 0 && <div style={{ color: 'var(--text-dim)', padding: '4px 0', fontSize: 12 }}>No templates yet.</div>}
+            </div>
+          </div>
+        );
+      })}
+      <div className="field-row" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+        <div><div className="field-label">Create template</div><div className="field-help">Add the body from the template’s edit view after creating.</div></div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <select className="text-input" value={teamId} onChange={e => setTeamId(e.target.value)}>
+            {snap.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <input className="text-input" placeholder="Template name" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} />
           <button className="btn primary" onClick={create}>Create</button>
         </div>
       </div>

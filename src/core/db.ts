@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { id } from './util.js';
 
 export const DEFAULT_DB_PATH = resolve(homedir(), '.baseline', 'baseline.db');
 
@@ -31,7 +32,8 @@ function migrate(db: DatabaseSync): void {
       email TEXT NOT NULL DEFAULT '',
       initials TEXT NOT NULL DEFAULT '',
       color TEXT NOT NULL DEFAULT '#5e6ad2',
-      admin INTEGER NOT NULL DEFAULT 0
+      admin INTEGER NOT NULL DEFAULT 0,
+      kind TEXT NOT NULL DEFAULT 'human'
     );
     CREATE TABLE IF NOT EXISTS teams (
       id TEXT PRIMARY KEY,
@@ -57,6 +59,16 @@ function migrate(db: DatabaseSync): void {
       color TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT ''
     );
+    CREATE TABLE IF NOT EXISTS issue_templates (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      position REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_issue_templates_team ON issue_templates(team_id);
     CREATE TABLE IF NOT EXISTS issues (
       id TEXT PRIMARY KEY,
       team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -212,6 +224,14 @@ function migrate(db: DatabaseSync): void {
   if (!columns('issues').includes('deleted_at')) db.exec('ALTER TABLE issues ADD COLUMN deleted_at TEXT');
   if (!columns('projects').includes('priority')) db.exec("ALTER TABLE projects ADD COLUMN priority INTEGER NOT NULL DEFAULT 0");
   if (!columns('initiative_updates').includes('user_id')) db.exec('ALTER TABLE initiative_updates ADD COLUMN user_id TEXT');
+  if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
+
+  // every workspace gets at least one agent identity for hand-offs
+  const hasAgent = db.prepare("SELECT 1 FROM users WHERE kind = 'agent' LIMIT 1").get();
+  if (!hasAgent) {
+    db.prepare("INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES (?, 'Agent', 'agent@local', 'AG', '#4cb782', 0, 'agent')")
+      .run(id('u'));
+  }
 }
 
 export function getMeta(db: DatabaseSync, key: string): string | null {

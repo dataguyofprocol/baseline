@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, useHelpers, relTime, shortDate } from './store.js';
+import { useApp, useHelpers, relTime, shortDate, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
@@ -12,7 +12,7 @@ import {
 import {
   IconLink, IconSplit, IconAttach, IconArrowUp, IconPlus, IconClose,
   IconArchive, IconRestore, IconTrash, IconEdit, IconSubIssue, IconDuplicate,
-  IconEstimate, IconCycle, IconCalendar, IconBox,
+  IconEstimate, IconCycle, IconCalendar, IconBox, IconPrompt, IconCopy,
 } from './icons.js';
 import type { Issue } from '../../src/core/types.js';
 
@@ -418,6 +418,16 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
       actions: [{ label: 'Undo', onClick: async () => { await api.unarchiveIssue(issue.id); await useApp.getState().bootstrap(); } }],
     });
   };
+  const copyPrompt = async () => {
+    const { handoff } = await api.getHandoff(issue.id);
+    if (await copyText(handoff.prompt)) toast({ title: `Copied prompt for ${handoff.key}`, line: <>branch: <b>{handoff.branchName}</b></> });
+    else toast({ title: 'Clipboard unavailable', line: <>{handoff.key} — bring the app tab into focus and retry</> });
+  };
+  const copyBranch = async () => {
+    const { handoff } = await api.getHandoff(issue.id);
+    if (await copyText(handoff.branchName)) toast({ title: `Copied branch ${handoff.branchName}` });
+    else toast({ title: 'Clipboard unavailable', line: <>branch: <b>{handoff.branchName}</b></> });
+  };
 
   return (
     <div className="issue-page">
@@ -429,6 +439,8 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
           favoriteRef={{ type: 'issue', refId: issue.id }}
           more={
             <>
+              <MenuItem icon={<IconPrompt size={14} />} label="Copy as prompt" onClick={copyPrompt} />
+              <MenuItem icon={<IconCopy size={14} />} label="Copy branch name" onClick={copyBranch} />
               <MenuItem label="Copy issue ID" onClick={() => { navigator.clipboard.writeText(key); toast({ title: 'Copied issue ID' }); }} />
               <MenuItem icon={<IconDuplicate size={14} />} label="Duplicate issue" onClick={async () => {
                 const { issue: dup } = await api.createIssue({
@@ -458,6 +470,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
           }
           right={
             <div className="issue-toolbar">
+              <button className="icon-btn" title="Copy as prompt" onClick={copyPrompt}><IconPrompt size={15} /></button>
               <button className="icon-btn" title="Copy link" onClick={() => { navigator.clipboard.writeText(location.origin + '/#/issue/' + key); toast({ title: 'Copied link' }); }}><IconLink size={15} /></button>
               {props.full
                 ? <button className="icon-btn" title="Open in split view" onClick={() => useApp.getState().setPeek(issue.id)}><IconSplit size={15} /></button>

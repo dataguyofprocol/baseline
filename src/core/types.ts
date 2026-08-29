@@ -17,6 +17,7 @@ export interface User {
   initials: string;
   color: string;
   admin: boolean;
+  kind: 'human' | 'agent';
 }
 
 export interface Team {
@@ -81,6 +82,26 @@ export interface Comment {
   /** emoji -> user ids */
   reactions: Record<string, string[]>;
   resolvedAt: string | null;
+}
+
+/** Team-scoped starter text for new issues. Empty title = leave the title alone on apply. */
+export interface IssueTemplate {
+  id: string;
+  teamId: string;
+  name: string;
+  title: string;
+  description: string;
+  position: number;
+  createdAt: string;
+}
+
+/** Ready-to-paste prompt + branch for handing an issue to a coding agent. */
+export interface Handoff {
+  key: string;
+  title: string;
+  branchName: string;
+  url: string;
+  prompt: string;
 }
 
 export interface IssueRelation {
@@ -232,6 +253,8 @@ export interface Workspace {
   id: string;
   name: string;
   createdAt: string;
+  /** resolved handoff prompt template (meta value or code default) */
+  handoffPromptTemplate: string;
 }
 
 /** Full client snapshot — small scale, so the web app boots from one payload. */
@@ -241,6 +264,7 @@ export interface Snapshot {
   teams: Team[];
   states: WorkflowState[];
   labels: Label[];
+  templates: IssueTemplate[];
   issues: Issue[];
   comments: Comment[];
   relations: IssueRelation[];

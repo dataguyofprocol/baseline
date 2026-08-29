@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createApp, serve } from '../server/index.js';
 import { resolveDbPath } from '../core/db.js';
 import { seedWorkspace } from '../core/seed.js';
@@ -84,6 +85,15 @@ function relationRows(snap: Snapshot, issueId: string) {
 
 const withDb = (cmd: Command) => cmd.option('--db <path>', 'database path');
 
+/** copy text to the system clipboard via whatever helper exists; false if none worked */
+function copyToClipboard(text: string): boolean {
+  for (const [cmd, args] of [['pbcopy', [] as string[]], ['wl-copy', []], ['xclip', ['-selection', 'clipboard']]] as const) {
+    const r = spawnSync(cmd, args, { input: text, stdio: ['pipe', 'ignore', 'ignore'] });
+    if (!r.error && r.status === 0) return true;
+  }
+  return false;
+}
+
 // ---------- service commands ----------
 program
   .command('serve')
@@ -98,7 +108,10 @@ program
 program
   .command('mcp')
   .description('Run the MCP server on stdio')
-  .action(() => { /* handled by importing mcp entry */ import('../mcp/index.js'); });
+  .option('--agent <name>', 'attribute MCP writes to this agent user (default: the first agent user)')
+  .action((opts: { agent?: string }) => {
+    void import('../mcp/index.js').then(m => m.startMcp(opts.agent));
+  });
 
 program
   .command('seed')
@@ -177,9 +190,18 @@ const user = program.command('user').description('User operations');
 withDb(user.command('list')).description('List workspace users').action((opts: { db?: string }) => {
   const store = storeFor(opts.db);
   const snap = store.snapshot();
-  for (const u of snap.users) console.log(`${u.name.padEnd(24)} ${u.email.padEnd(20)} ${u.admin ? 'admin' : ''}`);
+  for (const u of snap.users) console.log(`${u.name.padEnd(24)} ${u.email.padEnd(20)} ${u.admin ? 'admin ' : ''}${u.kind === 'agent' ? 'agent' : ''}`);
   process.exit(0);
 });
+withDb(user.command('add <name>')).description('Add a workspace user')
+  .option('--agent', 'create as an agent identity (e.g. Claude, Codex)', false)
+  .option('--email <email>', 'email address')
+  .action((name: string, opts: { db?: string; agent?: boolean; email?: string }) => {
+    const store = storeFor(opts.db);
+    const u = store.createUser(name, opts.email ?? '', false, opts.agent ? 'agent' : 'human');
+    console.log(`Created ${opts.agent ? 'agent' : 'user'} ${u.name}`);
+    process.exit(0);
+  });
 
 const label = program.command('label').description('Label operations');
 withDb(label.command('list')).description('List labels (optionally per team)')
@@ -276,6 +298,25 @@ withDb(issue.command('create <title>')).description('Create an issue')
     } else {
       console.log(issueKey(created, snap.teams));
     }
+    process.exit(0);
+  });
+
+withDb(issue.command('handoff <key>')).description('Print a ready-to-paste agent prompt + branch name for an issue')
+  .option('--copy', 'copy the prompt to the clipboard instead of stdout', false)
+  .option('--json', 'print {key, title, branchName, url, prompt} as JSON', false)
+  .action((key: string, opts: { db?: string; copy?: boolean; json?: boolean }) => {
+    const store = storeFor(opts.db);
+    const i = store.getByKey(key);
+    if (!i) fail(`Unknown issue ${key}`);
+    const h = store.handoffFor(i.id)!;
+    if (opts.copy) {
+      if (!copyToClipboard(h.prompt)) fail('Could not copy — install pbcopy (macOS), wl-copy or xclip, or drop --copy and pipe stdout');
+      console.error(`Copied prompt for ${h.key} → branch ${h.branchName}`);
+    } else if (!opts.json) {
+      console.log(h.prompt);
+      console.error(`\n— branch: ${h.branchName}\n— url: ${h.url}`);
+    }
+    if (opts.json) console.log(JSON.stringify(h, null, 2));
     process.exit(0);
   });
 

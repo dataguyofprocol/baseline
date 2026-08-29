@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp } from './store.js';
+import { useApp, copyText } from './store.js';
+import { api } from './api.js';
 import { Modal } from './ui.js';
 import { StateIcon } from './pickers.js';
 import { scoreItem } from './fuzzy.js';
 import {
   IconSearch, IconPlus, IconSettings, IconInbox, IconBox, IconViews, IconMyIssues,
-  IconCycle, IconTeam, IconMoon, IconSun, IconHome,
+  IconCycle, IconTeam, IconMoon, IconSun, IconHome, IconPrompt,
 } from './icons.js';
 
 interface PaletteItem {
@@ -69,6 +70,32 @@ export function CommandPalette() {
       { id: 'act-theme', icon: document.documentElement.dataset.theme === 'dark' ? <IconSun size={14} /> : <IconMoon size={14} />, label: `Switch to ${document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'} theme`, section: 'Actions', keywords: 'dark light appearance toggle', action: () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark') },
       { id: 'act-shortcuts', icon: <span className="kbd">?</span>, label: 'Show keyboard shortcuts', section: 'Actions', keywords: 'hotkeys keys', action: () => useApp.getState().setShortcuts(true) },
     ];
+
+    // "Copy as prompt" for the issue currently in view (peek or issue page)
+    const peekId = useApp.getState().peekIssueId;
+    const pageKey = /^#\/issue\/(.+?)$/.exec(location.hash ?? '')?.[1];
+    let current = peekId ? snap.issues.find(i => i.id === peekId) : undefined;
+    if (!current && pageKey) {
+      const m = /^(.+)-(\d+)$/.exec(pageKey);
+      const t = snap.teams.find(x => x.key.toLowerCase() === (m?.[1] ?? '').toLowerCase());
+      current = snap.issues.find(i => i.teamId === t?.id && i.number === Number(m?.[2]));
+    }
+    if (current) {
+      const t = snap.teams.find(x => x.id === current.teamId);
+      const ck = `${t?.key}-${current.number}`;
+      actions.unshift({
+        id: 'act-copy-prompt',
+        icon: <IconPrompt />,
+        label: `Copy as prompt (${ck})`,
+        section: 'Actions',
+        keywords: 'handoff agent paste cli branch coding',
+        action: async () => {
+          const { handoff } = await api.getHandoff(current!.id);
+          if (await copyText(handoff.prompt)) useApp.getState().toast({ title: `Copied prompt for ${handoff.key}` });
+          else useApp.getState().toast({ title: 'Clipboard unavailable', line: <>{handoff.key} — bring the app tab into focus and retry</> });
+        },
+      });
+    }
     for (const t of snap.teams) {
       nav.push({ id: `nav-team-${t.id}`, icon: <span className="ws-avatar" style={{ background: t.color, borderRadius: 4, fontSize: 8, width: 15, height: 15 }}>{t.key.slice(0, 1)}</span>, label: `Go to ${t.name}`, section: 'Navigation', keywords: t.key, action: () => navigate(`/team/${t.key}/all`) });
       nav.push({ id: `nav-team-home-${t.id}`, icon: <IconHome size={14} />, label: `Go to ${t.name} home`, section: 'Navigation', keywords: t.key, action: () => navigate(`/team/${t.key}`) });
@@ -105,7 +132,7 @@ export function CommandPalette() {
       action: () => navigate(`/views/${v.id}`),
     }));
     return [...nav, ...actions, ...projectItems, ...viewItems, ...issueItems];
-  }, [snap, navigate, openCreate, setTheme]);
+  }, [snap, navigate, openCreate, setTheme, open]);
 
   const filtered = useMemo<Array<{ item: PaletteItem; match: { indices: number[] } | null }>>(() => {
     if (!q.trim()) {
