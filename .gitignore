@@ -6,3 +6,6 @@ web/dist/
 *.db-wal
 *.db-shm
 .DS_Store
+app.sh
+design-polish/
+screenshots/

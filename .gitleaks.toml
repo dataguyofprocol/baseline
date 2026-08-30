@@ -1,0 +1,4 @@
+# Baseline gitleaks baseline — no historical findings; this file exists so future
+# scans ignore intentionally committed test fixtures and example data only.
+# Add fingerprints below as `[allowlist]` entries when needed.
+title = "Baseline baseline"

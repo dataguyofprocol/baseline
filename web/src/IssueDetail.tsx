@@ -13,6 +13,7 @@ import {
   IconLink, IconSplit, IconAttach, IconArrowUp, IconPlus, IconClose,
   IconArchive, IconRestore, IconTrash, IconEdit, IconSubIssue, IconDuplicate,
   IconEstimate, IconCycle, IconCalendar, IconBox, IconPrompt, IconCopy,
+  IconTerminal, IconBranch,
 } from './icons.js';
 import type { Issue } from '../../src/core/types.js';
 
@@ -144,10 +145,14 @@ function CommentItem(props: { comment: { id: string; userId: string; body: strin
 function SubIssuesSection(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const openCreate = useApp(s => s.openCreate);
-  const setPeek = useApp(s => s.setPeek);
+  const navigate = useNavigate();
   const toast = useApp(s => s.toast);
   const children = snap.issues.filter(i => i.parentId === props.issue.id)
     .sort((a, b) => a.sortOrder - b.sortOrder);
+  const childKey = (ch: Issue) => {
+    const t = snap.teams.find(t => t.id === ch.teamId);
+    return `${t?.key}-${ch.number}`;
+  };
   const done = children.filter(i => {
     const st = snap.states.find(s => s.id === i.stateId);
     return st?.type === 'completed' || st?.type === 'canceled';
@@ -168,7 +173,7 @@ function SubIssuesSection(props: { issue: Issue }) {
             const team = snap.teams.find(t => t.id === ch.teamId);
             return (
               <div key={ch.id} className="prop-row group" style={{ cursor: 'pointer' }}
-                onClick={() => setPeek(ch.id)}>
+                onClick={() => navigate(`/issue/${childKey(ch)}`)}>
                 {st && <StateIcon type={st.type} color={st.color} size={13} />}
                 <span className="issue-key">{team?.key}-{ch.number}</span>
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.title}</span>
@@ -210,8 +215,9 @@ function SubIssuesSection(props: { issue: Issue }) {
 /* ---------------- relations ---------------- */
 function RelationsCard(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
-  const setPeek = useApp(s => s.setPeek);
+  const navigate = useNavigate();
   const relations = snap.relations.filter(r => r.issueId === props.issue.id);
+  if (relations.length === 0) return null;
   const keyOf = (id: string) => {
     const i = snap.issues.find(x => x.id === id);
     if (!i) return null;
@@ -226,7 +232,7 @@ function RelationsCard(props: { issue: Issue }) {
         const other = keyOf(r.relatedIssueId);
         if (!other) return null;
         return (
-          <div key={r.id} className="prop-line" style={{ cursor: 'pointer' }} onClick={() => setPeek(other.id)}>
+          <div key={r.id} className="prop-line" style={{ cursor: 'pointer' }} onClick={() => navigate(`/issue/${other.key}`)}>
             <span className="prop-line-meta" style={{ width: 70 }}>{typeLabel[r.type]}</span>
             <span className="prop-line-label">{other.key} {other.title}</span>
             <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Remove relation"
@@ -256,7 +262,7 @@ export function PropertiesRail(props: { issue: Issue }) {
   const cycle = snap.cycles.find(c => c.id === issue.cycleId);
   const parent = issue.parentId ? snap.issues.find(i => i.id === issue.parentId) : undefined;
   const parentTeam = parent ? snap.teams.find(t => t.id === parent.teamId) : undefined;
-  const setPeek = useApp(s => s.setPeek);
+  const navigate = useNavigate();
 
   return (
     <aside className="props-rail">
@@ -287,7 +293,7 @@ export function PropertiesRail(props: { issue: Issue }) {
           )}
         </AssigneeMenu>
         {parent && (
-          <button className="prop-line" onClick={() => setPeek(parent.id)} title={parent.title}>
+          <button className="prop-line" onClick={() => navigate(`/issue/${parentTeam?.key}-${parent.number}`)} title={parent.title}>
             <span className="issue-key" style={{ width: 52 }}>{parentTeam?.key}-{parent.number}</span>
             <span className="prop-line-label">{parent.title}</span>
           </button>
@@ -296,7 +302,7 @@ export function PropertiesRail(props: { issue: Issue }) {
           {({ open }) => (
             <button className={`prop-line ${issue.estimate == null ? 'dim' : ''}`} onClick={open}>
               <IconEstimate size={14} />
-              <span className="prop-line-label">{issue.estimate != null ? `${issue.estimate} point${issue.estimate !== 1 ? 's' : ''}` : 'Estimate'}</span>
+              <span className="prop-line-label">{issue.estimate != null ? `${issue.estimate} point${issue.estimate !== 1 ? 's' : ''}` : 'Set estimate'}</span>
             </button>
           )}
         </EstimateMenu>
@@ -329,8 +335,8 @@ export function PropertiesRail(props: { issue: Issue }) {
           ))}
           <LabelsMenu issue={issue}>
             {({ open }) => (
-              <button className="prop-chip boxed" style={{ height: 22, padding: '0 7px', fontSize: 11.5 }} onClick={open} title="Add label">
-                <IconPlus size={11} /> Add label
+              <button className="icon-btn" style={{ width: 22, height: 22 }} onClick={open} title="Add label">
+                <IconPlus size={13} />
               </button>
             )}
           </LabelsMenu>
@@ -428,6 +434,14 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
     if (await copyText(handoff.branchName)) toast({ title: `Copied branch ${handoff.branchName}` });
     else toast({ title: 'Clipboard unavailable', line: <>branch: <b>{handoff.branchName}</b></> });
   };
+  const copyUrl = async () => {
+    if (await copyText(location.origin + '/#/issue/' + key)) toast({ title: 'Copied issue URL' });
+    else toast({ title: 'Clipboard unavailable' });
+  };
+  const copyId = async () => {
+    if (await copyText(key)) toast({ title: 'Copied issue ID' });
+    else toast({ title: 'Clipboard unavailable' });
+  };
 
   return (
     <div className="issue-page">
@@ -441,7 +455,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
             <>
               <MenuItem icon={<IconPrompt size={14} />} label="Copy as prompt" onClick={copyPrompt} />
               <MenuItem icon={<IconCopy size={14} />} label="Copy branch name" onClick={copyBranch} />
-              <MenuItem label="Copy issue ID" onClick={() => { navigator.clipboard.writeText(key); toast({ title: 'Copied issue ID' }); }} />
+              <MenuItem label="Copy issue ID" onClick={copyId} />
               <MenuItem icon={<IconDuplicate size={14} />} label="Duplicate issue" onClick={async () => {
                 const { issue: dup } = await api.createIssue({
                   teamId: issue.teamId, title: issue.title, description: issue.description,
@@ -470,8 +484,11 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
           }
           right={
             <div className="issue-toolbar">
-              <button className="icon-btn" title="Copy as prompt" onClick={copyPrompt}><IconPrompt size={15} /></button>
-              <button className="icon-btn" title="Copy link" onClick={() => { navigator.clipboard.writeText(location.origin + '/#/issue/' + key); toast({ title: 'Copied link' }); }}><IconLink size={15} /></button>
+              {/* copy-as-prompt is the core workflow — brand-colored terminal glyph, first position */}
+              <button className="icon-btn prompt-btn" title="Copy agent prompt" onClick={copyPrompt}><IconTerminal size={15} /></button>
+              <button className="icon-btn" title="Copy branch name" onClick={copyBranch}><IconBranch size={15} /></button>
+              <button className="icon-btn" title="Copy issue URL" onClick={copyUrl}><IconLink size={15} /></button>
+              <button className="icon-btn" title="Copy issue ID" onClick={copyId}><IconCopy size={15} /></button>
               {props.full
                 ? <button className="icon-btn" title="Open in split view" onClick={() => useApp.getState().setPeek(issue.id)}><IconSplit size={15} /></button>
                 : <button className="icon-btn" title="Open full page" onClick={() => { useApp.getState().setPeek(null); navigate(`/issue/${key}`); }}><IconSplit size={15} /></button>}
@@ -510,10 +527,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                 <Markdown text={issue.description} />
               </div>
             ) : (
-              <div
-                className="prop-chip" style={{ color: 'var(--text-dim)', padding: 0, height: 'auto' }}
-                onClick={() => setDescEditing(true)}
-              >
+              <div className="desc-placeholder" onClick={() => setDescEditing(true)}>
                 Add description…
               </div>
             )}
@@ -521,8 +535,8 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
             <SubIssuesSection issue={issue} />
 
             <div className="activity">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontWeight: 590, fontSize: 14 }}>Activity</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: 15 }}>Activity</span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-secondary)', fontSize: 12.5 }}>
                   Unsubscribe
                   <Avatar user={snap.users.find(u => u.id === snap.currentUser.id)} size={20} />
@@ -532,7 +546,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
               {activity.map(a => (
                 <div key={a.id} className="activity-item">
                   <Avatar user={snap.users.find(u => u.id === a.userId)} size={20} />
-                  <span className="activity-body" style={{ fontSize: 12.5 }}>{activityText(a)}</span>
+                  <span className="activity-body" style={{ fontSize: 13 }}>{activityText(a)}</span>
                 </div>
               ))}
 

@@ -48,7 +48,8 @@ function resolveState(snap: Snapshot, teamId: string, name: string): WorkflowSta
 }
 
 function resolveUser(snap: Snapshot, name: string): User | undefined {
-  if (name.toLowerCase() === 'none' || name.toLowerCase() === 'me') return undefined;
+  if (name.toLowerCase() === 'none') return undefined;
+  if (name.toLowerCase() === 'me') return snap.currentUser;
   const u = snap.users.find(u => u.name.toLowerCase().includes(name.toLowerCase()));
   if (!u) fail(`Unknown assignee "${name}" — valid users: ${snap.users.map(u => u.name).join(', ')}`);
   return u;
@@ -85,6 +86,17 @@ function relationRows(snap: Snapshot, issueId: string) {
 
 const withDb = (cmd: Command) => cmd.option('--db <path>', 'database path');
 
+/** --as <user>: attribute the write to a named user (typically an agent identity like "Codex") */
+function actorId(snap: Snapshot, name?: string): string | undefined {
+  if (!name) return undefined;
+  const u = snap.users.find(u => u.name.toLowerCase() === name.toLowerCase())
+    ?? snap.users.find(u => u.name.toLowerCase().includes(name.toLowerCase()));
+  if (!u) fail(`Unknown user "${name}" — valid users: ${snap.users.map(u => u.name).join(', ')}`);
+  return u.id;
+}
+
+const withAs = (cmd: Command) => cmd.option('--as <user>', 'attribute this write to a named user (e.g. an agent identity)');
+
 /** copy text to the system clipboard via whatever helper exists; false if none worked */
 function copyToClipboard(text: string): boolean {
   for (const [cmd, args] of [['pbcopy', [] as string[]], ['wl-copy', []], ['xclip', ['-selection', 'clipboard']]] as const) {
@@ -98,19 +110,11 @@ function copyToClipboard(text: string): boolean {
 program
   .command('serve')
   .description('Run the web app + REST API')
-  .option('-p, --port <port>', 'port', '7327')
+  .option('-p, --port <port>', 'port (default: $BASELINE_PORT or 7770)')
   .option('-d, --db <path>', 'database path')
   .option('--open', 'open browser', false)
   .action((opts) => {
-    void serve({ port: Number(opts.port), dbPath: opts.db, open: opts.open });
-  });
-
-program
-  .command('mcp')
-  .description('Run the MCP server on stdio')
-  .option('--agent <name>', 'attribute MCP writes to this agent user (default: the first agent user)')
-  .action((opts: { agent?: string }) => {
-    void import('../mcp/index.js').then(m => m.startMcp(opts.agent));
+    void serve({ port: opts.port ? Number(opts.port) : undefined, dbPath: opts.db, open: opts.open });
   });
 
 program
@@ -263,7 +267,7 @@ withDb(label.command('delete <name>')).description('Delete a label and detach it
 // ---------- issue (task) commands ----------
 const issue = program.command('issue').description('Issue (task) operations');
 
-withDb(issue.command('create <title>')).description('Create an issue')
+withAs(withDb(issue.command('create <title>'))).description('Create an issue')
   .option('-t, --team <key>', 'team key', 'CORE')
   .option('-s, --state <name>', 'state name')
   .option('-p, --priority <level>', 'none|urgent|high|medium|low')
@@ -292,7 +296,7 @@ withDb(issue.command('create <title>')).description('Create an issue')
       projectId: proj?.id ?? null, parentId: parent?.id ?? null, labelIds,
       estimate: opts.estimate ? Number(opts.estimate) : null,
       dueDate: (opts.due as string | undefined) ?? null,
-    });
+    }, actorId(snap, opts.as as string | undefined));
     if (opts.json) {
       console.log(JSON.stringify(issueJson(created, snap, store), null, 2));
     } else {
@@ -444,7 +448,7 @@ function issueDetail(i: Issue, snap: Snapshot, store: ReturnType<typeof storeFor
   return { ...issueJson(i, snap, store), comments, activity, subIssues: children, relations };
 }
 
-withDb(issue.command('update <key>')).description('Update an issue')
+withAs(withDb(issue.command('update <key>'))).description('Update an issue')
   .option('-s, --state <name>', 'state name')
   .option('-p, --priority <level>', 'none|urgent|high|medium|low')
   .option('-a, --assignee <name>', 'assignee ("none" to unassign)')
@@ -485,25 +489,25 @@ withDb(issue.command('update <key>')).description('Update an issue')
       priority: priorityNum(opts.priority), assigneeId, projectId, parentId, labelIds,
       estimate: opts.estimate === undefined ? undefined : (opts.estimate.toLowerCase() === 'none' ? null : Number(opts.estimate)),
       dueDate: opts.due === undefined ? undefined : (opts.due.toLowerCase() === 'none' ? null : opts.due),
-    });
+    }, actorId(snap, opts.as));
     console.log(`Updated ${key}`);
     process.exit(0);
   });
 
-withDb(issue.command('archive <key>')).description('Archive an issue (hidden from lists)').action((key: string, opts: { db?: string }) => {
+withAs(withDb(issue.command('archive <key>'))).description('Archive an issue (hidden from lists)').action((key: string, opts: { db?: string; as?: string }) => {
   const store = storeFor(opts.db);
   const i = store.getByKey(key);
   if (!i) fail(`Unknown issue ${key}`);
-  store.updateIssue(i.id, { archivedAt: new Date().toISOString() });
+  store.updateIssue(i.id, { archivedAt: new Date().toISOString() }, actorId(store.snapshot(), opts.as));
   console.log(`Archived ${key}`);
   process.exit(0);
 });
 
-withDb(issue.command('unarchive <key>')).description('Unarchive an issue').action((key: string, opts: { db?: string }) => {
+withAs(withDb(issue.command('unarchive <key>'))).description('Unarchive an issue').action((key: string, opts: { db?: string; as?: string }) => {
   const store = storeFor(opts.db);
   const i = store.getByKey(key);
   if (!i) fail(`Unknown issue ${key}`);
-  store.updateIssue(i.id, { archivedAt: null });
+  store.updateIssue(i.id, { archivedAt: null }, actorId(store.snapshot(), opts.as));
   console.log(`Unarchived ${key}`);
   process.exit(0);
 });
@@ -528,7 +532,7 @@ withDb(issue.command('delete <key>')).description('Delete an issue (soft, undoab
     process.exit(0);
   });
 
-withDb(issue.command('bulk <keys...>')).description('Apply changes to many issues at once')
+withAs(withDb(issue.command('bulk <keys...>'))).description('Apply changes to many issues at once')
   .option('-s, --state <name>', 'state name')
   .option('-p, --priority <level>', 'none|urgent|high|medium|low')
   .option('-a, --assignee <name>', 'assignee ("none" to unassign)')
@@ -549,6 +553,7 @@ withDb(issue.command('bulk <keys...>')).description('Apply changes to many issue
     if (opts.assignee !== undefined) assigneeId = (opts.assignee as string).toLowerCase() === 'none' ? null : resolveUser(snap, opts.assignee as string)!.id;
     let projectId: string | null | undefined;
     if (opts.project !== undefined) projectId = (opts.project as string).toLowerCase() === 'none' ? null : (resolveProject(snap, opts.project as string)?.id ?? null);
+    const actor = actorId(snap, opts.as as string | undefined);
     for (const i of resolved) {
       const stateId = opts.state ? resolveState(snap, i.teamId, opts.state as string).id : undefined;
       let labelIds: string[] | undefined;
@@ -557,7 +562,7 @@ withDb(issue.command('bulk <keys...>')).description('Apply changes to many issue
         const rem = (opts.removeLabels as string ?? '').split(',').map(s => s.trim()).filter(Boolean).map(n => resolveLabel(snap, i.teamId, n).id);
         labelIds = Array.from(new Set([...i.labelIds.filter(id => !rem.includes(id)), ...add]));
       }
-      store.updateIssue(i.id, { stateId, priority: priorityNum(opts.priority as string | undefined), assigneeId, projectId, labelIds });
+      store.updateIssue(i.id, { stateId, priority: priorityNum(opts.priority as string | undefined), assigneeId, projectId, labelIds }, actor);
       if (opts.archive) store.updateIssue(i.id, { archivedAt: new Date().toISOString() });
       if (opts.delete) store.deleteIssue(i.id);
     }
@@ -581,9 +586,9 @@ withDb(issue.command('move <key>')).description('Reorder an issue relative to a 
     process.exit(0);
   });
 
-withDb(issue.command('relate <key> <relatedKey>')).description('Relate two issues')
+withAs(withDb(issue.command('relate <key> <relatedKey>'))).description('Relate two issues')
   .option('--type <type>', 'blocks|blocked_by|related|duplicate', 'related')
-  .action((key: string, relatedKey: string, opts: { db?: string; type?: string }) => {
+  .action((key: string, relatedKey: string, opts: { db?: string; type?: string; as?: string }) => {
     const store = storeFor(opts.db);
     const i = store.getByKey(key);
     if (!i) fail(`Unknown issue ${key}`);
@@ -592,7 +597,7 @@ withDb(issue.command('relate <key> <relatedKey>')).description('Relate two issue
     if (i.id === r.id) fail('An issue cannot relate to itself');
     const type = opts.type as RelationType;
     if (!['blocks', 'blocked_by', 'related', 'duplicate'].includes(type)) fail(`Invalid relation type "${type}" — use blocks|blocked_by|related|duplicate`);
-    store.setRelation(i.id, r.id, type);
+    store.setRelation(i.id, r.id, type, actorId(store.snapshot(), opts.as));
     console.log(`Related ${key} ${type} ${relatedKey}`);
     process.exit(0);
   });
@@ -629,11 +634,11 @@ withDb(issue.command('comments <key>')).description('List comments on an issue')
   process.exit(0);
 });
 
-withDb(issue.command('comment <key> <body>')).description('Comment on an issue').action((key: string, body: string, opts: { db?: string }) => {
+withAs(withDb(issue.command('comment <key> <body>'))).description('Comment on an issue').action((key: string, body: string, opts: { db?: string; as?: string }) => {
   const store = storeFor(opts.db);
   const i = store.getByKey(key);
   if (!i) fail(`Unknown issue ${key}`);
-  store.addComment(i.id, store.workspaceMeta().currentUser, body);
+  store.addComment(i.id, actorId(store.snapshot(), opts.as) ?? store.workspaceMeta().currentUser, body);
   console.log(`Commented on ${key}`);
   process.exit(0);
 });
@@ -774,15 +779,15 @@ withDb(project.command('update <name>')).description('Update a project')
     process.exit(0);
   });
 
-withDb(project.command('note <name> <body>')).description('Post a project update')
+withAs(withDb(project.command('note <name> <body>'))).description('Post a project update')
   .option('--health <health>', 'onTrack|atRisk|offTrack — also sets project health')
-  .action((name: string, body: string, opts: { db?: string; health?: string }) => {
+  .action((name: string, body: string, opts: { db?: string; health?: string; as?: string }) => {
     const store = storeFor(opts.db);
     const snap = store.snapshot();
     const p = resolveProject(snap, name);
     if (!p) fail(`Unknown project "${name}"`);
     if (opts.health && !['onTrack', 'atRisk', 'offTrack'].includes(opts.health)) fail(`Invalid health "${opts.health}" — use onTrack|atRisk|offTrack`);
-    store.addProjectUpdate(p.id, store.workspaceMeta().currentUser, body, opts.health as Project['health'] | undefined);
+    store.addProjectUpdate(p.id, actorId(snap, opts.as) ?? store.workspaceMeta().currentUser, body, opts.health as Project['health'] | undefined);
     console.log(`Posted update on ${p.name}`);
     process.exit(0);
   });

@@ -24,9 +24,10 @@ If `dist/` is missing, build once first: `cd /Users/parthbatra/sideones/baseline
 
 ## Before you write: know what you're touching
 
-- The **default database is the user's live workspace** (`~/.baseline/baseline.db`). Reads are always safe. Writes change their real tracker — that is normally the goal.
+- The **default database is production** — the user's real workspace (`~/.baseline/baseline.db`, UI at `localhost:7770`). It was wiped of all demo/seed data on 2026-08-29 and starts empty; everything in it now is real work. Reads are always safe. Writes change their real tracker — that is normally the goal when doing real tracking.
+- **Feature dev in `~/sideones/baseline` must never touch production.** The repo's npm scripts (`npm run cli`, `npm run dev:server`, `npm run seed`) are sandboxed to `~/.baseline/baseline-dev.db` (:7327) automatically. When invoking `node bin/baseline.js` directly for dev/testing, pass `--db` or `BASELINE_DB` explicitly.
 - For experiments, rehearsals, or previews, point every command at a scratch database with `--db /tmp/scratch.db` (or the `BASELINE_DB` env var). Never mix the two in one workflow.
-- **Destructive:** `import <file>` and `seed --reset` wipe the target database first. `issue delete` is soft (undoable via `issue restore`); `--purge` is permanent.
+- **Destructive:** `import <file>` and `seed --reset` wipe the target database first — running them without an explicit scratch `--db` means production. `issue delete` is soft (undoable via `issue restore`); `--purge` is permanent.
 - Errors print to stderr and exit 1 with the list of valid values (e.g. an unknown state lists the team's states). Treat exit 0 as success; don't retry blindly.
 
 ## Addressing things
@@ -123,7 +124,7 @@ baseline issue relate CORE-4 CORE-3 --type blocks
 **Update a project's state of the world:**
 ```bash
 baseline project show "Agent Handoff" --json        # progress, issues, milestones
-baseline project note "Agent Handoff" "CLI parity shipped; MCP next" --health onTrack
+baseline project note "Agent Handoff" "CLI parity shipped; templates next" --health onTrack
 ```
 
 **Rehearse risky changes** on a scratch copy, then apply for real:
@@ -147,7 +148,7 @@ baseline issue update CORE-3 -s Done       # only when truly finished; otherwise
 ```
 
 - Report back even on partial work — the comment is the deliverable the human reads.
-- MCP writes are attributed for you: the MCP server stamps comments/status changes on the agent identity configured at launch (`baseline mcp --agent "Codex"`, or `BASELINE_AGENT` env; default is the workspace's "Agent" user). CLI writes attribute to the current user, so if you work via CLI and want agent attribution, assign the issue to the agent user instead.
+- Attribute your writes to your agent identity: add `--as "Codex"` to write commands (`issue create|update|bulk|archive|relate|comment`, `project note`) so activity, comments and notifications land under that user instead of the human's. Agent identities are marked `agent` in `user list`.
 - Template overrides live in the web app under Settings ▸ Handoff; `issue handoff --json` always reflects the current template.
 
 ## Conventions the store enforces (why your updates look the way they do)

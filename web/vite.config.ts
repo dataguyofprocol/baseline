@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     port: 5183,
     proxy: {
-      '/api': { target: 'http://localhost:7327', changeOrigin: true },
+      '/api': { target: `http://localhost:${process.env.BASELINE_PORT ?? 7327}`, changeOrigin: true },
     },
   },
   build: { outDir: 'dist', emptyOutDir: true },

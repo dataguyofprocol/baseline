@@ -23,11 +23,11 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Display options popover: List/Board, Grouping, Sub-grouping, Ordering, Show empty groups, Display-property toggles (ID/Priority/Assignee/Labels/Project/Due date)
 - ✅ Filters: pill bar with dismissible pills (query, status, priority, assignee, label, project); `/` focuses filter; per-view persistence
 - ✅ J/K cursor ring with scrollIntoView; X select; Enter opens peek; multi-select bulk bar (status/priority/assignee/archive/delete)
-- ✅ Context menu: status/priority/assignee/labels (opens the same menus as detail), copy ID, open full page, duplicate, archive, delete — all with undo toasts
+- ✅ Context menu: status/priority/assignee/labels (opens the same menus as detail), copy ID, copy as prompt (agent hand-off brief), open full page, duplicate, archive, delete — all with undo toasts
 
 ## 3. Create issue modal (C)
 - ✅ Centered modal (#1a1a1b, radius 14, shadow), header: [team switcher ▾] › New issue (or "New sub-issue of KEY"), expand, close
-- ✅ Title + description; quick-suggestion label chips from title keywords
+- ✅ Title + description; quick-suggestion label chips from title keywords; per-team issue-template picker pre-fills both
 - ✅ Property pills: status (numbered menu), priority, assignee, labels, project, "…" → due date (calendar) + estimate (points)
 - ✅ Save as draft (localStorage per team, restored on reopen with Discard), Create more toggle, ⌘⏎ creates
 - ✅ Sub-issue mode: opens with parent pre-wired from issue detail or cycle page
@@ -42,12 +42,13 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Properties rail: Status, Priority, Assignee, Labels, Project, Cycle, Due date (calendar popover with Today/Tomorrow/Next week), Estimate (0/1/2/3/5/8/13/21)
 - ✅ Activity feed: created/renamed/description/status/priority/assignee/label/project/parent/cycle/due/estimate/related events with relative times; comment composer (⌘⏎)
 - ✅ Comments: reactions (👍👎❤️🎉🚀😄 with counts + picker), edit/delete own, (edited) marker
+- ✅ Agent hand-off: "Copy as prompt" header button + menu item return a ready-to-paste brief + suggested branch name (template editable in Settings ▸ Handoff)
 
 ## 5. Board view
 - ✅ Columns per group (status/priority/assignee/project/cycle); header icon+name+count+actions; "+" per status column
 - ✅ Cards: key + assignee, title with status icon, priority + labels, created date
 - ✅ Drag & drop: reorder within a column (sortOrder midpoint) and across columns (moves the group field)
-- ✅ Empty status groups collapse into a "Hidden columns" rail (drag a card onto one to move it there)
+- ✅ Empty status groups render inline as empty columns (drag a card onto one to move it there)
 
 ## 6. Projects
 - ✅ List: name + favorite star, health dot, priority icon, lead, target date, issue count, progress donut + %
@@ -59,14 +60,16 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 
 ## 7. Command palette (⌘K)
 - ✅ Fuzzy subsequence search with scoring; sections: Navigation, Actions, Teams, Projects, Views, Issues
-- ✅ Commands: go to inbox/my issues/projects/views/settings pages, per-team home/cycles, create issue, create project, switch theme, shortcuts overlay
+- ✅ Commands: go to inbox/my issues/projects/views/settings pages, per-team home/cycles, create issue, create project, switch theme, shortcuts overlay, copy as prompt (when an issue is in view)
 
 ## 8. Settings
 - ✅ Own layout: "‹ Back to app", nav sections
-- ✅ Workspace: name, members summary, MCP hint
+- ✅ Workspace: name, members summary, agent-CLI hint
 - ✅ Teams: rename inline, cycle key, delete; workflow state CRUD (add with name/type/color, rename inline, retype, recolor, reorder ↑↓, delete with issue-migration to Backlog); cycles CRUD (add with dates, delete)
-- ✅ Members: list, add, "set as me" (current user switch)
+- ✅ Members: list, add (human or agent identity), "set as me" (current user switch)
 - ✅ Labels: create with color, rename/recolor inline, delete (issue counts shown)
+- ✅ Templates: per-team issue templates (name, optional title, markdown description) offered in the create modal
+- ✅ Handoff: copy-as-prompt template editor with live preview
 - ✅ Appearance: dark/light
 - ✅ Import & export: export JSON, import JSON (full restore), reset sample workspace
 
@@ -85,10 +88,9 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ ? opens the two-column cheatsheet (kept in sync with the above)
 
 ## 12. Non-UI (agentic core)
-- ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/…, seed, serve); MCP stdio server; JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
+- ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution for agent identities; JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
 
 ## Known gaps (deliberate)
-- Initiatives & project documents: modelled in the DB schema, no UI yet
 - Issue subscriptions/unsubscribe, mentions parsing, markdown @-links
 - Rich-text toolbar on description editor (markdown textarea + renderer instead)
 - Trash bin page (soft-deleted issues are restorable via undo toast or API, but not browsable)

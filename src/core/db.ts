@@ -140,26 +140,6 @@ function migrate(db: DatabaseSync): void {
       health TEXT,
       created_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS initiatives (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'planned',
-      color TEXT NOT NULL DEFAULT '#5e6ad2',
-      lead_id TEXT,
-      target_date TEXT,
-      projects TEXT NOT NULL DEFAULT '[]',
-      position REAL NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS initiative_updates (
-      id TEXT PRIMARY KEY,
-      initiative_id TEXT NOT NULL REFERENCES initiatives(id) ON DELETE CASCADE,
-      user_id TEXT,
-      body TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS cycles (
       id TEXT PRIMARY KEY,
       team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -223,8 +203,11 @@ function migrate(db: DatabaseSync): void {
   const columns = (t: string): string[] => (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map(c => c.name);
   if (!columns('issues').includes('deleted_at')) db.exec('ALTER TABLE issues ADD COLUMN deleted_at TEXT');
   if (!columns('projects').includes('priority')) db.exec("ALTER TABLE projects ADD COLUMN priority INTEGER NOT NULL DEFAULT 0");
-  if (!columns('initiative_updates').includes('user_id')) db.exec('ALTER TABLE initiative_updates ADD COLUMN user_id TEXT');
   if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
+
+  // initiatives were removed from the model — drop leftover tables from pre-existing databases
+  db.exec('DROP TABLE IF EXISTS initiative_updates');
+  db.exec('DROP TABLE IF EXISTS initiatives');
 
   // every workspace gets at least one agent identity for hand-offs
   const hasAgent = db.prepare("SELECT 1 FROM users WHERE kind = 'agent' LIMIT 1").get();

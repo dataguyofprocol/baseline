@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { useApp, useHelpers } from './store.js';
 import { api } from './api.js';
@@ -10,12 +10,12 @@ import {
 } from './icons.js';
 import { STATUS_ORDER } from './store.js';
 
-export function StateIcon({ type, color, size = 14 }: { type: string; color?: string; size?: number }) {
+export function StateIcon({ type, color, size = 14, morph }: { type: string; color?: string; size?: number; morph?: boolean }) {
   const style = color ? { color } : undefined;
   if (type === 'backlog') return <StatusBacklog size={size} style={style} />;
   if (type === 'unstarted') return <StatusTodo size={size} style={style} />;
   if (type === 'started') return <StatusStarted size={size} style={style} />;
-  if (type === 'completed') return <StatusDone size={size} style={style} />;
+  if (type === 'completed') return <StatusDone size={size} style={style} morph={morph} />;
   return <StatusCanceled size={size} style={style} />;
 }
 
@@ -48,10 +48,16 @@ export function Avatar({ user, size = 20 }: { user?: { name: string; initials: s
 export function Donut({ percent, size = 16 }: { percent: number; size?: number }) {
   const r = 6;
   const c = 2 * Math.PI * r;
+  // animate from zero on mount so progress reads as movement, then ease on change
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setShown(percent));
+    return () => cancelAnimationFrame(raf);
+  }, [percent]);
   return (
     <svg className="progress-donut" width={size} height={size} viewBox="0 0 16 16">
       <circle cx="8" cy="8" r={r} fill="none" stroke="var(--border-strong)" strokeWidth="2.4" />
-      <circle cx="8" cy="8" r={r} fill="none" stroke="var(--brand)" strokeWidth="2.4" strokeDasharray={`${(percent / 100) * c} ${c}`} strokeLinecap="round" />
+      <circle cx="8" cy="8" r={r} fill="none" stroke="var(--brand)" strokeWidth="2.4" strokeDasharray={`${(shown / 100) * c} ${c}`} strokeLinecap="round" />
     </svg>
   );
 }
@@ -243,18 +249,42 @@ export function MenuInput(props: { value: string; onChange: (v: string) => void;
 
 type MenuChildren = (p: { isOpen: boolean; open: (e: React.MouseEvent) => void }) => React.ReactNode;
 
-export function DueDateMenu(props: { issue: { id: string; dueDate: string | null }; children: MenuChildren }) {
-  const { anchor, open, close, isOpen } = useMenu();
+/** month calendar grid shared by DueDateMenu and the palette's bulk due-date page */
+export function CalendarGrid(props: { selected?: string; onPick: (iso: string) => void }) {
   const today = new Date();
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
-  const setDue = async (iso: string | null) => { await api.updateIssue(props.issue.id, { dueDate: iso }); await useApp.getState().bootstrap(); close(); };
   const y = cursor.getFullYear(), m = cursor.getMonth();
   const firstDow = new Date(y, m, 1).getDay();
   const days = new Date(y, m + 1, 0).getDate();
   const cells: Array<number | null> = [...Array(firstDow).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
   const isoOf = (d: number) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  const selected = props.issue.dueDate?.slice(0, 10);
   const now = new Date();
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '2px 8px' }}>
+        <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m - 1, 1))}>‹</button>
+        <span style={{ flex: 1, textAlign: 'center', fontSize: 12.5, fontWeight: 560 }}>{cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+        <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m + 1, 1))}>›</button>
+      </div>
+      <div className="cal-grid">
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => <span key={i} className="cal-dow">{d}</span>)}
+        {cells.map((d, i) => {
+          if (d === null) return <span key={i} />;
+          const iso = isoOf(d);
+          const isToday = y === now.getFullYear() && m === now.getMonth() && d === now.getDate();
+          return (
+            <button key={i} className={`cal-day ${props.selected === iso ? 'selected' : ''} ${isToday ? 'today' : ''}`}
+              onClick={() => props.onPick(iso)}>{d}</button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+export function DueDateMenu(props: { issue: { id: string; dueDate: string | null }; children: MenuChildren }) {
+  const { anchor, open, close, isOpen } = useMenu();
+  const setDue = async (iso: string | null) => { await api.updateIssue(props.issue.id, { dueDate: iso }); await useApp.getState().bootstrap(); close(); };
   return (
     <>
       {props.children({ isOpen, open })}
@@ -267,23 +297,7 @@ export function DueDateMenu(props: { issue: { id: string; dueDate: string | null
                 onClick={() => setDue(new Date(Date.now() + (off as number) * 86400000).toISOString().slice(0, 10))}>{label}</button>
             ))}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', padding: '2px 8px' }}>
-            <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m - 1, 1))}>‹</button>
-            <span style={{ flex: 1, textAlign: 'center', fontSize: 12.5, fontWeight: 560 }}>{cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
-            <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m + 1, 1))}>›</button>
-          </div>
-          <div className="cal-grid">
-            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => <span key={i} className="cal-dow">{d}</span>)}
-            {cells.map((d, i) => {
-              if (d === null) return <span key={i} />;
-              const iso = isoOf(d);
-              const isToday = y === now.getFullYear() && m === now.getMonth() && d === now.getDate();
-              return (
-                <button key={i} className={`cal-day ${selected === iso ? 'selected' : ''} ${isToday ? 'today' : ''}`}
-                  onClick={() => setDue(iso)}>{d}</button>
-              );
-            })}
-          </div>
+          <CalendarGrid selected={props.issue.dueDate?.slice(0, 10)} onPick={setDue} />
           {props.issue.dueDate && <MenuItem icon={<IconClose size={13} />} label="Clear due date" onClick={() => setDue(null)} />}
         </Menu>
       )}
@@ -291,7 +305,7 @@ export function DueDateMenu(props: { issue: { id: string; dueDate: string | null
   );
 }
 
-const ESTIMATE_POINTS = [0, 1, 2, 3, 5, 8, 13, 21];
+export const ESTIMATE_POINTS = [0, 1, 2, 3, 5, 8, 13, 21];
 export function EstimateMenu(props: { issue: { id: string; estimate: number | null }; children: MenuChildren }) {
   const { anchor, open, close, isOpen } = useMenu();
   const pick = async (estimate: number | null) => {

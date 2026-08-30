@@ -1,25 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useApp, useHelpers, shortDate, relTime } from './store.js';
+import { useApp, useHelpers, shortDate, relTime, copyText, refresh } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
+import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import {
   GroupedList, IssueRow, FlatIssueList, FilterBar, DisplayOptionsMenu, useViewPrefs,
-  DEFAULT_DISPLAY, activeFilterCount, type ViewOptions,
+  DEFAULT_DISPLAY, activeFilterCount, applyFilters, type ViewOptions,
 } from './IssueViews.js';
 import { Board } from './Board.js';
 import { Markdown } from './Markdown.js';
 import {
-  StateIcon, PriorityIcon, Avatar, Donut, DueDateMenu, EstimateMenu, CycleMenu,
+  StateIcon, PriorityIcon, Avatar, Donut, DueDateMenu, EstimateMenu, CycleMenu, CalendarGrid,
   IssuePickerMenu, PROJECT_STATUS_LABELS, PROJECT_HEALTH_LABELS, HEALTH_COLORS,
   ProjectStatusMenu, ProjectHealthMenu, ProjectPriorityMenu, UserPickMenu, ProjectDatesMenu, MembersMenu,
 } from './pickers.js';
 import {
-  IconFilter, IconDisplay, IconPanel, IconPlus, IconStar, IconMore, IconTrash, IconClose,
-  IconCalendar, IconComment, IconAssignArrow, IconMention, IconCheck, IconCycle,
+  IconFilter, IconDisplay, IconPlus, IconStar, IconMore, IconTrash, IconClose,
+  IconCalendar, IconComment, IconAssignArrow, IconMention, IconCheck, IconCycle, IconUsers,
+  IconLink, IconSettings, IconEdit, IconUser, IconChevronDown,
 } from './icons.js';
-import type { GroupBy, Priority, ProjectHealth, ViewFilters, Issue } from '../../src/core/types.js';
+import type { GroupBy, Priority, Project, ProjectHealth, ViewFilters, Issue } from '../../src/core/types.js';
+
+/** the right-toolbar filter icon opens the filter menu anchored to itself */
+export function openFilterMenu(e: React.MouseEvent) {
+  window.dispatchEvent(new CustomEvent('baseline:focus-filter', { detail: (e.currentTarget as HTMLElement).getBoundingClientRect() }));
+}
+
+/** toggle a status focus filter; cross-team board columns pass every state merged into them */
+function toggleStateFilter(filters: ViewFilters, stateIds: string[]): ViewFilters {
+  const on = stateIds.length > 0 && stateIds.every(id => filters.states?.includes(id));
+  return { ...filters, states: on ? filters.states!.filter(s => !stateIds.includes(s)) : stateIds };
+}
 
 const TEAM_DEFAULT_OPTS: ViewOptions = {
   layout: 'list', groupBy: 'status', subgroupBy: 'none', orderBy: 'priority', showEmpty: false,
@@ -30,26 +42,23 @@ const TEAM_DEFAULT_OPTS: ViewOptions = {
 export function TeamPage() {
   const { teamKey = '', filter = 'all' } = useParams();
   const snap = useApp(s => s.snap)!;
-  const setPeek = useApp(s => s.setPeek);
-  const navigate = useNavigate();
   const displayBtn = useMenu();
-  const [queryOpen, setQueryOpen] = useState(false);
-  const [queryDraft, setQueryDraft] = useState('');
-  const queryRef = useRef<HTMLInputElement>(null);
   const team = snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase());
   const viewKey = `baseline:view:${teamKey}:${filter}`;
   const [opts, patch] = useViewPrefs<ViewOptions>(viewKey, { ...TEAM_DEFAULT_OPTS });
-
-  useEffect(() => {
-    const onKey = () => { setQueryOpen(true); setTimeout(() => queryRef.current?.focus(), 30); };
-    window.addEventListener('baseline:focus-filter', onKey);
-    return () => window.removeEventListener('baseline:focus-filter', onKey);
-  }, []);
 
   const issues = useMemo(() => {
     if (!team) return [];
     return snap.issues.filter(i => i.teamId === team.id);
   }, [snap.issues, team]);
+
+  const visible = useMemo(() => {
+    if (!team) return [];
+    let out = issues;
+    if (filter === 'active') out = out.filter(i => !teamStates(snap.states, team.id, ['backlog', 'canceled']).includes(i.stateId));
+    else if (filter === 'backlog') out = out.filter(i => !teamStates(snap.states, team.id, ['unstarted', 'started', 'completed', 'canceled']).includes(i.stateId));
+    return applyFilters(out, opts.filters, snap.states);
+  }, [issues, team, filter, snap.states, opts.filters]);
 
   if (!team) return <div className="empty-state"><div className="empty-title">Team not found</div></div>;
 
@@ -66,40 +75,21 @@ export function TeamPage() {
         ]}
         favoriteRef={{ type: 'view', refId: `team-${team.id}-${filter}` }}
       />
-      <div className="subnav">
-        {(['all', 'active', 'backlog'] as const).map(f => (
-          <button key={f} className={`seg ${filter === f ? 'selected' : ''}`} onClick={() => navigate(`/team/${team.key}/${f}`)}>
-            {f === 'all' ? 'All issues' : f === 'active' ? 'Active' : 'Backlog'}
-          </button>
-        ))}
-        <span style={{ flex: 1 }} />
-        {activeFilterCount(opts.filters) > 0 && <span className="filter-count">{activeFilterCount(opts.filters)}</span>}
-        <button className="icon-btn" title="Add filter" onClick={() => window.dispatchEvent(new CustomEvent('baseline:focus-filter'))}><IconFilter size={15} /></button>
-        <button className="icon-btn" title="Display options" onClick={displayBtn.open} style={opts.layout === 'board' ? { color: 'var(--brand)' } : undefined}><IconDisplay size={15} /></button>
-        <button className="icon-btn" title="Toggle side panel" onClick={() => setPeek(null)}><IconPanel size={15} /></button>
-      </div>
+      <TeamSubnav
+        teamId={team.id}
+        filter={filter as 'all' | 'active' | 'backlog'}
+        trailing={<>
+          {activeFilterCount(opts.filters) > 0 && <span className="filter-count">{activeFilterCount(opts.filters)}</span>}
+          <button className="icon-btn" title="Filter" onClick={openFilterMenu}><IconFilter size={15} /></button>
+          <button className="icon-btn" title="Display options" onClick={displayBtn.open} style={opts.layout === 'board' ? { color: 'var(--brand)' } : undefined}><IconDisplay size={15} /></button>
+        </>}
+      />
       <div className="filterbar">
         <FilterBar
           filters={opts.filters}
           onChange={filters => patch({ filters })}
           teamId={team.id}
-          forceOpenToken={queryOpen ? Date.now() : 0}
         />
-        {queryOpen && (
-          <span className="filter-pill active">
-            <input
-              ref={queryRef}
-              className="query-input" placeholder="Search titles…" value={queryDraft}
-              onChange={e => setQueryDraft(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') { patch({ filters: { ...opts.filters, query: queryDraft || undefined } }); setQueryOpen(false); setQueryDraft(''); }
-                if (e.key === 'Escape') { setQueryOpen(false); setQueryDraft(''); }
-              }}
-              onBlur={() => { setQueryOpen(false); setQueryDraft(''); }}
-              autoFocus
-            />
-          </span>
-        )}
       </div>
 
       {displayBtn.anchor && (
@@ -109,16 +99,19 @@ export function TeamPage() {
       <div className="content">
         {opts.layout === 'list' ? (
           <GroupedList
-            issues={issues}
+            issues={visible}
             teamId={team.id}
             opts={opts}
-            hideGroups={filter === 'active'
-              ? teamStates(snap.states, team.id, ['backlog', 'canceled'])
-              : filter === 'backlog' ? teamStates(snap.states, team.id, ['unstarted', 'started', 'completed', 'canceled']) : undefined}
-            onFocusStatus={stateId => patch({ filters: { ...opts.filters, states: opts.filters.states?.includes(stateId) ? opts.filters.states.filter(s => s !== stateId) : [stateId] } })}
+            onFocusStatus={stateId => patch({ filters: toggleStateFilter(opts.filters, [stateId]) })}
           />
         ) : (
-          <Board issues={issues} teamId={team.id} groupBy={opts.groupBy} />
+          <Board
+            issues={visible}
+            teamId={team.id}
+            groupBy={opts.groupBy}
+            orderBy={opts.orderBy}
+            onFocusColumn={ids => patch({ filters: toggleStateFilter(opts.filters, ids) })}
+          />
         )}
       </div>
     </div>
@@ -129,13 +122,64 @@ function teamStates(states: Array<{ id: string; teamId: string; type: string }>,
   return states.filter(s => s.teamId === teamId && types.includes(s.type)).map(s => s.id);
 }
 
+/** team selector + All/Active/Backlog/Cycles tabs shared by the team issues page and the cycles page */
+function TeamSubnav(props: { teamId: string; filter: 'all' | 'active' | 'backlog' | 'cycles'; trailing?: React.ReactNode }) {
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  const teamMenu = useMenu();
+  const team = snap.teams.find(t => t.id === props.teamId);
+  useEffect(() => { if (team) localStorage.setItem('baseline:issuesTeam', team.key); }, [team]);
+  if (!team) return null;
+  const hasCycles = snap.cycles.some(c => c.teamId === team.id);
+
+  const goTeam = (key: string) => {
+    teamMenu.close();
+    const target = snap.teams.find(t => t.key === key);
+    // a team without cycles has no cycles tab to land on — fall back to All issues
+    const filter = props.filter === 'cycles' && !snap.cycles.some(c => c.teamId === target?.id) ? 'all' : props.filter;
+    navigate(`/team/${key}/${filter}`);
+  };
+  const chip = (t: { key: string; color: string; icon?: string }) => (
+    <span className="ws-avatar" style={{ background: t.color, borderRadius: 4, fontSize: 9, width: 18, height: 18 }}>
+      {t.icon?.match(/\p{Emoji}/u) ? t.icon : t.key[0]}
+    </span>
+  );
+
+  return (
+    <div className="subnav">
+      <button className="team-switch" onClick={teamMenu.open} title="Switch team">
+        {chip(team)}
+        <span>{team.name}</span>
+        <IconChevronDown size={13} style={{ color: 'var(--text-secondary)' }} />
+      </button>
+      {(['all', 'active', 'backlog', ...(hasCycles ? ['cycles' as const] : [])] as const).map(f => (
+        <button key={f} className={`seg ${props.filter === f ? 'selected' : ''}`} onClick={() => navigate(`/team/${team.key}/${f}`)}>
+          {f === 'all' ? 'All issues' : f === 'active' ? 'Active' : f === 'backlog' ? 'Backlog' : 'Cycles'}
+        </button>
+      ))}
+      <span style={{ flex: 1 }} />
+      {props.trailing}
+      {teamMenu.anchor && (
+        <Menu anchor={teamMenu.anchor} onClose={teamMenu.close}>
+          {snap.teams.map(t => (
+            <MenuItem key={t.id} icon={chip(t)} label={t.name} onClick={() => goTeam(t.key)} />
+          ))}
+        </Menu>
+      )}
+    </div>
+  );
+}
+
 /* ================= projects ================= */
-export function ProjectsPage() {
+export function ProjectsPage({ startWithCreate = false }: { startWithCreate?: boolean } = {}) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const toast = useApp(s => s.toast);
   const rowMenu = useMenu();
   const [menuProject, setMenuProject] = useState<string | null>(null);
+  const [creating, setCreating] = useState(startWithCreate);
+  // when mounted on /projects/new (palette/route entry), closing lands the URL back on the list
+  const closeCreate = () => { setCreating(false); if (startWithCreate) navigate('/projects', { replace: true }); };
 
   const del = async (projectId: string) => {
     const p = snap.projects.find(x => x.id === projectId);
@@ -146,7 +190,7 @@ export function ProjectsPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Projects' }]} right={<button className="btn" onClick={() => navigate('/projects/new')}>＋ New project</button>} />
+      <TopBar crumbs={[{ label: 'Projects' }]} right={<button className="btn" onClick={() => setCreating(true)}>＋ New project</button>} />
       <div className="subnav">
         <button className="seg selected">All projects</button>
       </div>
@@ -157,7 +201,7 @@ export function ProjectsPage() {
             <div className="empty-title">Projects</div>
             <div className="empty-desc">Projects are larger units of work with a clear outcome, such as a new feature you want to ship. They can be shared across multiple teams and are comprised of issues and optional documents.</div>
             <div className="empty-actions">
-              <button className="btn primary" onClick={() => navigate('/projects/new')}>Create new project <span className="btn-kbd kbd">N</span><span className="kbd">P</span></button>
+              <button className="btn primary" onClick={() => setCreating(true)}>Create new project <span className="btn-kbd kbd">N</span><span className="kbd">P</span></button>
             </div>
           </div>
         ) : (
@@ -205,11 +249,15 @@ export function ProjectsPage() {
       {rowMenu.anchor && menuProject && (
         <Menu anchor={rowMenu.anchor} onClose={() => { rowMenu.close(); setMenuProject(null); }}>
           <MenuItem icon={<IconStar size={14} />} label="Toggle favorite" onClick={async () => { await api.toggleFavorite('project', menuProject); await useApp.getState().bootstrap(); }} />
-          <MenuItem label="Copy link" onClick={() => { navigator.clipboard.writeText(`${location.origin}${location.pathname}#/projects/${menuProject}`); useApp.getState().toast({ title: 'Copied link' }); }} />
+          <MenuItem label="Copy link" onClick={async () => {
+            if (await copyText(`${location.origin}${location.pathname}#/projects/${menuProject}`)) useApp.getState().toast({ title: 'Copied link' });
+            else useApp.getState().toast({ title: 'Clipboard unavailable' });
+          }} />
           <MenuSep />
           <MenuItem icon={<IconTrash size={14} />} danger label="Delete project" onClick={() => del(menuProject)} />
         </Menu>
       )}
+      {creating && <NewProjectModal onClose={closeCreate} />}
     </div>
   );
 }
@@ -227,56 +275,207 @@ function progressOf(snap: NonNullable<ReturnType<typeof useApp.getState>['snap']
 /* ================= new project ================= */
 const PROJECT_ICONS = ['🧊', '🤖', '📱', '🎨', '🚀', '⚡', '🔧', '📦', '🌐', '💡', '🧪', '📊', '🔒', '🛠️', '📝', '🎯'];
 
-export function NewProjectPage() {
+/** local-timezone label for a YYYY-MM-DD input value (shortDate parses it as UTC and can shift a day) */
+function dateLabel(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/** same status dot coloring the project detail properties use */
+function statusGlyph(s: string) {
+  return (
+    <span style={{ color: s === 'started' ? '#f2c94c' : s === 'completed' ? '#4cb782' : s === 'paused' ? '#f2994a' : '#8a8f98', display: 'flex' }}>
+      <StateIcon type={s === 'started' ? 'started' : s === 'completed' ? 'completed' : s === 'paused' ? 'canceled' : 'unstarted'} size={13} />
+    </span>
+  );
+}
+
+export function NewProjectModal({ onClose }: { onClose: () => void }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [icon, setIcon] = useState('🧊');
-  const [targetDate, setTargetDate] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [leadId, setLeadId] = useState<string | null>(snap.currentUser.id);
+  const [status, setStatus] = useState<Project['status']>('planned');
   const [priority, setPriority] = useState<Priority>(0);
+  const [leadId, setLeadId] = useState<string | null>(snap.currentUser.id);
+  const [memberIds, setMemberIds] = useState<string[]>([]);
+  const [startDate, setStartDate] = useState('');
+  const [targetDate, setTargetDate] = useState('');
+  const nameRef = useRef<HTMLInputElement>(null);
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  const iconMenu = useMenu();
+  const statusMenu = useMenu();
+  const priorityMenu = useMenu();
+  const membersMenu = useMenu();
+  const startMenu = useMenu();
+  const targetMenu = useMenu();
+
+  useEffect(() => {
+    const t = setTimeout(() => nameRef.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, []);
+
   const create = async () => {
     if (!name.trim()) return;
     const { project } = await api.createProject({
-      name: name.trim(), description, icon, targetDate: targetDate || null, startDate: startDate || null,
-      leadId, priority, teamId: snap.teams[0]?.id ?? null,
+      name: name.trim(), description, icon, status,
+      startDate: startDate || null, targetDate: targetDate || null,
+      leadId, priority, memberIds, teamId: snap.teams[0]?.id ?? null,
     });
+    await refresh();
+    onClose();
     navigate(`/projects/${project.id}`);
+    useApp.getState().toast({ title: 'Project created', line: <>{icon} {project.name}</> });
   };
+
+  // ⌘/Ctrl+Enter creates from anywhere in the modal (menus portal outside this
+  // wrapper, but their React events still bubble here — so exclude them)
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest?.('.menu')) return;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      if (name.trim()) void create();
+    } else if (e.key === 'Enter' && !e.shiftKey && e.target === nameRef.current) {
+      e.preventDefault();
+      descRef.current?.focus();
+    }
+  };
+
+  const lead = snap.users.find(u => u.id === leadId);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Projects', to: '/projects', muted: true }, { label: 'New project' }]} />
-      <div className="content">
-        <div style={{ maxWidth: 560, margin: '6vh auto 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {PROJECT_ICONS.map(ic => (
-              <button key={ic} className={`proj-icon ${icon === ic ? 'sel' : ''}`} style={{ width: 32, height: 32, fontSize: 18, background: icon === ic ? 'var(--brand-dim)' : 'var(--bg-hover)' }} onClick={() => setIcon(ic)}>{ic}</button>
-            ))}
-          </div>
-          <input className="text-input" style={{ fontSize: 18, fontWeight: 560, height: 42 }} autoFocus placeholder="Project name" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} />
-          <textarea className="text-input" style={{ height: 90, padding: '8px 10px', resize: 'none' }} placeholder="Add a short summary…" value={description} onChange={e => setDescription(e.target.value)} />
-          <div className="prop-chips-row">
-            <UserPickMenu title="Set lead to…" value={leadId} onPick={setLeadId}>
-              {({ open }) => <button className="prop-chip boxed" onClick={open}><Avatar user={snap.users.find(u => u.id === leadId)} size={16} /> {snap.users.find(u => u.id === leadId)?.name ?? 'Lead'}</button>}
-            </UserPickMenu>
-            <button className="prop-chip boxed" onClick={() => setPriority(priority === 1 ? 0 : 1)}><PriorityIcon priority={priority} size={13} /> {priority === 0 ? 'Priority' : ['', 'Urgent', 'High', 'Medium', 'Low'][priority]}</button>
-            <span className="prop-chip boxed"><IconCalendar size={13} />
-              <input type="date" style={{ background: 'none', border: 'none', color: 'inherit', font: 'inherit', width: 118 }} value={startDate} onChange={e => setStartDate(e.target.value)} />
-            </span>
-            <span className="prop-chip boxed"><IconCalendar size={13} />
-              <input type="date" style={{ background: 'none', border: 'none', color: 'inherit', font: 'inherit', width: 118 }} value={targetDate} onChange={e => setTargetDate(e.target.value)} />
-            </span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button className="btn" onClick={() => navigate('/projects')}>Cancel</button>
+    <Modal onClose={onClose} className="modal modal-create np-modal">
+      <div className="cm-root" onKeyDown={onKeyDown}>
+        <div className="cm-header">
+          <span style={{ color: 'var(--text-primary)', fontWeight: 560 }}>New project</span>
+          <span style={{ marginLeft: 'auto', display: 'flex' }}>
+            <button className="icon-btn" onClick={onClose}><IconClose size={14} /></button>
+          </span>
+        </div>
+
+        <div className="np-head">
+          <button className="np-icon" onClick={iconMenu.open} title="Choose icon">{icon}</button>
+          <input ref={nameRef} className="np-name" placeholder="Project name" value={name} spellCheck={false}
+            onChange={e => setName(e.target.value)} />
+        </div>
+
+        <div className="cm-pills">
+          <button className="prop-chip" onClick={statusMenu.open}>
+            {statusGlyph(status)}
+            {PROJECT_STATUS_LABELS[status]}
+          </button>
+          <button className="prop-chip" onClick={priorityMenu.open}>
+            <PriorityIcon priority={priority} size={13} />
+            {priority === 0 ? 'Priority' : ['', 'Urgent', 'High', 'Medium', 'Low'][priority]}
+          </button>
+          <UserPickMenu title="Set lead to…" value={leadId} onPick={setLeadId}>
+            {({ open }) => (
+              <button className="prop-chip" onClick={open}>
+                {lead
+                  ? <Avatar user={lead} size={16} />
+                  : <IconUser size={13} style={{ color: 'var(--text-dim)', margin: '0 1px' }} />}
+                {lead ? lead.name.split(' ')[0] : 'Lead'}
+              </button>
+            )}
+          </UserPickMenu>
+          <button className="prop-chip" onClick={membersMenu.open}>
+            <IconUsers size={13} style={{ color: 'var(--text-dim)' }} />
+            {memberIds.length
+              ? memberIds.map(id => snap.users.find(u => u.id === id)?.name.split(' ')[0]).filter(Boolean).join(', ')
+              : 'Members'}
+          </button>
+          <button className="prop-chip" onClick={startMenu.open}>
+            <IconCalendar size={13} style={{ color: 'var(--text-dim)' }} />
+            {startDate ? dateLabel(startDate) : 'Start date'}
+          </button>
+          <button className="prop-chip" onClick={targetMenu.open}>
+            <IconCalendar size={13} style={{ color: 'var(--text-dim)' }} />
+            {targetDate ? dateLabel(targetDate) : 'Target date'}
+          </button>
+        </div>
+
+        <div className="np-desc">
+          <textarea ref={descRef} value={description} spellCheck={false}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="Write a description, a project brief, or collect ideas…" />
+        </div>
+
+        <div className="cm-footer">
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={onClose}>Cancel</button>
             <button className="btn primary" onClick={create} disabled={!name.trim()}>Create project</button>
           </div>
         </div>
       </div>
-    </div>
+
+      {iconMenu.anchor && (
+        <Menu anchor={iconMenu.anchor} onClose={iconMenu.close} width={252}>
+          <div className="menu-header"><span>Choose icon</span></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '4px 10px 10px' }}>
+            {PROJECT_ICONS.map(ic => (
+              <button key={ic} className={`proj-icon ${icon === ic ? 'sel' : ''}`}
+                style={{ width: 30, height: 30, fontSize: 17, background: icon === ic ? 'var(--brand-dim)' : 'var(--bg-hover)' }}
+                onClick={() => { setIcon(ic); iconMenu.close(); }}>{ic}</button>
+            ))}
+          </div>
+        </Menu>
+      )}
+      {statusMenu.anchor && (
+        <Menu anchor={statusMenu.anchor} onClose={statusMenu.close} width={200}>
+          <div className="menu-header"><span>Change status…</span></div>
+          {Object.entries(PROJECT_STATUS_LABELS).map(([value, label]) => (
+            <MenuItem key={value} icon={statusGlyph(value)} label={label} selected={status === value}
+              onClick={() => { setStatus(value as Project['status']); statusMenu.close(); }} />
+          ))}
+        </Menu>
+      )}
+      {priorityMenu.anchor && (
+        <Menu anchor={priorityMenu.anchor} onClose={priorityMenu.close} width={210}>
+          <div className="menu-header"><span>Set priority to…</span></div>
+          {([[0, 'No priority'], [1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low']] as Array<[Priority, string]>).map(([v, label], i) => (
+            <MenuItem key={v} icon={<PriorityIcon priority={v} size={14} />} label={label} selected={priority === v}
+              right={<span className="kbd">{i}</span>} onClick={() => { setPriority(v); priorityMenu.close(); }} />
+          ))}
+        </Menu>
+      )}
+      {membersMenu.anchor && (
+        <Menu anchor={membersMenu.anchor} onClose={membersMenu.close} width={220}>
+          <div className="menu-header"><span>Members</span></div>
+          {/* raw menu-item buttons (not MenuItem) so a toggle doesn't auto-close — multi-select stays open */}
+          {snap.users.map(u => {
+            const on = memberIds.includes(u.id);
+            return (
+              <button key={u.id} className="menu-item"
+                onClick={() => setMemberIds(prev => prev.includes(u.id) ? prev.filter(x => x !== u.id) : [...prev, u.id])}>
+                <span className="mi-icon"><Avatar user={u} size={18} /></span>
+                <span className="mi-label">{u.name}</span>
+                <span className="mi-right">{on && <IconCheck size={13} />}</span>
+              </button>
+            );
+          })}
+        </Menu>
+      )}
+      {startMenu.anchor && (
+        <Menu anchor={startMenu.anchor} onClose={startMenu.close} width={250}>
+          <div className="menu-header"><span>Start date</span></div>
+          <CalendarGrid selected={startDate || undefined} onPick={iso => { setStartDate(iso); startMenu.close(); }} />
+          {startDate && <MenuItem label="Clear start date" onClick={() => { setStartDate(''); startMenu.close(); }} />}
+        </Menu>
+      )}
+      {targetMenu.anchor && (
+        <Menu anchor={targetMenu.anchor} onClose={targetMenu.close} width={250}>
+          <div className="menu-header"><span>Target date</span></div>
+          <CalendarGrid selected={targetDate || undefined} onPick={iso => { setTargetDate(iso); targetMenu.close(); }} />
+          {targetDate && <MenuItem label="Clear target date" onClick={() => { setTargetDate(''); targetMenu.close(); }} />}
+        </Menu>
+      )}
+    </Modal>
   );
+}
+
+/** deep-link/palette entry: projects list with the create modal already open */
+export function NewProjectPage() {
+  return <ProjectsPage startWithCreate />;
 }
 
 /* ================= project detail ================= */
@@ -294,6 +493,7 @@ export function ProjectPage() {
   const project = snap.projects.find(p => p.id === projectId);
   if (!project) return <div className="empty-state"><div className="empty-title">Project not found</div></div>;
   const issues = snap.issues.filter(i => i.projectId === project.id);
+  const visibleIssues = applyFilters(issues, opts.filters, snap.states);
   const prog = progressOf(snap, project.id);
   const lead = snap.users.find(u => u.id === project.leadId);
   const updates = snap.projectUpdates.filter(u => u.projectId === project.id);
@@ -305,8 +505,11 @@ export function ProjectPage() {
         crumbs={[{ label: 'Projects', to: '/projects', muted: true }, { label: project.name, icon: <span className="proj-icon" style={{ background: 'var(--bg-hover)', width: 18, height: 18, fontSize: 11 }}>{project.icon}</span> }]}
         favoriteRef={{ type: 'project', refId: project.id }}
         right={<div className="issue-toolbar">
-          <button className="icon-btn" title="Copy link" onClick={() => navigator.clipboard.writeText(location.href)}><span style={{ fontSize: 13 }}>🔗</span></button>
-          <button className="icon-btn" title="Project options" onClick={projectMenu.open}><span style={{ fontSize: 13 }}>⚙</span></button>
+          <button className="icon-btn" title="Copy link" onClick={async () => {
+            if (await copyText(location.href)) toast({ title: 'Copied link' });
+            else toast({ title: 'Clipboard unavailable' });
+          }}><IconLink size={15} /></button>
+          <button className="icon-btn" title="Project options" onClick={projectMenu.open}><IconSettings size={15} /></button>
         </div>}
       />
       <div className="subnav" style={{ paddingTop: 0 }}>
@@ -329,7 +532,7 @@ export function ProjectPage() {
             <ProjectRail project={project} prog={prog} />
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
             <div className="filterbar">
               <button className="filter-pill" onClick={() => openCreate({ projectId: project.id, teamId: project.teamId ?? snap.teams[0]?.id })}><IconPlus size={12} /> New issue</button>
               <IssuePickerMenu title="Add existing issue…" onPick={async (issue: Issue) => {
@@ -339,18 +542,34 @@ export function ProjectPage() {
               }}>
                 {({ open }) => <button className="filter-pill" onClick={open}>＋ Add existing issue</button>}
               </IssuePickerMenu>
+              <FilterBar filters={opts.filters} onChange={filters => patch({ filters })} teamId={project.teamId ?? undefined} />
               <span style={{ flex: 1 }} />
-              <button className="icon-btn" title="Display options" onClick={projectMenu.open}><IconDisplay size={15} /></button>
+              {activeFilterCount(opts.filters) > 0 && <span className="filter-count">{activeFilterCount(opts.filters)}</span>}
+              <button className="icon-btn" title="Filter" onClick={openFilterMenu}><IconFilter size={15} /></button>
+              <button className="icon-btn" title="Display options" onClick={projectMenu.open} style={opts.layout === 'board' ? { color: 'var(--brand)' } : undefined}><IconDisplay size={15} /></button>
             </div>
             <div className="content">
-              <GroupedList issues={issues} teamId={project.teamId ?? undefined} opts={opts} emptyTitle="No issues in this project yet" emptyDesc="Create a new issue or add an existing one to start tracking work for this project." emptyHideCreate />
+              {opts.layout === 'list' ? (
+                <GroupedList issues={visibleIssues} teamId={project.teamId ?? undefined} opts={opts} emptyTitle="No issues in this project yet" emptyDesc="Create a new issue or add an existing one to start tracking work for this project." emptyHideCreate />
+              ) : (
+                <Board
+                  issues={visibleIssues}
+                  teamId={project.teamId ?? undefined}
+                  groupBy={opts.groupBy}
+                  orderBy={opts.orderBy}
+                  onFocusColumn={ids => patch({ filters: toggleStateFilter(opts.filters, ids) })}
+                />
+              )}
             </div>
           </div>
         )}
       </div>
       {projectMenu.anchor && tab === 'overview' && (
         <Menu anchor={projectMenu.anchor} onClose={projectMenu.close}>
-          <MenuItem label="Copy project URL" onClick={() => { navigator.clipboard.writeText(location.href); }} />
+          <MenuItem label="Copy project URL" onClick={async () => {
+            if (await copyText(location.href)) toast({ title: 'Copied project URL' });
+            else toast({ title: 'Clipboard unavailable' });
+          }} />
           <MenuItem icon={<IconTrash size={14} />} danger label="Delete project" onClick={async () => {
             await api.deleteProject(project.id);
             await useApp.getState().bootstrap();
@@ -362,44 +581,36 @@ export function ProjectPage() {
       {projectMenu.anchor && tab === 'issues' && (
         <DisplayOptionsMenu opts={opts} onPatch={patch} anchor={projectMenu.anchor} onClose={projectMenu.close} />
       )}
-      <div style={{ display: 'none' }}><IconPanel /><IconCheck /></div>
     </div>
   );
 }
 
 function EditableProjectHeader(props: { project: NonNullable<ReturnType<typeof useApp.getState>['snap']>['projects'][number] }) {
   const project = props.project;
-  const [editing, setEditing] = useState<'name' | 'summary' | null>(null);
+  const [editing, setEditing] = useState(false);
   const [name, setName] = useState(project.name);
-  const [summary, setSummary] = useState(project.description?.split('\n')[0] ?? '');
   const save = async (patch: Record<string, unknown>) => {
     await api.updateProject(project.id, patch);
     await useApp.getState().bootstrap();
-    setEditing(null);
+    setEditing(false);
   };
   return (
     <div className="proj-page-hero">
-      <div className="proj-icon" style={{ width: 34, height: 34, fontSize: 20, background: 'var(--bg-hover)', marginBottom: 10 }}>{project.icon}</div>
-      {editing === 'name' ? (
-        <input className="text-input" style={{ fontSize: 22, fontWeight: 590, height: 40, background: 'var(--bg-input)' }} autoFocus value={name}
+      <div className="proj-icon" style={{ width: 32, height: 32, fontSize: 19, borderRadius: 8, background: 'var(--bg-hover)', marginBottom: 12 }}>{project.icon}</div>
+      {editing ? (
+        <input className="text-input" style={{ fontSize: 21, fontWeight: 590, height: 38, background: 'var(--bg-input)' }} autoFocus value={name}
           onChange={e => setName(e.target.value)}
           onBlur={() => save({ name })}
-          onKeyDown={e => { if (e.key === 'Enter') save({ name }); if (e.key === 'Escape') setEditing(null); }} />
+          onKeyDown={e => { if (e.key === 'Enter') save({ name }); if (e.key === 'Escape') setEditing(false); }} />
       ) : (
-        <div style={{ fontSize: 22, fontWeight: 590, letterSpacing: '-0.017em', cursor: 'text' }} onClick={() => setEditing('name')}>{project.name}</div>
-      )}
-      {editing === 'summary' ? (
-        <input className="text-input" style={{ fontSize: 13, height: 30, marginTop: 4, background: 'var(--bg-input)' }} autoFocus value={summary}
-          onChange={e => setSummary(e.target.value)}
-          onBlur={() => save({ description: summary })}
-          onKeyDown={e => { if (e.key === 'Enter') save({ description: summary }); if (e.key === 'Escape') setEditing(null); }} />
-      ) : (
-        <div style={{ color: 'var(--text-dim)', marginTop: 2, cursor: 'text' }} onClick={() => setEditing('summary')}>
-          {project.description?.split('\n')[0] || 'Add a short summary…'}
-        </div>
+        <div style={{ fontSize: 21, fontWeight: 590, letterSpacing: '-0.017em', cursor: 'text' }} onClick={() => setEditing(true)}>{project.name}</div>
       )}
     </div>
   );
+}
+
+function HealthDot({ health }: { health: ProjectHealth }) {
+  return <span style={{ width: 8, height: 8, borderRadius: 99, background: HEALTH_COLORS[health], flex: 'none' }} />;
 }
 
 function ProjectPropertiesRow(props: { project: NonNullable<ReturnType<typeof useApp.getState>['snap']>['projects'][number] }) {
@@ -407,25 +618,33 @@ function ProjectPropertiesRow(props: { project: NonNullable<ReturnType<typeof us
   const snap = useApp(s => s.snap)!;
   const lead = snap.users.find(u => u.id === project.leadId);
   return (
-    <div className="prop-chips-row" style={{ margin: '14px 0 4px' }}>
-      <ProjectStatusMenu project={project}>
-        {({ open }) => <button className="prop-chip boxed" onClick={open}>
-          <StateIcon type={project.status === 'started' ? 'started' : project.status === 'completed' ? 'completed' : project.status === 'paused' ? 'canceled' : 'unstarted'} size={13} />
-          {PROJECT_STATUS_LABELS[project.status]}
-        </button>}
-      </ProjectStatusMenu>
-      <ProjectHealthMenu project={project}>
-        {({ open }) => <button className="prop-chip boxed" onClick={open}><span style={{ color: HEALTH_COLORS[project.health], fontSize: 11 }}>●</span> {PROJECT_HEALTH_LABELS[project.health]}</button>}
-      </ProjectHealthMenu>
-      <ProjectPriorityMenu project={project}>
-        {({ open }) => <button className="prop-chip boxed" onClick={open}><PriorityIcon priority={project.priority} size={13} /> {project.priority === 0 ? 'Priority' : ['', 'Urgent', 'High', 'Medium', 'Low'][project.priority]}</button>}
-      </ProjectPriorityMenu>
-      <UserPickMenu title="Set lead to…" value={project.leadId} onPick={async uid => { await api.updateProject(project.id, { leadId: uid }); await useApp.getState().bootstrap(); }}>
-        {({ open }) => <button className="prop-chip boxed" onClick={open}>{lead ? <><Avatar user={lead} size={16} /> {lead.name}</> : 'Lead'}</button>}
-      </UserPickMenu>
-      <ProjectDatesMenu project={project}>
-        {({ open }) => <button className="prop-chip boxed" onClick={open}><IconCalendar size={13} /> {project.targetDate ? `Target ${shortDate(project.targetDate)}` : 'Target date'}</button>}
-      </ProjectDatesMenu>
+    <div className="proj-props">
+      <div className="proj-props-label">Properties</div>
+      <div className="proj-props-list">
+        <ProjectStatusMenu project={project}>
+          {({ open }) => <button className="proj-chip" onClick={open}>
+            <StateIcon type={project.status === 'started' ? 'started' : project.status === 'completed' ? 'completed' : project.status === 'paused' ? 'canceled' : 'unstarted'} size={13} />
+            {PROJECT_STATUS_LABELS[project.status]}
+          </button>}
+        </ProjectStatusMenu>
+        <ProjectHealthMenu project={project}>
+          {({ open }) => <button className="proj-chip" onClick={open}><HealthDot health={project.health} /> {PROJECT_HEALTH_LABELS[project.health]}</button>}
+        </ProjectHealthMenu>
+        <ProjectPriorityMenu project={project}>
+          {({ open }) => <button className={`proj-chip ${project.priority === 0 ? 'dim' : ''}`} onClick={open}><PriorityIcon priority={project.priority} size={13} /> {project.priority === 0 ? 'Priority' : ['', 'Urgent', 'High', 'Medium', 'Low'][project.priority]}</button>}
+        </ProjectPriorityMenu>
+        <UserPickMenu title="Set lead to…" value={project.leadId} onPick={async uid => { await api.updateProject(project.id, { leadId: uid }); await useApp.getState().bootstrap(); }}>
+          {({ open }) => <button className={`proj-chip ${lead ? '' : 'dim'}`} onClick={open}>{lead ? <><Avatar user={lead} size={16} /> {lead.name}</> : 'Lead'}</button>}
+        </UserPickMenu>
+        <ProjectDatesMenu project={project}>
+          {({ open }) => <button className={`proj-chip ${project.targetDate || project.startDate ? '' : 'dim'}`} onClick={open}>
+            <IconCalendar size={13} />
+            {project.startDate || project.targetDate
+              ? <>{project.startDate ? shortDate(project.startDate) : 'Start'} → {project.targetDate ? shortDate(project.targetDate) : 'Target'}</>
+              : 'Target date'}
+          </button>}
+        </ProjectDatesMenu>
+      </div>
     </div>
   );
 }
@@ -440,8 +659,8 @@ function ProjectDescription(props: { project: NonNullable<ReturnType<typeof useA
     if (desc !== project.description) { await api.updateProject(project.id, { description: desc }); await useApp.getState().bootstrap(); }
   };
   return (
-    <div style={{ marginTop: 22 }}>
-      <div style={{ fontWeight: 590, fontSize: 14, marginBottom: 6 }}>Description</div>
+    <div style={{ marginTop: 26 }}>
+      <div className="sec-label" style={{ marginBottom: 6 }}>Description</div>
       {editing ? (
         <div className="comment-box" style={{ padding: 0 }}>
           <textarea autoFocus value={desc} onChange={e => setDesc(e.target.value)}
@@ -470,38 +689,38 @@ function UpdatesSection(props: { projectId: string; updates: Array<{ id: string;
     await useApp.getState().bootstrap();
   };
   return (
-    <div style={{ marginTop: 18 }}>
+    <div style={{ marginTop: 20 }}>
       {composing ? (
         <div className="comment-box">
-          <div style={{ display: 'flex', gap: 6, padding: '8px 10px 0' }}>
+          <div style={{ display: 'flex', gap: 4, padding: '2px 2px 0' }}>
             {(['onTrack', 'atRisk', 'offTrack'] as ProjectHealth[]).map(h => (
-              <button key={h} className={`prop-chip boxed ${health === h ? 'on' : ''}`} style={{ height: 24, fontSize: 11.5 }} onClick={() => setHealth(h)}>
-                <span style={{ color: HEALTH_COLORS[h], fontSize: 11 }}>●</span> {PROJECT_HEALTH_LABELS[h]}
+              <button key={h} className={`proj-chip ${health === h ? 'on' : ''}`} style={{ height: 26 }} onClick={() => setHealth(h)}>
+                <HealthDot health={h} /> {PROJECT_HEALTH_LABELS[h]}
               </button>
             ))}
           </div>
           <textarea autoFocus value={body} onChange={e => setBody(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void submit(); }}
             placeholder="Share an update with your team…" style={{ minHeight: 80 }} />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, padding: '4px 8px 8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, padding: '4px 2px 2px' }}>
             <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => setComposing(false)}>Cancel</button>
             <button className="btn primary" style={{ height: 26, fontSize: 12 }} onClick={submit} disabled={!body.trim()}>Update</button>
           </div>
         </div>
       ) : (
-        <button className="btn" style={{ width: '100%', height: 52, border: '1px solid var(--border)', background: 'var(--bg-overlay)', color: 'var(--text-secondary)', fontSize: 13.5 }}
-          onClick={() => setComposing(true)}>
-          ✎ Write a project update
+        <button className="update-compose" onClick={() => setComposing(true)}>
+          <IconEdit size={14} />
+          Write a project update
         </button>
       )}
       {props.updates.length > 0 && (
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 14 }}>
           {props.updates.map(u => (
             <div key={u.id} className="comment-card">
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
                 <Avatar user={snap.users.find(x => x.id === u.userId)} size={18} />
                 <b>{snap.users.find(x => x.id === u.userId)?.name}</b>
-                {u.health && <span style={{ fontSize: 11, color: HEALTH_COLORS[u.health] }}>● {PROJECT_HEALTH_LABELS[u.health]}</span>}
+                {u.health && <span className="proj-update-health"><HealthDot health={u.health} /> {PROJECT_HEALTH_LABELS[u.health]}</span>}
                 <span className="rel-time">{relTime(u.createdAt)}</span>
               </div>
               <Markdown text={u.body} />
@@ -526,13 +745,13 @@ function MilestonesSection(props: { projectId: string; milestones: Array<{ id: s
   };
   const nextStatus = (s: string) => (s === 'planned' ? 'inProgress' : s === 'inProgress' ? 'done' : 'planned');
   return (
-    <div style={{ marginTop: 22 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ fontWeight: 590, fontSize: 14 }}>Milestones</div>
-        <button className="prop-chip" style={{ color: 'var(--text-dim)' }} onClick={() => setAdding(a => !a)}>＋ Milestone</button>
+    <div style={{ marginTop: 26 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <div className="sec-label">Milestones</div>
+        <button className="proj-chip dim" style={{ height: 26 }} onClick={() => setAdding(a => !a)}><IconPlus size={12} /> Milestone</button>
       </div>
       {adding && (
-        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <div style={{ display: 'flex', gap: 6, margin: '6px 0 8px' }}>
           <input className="text-input" autoFocus placeholder="Milestone name" value={name}
             onChange={e => setName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') create(); if (e.key === 'Escape') setAdding(false); }} />
@@ -541,14 +760,14 @@ function MilestonesSection(props: { projectId: string; milestones: Array<{ id: s
         </div>
       )}
       {props.milestones.length > 0 && (
-        <div className="card" style={{ padding: '4px 10px' }}>
+        <div style={{ marginTop: 4 }}>
           {props.milestones.map(m => (
-            <div key={m.id} className="prop-row group">
-              <button title="Click to advance status" onClick={async () => { await api.updateMilestone(m.id, { status: nextStatus(m.status) }); await useApp.getState().bootstrap(); }}>
+            <div key={m.id} className="ms-row group">
+              <button className="ms-state" title="Click to advance status" onClick={async () => { await api.updateMilestone(m.id, { status: nextStatus(m.status) }); await useApp.getState().bootstrap(); }}>
                 <StateIcon type={m.status === 'done' ? 'completed' : m.status === 'inProgress' ? 'started' : 'unstarted'} size={13} />
               </button>
-              <span style={{ flex: 1 }}>{m.name}</span>
-              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{m.targetDate ? shortDate(m.targetDate) : ''}</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+              <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{m.targetDate ? shortDate(m.targetDate) : ''}</span>
               <button className="icon-btn hover-only" title="Delete milestone" onClick={async () => { await api.deleteMilestone(m.id); await useApp.getState().bootstrap(); toast({ title: 'Milestone deleted' }); }}>
                 <IconTrash size={13} />
               </button>
@@ -557,7 +776,7 @@ function MilestonesSection(props: { projectId: string; milestones: Array<{ id: s
         </div>
       )}
       {props.milestones.length === 0 && !adding && (
-        <div style={{ color: 'var(--text-dim)', fontSize: 12, lineHeight: '17px' }}>
+        <div style={{ color: 'var(--text-dim)', fontSize: 12, lineHeight: '17px', marginTop: 6 }}>
           Add milestones to organize work within your project and break it into more granular stages.
         </div>
       )}
@@ -572,57 +791,79 @@ function ProjectRail(props: { project: NonNullable<ReturnType<typeof useApp.getS
   const activity = snap.activity.filter(a => a.projectId === project.id).slice(0, 5);
   return (
     <aside className="props-rail">
-      <div className="card" style={{ padding: '8px 10px' }}>
-        <div className="prop-row">
-          <span className="prop-label">Status</span>
-          <ProjectStatusMenu project={project}>
-            {({ open }) => <button className="prop-chip" style={{ flex: 1, justifyContent: 'flex-start' }} onClick={open}>{PROJECT_STATUS_LABELS[project.status]}</button>}
-          </ProjectStatusMenu>
-        </div>
-        <div className="prop-row">
-          <span className="prop-label">Lead</span>
-          <UserPickMenu title="Set lead to…" value={project.leadId} onPick={async uid => { await api.updateProject(project.id, { leadId: uid }); await useApp.getState().bootstrap(); }}>
-            {({ open }) => <button className="prop-chip" style={{ flex: 1, justifyContent: 'flex-start' }} onClick={open}>{lead ? <><Avatar user={lead} size={16} /> {lead.name}</> : 'Add lead'}</button>}
-          </UserPickMenu>
-        </div>
-        <div className="prop-row">
-          <span className="prop-label">Members</span>
-          <MembersMenu project={project}>
-            {({ open }) => (
-              <button className="prop-chip" style={{ flex: 1, justifyContent: 'flex-start' }} onClick={open}>
+      <div className="rail-card">
+        <div className="rail-card-header">Properties</div>
+        <ProjectStatusMenu project={project}>
+          {({ open }) => (
+            <button className="rail-kv" onClick={open}>
+              <span className="rail-kv-label">Status</span>
+              <span className="rail-kv-value">
+                <StateIcon type={project.status === 'started' ? 'started' : project.status === 'completed' ? 'completed' : project.status === 'paused' ? 'canceled' : 'unstarted'} size={13} />
+                {PROJECT_STATUS_LABELS[project.status]}
+              </span>
+            </button>
+          )}
+        </ProjectStatusMenu>
+        <ProjectPriorityMenu project={project}>
+          {({ open }) => (
+            <button className="rail-kv" onClick={open}>
+              <span className="rail-kv-label">Priority</span>
+              <span className={`rail-kv-value ${project.priority === 0 ? 'dim' : ''}`}>
+                <PriorityIcon priority={project.priority} size={13} />
+                {project.priority === 0 ? 'No priority' : ['', 'Urgent', 'High', 'Medium', 'Low'][project.priority]}
+              </span>
+            </button>
+          )}
+        </ProjectPriorityMenu>
+        <UserPickMenu title="Set lead to…" value={project.leadId} onPick={async uid => { await api.updateProject(project.id, { leadId: uid }); await useApp.getState().bootstrap(); }}>
+          {({ open }) => (
+            <button className="rail-kv" onClick={open}>
+              <span className="rail-kv-label">Lead</span>
+              <span className={`rail-kv-value ${lead ? '' : 'dim'}`}>
+                <Avatar user={lead} size={16} />
+                {lead?.name ?? 'Add lead'}
+              </span>
+            </button>
+          )}
+        </UserPickMenu>
+        <MembersMenu project={project}>
+          {({ open }) => (
+            <button className="rail-kv" onClick={open}>
+              <span className="rail-kv-label">Members</span>
+              <span className={`rail-kv-value ${project.memberIds.length ? '' : 'dim'}`}>
                 <span style={{ display: 'flex' }}>
                   {project.memberIds.slice(0, 3).map(id => <Avatar key={id} user={snap.users.find(u => u.id === id)} size={16} />)}
+                  {project.memberIds.length === 0 && <IconUsers size={13} />}
                 </span>
-                {project.memberIds.length === 0 && <span style={{ color: 'var(--text-dim)' }}>Add members</span>}
-              </button>
-            )}
-          </MembersMenu>
-        </div>
-        <div className="prop-row">
-          <span className="prop-label">Dates</span>
-          <ProjectDatesMenu project={project}>
-            {({ open }) => (
-              <button className="prop-chip" style={{ flex: 1, justifyContent: 'flex-start' }} onClick={open}>
+                {project.memberIds.length ? `${project.memberIds.length} member${project.memberIds.length !== 1 ? 's' : ''}` : 'Add members'}
+              </span>
+            </button>
+          )}
+        </MembersMenu>
+        <ProjectDatesMenu project={project}>
+          {({ open }) => (
+            <button className="rail-kv" onClick={open}>
+              <span className="rail-kv-label">Dates</span>
+              <span className={`rail-kv-value ${project.startDate || project.targetDate ? '' : 'dim'}`}>
+                <IconCalendar size={13} />
                 {project.startDate ? shortDate(project.startDate) : 'Start'} → {project.targetDate ? shortDate(project.targetDate) : 'Target'}
-              </button>
-            )}
-          </ProjectDatesMenu>
-        </div>
-        <div className="prop-row">
-          <span className="prop-label">Progress</span>
-          <span className="prop-chip" style={{ flex: 1, gap: 8 }}><Donut percent={props.prog} /> {props.prog}%</span>
+              </span>
+            </button>
+          )}
+        </ProjectDatesMenu>
+        <div className="rail-kv">
+          <span className="rail-kv-label">Progress</span>
+          <span className="rail-kv-value"><Donut percent={props.prog} size={13} /> {props.prog}%</span>
         </div>
       </div>
-      <div className="card" style={{ padding: '10px 10px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 570, fontSize: 12.5, marginBottom: 6 }}>
-          <span>Activity</span>
-        </div>
-        {activity.length === 0 && <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>No activity yet.</div>}
+      <div className="rail-card">
+        <div className="rail-card-header">Activity</div>
+        {activity.length === 0 && <div className="rail-kv"><span className="rail-kv-value dim">No activity yet.</span></div>}
         {activity.map(a => (
-          <div key={a.id} style={{ display: 'flex', gap: 6, padding: '3px 0', color: 'var(--text-secondary)', fontSize: 12 }}>
-            <span>{project.icon}</span>
-            <span>
-              <b style={{ color: 'var(--text-primary)' }}>{snap.users.find(u => u.id === a.userId)?.name}</b>{' '}
+          <div key={a.id} className="rail-activity">
+            <span style={{ color: 'var(--text-secondary)', display: 'flex', paddingTop: 1, fontSize: 12 }}>{project.icon}</span>
+            <span style={{ fontSize: 12, lineHeight: '17px', color: 'var(--text-secondary)', minWidth: 0 }}>
+              <b style={{ color: 'var(--text-primary)', fontWeight: 550 }}>{snap.users.find(u => u.id === a.userId)?.name}</b>{' '}
               {a.type === 'projectCreated' ? 'created the project' : a.type === 'projectHealth' ? `set health to ${PROJECT_HEALTH_LABELS[String(a.data.to)] ?? String(a.data.to)}` : a.type === 'projectUpdated' ? `updated ${((a.data.fields as string[]) ?? []).join(', ')}` : 'updated the project'}
               {' · '}{relTime(a.createdAt)}
             </span>
@@ -636,7 +877,6 @@ function ProjectRail(props: { project: NonNullable<ReturnType<typeof useApp.getS
 /* ================= inbox ================= */
 export function InboxPage() {
   const snap = useApp(s => s.snap)!;
-  const setPeek = useApp(s => s.setPeek);
   const navigate = useNavigate();
   const notifications = snap.notifications;
   const unread = notifications.filter(n => !n.readAt).length;
@@ -689,8 +929,7 @@ export function InboxPage() {
                       onClick={async () => {
                         await api.markNotificationRead(n.id, true);
                         await useApp.getState().bootstrap();
-                        if (l.issue) setPeek(l.issue.id);
-                        else if (l.key) navigate(`/issue/${l.key}`);
+                        if (l.key) navigate(`/issue/${l.key}`);
                       }}
                     >
                       {!n.readAt && <span className="unread-dot" />}
@@ -726,14 +965,11 @@ export function InboxPage() {
 /* ================= my issues ================= */
 export function MyIssuesPage() {
   const snap = useApp(s => s.snap)!;
-  const setPeek = useApp(s => s.setPeek);
   const me = snap.currentUser;
   const [tab, setTab] = useState<'assigned' | 'created' | 'subscribed'>('assigned');
   const viewKey = 'baseline:view:my-issues';
   const [opts, patch] = useViewPrefs<ViewOptions>(viewKey, { ...TEAM_DEFAULT_OPTS });
   const displayBtn = useMenu();
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [forceFilter, setForceFilter] = useState(0);
 
   const assigned = useMemo(() => snap.issues.filter(i => i.assigneeId === me.id), [snap.issues, me.id]);
   const createdIds = useMemo(() => {
@@ -748,6 +984,12 @@ export function MyIssuesPage() {
     for (const a of snap.activity) if (a.userId === me.id && a.issueId) interacted.add(a.issueId);
     return snap.issues.filter(i => i.assigneeId === me.id || createdIds.has(i.id) || interacted.has(i.id));
   }, [snap.issues, snap.comments, snap.activity, me.id, createdIds]);
+  const tabIssues = tab === 'assigned' ? assigned : tab === 'created' ? created : subscribed;
+
+  const visible = useMemo(
+    () => applyFilters(tabIssues, opts.filters, snap.states),
+    [tabIssues, opts.filters, snap.states],
+  );
 
   const empty: Record<typeof tab, { title: string; desc: string }> = {
     assigned: { title: 'No issues assigned to you', desc: 'Issues assigned to you will show up here.' },
@@ -766,23 +1008,25 @@ export function MyIssuesPage() {
         ))}
         <span style={{ flex: 1 }} />
         {activeFilterCount(opts.filters) > 0 && <span className="filter-count">{activeFilterCount(opts.filters)}</span>}
-        <button className="icon-btn" title="Add filter" onClick={() => { setFilterOpen(true); setForceFilter(Date.now()); }}><IconFilter size={15} /></button>
-        <button className="icon-btn" title="Display options" onClick={displayBtn.open}><IconDisplay size={15} /></button>
-        <button className="icon-btn" title="Toggle side panel" onClick={() => setPeek(null)}><IconPanel size={15} /></button>
+        <button className="icon-btn" title="Filter" onClick={openFilterMenu}><IconFilter size={15} /></button>
+        <button className="icon-btn" title="Display options" onClick={displayBtn.open} style={opts.layout === 'board' ? { color: 'var(--brand)' } : undefined}><IconDisplay size={15} /></button>
       </div>
-      {(filterOpen || activeFilterCount(opts.filters) > 0) && (
-        <div className="filterbar">
-          <FilterBar filters={opts.filters} onChange={filters => patch({ filters })} forceOpenToken={forceFilter} />
-        </div>
-      )}
+      <div className="filterbar">
+        <FilterBar filters={opts.filters} onChange={filters => patch({ filters })} />
+      </div>
       {displayBtn.anchor && <DisplayOptionsMenu opts={opts} onPatch={patch} anchor={displayBtn.anchor} onClose={displayBtn.close} />}
       <div className="content">
-        <GroupedList
-          issues={tab === 'assigned' ? assigned : tab === 'created' ? created : subscribed}
-          opts={opts}
-          emptyTitle={empty[tab].title}
-          emptyDesc={empty[tab].desc}
-        />
+        {opts.layout === 'list' ? (
+          <GroupedList
+            issues={visible}
+            opts={opts}
+            emptyTitle={empty[tab].title}
+            emptyDesc={empty[tab].desc}
+          />
+        ) : (
+          /* cross-team board: columns merge same-named states across teams */
+          <Board issues={visible} groupBy={opts.groupBy} orderBy={opts.orderBy} onFocusColumn={ids => patch({ filters: toggleStateFilter(opts.filters, ids) })} />
+        )}
       </div>
     </div>
   );
@@ -886,17 +1130,11 @@ export function SavedViewPage() {
   }), [view?.filters, view?.groupBy, view?.orderBy, view?.layout]); // eslint-disable-line react-hooks/exhaustive-deps
   const [opts, patch] = useViewPrefs<ViewOptions>(`baseline:view:saved:${viewId}`, defaults);
   const displayBtn = useMenu();
-  const [forceFilter, setForceFilter] = useState(0);
-  useEffect(() => {
-    const onKey = () => setForceFilter(Date.now());
-    window.addEventListener('baseline:focus-filter', onKey);
-    return () => window.removeEventListener('baseline:focus-filter', onKey);
-  }, []);
   const savedJson = JSON.stringify({ filters: view?.filters, groupBy: view?.groupBy, orderBy: view?.orderBy, layout: view?.layout });
   const localJson = JSON.stringify({ filters: opts.filters, groupBy: opts.groupBy, orderBy: opts.orderBy, layout: opts.layout });
   const dirty = view && savedJson !== localJson;
   if (!view) return <div className="empty-state"><div className="empty-title">View not found</div></div>;
-  const issues = snap.issues;
+  const visible = applyFilters(snap.issues, opts.filters, snap.states);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar
@@ -913,18 +1151,18 @@ export function SavedViewPage() {
       <div className="subnav">
         <button className="seg selected">{view.name}</button>
         <span style={{ flex: 1 }} />
-        <button className="icon-btn" title="Add filter" onClick={() => setForceFilter(Date.now())}><IconFilter size={15} /></button>
-        <button className="icon-btn" title="Display options" onClick={displayBtn.open}><IconDisplay size={15} /></button>
+        <button className="icon-btn" title="Filter" onClick={openFilterMenu}><IconFilter size={15} /></button>
+        <button className="icon-btn" title="Display options" onClick={displayBtn.open} style={opts.layout === 'board' ? { color: 'var(--brand)' } : undefined}><IconDisplay size={15} /></button>
       </div>
       <div className="filterbar">
-        <FilterBar filters={opts.filters} onChange={filters => patch({ filters })} forceOpenToken={forceFilter} />
+        <FilterBar filters={opts.filters} onChange={filters => patch({ filters })} />
       </div>
       {displayBtn.anchor && <DisplayOptionsMenu opts={opts} onPatch={patch} anchor={displayBtn.anchor} onClose={displayBtn.close} />}
       <div className="content">
         {opts.layout === 'list' ? (
-          <GroupedList issues={issues} opts={opts} emptyTitle={view.name} emptyDesc="No issues match this view right now." />
+          <GroupedList issues={visible} opts={opts} emptyTitle={view.name} emptyDesc="No issues match this view right now." />
         ) : (
-          <Board issues={issues} teamId={snap.teams[0]?.id ?? ''} groupBy={opts.groupBy} />
+          <Board issues={visible} groupBy={opts.groupBy} orderBy={opts.orderBy} onFocusColumn={ids => patch({ filters: toggleStateFilter(opts.filters, ids) })} />
         )}
       </div>
     </div>
@@ -948,6 +1186,7 @@ export function CyclesPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={[{ label: team.name, to: `/team/${team.key}`, muted: true }, { label: 'Cycles' }]} />
+      <TeamSubnav teamId={team.id} filter="cycles" />
       <div className="content">
         <div style={{ padding: '8px 24px', display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 860 }}>
           {[['Current', current ? [current] : []], ['Upcoming', upcoming], ['Previous', previous.slice(0, 3)]].map(([label, list]) => {

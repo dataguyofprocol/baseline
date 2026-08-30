@@ -66,8 +66,8 @@ function WorkspaceSettings() {
         <span style={{ color: 'var(--text-secondary)' }}>{snap.users.map(u => u.name).join(', ')}</span>
       </div>
       <div className="field-row">
-        <div><div className="field-label">MCP server</div><div className="field-help">Run <code>baseline mcp</code> to expose this workspace to coding agents.</div></div>
-        <code style={{ fontSize: 12, color: 'var(--text-secondary)' }}>baseline mcp</code>
+        <div><div className="field-label">Agents</div><div className="field-help">Coding agents drive this workspace through the baseline CLI — the repo ships a skill (<code>skills/baseline/SKILL.md</code>) that teaches them the commands.</div></div>
+        <code style={{ fontSize: 12, color: 'var(--text-secondary)' }}>node bin/baseline.js --help</code>
       </div>
     </div>
   );
@@ -272,9 +272,14 @@ function StateRow(props: { stateId: string; onMove: (dir: -1 | 1) => void; canUp
       </span>
       <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Delete state"
         onClick={async () => {
-          await api.deleteState(st.id);
-          await useApp.getState().bootstrap();
-          toast({ title: `State “${st.name}” deleted`, line: issueCount ? `Its ${issueCount} issues moved to Backlog.` : undefined });
+          try {
+            const { movedTo } = await api.deleteState(st.id);
+            await useApp.getState().bootstrap();
+            const movedName = movedTo ? useApp.getState().snap?.states.find(s => s.id === movedTo)?.name : undefined;
+            toast({ title: `State “${st.name}” deleted`, line: issueCount ? `Its ${issueCount} issues moved to ${movedName ?? 'another state'}.` : undefined });
+          } catch (e) {
+            toast({ title: `Can’t delete “${st.name}”`, line: e instanceof Error ? e.message : String(e) });
+          }
         }}>
         <IconTrash size={13} />
       </button>
@@ -334,7 +339,7 @@ function MembersSettings() {
       <div className="field-row" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
         <div>
           <div className="field-label">Add member</div>
-          <div className="field-help">Agents (Claude, Codex, OpenCode…) can be assigned issues; MCP writes land under their name when launched with <code>--agent "Name"</code>.</div>
+          <div className="field-help">Agents (Claude, Codex, OpenCode…) can be assigned issues; their CLI writes land under their name when passed <code>--as "Name"</code>.</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <input className="text-input" placeholder={asAgent ? 'Agent name' : 'Full name'} value={name} onChange={e => setName(e.target.value)}

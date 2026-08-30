@@ -6,7 +6,7 @@ import { Sidebar } from './AppShell.js';
 import { CreateIssueModal } from './CreateIssueModal.js';
 import { IssuePeek } from './IssueDetail.js';
 import { CommandPalette, ShortcutsOverlay } from './Palette.js';
-import { QuickMenus, BulkBar } from './IssueViews.js';
+import { QuickMenus, SelectionBar } from './IssueViews.js';
 import { Toasts } from './ui.js';
 import {
   TeamPage, ProjectsPage, NewProjectPage, ProjectPage, InboxPage, MyIssuesPage, ViewsIndexPage, SavedViewPage, CyclesPage,
@@ -58,7 +58,7 @@ function KeyboardManager() {
         if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); useCursor.getState().move(1, visibleList.issues.length); scrollCursorIntoView(); return; }
         if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); useCursor.getState().move(-1, visibleList.issues.length); scrollCursorIntoView(); return; }
         if (e.key === 'x') { e.preventDefault(); useSelection.getState().toggle(issue.id); return; }
-        if (e.key === 'Enter') { e.preventDefault(); s.setPeek(issue.id); return; }
+        if (e.key === 'Enter') { e.preventDefault(); { const t2 = s.snap?.teams.find(t2 => t2.id === issue.teamId); if (t2) navigate(`/issue/${t2.key}-${issue.number}`); } return; }
         if (e.key === 's') { e.preventDefault(); setQuickMenuFor(issue.id, 'status'); return; }
         if (e.key === 'p') { e.preventDefault(); setQuickMenuFor(issue.id, 'priority'); return; }
         if (e.key === 'a') { e.preventDefault(); setQuickMenuFor(issue.id, 'assignee'); return; }
@@ -176,7 +176,14 @@ export function App() {
   }, []); // eslint-disable-line
 
   if (!loaded) {
-    return <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)' }}>Loading workspace…</div>;
+    // shimmering placeholder bars at list-row rhythm so the list never jumps once data arrives
+    return (
+      <div style={{ height: '100%', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {[82, 64, 73, 55, 70, 46].map((w, i) => (
+          <div key={i} className="skeleton-bar" style={{ width: `${w}%`, animationDelay: `${i * 120}ms` }} />
+        ))}
+      </div>
+    );
   }
 
   return (
@@ -211,7 +218,7 @@ export function App() {
       <CreateIssueModal />
       <CommandPalette />
       <QuickMenus />
-      <BulkBar />
+      <SelectionBar />
       <ShortcutsOverlay />
       <Toasts />
     </HashRouter>

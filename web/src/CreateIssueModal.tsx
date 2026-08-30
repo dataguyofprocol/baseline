@@ -3,7 +3,7 @@ import { useApp, refresh, shortDate } from './store.js';
 import { api } from './api.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconClose, IconExpand, IconEmoji, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc } from './icons.js';
+import { IconClose, IconExpand, IconAttach, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser } from './icons.js';
 import type { Priority, Team } from '../../src/core/types.js';
 
 const SUGGESTIONS: Array<[RegExp, string]> = [
@@ -48,9 +48,12 @@ export function CreateIssueModal() {
   const [createMore, setCreateMore] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [morePhase, setMorePhase] = useState<'root' | 'due' | 'estimate'>('root');
   const [appliedTemplateId, setAppliedTemplateId] = useState<string | undefined>(undefined);
 
   const titleRef = useRef<HTMLInputElement>(null);
+  const descRef = useRef<HTMLTextAreaElement>(null);
   const teamMenu = useMenu();
   const statusMenu = useMenu();
   const priorityMenu = useMenu();
@@ -74,6 +77,7 @@ export function CreateIssueModal() {
       setEstimate(null);
       setCreateMore(false);
       setMoreOpen(false);
+      setExpanded(false);
       setAppliedTemplateId(undefined);
       const existing = (state.parentId ? null : loadDraft(tid ?? ''));
       setDraft(existing);
@@ -93,6 +97,16 @@ export function CreateIssueModal() {
       setTimeout(() => titleRef.current?.focus(), 30);
     }
   }, [state.open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // content-height modal: description starts ~3 lines and grows with input,
+  // capped at 40vh (in expanded mode the textarea stretches via CSS instead)
+  useEffect(() => {
+    const el = descRef.current;
+    if (!el || !state.open) return;
+    if (expanded) { el.style.height = ''; return; }
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.4))}px`;
+  }, [description, expanded, state.open]);
 
   const team: Team | undefined = snap ? (teamId ? snap.teams.find(t => t.id === teamId) : snap.teams[0]) : undefined;
   const states = snap ? snap.states.filter(s => s.teamId === team?.id) : [];
@@ -169,8 +183,22 @@ export function CreateIssueModal() {
     setAppliedTemplateId(undefined);
   };
 
+  // ⌘/Ctrl+Enter creates from anywhere in the modal (menus portal outside this
+  // wrapper, but their React events still bubble here — so exclude them)
+  const onModalKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest?.('.menu')) return;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      if (title.trim() && current) void create();
+    } else if (e.key === 'Enter' && !e.shiftKey && e.target === titleRef.current) {
+      e.preventDefault();
+      descRef.current?.focus();
+    }
+  };
+
   return (
-    <Modal onClose={closeCreate}>
+    <Modal onClose={closeCreate} className={`modal modal-create ${expanded ? 'expanded' : ''}`}>
+      <div className="cm-root" onKeyDown={onModalKeyDown}>
       <div className="cm-header">
         <button className="cm-team" onClick={teamMenu.open} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="ws-avatar" style={{ background: team.color, borderRadius: 4, fontSize: 9, width: 18, height: 18 }}>{team.key.slice(0, 2)}</span>
@@ -180,14 +208,16 @@ export function CreateIssueModal() {
         <span className="crumb-sep">›</span>
         {parent ? (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
-            <IconSubIssue size={13} /> New sub-issue of <b style={{ color: 'var(--text-primary)' }}>{parentKey}</b>
+            <IconSubIssue size={13} style={{ color: 'var(--text-dim)' }} /> New sub-issue of <b style={{ color: 'var(--text-primary)', fontWeight: 590 }}>{parentKey}</b>
           </span>
         ) : (
-          <span>New issue</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 560 }}>New issue</span>
         )}
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
           {title.trim() && <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={saveDraft}>Save as draft</button>}
-          <button className="icon-btn"><IconExpand size={14} /></button>
+          <button className="icon-btn" title={expanded ? 'Contract' : 'Expand'} onClick={() => setExpanded(v => !v)}>
+            <IconExpand size={14} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 140ms var(--ease)' }} />
+          </button>
           <button className="icon-btn" onClick={closeCreate}><IconClose size={14} /></button>
         </span>
       </div>
@@ -204,16 +234,15 @@ export function CreateIssueModal() {
           ref={titleRef}
           value={title}
           onChange={e => setTitle(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void create(); }}
           placeholder="Issue title"
           spellCheck={false}
         />
       </div>
       <div className="cm-desc">
         <textarea
+          ref={descRef}
           value={description}
           onChange={e => setDescription(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void create(); }}
           placeholder="Add description…"
           spellCheck={false}
         />
@@ -263,42 +292,44 @@ export function CreateIssueModal() {
       )}
 
       <div className="cm-pills">
-        <button className="prop-chip boxed" onClick={statusMenu.open}>
+        <button className="prop-chip" onClick={statusMenu.open}>
           {current && <StateIcon type={current.type} color={current.color} size={13} />}
           {current?.name ?? 'Status'}
         </button>
-        <button className="prop-chip boxed" onClick={priorityMenu.open}>
+        <button className="prop-chip" onClick={priorityMenu.open}>
           <PriorityIcon priority={priority} size={13} />
           {priority === 0 ? 'Priority' : ['', 'Urgent', 'High', 'Medium', 'Low'][priority]}
         </button>
-        <button className="prop-chip boxed" onClick={assigneeMenu.open}>
-          <Avatar user={snap.users.find(u => u.id === assigneeId)} size={16} />
+        <button className="prop-chip" onClick={assigneeMenu.open}>
+          {assigneeId
+            ? <Avatar user={snap.users.find(u => u.id === assigneeId)} size={16} />
+            : <IconUser size={13} style={{ color: 'var(--text-dim)', margin: '0 1px' }} />}
           {assigneeId ? snap.users.find(u => u.id === assigneeId)?.name.split(' ')[0] : 'Assignee'}
         </button>
-        <button className="prop-chip boxed" onClick={labelsMenu.open}>
-          <IconTag size={13} />
-          {selectedLabels.length ? selectedLabels.map(l => l.name).join(', ') : 'Labels'}
-        </button>
-        <button className="prop-chip boxed" onClick={projectMenu.open}>
+        <button className="prop-chip" onClick={projectMenu.open}>
+          <IconBox size={13} style={{ color: 'var(--text-dim)' }} />
           {projectId ? snap.projects.find(p => p.id === projectId)?.name : 'Project'}
         </button>
+        <button className="prop-chip" onClick={e => { setMorePhase('estimate'); moreMenu.open(e); }}>
+          <IconEstimate size={13} style={{ color: 'var(--text-dim)' }} />
+          {estimate != null ? `${estimate} pt${estimate !== 1 ? 's' : ''}` : 'Estimate'}
+        </button>
+        <button className="prop-chip" onClick={labelsMenu.open}>
+          <IconTag size={13} style={{ color: 'var(--text-dim)' }} />
+          {selectedLabels.length ? selectedLabels.map(l => l.name).join(', ') : 'Labels'}
+        </button>
         {dueDate && (
-          <button className="prop-chip boxed" onClick={moreMenu.open}>
-            <IconCalendar size={13} /> {shortDate(dueDate)}
+          <button className="prop-chip" onClick={e => { setMorePhase('due'); moreMenu.open(e); }}>
+            <IconCalendar size={13} style={{ color: 'var(--text-dim)' }} /> {shortDate(dueDate)}
           </button>
         )}
-        {estimate != null && (
-          <button className="prop-chip boxed" onClick={moreMenu.open}>
-            <IconEstimate size={13} /> {estimate} pt{estimate !== 1 ? 's' : ''}
-          </button>
-        )}
-        <button className="prop-chip boxed" style={{ opacity: 0.7 }} onClick={moreMenu.open} title="More properties">
+        <button className="prop-chip" style={{ padding: '0 8px' }} onClick={e => { setMorePhase('root'); moreMenu.open(e); }} title="More properties">
           <IconMore size={13} />
         </button>
       </div>
 
       <div className="cm-footer">
-        <button className="icon-btn"><IconEmoji size={15} /></button>
+        <button className="icon-btn" title="Attach file"><IconAttach size={15} /></button>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-secondary)' }}>
             <button className={`toggle ${createMore ? 'on' : ''}`} onClick={() => setCreateMore(v => !v)} aria-label="Create more" />
@@ -306,6 +337,7 @@ export function CreateIssueModal() {
           </span>
           <button className="btn primary" onClick={create} disabled={!title.trim()}>
             {state.parentId ? 'Create sub-issue' : 'Create issue'}
+            <span className="btn-kbd kbd">⌘↵</span>
           </button>
         </div>
       </div>
@@ -344,11 +376,12 @@ export function CreateIssueModal() {
       {assigneeMenu.anchor && (
         <Menu anchor={assigneeMenu.anchor} onClose={assigneeMenu.close}>
           <div className="menu-header"><span>Assign to…</span></div>
+          <MenuItem icon={<IconUser size={14} />} label="No assignee" selected={!assigneeId}
+            onClick={() => { setAssigneeId(null); assigneeMenu.close(); }} />
+          <MenuSep />
           {snap.users.map(u => (
             <MenuItem key={u.id} icon={<Avatar user={u} size={18} />} label={u.name} selected={u.id === assigneeId} onClick={() => { setAssigneeId(u.id); assigneeMenu.close(); }} />
           ))}
-          <MenuSep />
-          <MenuItem label="No assignee" selected={!assigneeId} onClick={() => { setAssigneeId(null); assigneeMenu.close(); }} />
         </Menu>
       )}
       {labelsMenu.anchor && (
@@ -380,12 +413,14 @@ export function CreateIssueModal() {
         <MorePropsMenu
           anchor={moreMenu.anchor}
           onClose={moreMenu.close}
+          initialPhase={morePhase}
           dueDate={dueDate}
           estimate={estimate}
           setDueDate={setDueDate}
           setEstimate={setEstimate}
         />
       )}
+      </div>
     </Modal>
   );
 }
@@ -393,12 +428,13 @@ export function CreateIssueModal() {
 function MorePropsMenu(props: {
   anchor: DOMRect;
   onClose: () => void;
+  initialPhase?: 'root' | 'due' | 'estimate';
   dueDate: string | null;
   estimate: number | null;
   setDueDate: (d: string | null) => void;
   setEstimate: (e: number | null) => void;
 }) {
-  const [phase, setPhase] = useState<'root' | 'due' | 'estimate'>('root');
+  const [phase, setPhase] = useState<'root' | 'due' | 'estimate'>(props.initialPhase ?? 'root');
   const today = new Date();
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const y = cursor.getFullYear(), m = cursor.getMonth();

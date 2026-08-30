@@ -46,7 +46,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   // projects
   const project = store.createProject({
     name: 'Agent Handoff', teamId: core.id,
-    description: 'Make the workspace fully drivable by coding agents: MCP tools, CLI parity and machine-friendly issue keys.',
+    description: 'Make the workspace fully drivable by coding agents: a first-class CLI, handoff briefs and machine-friendly issue keys.',
     icon: '🤖', leadId: me.id, startDate: iso(-7), targetDate: iso(23), priority: 2,
   });
   const mobile = store.createProject({
@@ -106,7 +106,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   issue(core.id, 'Persist theme choice per device', { state: 'unstarted', priority: 3, parent: theme.id, estimate: 1, createdDaysAgo: 4 });
 
   // agent surface issues
-  const mcp = issue(agents.id, 'MCP tools: create/update/list/search issues', { state: 'started', priority: 1, labels: [agentsFeature.id], project: project.id, estimate: 5, createdDaysAgo: 4, description: 'Stdio MCP server exposing the store to coding agents.\n\n| tool | notes |\n| --- | --- |\n| create_issue | key returned |\n| update_issue | partial patches |\n| search | title match |' });
+  const cli = issue(agents.id, 'CLI surface: create/update/list/search issues', { state: 'started', priority: 1, labels: [agentsFeature.id], project: project.id, estimate: 5, createdDaysAgo: 4, description: 'One CLI covering the whole store so coding agents never need the UI.\n\n| command group | notes |\n| --- | --- |\n| issue create/update/list | key printed on create |\n| issue show --json | full detail, parseable |\n| search | title match |' });
   issue(agents.id, 'CLI parity with REST surface', { state: 'unstarted', priority: 2, labels: [agentsFeature.id], assignee: ada.id, project: project.id, createdDaysAgo: 3 });
   issue(agents.id, 'JSON export/import round-trip', { state: 'unstarted', priority: 3, labels: [agentsFeature.id], createdDaysAgo: 2 });
   issue(agents.id, 'Concurrent writer safety (WAL)', { state: 'unstarted', priority: 1, labels: [agentsBug.id], assignee: jun.id, due: 1, createdDaysAgo: 1 });
@@ -116,9 +116,9 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   issue(core.id, 'Mobile inbox layout', { state: 'unstarted', priority: 3, labels: [coreFeature.id], project: mobile.id, assignee: ada.id, createdDaysAgo: 2 });
   issue(core.id, 'Touch-friendly issue peek', { state: 'backlog', priority: 4, labels: [coreFeature.id], project: mobile.id, createdDaysAgo: 1 });
 
-  // relations: MCP tools blocks CLI parity
+  // relations: the CLI surface blocks CLI parity with the REST API
   const cliIssue = store.listIssues({ teamId: agents.id }).find(i => i.title.startsWith('CLI parity'));
-  if (cliIssue) store.setRelation(mcp.id, cliIssue.id, 'blocks');
+  if (cliIssue) store.setRelation(cli.id, cliIssue.id, 'blocks');
 
   // milestone on the flagship project
   store.createMilestone(project.id, 'Alpha: agent-driven triage', iso(7));
@@ -131,7 +131,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   }
 
   // project update
-  store.addProjectUpdate(project.id, me.id, 'Scope locked: MCP + CLI first, UI polish tracked in Core.', 'onTrack');
+  store.addProjectUpdate(project.id, me.id, 'Scope locked: CLI-first agent story, UI polish tracked in Core.', 'onTrack');
 
   // saved views
   store.createView('Urgent issues', { priority: [1] }, { icon: '🔴', groupBy: 'status', orderBy: 'priority' });

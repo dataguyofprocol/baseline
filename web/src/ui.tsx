@@ -49,7 +49,7 @@ export function Menu(props: {
   const [pos, setPos] = useState(place);
   useEffect(() => { setPos(place()); /* eslint-disable-line */ }, []);
 
-  return (
+  return createPortal(
     <>
       <div className="menu-backdrop" onMouseDown={props.onClose} onContextMenu={(e) => { e.preventDefault(); props.onClose(); }} />
       <div className="menu" ref={ref} style={pos}>
@@ -60,7 +60,8 @@ export function Menu(props: {
           {props.children}
         </MenuContext.Provider>
       </div>
-    </>
+    </>,
+    document.body,
   );
 }
 
@@ -84,7 +85,7 @@ export function MenuItem(props: {
         className="menu-item"
         style={props.danger ? { color: '#eb5757' } : undefined}
         onMouseEnter={() => { ref.current?.focus(); }}
-        onClick={(e) => { props.onClick?.(e); close(); }}
+        onClick={(e) => { e.stopPropagation(); props.onClick?.(e); close(); }}
       >
         {props.icon && <span className="mi-icon">{props.icon}</span>}
         <span className="mi-label">{props.label}</span>
@@ -125,7 +126,9 @@ export function useMenu() {
   return { anchor, setAnchor, open, close, isOpen: anchor !== null };
 }
 
-/* ---------------- modal ---------------- */
+/* ---------------- modal ----------------
+   Enter: opacity + 8px rise + 0.982 scale over 220ms on the global ease.
+   Exit: 140ms, no scale (motion spec: "Design polish and refinement"). */
 export function Modal(props: { onClose: () => void; children: React.ReactNode; className?: string; dismissOnBackdrop?: boolean }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); props.onClose(); } };
@@ -136,13 +139,16 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
     <AnimatePresence>
       <motion.div
         className="overlay"
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        transition={{ duration: 0.14, ease: 'easeOut' }}
         onMouseDown={(e) => { if (props.dismissOnBackdrop !== false && e.target === e.currentTarget) props.onClose(); }}
       >
         <motion.div
           className={props.className ?? 'modal modal-create'}
-          initial={{ opacity: 0, scale: 0.985 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.985 }}
-          transition={{ duration: 0.13, ease: [0.22, 1, 0.36, 1] }}
+          initial={{ opacity: 0, y: 8, scale: 0.982 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, transition: { duration: 0.14, ease: 'easeOut' } }}
+          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
         >
           {props.children}
         </motion.div>
@@ -152,7 +158,9 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
   );
 }
 
-/* ---------------- toasts ---------------- */
+/* ---------------- toasts ----------------
+   Enter 260ms rise on the global ease; exit 220ms. The auto-close window is
+   drawn as a depleting ring so the undo deadline is visible, not guessed at. */
 export function Toasts() {
   const toasts = useApp(s => s.toasts);
   const dismiss = useApp(s => s.dismissToast);
@@ -161,8 +169,16 @@ export function Toasts() {
       <AnimatePresence>
         {toasts.map(t => (
           <motion.div key={t.id} className="toast" layout
-            initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }}
-            transition={{ duration: 0.15 }}>
+            initial={{ opacity: 0, y: 14, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.98, transition: { duration: 0.22, ease: 'easeOut' } }}
+            transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}>
+            {t.autoClose !== false && (
+              <svg className="toast-ring" width={18} height={18} viewBox="0 0 18 18">
+                <circle cx="9" cy="9" r="8" fill="none" stroke="var(--border-strong)" strokeWidth="1.6" />
+                <circle className="toast-ring-fill" cx="9" cy="9" r="8" fill="none" stroke="var(--brand)" strokeWidth="1.6" strokeLinecap="round" strokeDasharray="50.3" />
+              </svg>
+            )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="toast-title">{t.title}</div>
               {t.line && <div className="toast-line">{t.line}</div>}

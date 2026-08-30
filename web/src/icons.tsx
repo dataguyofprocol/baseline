@@ -22,10 +22,13 @@ export const StatusStarted = (p: P & { color?: string }) => (
     <path d="M7.5 2.1 A5.4 5.4 0 0 1 7.5 12.9 Z" fill="currentColor" stroke="none" />
   </S>
 );
-export const StatusDone = (p: P) => (
+export const StatusDone = (p: P & { morph?: boolean }) => (
   <S {...p}>
-    <circle cx="7.5" cy="7.5" r="6.1" fill="currentColor" />
-    <path d="M4.8 7.7 L6.7 9.5 L10.3 5.6" stroke="var(--bg-overlay, #1a1a1b)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    <circle cx="7.5" cy="7.5" r="6.1" fill="currentColor" className={p.morph ? 'st-fill' : undefined} />
+    <path
+      d="M4.8 7.7 L6.7 9.5 L10.3 5.6" stroke="var(--bg-main, #121213)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"
+      className={p.morph ? 'st-check' : undefined}
+    />
   </S>
 );
 export const StatusCanceled = (p: P) => (
@@ -119,3 +122,5 @@ export const IconGauge = (p: P) => <S {...p}><path d="M2.6 10.5a5.2 5.2 0 1 1 9.
 export const IconInboxArrow = (p: P) => <S {...p}><path d="M2.6 7.5h9.8M9 4.1l3.4 3.4L9 10.9" {...stroke} /></S>;
 export const IconBot = (p: P) => <S {...p}><rect x="2.8" y="4.4" width="9.4" height="7.6" rx="2" {...stroke} /><path d="M7.5 2.2v2.2" {...stroke} /><circle cx="5.4" cy="8.2" r="0.9" fill="currentColor" /><circle cx="9.6" cy="8.2" r="0.9" fill="currentColor" /><path d="M6 10.6h3" {...stroke} /></S>;
 export const IconPrompt = (p: P) => <S {...p}><path d="M4.6 4.4 2 7.5l2.6 3.1M10.4 4.4 13 7.5l-2.6 3.1" {...stroke} /><path d="m8.4 3.4-1.8 8.2" {...stroke} /></S>;
+export const IconTerminal = (p: P) => <S {...p}><rect x="2.2" y="2.8" width="10.6" height="9.4" rx="2" {...stroke} /><path d="m4.8 5.9 2.3 2.1-2.3 2.1" {...stroke} /><path d="M8.4 10.3h2.4" {...stroke} /></S>;
+export const IconBranch = (p: P) => <S {...p}><circle cx="4.5" cy="3.4" r="1.5" {...stroke} /><circle cx="4.5" cy="11.6" r="1.5" {...stroke} /><circle cx="10.9" cy="5.3" r="1.5" {...stroke} /><path d="M4.5 4.9v5.2" {...stroke} /><path d="M10.9 6.8v.3a4.3 4.3 0 0 1-4.3 4.3h-.4" {...stroke} /></S>;

@@ -1,4 +1,4 @@
-// Domain model shared by server, CLI, MCP and web surfaces.
+// Domain model shared by server, CLI and web surfaces.
 
 export type WorkflowStateType = 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled';
 
@@ -7,7 +7,6 @@ export type Priority = 0 | 1 | 2 | 3 | 4;
 
 export type ProjectStatus = 'planned' | 'started' | 'completed' | 'paused';
 export type ProjectHealth = 'onTrack' | 'atRisk' | 'offTrack';
-export type InitiativeStatus = 'planned' | 'active' | 'completed';
 export type RelationType = 'blocks' | 'blocked_by' | 'related' | 'duplicate';
 
 export interface User {
@@ -151,28 +150,6 @@ export interface ProjectUpdate {
   createdAt: string;
 }
 
-export interface Initiative {
-  id: string;
-  name: string;
-  description: string;
-  status: InitiativeStatus;
-  color: string;
-  leadId: string | null;
-  targetDate: string | null;
-  projectIds: string[];
-  position: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface InitiativeUpdate {
-  id: string;
-  initiativeId: string;
-  userId: string;
-  body: string;
-  createdAt: string;
-}
-
 export interface Cycle {
   id: string;
   teamId: string;
@@ -210,7 +187,7 @@ export type OrderBy = 'priority' | 'updated' | 'created' | 'due' | 'manual' | 't
 
 export interface Favorite {
   id: string;
-  type: 'issue' | 'project' | 'view' | 'cycle' | 'initiative';
+  type: 'issue' | 'project' | 'view' | 'cycle';
   refId: string;
   position: number;
 }
@@ -271,8 +248,6 @@ export interface Snapshot {
   projects: Project[];
   projectUpdates: ProjectUpdate[];
   milestones: Milestone[];
-  initiatives: Initiative[];
-  initiativeUpdates: InitiativeUpdate[];
   cycles: Cycle[];
   views: SavedView[];
   favorites: Favorite[];

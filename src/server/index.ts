@@ -40,7 +40,8 @@ export function createApp(dbPath: string) {
     const issue = store.createIssue({
       teamId: b.teamId, title: b.title, description: b.description, stateId: b.stateId,
       priority: b.priority, assigneeId: b.assigneeId ?? null, projectId: b.projectId ?? null,
-      parentId: b.parentId ?? null, labelIds: b.labelIds, dueDate: b.dueDate ?? null, estimate: b.estimate ?? null,
+      parentId: b.parentId ?? null, cycleId: b.cycleId ?? null, labelIds: b.labelIds,
+      dueDate: b.dueDate ?? null, estimate: b.estimate ?? null,
     });
     return c.json({ issue }, 201);
   });
@@ -125,18 +126,6 @@ export function createApp(dbPath: string) {
   });
   app.get('/api/projects/:id/progress', (c) => c.json(store.projectProgress(c.req.param('id'))));
 
-  // ---------- initiatives ----------
-  app.post('/api/initiatives', async (c) => {
-    const b = await c.req.json();
-    const initiative = store.createInitiative(b.name, b.description, b.color, b.leadId ?? null, b.targetDate ?? null);
-    return c.json({ initiative }, 201);
-  });
-  app.patch('/api/initiatives/:id', async (c) => {
-    const b = await c.req.json();
-    store.updateInitiative(c.req.param('id'), b);
-    return c.json({ ok: true });
-  });
-
   // ---------- teams / states / labels ----------
   app.post('/api/teams', async (c) => {
     const b = await c.req.json();
@@ -159,7 +148,10 @@ export function createApp(dbPath: string) {
     store.updateState(c.req.param('id'), b);
     return c.json({ ok: true });
   });
-  app.delete('/api/states/:id', (c) => { store.deleteState(c.req.param('id')); return c.json({ ok: true }); });
+  app.delete('/api/states/:id', (c) => {
+    const movedTo = store.deleteState(c.req.param('id'));
+    return c.json({ ok: true, movedTo: movedTo ?? null });
+  });
   app.post('/api/labels', async (c) => {
     const b = await c.req.json();
     const label = store.createLabel(b.teamId, b.name, b.color, b.description);
@@ -303,7 +295,7 @@ export function createApp(dbPath: string) {
 
 export function serve(opts: ServeOptions = {}): { server: ServerType; port: number } {
   const dbPath = resolveDbPath(opts.dbPath);
-  const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7327);
+  const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7770);
   const { app } = createApp(dbPath);
   const server = nodeServe({ fetch: app.fetch, port });
   server.once('listening', () => {

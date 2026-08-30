@@ -1,32 +1,38 @@
 import { useState } from 'react';
-import { NavLink, Link, useNavigate } from 'react-router-dom';
+import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { Logo } from './Logo.js';
 import {
-  IconInbox, IconMyIssues, IconBox, IconViews, IconHome, IconIssues,
-  IconSearch, IconNew, IconSettings, IconChevronDown, IconChevronRight, IconPlus, IconMore, IconStar, IconCycle,
+  IconInbox, IconMyIssues, IconBox, IconViews, IconIssues,
+  IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
 } from './icons.js';
 
 export function Sidebar() {
   const snap = useApp(s => s.snap);
+  const theme = useApp(s => s.theme);
   const workspaceMenu = useMenu();
-  const [openTeam, setOpenTeam] = useState<string | null>(() => localStorage.getItem('baseline:openTeam'));
+  const navigate = useNavigate();
   if (!snap) return null;
   const unread = snap.notifications.filter(n => !n.readAt).length;
   const me = snap.currentUser;
+
+  // track the team being viewed so "Issues" always deep-links to it; fall back to the last-visited team
+  const loc = useLocation();
+  const locTeam = /^\/team\/([^/]+)/.exec(loc.pathname)?.[1];
+  const issuesTeamKey = locTeam ?? localStorage.getItem('baseline:issuesTeam') ?? snap.teams[0]?.key;
 
   const favorites = snap.favorites
     .slice().sort((a, b) => a.position - b.position)
     .map(f => {
       if (f.type === 'project') {
         const p = snap.projects.find(x => x.id === f.refId);
-        return p ? { id: f.id, label: p.name, icon: <span>{p.icon}</span>, to: `/projects/${p.id}` } : null;
+        return p ? { id: f.id, label: p.name, icon: <span className="fav-emoji">{p.icon}</span>, to: `/projects/${p.id}` } : null;
       }
       if (f.type === 'view') {
         const v = snap.views.find(x => x.id === f.refId);
-        if (v) return { id: f.id, label: v.name, icon: <span>{v.icon || '🗂'}</span>, to: `/views/${v.id}` };
+        if (v) return { id: f.id, label: v.name, icon: <span className="fav-emoji">{v.icon || '🗂'}</span>, to: `/views/${v.id}` };
         const teamMatch = /^team-(.+)-(all|active|backlog)$/.exec(f.refId);
         if (teamMatch) {
           const t = snap.teams.find(x => x.id === teamMatch[1]);
@@ -42,13 +48,14 @@ export function Sidebar() {
         const i = snap.issues.find(x => x.id === f.refId);
         if (i) {
           const t = snap.teams.find(x => x.id === i.teamId);
-          return { id: f.id, label: `${t?.key}-${i.number} ${i.title}`, icon: <IconIssues size={14} />, to: `/issue/${t?.key}-${i.number}` };
+          const key = `${t?.key}-${i.number}`;
+          return { id: f.id, label: key, title: `${key} ${i.title}`, icon: <IconIssues size={14} />, to: `/issue/${key}` };
         }
         return null;
       }
       return null;
     })
-    .filter(Boolean) as Array<{ id: string; label: string; icon: React.ReactNode; to: string }>;
+    .filter(Boolean) as Array<{ id: string; label: string; title?: string; icon: React.ReactNode; to: string }>;
 
   return (
     <aside className="sidebar">
@@ -67,15 +74,6 @@ export function Sidebar() {
         {workspaceMenu.anchor && (
           <Menu anchor={workspaceMenu.anchor} onClose={workspaceMenu.close} width={250}>
             <div className="menu-header"><span>{me.name} — {me.email || 'local user'}</span></div>
-            <MenuItem icon={<IconSettings size={14} />} label="Settings" onClick={() => { location.hash = '#/settings/workspace'; }} />
-            <MenuItem
-              icon={<span>🌓</span>}
-              label="Toggle theme"
-              onClick={() => {
-                const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-                useApp.getState().setTheme(next as 'dark' | 'light');
-              }}
-            />
             <MenuSep />
             <MenuItem danger label="Reset sample workspace" onClick={async () => { await api.reseed(); await useApp.getState().bootstrap(); }} />
           </Menu>
@@ -83,59 +81,50 @@ export function Sidebar() {
 
         <Nav to="/inbox" icon={<IconInbox />} label="Inbox" badge={unread} />
         <Nav to="/my-issues" icon={<IconMyIssues />} label="My issues" />
+        {issuesTeamKey && (
+          <Nav to={`/team/${issuesTeamKey}/all`} icon={<IconIssues />} label="Issues" isActive={loc => loc.pathname.startsWith('/team/')} />
+        )}
 
-        {/* favorites sit directly under the primary nav, Linear-style (no section header) */}
-        {favorites.map(f => (
-          <Nav key={f.id} to={f.to} icon={f.icon} label={f.label} />
-        ))}
+        {favorites.length > 0 && (
+          <>
+            <SectionHeader label="Favorites" />
+            {favorites.map(f => (
+              <Nav key={f.id} to={f.to} icon={f.icon} label={f.label} title={f.title} />
+            ))}
+          </>
+        )}
 
-        <SectionHeader label="Workspace" />
+        <div className="nav-gap" />
         <Nav to="/projects" icon={<IconBox />} label="Projects" />
         <Nav to="/views" icon={<IconViews />} label="Views" />
+      </div>
 
-        <SectionHeader label="Your teams" action={<IconPlus size={13} />} onAction={() => { location.hash = '#/settings/teams'; }} />
-        {snap.teams.map(team => {
-          const isOpen = openTeam === team.id;
-          return (
-            <div key={team.id}>
-              <button
-                className={`nav-item ${isOpen ? 'active' : ''}`}
-                onClick={() => {
-                  const next = isOpen ? null : team.id;
-                  setOpenTeam(next);
-                  if (next) localStorage.setItem('baseline:openTeam', next); else localStorage.removeItem('baseline:openTeam');
-                }}
-              >
-                <span className="ws-avatar" style={{ background: team.color, borderRadius: 4, fontSize: 9, width: 18, height: 18 }}>
-                  {team.icon?.match(/\p{Emoji}/u) ? team.icon : team.key[0]}
-                </span>
-                <span className="nav-label">{team.name}</span>
-                {isOpen
-                  ? <IconChevronDown size={13} style={{ color: 'var(--text-dim)' }} />
-                  : <IconChevronRight size={13} style={{ color: 'var(--text-dim)', opacity: 0 }} />}
-              </button>
-              {isOpen && (
-                <div style={{ paddingLeft: 22 }}>
-                  <Nav to={`/team/${team.key}`} icon={<IconHome size={14} />} label="Home" end />
-                  <Nav to={`/team/${team.key}/all`} icon={<IconIssues size={14} />} label="All issues" />
-                  <Nav to={`/team/${team.key}/active`} icon={<IconIssues size={14} />} label="Active" />
-                  <Nav to={`/team/${team.key}/backlog`} icon={<IconIssues size={14} />} label="Backlog" />
-                  {snap.cycles.some(c => c.teamId === team.id) && (
-                    <Nav to={`/team/${team.key}/cycles`} icon={<IconCycle size={14} />} label="Cycles" />
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+      <div className="sidebar-footer">
+        <button
+          className="icon-btn footer-btn"
+          title="Toggle theme (T)"
+          onClick={() => useApp.getState().setTheme(theme === 'dark' ? 'light' : 'dark')}
+        >
+          {theme === 'dark' ? <IconMoon size={15} /> : <IconSun size={15} />}
+        </button>
+        <button className="icon-btn footer-btn" title="Settings" onClick={() => navigate('/settings/workspace')}>
+          <IconSettings size={15} />
+        </button>
       </div>
     </aside>
   );
 }
 
-function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: number; end?: boolean }) {
+function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: number; end?: boolean; title?: string; isActive?: (loc: { pathname: string }) => boolean }) {
+  const loc = useLocation();
+  const active = props.isActive ? props.isActive(loc) : undefined;
   return (
-    <NavLink to={props.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} end={props.end} title={props.label}>
+    <NavLink
+      to={props.to}
+      className={({ isActive }) => `nav-item ${active ?? isActive ? 'active' : ''}`}
+      end={props.end}
+      title={props.title ?? props.label}
+    >
       {props.icon}
       <span className="nav-label">{props.label}</span>
       {props.badge ? <span className="nav-count">{props.badge}</span> : null}

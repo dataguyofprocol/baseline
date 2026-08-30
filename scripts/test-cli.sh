@@ -332,6 +332,29 @@ echo "=== json purity (stderr not polluted into stdout) ==="
 b issue list --json > "$WORK/purity.json" 2>/dev/null
 check_json "issue list --json parses cleanly" "$WORK/purity.json" "Array.isArray(d)"
 
+echo "=== store createProject status/memberIds (web API fields) ==="
+node -e '
+const { createApp } = require("./dist/server/index.js");
+const { resolveDbPath } = require("./dist/core/db.js");
+const { store } = createApp(process.argv[1]);
+const p = store.createProject({ name: "Store Fields", status: "started", memberIds: ["u1", "u2"], priority: 2 });
+if (p.status !== "started" || JSON.stringify(p.memberIds) !== JSON.stringify(["u1", "u2"])) {
+  console.error("status/memberIds not persisted"); process.exit(1);
+}
+if (store.snapshot().projects.find(x => x.id === p.id)?.status !== "started") {
+  console.error("status not in snapshot"); process.exit(1);
+}
+const d = store.createProject({ name: "Store Defaults" });
+if (d.status !== "planned" || d.memberIds.length !== 0 || d.completedAt !== null) {
+  console.error("defaults wrong"); process.exit(1);
+}
+' "$WORK/store-fields.db" > "$WORK/store-out.txt" 2>&1
+if [[ $? -eq 0 ]]; then
+  PASS=$((PASS+1))
+else
+  echo "FAIL  store createProject fields"; cat "$WORK/store-out.txt"; FAILED_NAMES+=("store createProject fields"); FAIL=$((FAIL+1))
+fi
+
 echo
 echo "================================"
 echo "PASS: $PASS  FAIL: $FAIL"

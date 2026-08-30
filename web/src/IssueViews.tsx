@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, LIST_GROUP_ORDER, copyText } from './store.js';
+import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, visibleList, LIST_GROUP_ORDER, copyText } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, MenuInput } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
@@ -147,6 +147,25 @@ export function issuesOfGroup(groupBy: GroupBy, issues: Issue[], groupId: string
   }
 }
 
+/* last-seen workflow state per issue id — lets a remounted row (rows are keyed
+   by position, so moving groups remounts them) still detect that it just moved */
+const lastStateById = new Map<string, string>();
+
+let lastCheckedId: string | null = null;
+/** shift-click a checkbox: extend the selection across the visible list from the last clicked row */
+function shiftSelectRange(id: string) {
+  const list = visibleList.issues.map(i => i.id);
+  const from = lastCheckedId ? list.indexOf(lastCheckedId) : -1;
+  const to = list.indexOf(id);
+  lastCheckedId = id;
+  if (from === -1 || to === -1 || from === to) {
+    useSelection.getState().toggle(id);
+    return;
+  }
+  const [a, b] = from < to ? [from, to] : [to, from];
+  useSelection.getState().setMany([...new Set([...useSelection.getState().ids, ...list.slice(a, b + 1)])]);
+}
+
 /* ================= issue row ================= */
 export interface RowDisplay { id: boolean; status: boolean; assignee: boolean; priority: boolean; labels: boolean; project: boolean; due: boolean }
 
@@ -159,10 +178,10 @@ export function IssueRow(props: {
   onOpen?: () => void;
 }) {
   const snap = useApp(s => s.snap)!;
-  const setPeek = useApp(s => s.setPeek);
   const navigate = useNavigate();
   const issueMenu = useMenu();
   const toggleSelected = useSelection(s => s.toggle);
+  const checksOn = useSelection(s => s.ids.length > 0);
   const display = props.display ?? { id: true, status: true, assignee: true, priority: true, labels: true, project: false, due: false };
   const team = snap.teams.find(t => t.id === props.issue.teamId);
   const state = snap.states.find(s => s.id === props.issue.stateId);
@@ -171,15 +190,31 @@ export function IssueRow(props: {
   const project = snap.projects.find(p => p.id === props.issue.projectId);
   const key = `${team?.key ?? 'ISS'}-${props.issue.number}`;
 
+  // optimistic reflow: when the issue just changed status, play the landing
+  // animation on this row and morph the done icon if it landed on completed
+  const [justMoved, setJustMoved] = useState(() => {
+    const seen = lastStateById.get(props.issue.id);
+    return seen !== undefined && seen !== props.issue.stateId;
+  });
+  useEffect(() => {
+    lastStateById.set(props.issue.id, props.issue.stateId);
+  }, [props.issue.id, props.issue.stateId]);
+  useEffect(() => {
+    if (!justMoved) return;
+    const t = setTimeout(() => setJustMoved(false), 1200);
+    return () => clearTimeout(t);
+  }, [justMoved]);
+  const becameDone = justMoved && state?.type === 'completed';
+
   const open = () => {
     if (props.onOpen) props.onOpen();
-    else setPeek(props.issue.id);
+    else navigate(`/issue/${key}`);
   };
 
   return (
     <div
       data-issue-row={props.issue.id}
-      className={`issue-row ${props.selected ? 'selected' : ''} ${props.cursor ? 'cursor' : ''} ${props.nested ? 'nested' : ''}`}
+      className={`issue-row ${props.selected ? 'selected' : ''} ${props.cursor ? 'cursor' : ''} ${props.nested ? 'nested' : ''} ${justMoved ? 'just-moved' : ''} ${checksOn ? 'checks-on' : ''}`}
       onClick={open}
       onContextMenu={(e) => issueMenu.open(e)}
       onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); navigate(`/issue/${key}`); } }}
@@ -187,11 +222,14 @@ export function IssueRow(props: {
       <input
         type="checkbox" className="row-check" checked={props.selected ?? false}
         onClick={e => e.stopPropagation()}
-        onChange={() => toggleSelected(props.issue.id)}
+        onChange={(e) => {
+          if ((e.nativeEvent as MouseEvent).shiftKey) shiftSelectRange(props.issue.id);
+          else { lastCheckedId = props.issue.id; toggleSelected(props.issue.id); }
+        }}
       />
       {display.priority && <PriorityIcon priority={props.issue.priority} size={14} />}
       {display.id && <span className="issue-key">{key}</span>}
-      {display.status && state && <StateIcon type={state.type} color={state.color} size={14} />}
+      {display.status && state && <StateIcon type={state.type} color={state.color} size={14} morph={becameDone} />}
       <span className="row-title">{props.issue.title}</span>
       <span className="row-meta">
         {display.due && props.issue.dueDate && (
@@ -253,7 +291,10 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
       }} />
       <MenuItem
         label="Copy issue ID"
-        onClick={async () => { await navigator.clipboard.writeText(key); toast({ title: 'Copied issue ID' }); }}
+        onClick={async () => {
+          if (await copyText(key)) toast({ title: 'Copied issue ID' });
+          else toast({ title: 'Clipboard unavailable', line: <>{key}</> });
+        }}
       />
       <MenuItem label="Open in full page" onClick={() => { setPeek(null); location.hash = `#/issue/${key}`; }} />
       <MenuItem label="Duplicate issue" onClick={async () => {
@@ -368,11 +409,13 @@ function LabelsMenuAnchored(props: { issue: Issue; anchor: DOMRect; onClose: () 
 }
 
 /* ---------------- filter pills ---------------- */
+/* The filter menu opens from whichever trigger was used: the left "Filter" pill
+   or the right toolbar icon (which dispatches `baseline:focus-filter` with its
+   own rect as the event detail — Linear anchors this panel top-right too). */
 export function FilterBar(props: {
   filters: ViewFilters;
   onChange: (f: ViewFilters) => void;
   teamId?: string;
-  forceOpenToken?: number;
 }) {
   const snap = useApp(s => s.snap)!;
   const addMenu = useMenu();
@@ -381,10 +424,13 @@ export function FilterBar(props: {
   const set = (patch: Partial<ViewFilters>) => props.onChange({ ...filters, ...patch });
 
   useEffect(() => {
-    if (props.forceOpenToken && pillRef.current) {
-      addMenu.setAnchor(pillRef.current.getBoundingClientRect());
-    }
-  }, [props.forceOpenToken]); // eslint-disable-line react-hooks/exhaustive-deps
+    const onOpen = (e: Event) => {
+      const rect = (e as CustomEvent).detail as DOMRect | undefined;
+      addMenu.setAnchor(rect ?? pillRef.current?.getBoundingClientRect() ?? null);
+    };
+    window.addEventListener('baseline:focus-filter', onOpen);
+    return () => window.removeEventListener('baseline:focus-filter', onOpen);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pills: Array<{ label: React.ReactNode; clear: () => void }> = [];
   if (filters.query) pills.push({ label: <>“{filters.query}”</>, clear: () => set({ query: undefined }) });
@@ -527,75 +573,22 @@ export function DisplayOptionsMenu(props: {
   );
 }
 
-/* ---------------- bulk action bar ---------------- */
-export function BulkBar() {
-  const snap = useApp(s => s.snap)!;
+/* ---------------- selection pill ----------------
+   Linear-style floating pill: count, Actions (opens the command palette, which
+   picks up the selection as bulk context), clear. Mutations themselves live in
+   the palette's bulk section. */
+export function SelectionBar() {
   const ids = useSelection(s => s.ids);
   const clear = useSelection(s => s.clear);
-  const toast = useApp(s => s.toast);
-  const statusMenu = useMenu();
-  const prioMenu = useMenu();
-  const assigneeMenu = useMenu();
+  const setPalette = useApp(s => s.setPalette);
   if (ids.length === 0) return null;
-  const issues = ids.map(id => snap.issues.find(i => i.id === id)).filter(Boolean) as Issue[];
-  const applyPatch = async (patch: Record<string, unknown>, label: string) => {
-    await api.bulkIssues({ ids, patch });
-    await useApp.getState().bootstrap();
-    toast({ title: `${label} applied to ${ids.length} issue${ids.length > 1 ? 's' : ''}` });
-    clear();
-  };
-  const teamStates = issues.length ? snap.states.filter(s => s.teamId === issues[0]!.teamId) : [];
-  const del = async () => {
-    for (const id of ids) await api.deleteIssue(id);
-    await useApp.getState().bootstrap();
-    toast({
-      title: `${ids.length} issue${ids.length > 1 ? 's' : ''} deleted`,
-      actions: [{ label: 'Undo', onClick: async () => { for (const id of ids) await api.restoreIssue(id); await useApp.getState().bootstrap(); } }],
-    });
-    clear();
-  };
   return (
     <div className="bulk-bar">
       <span className="bulk-count">{ids.length} selected</span>
-      <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={statusMenu.open}>Status</button>
-      <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={prioMenu.open}>Priority</button>
-      <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={assigneeMenu.open}>Assignee</button>
-      <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={async () => {
-        for (const id of ids) await api.archiveIssue(id);
-        await useApp.getState().bootstrap();
-        toast({
-          title: `${ids.length} issue${ids.length > 1 ? 's' : ''} archived`,
-          actions: [{ label: 'Undo', onClick: async () => { for (const id of ids) await api.unarchiveIssue(id); await useApp.getState().bootstrap(); } }],
-        });
-        clear();
-      }}>Archive</button>
-      <button className="btn" style={{ height: 26, fontSize: 12, color: '#eb5757' }} onClick={del}>Delete</button>
+      <button className="bulk-actions-btn" onClick={() => setPalette(true)}>
+        <span className="kbd">⌘</span> Actions
+      </button>
       <button className="icon-btn" title="Clear selection (Esc)" onClick={clear}><IconClose size={13} /></button>
-
-      {statusMenu.anchor && (
-        <Menu anchor={statusMenu.anchor} onClose={statusMenu.close} width={210}>
-          {teamStates.map(s => (
-            <MenuItem key={s.id} icon={<StateIcon type={s.type} color={s.color} />} label={s.name}
-              onClick={() => applyPatch({ stateId: s.id }, 'Status')} />
-          ))}
-        </Menu>
-      )}
-      {prioMenu.anchor && (
-        <Menu anchor={prioMenu.anchor} onClose={prioMenu.close} width={210}>
-          {([[0, 'No priority'], [1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low']] as Array<[Priority, string]>).map(([v, label]) => (
-            <MenuItem key={v} icon={<PriorityIcon priority={v} size={14} />} label={label} onClick={() => applyPatch({ priority: v }, 'Priority')} />
-          ))}
-        </Menu>
-      )}
-      {assigneeMenu.anchor && (
-        <Menu anchor={assigneeMenu.anchor} onClose={assigneeMenu.close} width={210}>
-          {snap.users.map(u => (
-            <MenuItem key={u.id} icon={<Avatar user={u} size={18} />} label={u.name} onClick={() => applyPatch({ assigneeId: u.id }, 'Assignee')} />
-          ))}
-          <MenuSep />
-          <MenuItem label="No assignee" onClick={() => applyPatch({ assigneeId: null }, 'Assignee')} />
-        </Menu>
-      )}
     </div>
   );
 }

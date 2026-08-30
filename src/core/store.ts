@@ -3,7 +3,7 @@ import { getMeta, setMeta } from './db.js';
 import { id, nowIso, midSort } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import type {
-  ActivityItem, ActivityType, Comment, Cycle, Favorite, Handoff, Initiative, InitiativeUpdate,
+  ActivityItem, ActivityType, Comment, Cycle, Favorite, Handoff,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType,
@@ -13,6 +13,11 @@ interface IssueRow { id: string; team_id: string; number: number; title: string;
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
+
+/** PATCH bodies reach the store raw from the server, so only whitelisted keys may build SQL */
+function sqlPairs<T extends object>(patch: T, allowed: Array<keyof T>): Array<[string, unknown]> {
+  return Object.entries(patch).filter(([k]) => (allowed as string[]).includes(k));
+}
 
 export class Store {
   constructor(private db: DatabaseSync) {}
@@ -46,8 +51,6 @@ export class Store {
       projects: rows<{ id: string; team_id: string | null; name: string; description: string; icon: string; color: string; status: Project['status']; health: Project['health']; priority: number; start_date: string | null; target_date: string | null; lead_id: string | null; members: string; position: number; created_at: string; updated_at: string; completed_at: string | null }>('SELECT * FROM projects ORDER BY position, created_at').map(p => ({ id: p.id, teamId: p.team_id, name: p.name, description: p.description, icon: p.icon, color: p.color, status: p.status, health: p.health, priority: p.priority as Priority, startDate: p.start_date, targetDate: p.target_date, leadId: p.lead_id, memberIds: JSON.parse(p.members), position: p.position, createdAt: p.created_at, updatedAt: p.updated_at, completedAt: p.completed_at })),
       milestones: rows<{ id: string; project_id: string; name: string; target_date: string | null; status: Milestone['status']; position: number; created_at: string }>('SELECT * FROM milestones ORDER BY position, created_at').map(m => ({ id: m.id, projectId: m.project_id, name: m.name, targetDate: m.target_date, status: m.status, position: m.position, createdAt: m.created_at })),
       projectUpdates: rows<{ id: string; project_id: string; user_id: string; body: string; health: ProjectUpdate['health']; created_at: string }>('SELECT * FROM project_updates ORDER BY created_at DESC').map(u => ({ id: u.id, projectId: u.project_id, userId: u.user_id, body: u.body, health: u.health, createdAt: u.created_at })),
-      initiatives: rows<{ id: string; name: string; description: string; status: Initiative['status']; color: string; lead_id: string | null; target_date: string | null; projects: string; position: number; created_at: string; updated_at: string }>('SELECT * FROM initiatives ORDER BY position').map(i => ({ id: i.id, name: i.name, description: i.description, status: i.status, color: i.color, leadId: i.lead_id, targetDate: i.target_date, projectIds: JSON.parse(i.projects), position: i.position, createdAt: i.created_at, updatedAt: i.updated_at })),
-      initiativeUpdates: rows<{ id: string; initiative_id: string; user_id: string; body: string; created_at: string }>('SELECT * FROM initiative_updates ORDER BY created_at DESC').map(u => ({ id: u.id, initiativeId: u.initiative_id, userId: u.user_id, body: u.body, createdAt: u.created_at })),
       cycles: rows<{ id: string; team_id: string; number: number; name: string; starts_at: string; ends_at: string; completed_at: string | null }>('SELECT * FROM cycles ORDER BY number').map(c => ({ id: c.id, teamId: c.team_id, number: c.number, name: c.name, startsAt: c.starts_at, endsAt: c.ends_at, completedAt: c.completed_at })),
       views: rows<{ id: string; team_id: string | null; name: string; icon: string; filters: string; group_by: string; order_by: string; layout: string; position: number }>('SELECT * FROM views ORDER BY position').map(v => ({ id: v.id, teamId: v.team_id, name: v.name, icon: v.icon, filters: JSON.parse(v.filters), groupBy: v.group_by as GroupBy, orderBy: v.order_by as OrderBy, layout: v.layout as 'list' | 'board', position: v.position })),
       favorites: rows<{ id: string; type: Favorite['type']; ref_id: string; position: number }>('SELECT * FROM favorites ORDER BY position').map(f => ({ id: f.id, type: f.type, refId: f.ref_id, position: f.position })),
@@ -65,12 +68,6 @@ export class Store {
     return user;
   }
 
-  /** agent identity writes are attributed to: explicit actorId > first agent user > current user */
-  agentActor(): User | undefined {
-    const snap = this.snapshot();
-    return snap.users.find(u => u.kind === 'agent') ?? snap.currentUser;
-  }
-
   // ---------- teams ----------
   createTeam(key: string, name: string, icon = '📦', color = '#5e6ad2'): Team {
     const team: Team = { id: id('t'), key: key.toUpperCase(), name, icon, color, description: '', position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM teams').get() as { p: number }).p };
@@ -86,7 +83,8 @@ export class Store {
   listTeams(): Team[] { return this.snapshot().teams; }
   updateTeam(teamId: string, patch: Partial<Pick<Team, 'key' | 'name' | 'icon' | 'color' | 'description' | 'position'>>): void {
     const sets: string[] = []; const vals: (string | number)[] = [];
-    for (const [k, v] of Object.entries(patch)) { sets.push(`${k} = ?`); vals.push(v as string | number); }
+    for (const [k, v] of sqlPairs(patch, ['key', 'name', 'icon', 'color', 'description', 'position'])) { sets.push(`${k} = ?`); vals.push(v as string | number); }
+    if (!sets.length) return;
     vals.push(teamId);
     this.db.prepare(`UPDATE teams SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
@@ -101,8 +99,9 @@ export class Store {
     const name = patch.name ?? cur.name;
     const initials = patch.name ? name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() : undefined;
     const sets: string[] = []; const vals: (string | number)[] = [];
-    for (const [k, v] of Object.entries(patch)) { sets.push(`${k} = ?`); vals.push(k === 'admin' ? (v ? 1 : 0) : v as string | number); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'email', 'color', 'admin'])) { sets.push(`${k} = ?`); vals.push(k === 'admin' ? (v ? 1 : 0) : v as string | number); }
     if (initials) { sets.push('initials = ?'); vals.push(initials); }
+    if (!sets.length) return;
     vals.push(userId);
     this.db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
@@ -116,14 +115,20 @@ export class Store {
   }
   updateState(stateId: string, patch: Partial<Pick<WorkflowState, 'name' | 'type' | 'color' | 'position'>>): void {
     const sets: string[] = []; const vals: (string | number | null)[] = [];
-    for (const [k, v] of Object.entries(patch)) { sets.push(`${k.replace(/[A-Z]/g, c => '_' + c.toLowerCase())} = ?`); vals.push(v as string | number); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'type', 'color', 'position'])) { sets.push(`${k.replace(/[A-Z]/g, c => '_' + c.toLowerCase())} = ?`); vals.push(v as string | number); }
+    if (!sets.length) return;
     vals.push(stateId);
     this.db.prepare(`UPDATE states SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
-  deleteState(stateId: string): void {
-    const fallback = this.db.prepare("SELECT id FROM states WHERE team_id = (SELECT team_id FROM states WHERE id = ?) AND type = 'backlog' AND id != ?").get(stateId, stateId) as { id: string } | undefined;
-    if (fallback) this.db.prepare('UPDATE issues SET state_id = ? WHERE state_id = ?').run(fallback.id, stateId);
+  deleteState(stateId: string): string | undefined {
+    // migrate the state's issues to another state of the same team — prefer the backlog,
+    // fall back to the first remaining state; the last state of a team cannot be deleted
+    const others = this.db.prepare('SELECT id, type FROM states WHERE team_id = (SELECT team_id FROM states WHERE id = ?) AND id != ? ORDER BY position').all(stateId, stateId) as Array<{ id: string; type: string }>;
+    if (!others.length) throw new Error('Cannot delete the only workflow state of a team');
+    const movedTo = (others.find(s => s.type === 'backlog') ?? others[0]).id;
+    this.db.prepare('UPDATE issues SET state_id = ? WHERE state_id = ?').run(movedTo, stateId);
     this.db.prepare('DELETE FROM states WHERE id = ?').run(stateId);
+    return movedTo;
   }
 
   // ---------- labels ----------
@@ -133,8 +138,9 @@ export class Store {
     return label;
   }
   updateLabel(labelId: string, patch: Partial<Pick<Label, 'name' | 'color' | 'description'>>): void {
-    const sets = Object.keys(patch).map(k => `${k} = ?`);
-    this.db.prepare(`UPDATE labels SET ${sets.join(', ')} WHERE id = ?`).run(...(Object.values(patch) as string[]), labelId);
+    const pairs = sqlPairs(patch, ['name', 'color', 'description']);
+    if (!pairs.length) return;
+    this.db.prepare(`UPDATE labels SET ${pairs.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...(pairs.map(([, v]) => v) as string[]), labelId);
   }
   deleteLabel(labelId: string): void {
     const rows = this.db.prepare('SELECT id, labels FROM issues').all() as { id: string; labels: string }[];
@@ -153,7 +159,7 @@ export class Store {
   }
   updateTemplate(templateId: string, patch: Partial<Pick<IssueTemplate, 'name' | 'title' | 'description' | 'position'>>): void {
     const sets: string[] = []; const vals: (string | number)[] = [];
-    for (const [k, v] of Object.entries(patch)) { sets.push(`${k} = ?`); vals.push(v as string | number); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'title', 'description', 'position'])) { sets.push(`${k} = ?`); vals.push(v as string | number); }
     if (!sets.length) return;
     vals.push(templateId);
     this.db.prepare(`UPDATE issue_templates SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
@@ -204,7 +210,7 @@ export class Store {
     this.db.prepare(`INSERT INTO issues (id, team_id, number, title, description, state_id, priority, assignee_id, project_id, cycle_id, parent_id, estimate, due_date, sort_order, labels, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(issue.id, issue.teamId, issue.number, issue.title, issue.description, issue.stateId, issue.priority, issue.assigneeId, issue.projectId, issue.cycleId, issue.parentId, issue.estimate, issue.dueDate, issue.sortOrder, JSON.stringify(issue.labelIds), now, now);
     this.logActivity({ issueId: issue.id, type: 'created', data: { title: issue.title } }, actorId);
-    if (issue.assigneeId) this.notifyAssign(issue.id, issue.assigneeId);
+    if (issue.assigneeId) this.notifyAssign(issue.id, issue.assigneeId, actorId);
     return issue;
   }
 
@@ -234,7 +240,7 @@ export class Store {
     if (patch.priority !== undefined && patch.priority !== before.priority) acts.push(['priorityChanged', { from: before.priority, to: next.priority }]);
     if (patch.assigneeId !== undefined && patch.assigneeId !== before.assigneeId) {
       acts.push([next.assigneeId ? 'assigned' : 'unassigned', { to: next.assigneeId, from: before.assigneeId }]);
-      if (next.assigneeId) this.notifyAssign(issueId, next.assigneeId);
+      if (next.assigneeId) this.notifyAssign(issueId, next.assigneeId, actorId);
     }
     if (patch.projectId !== undefined && patch.projectId !== before.projectId) acts.push(['projected', { to: next.projectId }]);
     if (patch.parentId !== undefined && patch.parentId !== before.parentId) acts.push(['parented', { to: next.parentId, from: before.parentId }]);
@@ -286,10 +292,10 @@ export class Store {
     this.updateIssue(issueId, { sortOrder });
   }
 
-  /** soft-delete: keeps the row so the UI can offer undo */
+  /** soft-delete: keeps the row (and the children's parent_id) so undo restores everything;
+      deleted issues are hidden at snapshot level, so detached-looking children never show */
   deleteIssue(issueId: string): void {
     this.db.prepare('UPDATE issues SET deleted_at = ? WHERE id = ?').run(ts(), issueId);
-    this.db.prepare('UPDATE issues SET parent_id = NULL WHERE parent_id = ?').run(issueId);
   }
   restoreIssue(issueId: string): void {
     this.db.prepare('UPDATE issues SET deleted_at = NULL, archived_at = NULL WHERE id = ?').run(issueId);
@@ -350,15 +356,15 @@ export class Store {
   }
 
   // ---------- projects ----------
-  createProject(input: { name: string; teamId?: string | null; description?: string; icon?: string; color?: string; leadId?: string | null; targetDate?: string | null; startDate?: string | null; priority?: Priority }): Project {
+  createProject(input: { name: string; teamId?: string | null; description?: string; icon?: string; color?: string; status?: Project['status']; leadId?: string | null; targetDate?: string | null; startDate?: string | null; priority?: Priority; memberIds?: string[] }): Project {
     const now = ts();
     const p: Project = {
       id: id('p'), teamId: input.teamId ?? null, name: input.name, description: input.description ?? '',
-      icon: input.icon ?? '🧊', color: input.color ?? '#5e6ad2', status: 'planned', health: 'onTrack',
+      icon: input.icon ?? '🧊', color: input.color ?? '#5e6ad2', status: input.status ?? 'planned', health: 'onTrack',
       priority: input.priority ?? 0,
       startDate: input.startDate ?? null, targetDate: input.targetDate ?? null, leadId: input.leadId ?? null,
-      memberIds: [], position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM projects').get() as { p: number }).p,
-      createdAt: now, updatedAt: now, completedAt: null,
+      memberIds: input.memberIds ?? [], position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM projects').get() as { p: number }).p,
+      createdAt: now, updatedAt: now, completedAt: input.status === 'completed' ? now : null,
     };
     this.db.prepare('INSERT INTO projects (id, team_id, name, description, icon, color, status, health, priority, start_date, target_date, lead_id, members, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(p.id, p.teamId, p.name, p.description, p.icon, p.color, p.status, p.health, p.priority, p.startDate, p.targetDate, p.leadId, JSON.stringify(p.memberIds), p.position, now, now);
@@ -370,7 +376,7 @@ export class Store {
     if (!cur) return;
     const sets: string[] = []; const vals: (string | number | null)[] = [];
     const col: Record<string, string> = { startDate: 'start_date', targetDate: 'target_date', leadId: 'lead_id', memberIds: 'members', completedAt: 'completed_at' };
-    for (const [k, v] of Object.entries(patch)) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'memberIds' ? JSON.stringify(v) : v as string | number | null); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'description', 'icon', 'color', 'status', 'health', 'priority', 'startDate', 'targetDate', 'leadId', 'memberIds', 'position', 'completedAt'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'memberIds' ? JSON.stringify(v) : v as string | number | null); }
     sets.push('updated_at = ?'); vals.push(ts(), projectId);
     this.db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
     this.logActivity({ projectId, type: 'projectUpdated', data: { fields: Object.keys(patch) } });
@@ -397,22 +403,6 @@ export class Store {
     return { total, done, percent: total ? Math.round((done / total) * 100) : 0 };
   }
 
-  // ---------- initiatives ----------
-  createInitiative(name: string, description = '', color = '#5e6ad2', leadId: string | null = null, targetDate: string | null = null): Initiative {
-    const now = ts();
-    const ini: Initiative = { id: id('in'), name, description, status: 'planned', color, leadId, targetDate, projectIds: [], position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM initiatives').get() as { p: number }).p, createdAt: now, updatedAt: now };
-    this.db.prepare('INSERT INTO initiatives (id, name, description, status, color, lead_id, target_date, projects, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-      .run(ini.id, name, description, ini.status, color, leadId, targetDate, '[]', ini.position, now, now);
-    return ini;
-  }
-  updateInitiative(initiativeId: string, patch: Partial<Pick<Initiative, 'name' | 'description' | 'status' | 'color' | 'leadId' | 'targetDate' | 'projectIds' | 'position'>>): void {
-    const col: Record<string, string> = { leadId: 'lead_id', targetDate: 'target_date', projectIds: 'projects' };
-    const sets: string[] = []; const vals: (string | number | null)[] = [];
-    for (const [k, v] of Object.entries(patch)) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'projectIds' ? JSON.stringify(v) : v as string | number | null); }
-    sets.push('updated_at = ?'); vals.push(ts(), initiativeId);
-    this.db.prepare(`UPDATE initiatives SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-  }
-
   // ---------- cycles ----------
   createCycle(teamId: string, number: number, startsAt: string, endsAt: string, name = ''): Cycle {
     const c: Cycle = { id: id('cy'), teamId, number, name, startsAt, endsAt, completedAt: null };
@@ -422,7 +412,7 @@ export class Store {
   updateCycle(cycleId: string, patch: Partial<Pick<Cycle, 'name' | 'startsAt' | 'endsAt' | 'completedAt'>>): void {
     const col: Record<string, string> = { startsAt: 'starts_at', endsAt: 'ends_at', completedAt: 'completed_at' };
     const sets: string[] = []; const vals: (string | number | null)[] = [];
-    for (const [k, v] of Object.entries(patch)) { sets.push(`${col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase())} = ?`); vals.push(v as string | number | null); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'startsAt', 'endsAt', 'completedAt'])) { sets.push(`${col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase())} = ?`); vals.push(v as string | number | null); }
     vals.push(cycleId);
     this.db.prepare(`UPDATE cycles SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
@@ -440,7 +430,7 @@ export class Store {
   updateMilestone(milestoneId: string, patch: Partial<Pick<Milestone, 'name' | 'targetDate' | 'status' | 'position'>>): void {
     const col: Record<string, string> = { targetDate: 'target_date' };
     const sets: string[] = []; const vals: (string | number | null)[] = [];
-    for (const [k, v] of Object.entries(patch)) { sets.push(`${col[k] ?? k.replace(/[A-Z]/g, mm => '_' + mm.toLowerCase())} = ?`); vals.push(v as string | number | null); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'targetDate', 'status', 'position'])) { sets.push(`${col[k] ?? k.replace(/[A-Z]/g, mm => '_' + mm.toLowerCase())} = ?`); vals.push(v as string | number | null); }
     vals.push(milestoneId);
     this.db.prepare(`UPDATE milestones SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
@@ -462,7 +452,7 @@ export class Store {
   updateView(viewId: string, patch: Partial<Pick<SavedView, 'name' | 'icon' | 'filters' | 'groupBy' | 'orderBy' | 'layout' | 'position'>>): void {
     const col: Record<string, string> = { groupBy: 'group_by', orderBy: 'order_by' };
     const sets: string[] = []; const vals: (string | number | null)[] = [];
-    for (const [k, v] of Object.entries(patch)) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'filters' ? JSON.stringify(v) : v as string | number | null); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'icon', 'filters', 'groupBy', 'orderBy', 'layout', 'position'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'filters' ? JSON.stringify(v) : v as string | number | null); }
     vals.push(viewId);
     this.db.prepare(`UPDATE views SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
@@ -476,9 +466,10 @@ export class Store {
   }
 
   // ---------- notifications ----------
-  private notifyAssign(issueId: string, assigneeId: string): void {
+  // only notify when someone else assigned it to you — never for self-assignment
+  private notifyAssign(issueId: string, assigneeId: string, actorId?: string): void {
     const me = getMeta(this.db, 'currentUser');
-    if (assigneeId === me) {
+    if (assigneeId === me && assigneeId !== (actorId ?? me)) {
       this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, body, created_at) VALUES (?, ?, NULL, ?, ?, ?)').run(id('n'), 'issueAssignedToYou', issueId, 'You were assigned this issue', ts());
     }
   }
@@ -555,8 +546,6 @@ export class Store {
       { ...p, team_id: p.teamId, status: p.status ?? 'planned', health: p.health ?? 'onTrack', priority: p.priority ?? 0, start_date: p.startDate, target_date: p.targetDate, lead_id: p.leadId, members: JSON.stringify(p.memberIds ?? []), position: p.position ?? 0, created_at: p.createdAt ?? ts(), updated_at: p.updatedAt ?? ts(), completed_at: p.completedAt });
     for (const u of arr<Record<string, unknown>>(data.projectUpdates)) insert('project_updates', ['id', 'project_id', 'user_id', 'body', 'health', 'created_at'], { ...u, project_id: u.projectId, user_id: u.userId, created_at: u.createdAt });
     for (const m of arr<Record<string, unknown>>(data.milestones)) insert('milestones', ['id', 'project_id', 'name', 'target_date', 'status', 'position', 'created_at'], { ...m, project_id: m.projectId, target_date: m.targetDate, position: m.position ?? 0, created_at: m.createdAt ?? ts() });
-    for (const ini of arr<Record<string, unknown>>(data.initiatives)) insert('initiatives', ['id', 'name', 'description', 'status', 'color', 'lead_id', 'target_date', 'projects', 'position', 'created_at', 'updated_at'], { ...ini, lead_id: ini.leadId, target_date: ini.targetDate, projects: JSON.stringify(ini.projectIds ?? []), position: ini.position ?? 0, created_at: ini.createdAt ?? ts(), updated_at: ini.updatedAt ?? ts() });
-    for (const iu of arr<Record<string, unknown>>(data.initiativeUpdates)) insert('initiative_updates', ['id', 'initiative_id', 'user_id', 'body', 'created_at'], { ...iu, initiative_id: iu.initiativeId, user_id: iu.userId, created_at: iu.createdAt });
     for (const cy of arr<Record<string, unknown>>(data.cycles)) insert('cycles', ['id', 'team_id', 'number', 'name', 'starts_at', 'ends_at', 'completed_at'], { ...cy, team_id: cy.teamId, starts_at: cy.startsAt, ends_at: cy.endsAt, completed_at: cy.completedAt });
     for (const v of arr<Record<string, unknown>>(data.views)) insert('views', ['id', 'team_id', 'name', 'icon', 'filters', 'group_by', 'order_by', 'layout', 'position', 'created_at'], { ...v, team_id: v.teamId, icon: v.icon ?? '', filters: JSON.stringify(v.filters ?? {}), group_by: v.groupBy ?? 'status', order_by: v.orderBy ?? 'priority', layout: v.layout ?? 'list', position: v.position ?? 0, created_at: ts() });
     for (const f of arr<Record<string, unknown>>(data.favorites)) insert('favorites', ['id', 'type', 'ref_id', 'position'], { ...f, ref_id: f.refId, position: f.position ?? 0 });
@@ -564,7 +553,7 @@ export class Store {
     for (const a of arr<Record<string, unknown>>(data.activity)) insert('activity', ['id', 'issue_id', 'project_id', 'user_id', 'type', 'data', 'created_at'], { ...a, issue_id: a.issueId, project_id: a.projectId, user_id: a.userId, data: JSON.stringify(a.data ?? {}), created_at: a.createdAt });
   }
   wipe(): void {
-    for (const t of ['activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'initiative_updates', 'initiatives', 'project_updates', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
+    for (const t of ['activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
   }

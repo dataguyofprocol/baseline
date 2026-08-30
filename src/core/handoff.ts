@@ -10,7 +10,7 @@ export const DEFAULT_PROMPT_TEMPLATE = `Implement Baseline issue {{key}}: {{titl
 
 Branch: {{branch}} (create from main).
 
-When you finish: post a short progress comment on issue {{key}} via the baseline CLI/MCP and set its state to Done. If you only partially complete it, comment what remains and leave the state unchanged.`;
+When you finish: post a short progress comment on issue {{key}} via the baseline CLI and set its state to Done. If you only partially complete it, comment what remains and leave the state unchanged.`;
 
 export const PROMPT_TEMPLATE_VARS = [
   ['{{key}}', 'issue key, e.g. CORE-14'],
@@ -66,7 +66,7 @@ export function buildHandoff(
     .map(lid => ctx.labels.find(l => l.id === lid)?.name)
     .filter((n): n is string => !!n);
   const branch = branchName(key, issue.title);
-  const base = (ctx.baseUrl ?? process.env.BASELINE_URL ?? 'http://localhost:7327').replace(/\/+$/, '');
+  const base = (ctx.baseUrl ?? process.env.BASELINE_URL ?? 'http://localhost:7770').replace(/\/+$/, '');
   const vars: Record<string, string> = {
     key,
     title: issue.title,

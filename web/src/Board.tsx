@@ -1,54 +1,42 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   DndContext, PointerSensor, useSensor, useSensors,
-  DragOverlay, useDroppable,
+  DragOverlay, useDroppable, closestCorners,
   type DragStartEvent, type DragEndEvent,
 } from '@dnd-kit/core';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { useApp, shortDate, STATUS_ORDER } from './store.js';
+import { CSS } from '@dnd-kit/utilities';
+import { useApp, STATUS_ORDER, copyText } from './store.js';
 import { api } from './api.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconMore, IconPlus } from './icons.js';
-import { groupsFor, issuesOfGroup } from './IssueViews.js';
+import { IconPlus, IconMore, IconCopy, IconFocus } from './icons.js';
+import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
+import { groupsFor, issuesOfGroup, orderIssues } from './IssueViews.js';
 import type { Issue, GroupBy, Priority } from '../../src/core/types.js';
 
-function BoardCard(props: { issue: Issue; dragging?: boolean; columnWidth?: number }) {
+/* card internals — shared by the sortable card and the drag overlay */
+function CardBody(props: { issue: Issue; groupBy: GroupBy }) {
   const snap = useApp(s => s.snap)!;
-  const setPeek = useApp(s => s.setPeek);
-  const navigate = useNavigate();
   const team = snap.teams.find(t => t.id === props.issue.teamId);
   const state = snap.states.find(s => s.id === props.issue.stateId);
   const assignee = snap.users.find(u => u.id === props.issue.assigneeId);
   const labels = snap.labels.filter(l => props.issue.labelIds.includes(l.id));
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({ id: props.issue.id, data: { issue: props.issue } });
-  void isDragging;
-
   return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className={`board-card ${props.dragging ? 'dragging' : ''}`}
-      style={transform && !props.dragging ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 10 } : props.dragging ? { width: props.columnWidth ?? 440 } : undefined}
-      onClick={(e) => {
-        if ((e.target as HTMLElement).closest('[data-no-drag]')) return;
-        setPeek(props.issue.id);
-      }}
-      onAuxClick={() => navigate(`/issue/${team?.key}-${props.issue.number}`)}
-    >
+    <>
       <div className="bc-top">
         <span className="bc-key">{team?.key}-{props.issue.number}</span>
-        <span style={{ marginLeft: 'auto' }} data-no-drag><Avatar user={assignee} /></span>
+        <span data-no-drag><Avatar user={assignee} /></span>
       </div>
       <div className="bc-title">
-        {state && <StateIcon type={state.type} color={state.color} size={13} />}
+        {/* the column already says where it lives — only repeat the state on non-status boards */}
+        {props.groupBy !== 'status' && state && <StateIcon type={state.type} color={state.color} size={13} />}
         <span>{props.issue.title}</span>
       </div>
       {(props.issue.priority > 0 || labels.length > 0) && (
         <div className="bc-meta">
           {props.issue.priority > 0 && <PriorityIcon priority={props.issue.priority} size={13} />}
-          {labels.slice(0, 2).map(l => (
+          {labels.slice(0, 3).map(l => (
             <span key={l.id} className="label-pill" style={{ background: `color-mix(in srgb, ${l.color} calc(var(--label-bg-alpha) * 100%), transparent)`, color: 'var(--text-secondary)' }}>
               <span className="label-dot" style={{ background: l.color }} />
               {l.name}
@@ -56,7 +44,40 @@ function BoardCard(props: { issue: Issue; dragging?: boolean; columnWidth?: numb
           ))}
         </div>
       )}
-      <div className="bc-footer">Created {shortDate(props.issue.createdAt)}</div>
+    </>
+  );
+}
+
+function BoardCard(props: { issue: Issue; groupBy: GroupBy }) {
+  const navigate = useNavigate();
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.issue.id, data: { issue: props.issue } });
+  // a completed drag must not land as a click on the (hidden) source card
+  const suppressClick = useRef(false);
+  useEffect(() => {
+    if (isDragging) { suppressClick.current = true; return; }
+    // dnd-kit capture-stops the drag's own trailing click, so the card never gets
+    // the chance to consume the flag — release it once the drag has settled
+    if (!suppressClick.current) return;
+    const t = setTimeout(() => { suppressClick.current = false; }, 150);
+    return () => clearTimeout(t);
+  }, [isDragging]);
+  const open = () => {
+    if (suppressClick.current) { suppressClick.current = false; return; }
+    const team = useApp.getState().snap?.teams.find(t => t.id === props.issue.teamId);
+    navigate(`/issue/${team?.key}-${props.issue.number}`);
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`board-card ${isDragging ? 'source-hidden' : ''}`}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      onClick={open}
+      onAuxClick={open}
+    >
+      <CardBody issue={props.issue} groupBy={props.groupBy} />
     </div>
   );
 }
@@ -71,111 +92,125 @@ const FIELD_FOR: Partial<Record<GroupBy, string>> = {
 
 export function Board(props: {
   issues: Issue[];
-  teamId: string;
+  /** omit for cross-team boards (My Issues, saved views) — columns merge by state name */
+  teamId?: string;
   groupBy?: GroupBy;
+  /** 'manual' keeps drag order; any other ordering sorts cards inside columns */
+  orderBy?: string;
+  /** status boards: focus a column via the status filter (wired by the page);
+      cross-team columns focus every state merged into them */
+  onFocusColumn?: (stateIds: string[]) => void;
 }) {
   const snap = useApp(s => s.snap)!;
-  const groupBy = props.groupBy ?? 'status';
-  const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
-  const [hiddenOpen, setHiddenOpen] = useState(false);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-
-  const statusStates = useMemo(
-    () => snap.states.filter(s => s.teamId === props.teamId)
-      .sort((a, b) => {
-        const ia = STATUS_ORDER.indexOf(a.type as never);
-        const ib = STATUS_ORDER.indexOf(b.type as never);
-        return ia !== ib ? ia - ib : a.position - b.position;
-      }),
-    [snap.states, props.teamId],
-  );
+  const rawGroupBy = props.groupBy ?? 'status';
+  const groupBy: GroupBy = rawGroupBy === 'none' ? 'status' : rawGroupBy;
+  const [active, setActive] = useState<{ issue: Issue; width: number } | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const columns = useMemo(() => {
-    if (groupBy === 'none') return [];
     if (groupBy === 'status') {
       // merge cross-team states by name like the list does
-      const seen = new Map<string, { id: string; label: string; icon: React.ReactNode; fieldId: string }>();
-      for (const s of statusStates) {
-        if (seen.has(s.name)) continue;
-        seen.set(s.name, { id: s.id, label: s.name, icon: <StateIcon type={s.type} color={s.color} size={14} />, fieldId: s.id });
+      const states = snap.states
+        .filter(s => !props.teamId || s.teamId === props.teamId)
+        .sort((a, b) => {
+          const ia = STATUS_ORDER.indexOf(a.type as never);
+          const ib = STATUS_ORDER.indexOf(b.type as never);
+          return ia !== ib ? ia - ib : a.position - b.position;
+        });
+      const seen = new Map<string, { id: string; label: string; icon: React.ReactNode; stateIds: string[] }>();
+      for (const s of states) {
+        const col = seen.get(s.name);
+        if (col) { col.stateIds.push(s.id); continue; }
+        seen.set(s.name, { id: s.id, label: s.name, icon: <StateIcon type={s.type} color={s.color} size={14} />, stateIds: [s.id] });
       }
       return [...seen.values()];
     }
-    return groupsFor(groupBy, snap, props.teamId).map(g => ({ id: g.id, label: g.label, icon: g.icon, fieldId: g.id === 'none' ? null : g.id }));
-  }, [groupBy, snap, props.teamId, statusStates]);
+    return groupsFor(groupBy, snap, props.teamId).map(g => ({ id: g.id, label: g.label, icon: g.icon, stateIds: [g.id] }));
+  }, [groupBy, snap, props.teamId]);
 
   const byColumn = useMemo(() => {
     const m = new Map<string, Issue[]>();
     for (const col of columns) m.set(col.id, []);
     for (const i of props.issues) {
-      if (groupBy === 'none') continue;
       const match = columns.find(col => issuesOfGroup(groupBy, [i], col.id).length > 0);
       if (match) m.get(match.id)!.push(i);
     }
-    for (const arr of m.values()) arr.sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const [id, arr] of m) m.set(id, props.orderBy && props.orderBy !== 'manual' ? orderIssues(arr, props.orderBy) : arr.sort((a, b) => a.sortOrder - b.sortOrder));
     return m;
-  }, [props.issues, columns, groupBy]);
-
-  const emptyStatusColumns = groupBy === 'status'
-    ? columns.filter(col => (byColumn.get(col.id) ?? []).length === 0)
-    : [];
+  }, [props.issues, props.orderBy, columns, groupBy]);
 
   const field = FIELD_FOR[groupBy];
 
-  const onDragStart = (e: DragStartEvent) => setActiveIssue((e.active.data.current?.issue as Issue) ?? null);
+  const onDragStart = (e: DragStartEvent) => {
+    const issue = e.active.data.current?.issue as Issue | undefined;
+    if (issue) setActive({ issue, width: e.active.rect.current.initial?.width ?? 320 });
+  };
 
   const onDragEnd = async (e: DragEndEvent) => {
-    setActiveIssue(null);
+    setActive(null);
     const { active, over } = e;
-    if (!over) return;
+    if (!over || String(over.id) === String(active.id)) return;
     const issue = active.data.current?.issue as Issue | undefined;
     if (!issue) return;
 
-    // resolve target column: dropped on a column body, a hidden column, or a card
     const overId = String(over.id);
-    let targetColId: string | undefined;
-    let overIndex = -1;
-    if (overId.startsWith('hidden:')) {
-      targetColId = overId.slice('hidden:'.length);
-      overIndex = (byColumn.get(targetColId) ?? []).length;
-    } else {
-      for (const col of columns) {
-        const cards = byColumn.get(col.id) ?? [];
-        if (overId === col.id) { targetColId = col.id; overIndex = cards.length; break; }
-        const idx = cards.findIndex(c => c.id === overId);
-        if (idx >= 0) { targetColId = col.id; overIndex = idx; break; }
+    let targetCol: { id: string; label: string } | undefined;
+    let beforeId: string | null = null;
+    let afterId: string | null = null;
+    for (const col of columns) {
+      const cards = byColumn.get(col.id) ?? [];
+      if (overId === col.id) {
+        targetCol = col;
+        afterId = cards.length ? cards[cards.length - 1].id : null;
+        break;
+      }
+      const idx = cards.findIndex(c => c.id === overId);
+      if (idx >= 0) {
+        targetCol = col;
+        beforeId = cards[idx].id;
+        afterId = idx > 0 ? cards[idx - 1].id : null;
+        break;
       }
     }
-    if (!targetColId) return;
+    if (!targetCol) return;
 
-    const targetCards = (byColumn.get(targetColId) ?? []).filter(c => c.id !== issue.id);
-    const overCard = targetCards[Math.min(overIndex, targetCards.length - 1)];
-    let afterId: string | null = null;
-    let beforeId: string | null = null;
-    if (overCard && overIndex < targetCards.length) {
-      beforeId = overCard.id;
-      const prevCard = targetCards[overIndex - 1];
-      afterId = prevCard ? prevCard.id : null;
-    } else {
-      afterId = targetCards.length ? targetCards[targetCards.length - 1].id : null;
-    }
+    // no-op detection: same column, same neighbours → nothing to persist
+    const sourceColId = columns.find(col => (byColumn.get(col.id) ?? []).some(c => c.id === issue.id))?.id;
+    const sameSpot = targetCol.id === sourceColId && beforeId === neighborOf(byColumn, sourceColId, issue.id, -1) && afterId === neighborOf(byColumn, sourceColId, issue.id, +1);
 
-    // move field (status / priority / assignee / project / cycle) if the column differs
-    if (field) {
+    let fieldChanged = false;
+    if (field && !sameSpot) {
       const current = (issue as unknown as Record<string, unknown>)[field];
-      const nextValue = groupBy === 'priority' ? Number(targetColId) : (targetColId === 'none' ? null : targetColId);
+      // on merged status boards, resolve the drop column to the issue's own team state
+      let nextValue: string | number | null = targetCol.id;
+      if (groupBy === 'status') {
+        const ownState = snap.states.find(s => s.teamId === issue.teamId && s.name === targetCol.label);
+        // the column's state doesn't exist in this issue's team — nowhere to move it
+        if (!ownState) return;
+        nextValue = ownState.id;
+      } else if (groupBy === 'priority') {
+        nextValue = Number(targetCol.id);
+      } else if (targetCol.id === 'none') {
+        nextValue = null;
+      }
       if (current !== nextValue) {
         await api.updateIssue(issue.id, { [field]: nextValue });
+        fieldChanged = true;
       }
     }
-    if (beforeId !== issue.id && afterId !== issue.id) {
-      await api.moveIssue(issue.id, beforeId, afterId);
-    }
-    await useApp.getState().bootstrap();
+    const moved = beforeId !== issue.id && afterId !== issue.id;
+    if (!sameSpot && moved) await api.moveIssue(issue.id, beforeId, afterId);
+    if (!sameSpot && (fieldChanged || moved)) await useApp.getState().bootstrap();
   };
 
   return (
-    <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveIssue(null)}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragCancel={() => setActive(null)}
+    >
       <div className="board">
         {columns.map(col => (
           <BoardColumn
@@ -183,29 +218,18 @@ export function Board(props: {
             id={col.id}
             label={col.label}
             icon={col.icon}
+            stateIds={col.stateIds}
             issues={byColumn.get(col.id) ?? []}
             groupBy={groupBy}
             teamId={props.teamId}
+            onFocus={props.onFocusColumn}
           />
         ))}
-        {emptyStatusColumns.length > 0 && (
-          <div style={{ flex: 'none', width: 210 }}>
-            <button className="board-col-header" style={{ width: '100%' }} onClick={() => setHiddenOpen(o => !o)}>
-              <span style={{ fontSize: 10 }}>{hiddenOpen ? '▾' : '▸'}</span> Hidden columns
-              <span className="count">{emptyStatusColumns.length}</span>
-            </button>
-            {hiddenOpen && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                {emptyStatusColumns.map(col => <HiddenColumn key={col.id} col={col} />)}
-              </div>
-            )}
-          </div>
-        )}
       </div>
-      <DragOverlay dropAnimation={null}>
-        {activeIssue && (
-          <div style={{ width: 440 }}>
-            <BoardCard issue={activeIssue} dragging />
+      <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }}>
+        {active && (
+          <div className="board-card overlay-card" style={{ width: active.width }}>
+            <CardBody issue={active.issue} groupBy={groupBy} />
           </div>
         )}
       </DragOverlay>
@@ -213,39 +237,46 @@ export function Board(props: {
   );
 }
 
-function HiddenColumn(props: { col: { id: string; label: string; icon: React.ReactNode } }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `hidden:${props.col.id}`, data: { hiddenTarget: props.col.id } });
-  return (
-    <div ref={setNodeRef} className={`board-col-body hidden-col ${isOver ? 'drag-over' : ''}`} style={{ minHeight: 60 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--bg-overlay)', border: '1px solid var(--border)', borderRadius: 8, opacity: 0.75 }}>
-        {props.col.icon}
-        {props.col.label}
-      </div>
-    </div>
-  );
+function neighborOf(byColumn: Map<string, Issue[]>, colId: string | undefined, issueId: string, delta: -1 | 1): string | null | undefined {
+  if (!colId) return undefined;
+  const cards = byColumn.get(colId) ?? [];
+  const idx = cards.findIndex(c => c.id === issueId);
+  if (idx < 0) return undefined;
+  const n = cards[idx + delta];
+  return n ? n.id : null;
 }
 
 function BoardColumn(props: {
   id: string;
   label: string;
   icon: React.ReactNode;
+  /** every state merged into this column (all teams on cross-team boards) */
+  stateIds: string[];
   issues: Issue[];
   groupBy: GroupBy;
-  teamId: string;
+  teamId?: string;
+  onFocus?: (stateIds: string[]) => void;
 }) {
+  const snap = useApp(s => s.snap)!;
   const openCreate = useApp(s => s.openCreate);
+  const toast = useApp(s => s.toast);
+  const menu = useMenu();
   const { setNodeRef, isOver } = useDroppable({ id: props.id });
+  // cross-team boards pass no teamId — resolve it from the column's state so
+  // the create modal opens on the team the column actually belongs to
+  const createTeamId = props.teamId ?? snap.states.find(s => s.id === props.id)?.teamId;
+  const addIssue = () => openCreate({ teamId: createTeamId, stateId: props.id });
+
   return (
     <div className="board-col">
       <div className="board-col-header">
         {props.icon}
-        <span>{props.label}</span>
+        <span className="bch-label">{props.label}</span>
         <span className="count">{props.issues.length}</span>
         <span className="col-actions">
-          <button className="icon-btn" data-no-drag><IconMore size={13} /></button>
+          <button className="icon-btn" data-no-drag title="Column actions" onClick={menu.open}><IconMore size={13} /></button>
           {props.groupBy === 'status' && (
-            <button className="icon-btn" data-no-drag title="Create issue in this status"
-              onClick={() => openCreate({ teamId: props.teamId, stateId: props.id })}>
+            <button className="icon-btn" data-no-drag title="Create issue in this status" onClick={addIssue}>
               <IconPlus size={13} />
             </button>
           )}
@@ -253,9 +284,29 @@ function BoardColumn(props: {
       </div>
       <SortableContext items={props.issues.map(i => i.id)} strategy={verticalListSortingStrategy}>
         <div ref={setNodeRef} className={`board-col-body ${isOver ? 'drag-over' : ''}`}>
-          {props.issues.map(i => <BoardCard key={i.id} issue={i} />)}
+          {props.issues.map(i => <BoardCard key={i.id} issue={i} groupBy={props.groupBy} />)}
         </div>
       </SortableContext>
+      {menu.anchor && (
+        <Menu anchor={menu.anchor} onClose={menu.close} width={210}>
+          {props.groupBy === 'status' && (
+            <>
+              <MenuItem icon={<IconPlus size={14} />} label="Add issue…" onClick={addIssue} />
+              {props.onFocus && (
+                <MenuItem icon={<IconFocus size={14} />} label="Focus this column" onClick={() => props.onFocus!(props.stateIds)} />
+              )}
+              <MenuSep />
+            </>
+          )}
+          <MenuItem icon={<IconCopy size={14} />} label="Copy as markdown" onClick={async () => {
+            const lines = props.issues.map(i => {
+              const t = snap.teams.find(x => x.id === i.teamId);
+              return `- \`${t?.key}-${i.number}\` ${i.title}`;
+            });
+            if (await copyText(lines.join('\n'))) toast({ title: `Copied ${lines.length} issue${lines.length === 1 ? '' : 's'}` });
+          }} />
+        </Menu>
+      )}
     </div>
   );
 }
