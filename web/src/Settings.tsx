@@ -4,7 +4,7 @@ import { useApp } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash, IconBot } from './icons.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconAgent } from './icons.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
 import type { WorkflowStateType, Priority } from '../../src/core/types.js';
 
@@ -58,7 +58,7 @@ function WorkspaceSettings() {
     <div className="settings-card">
       <h1>Workspace</h1>
       <div className="field-row">
-        <div><div className="field-label">Name</div><div className="field-help">Shown in the sidebar and page titles.</div></div>
+        <div><div className="field-label">Name</div><div className="field-help">Shown in the top nav and page titles.</div></div>
         <input className="text-input" value={name} onChange={e => setName(e.target.value)} onBlur={save} />
       </div>
       <div className="field-row">
@@ -324,7 +324,7 @@ function MembersSettings() {
           <div key={u.id} className="prop-row">
             <Avatar user={u} size={22} />
             <span style={{ flex: 1 }}>{u.name}{u.id === snap.currentUser.id ? <span style={{ color: 'var(--text-dim)' }}> (you)</span> : null}</span>
-            {u.kind === 'agent' && <span className="kbd" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconBot size={11} /> Agent</span>}
+            {u.kind === 'agent' && <span className="kbd" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconAgent size={11} /> Agent</span>}
             {u.admin && <span className="kbd">Admin</span>}
             {u.id !== snap.currentUser.id && (
               <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={async () => {
@@ -346,7 +346,7 @@ function MembersSettings() {
             onKeyDown={e => e.key === 'Enter' && create()} />
           <div style={{ display: 'flex', gap: 4 }}>
             {(['human', 'agent'] as const).map(k => (
-              <button key={k} className={`seg ${asAgent === (k === 'agent') ? 'selected' : ''}`} style={{ textTransform: 'capitalize' }} onClick={() => setAsAgent(k === 'agent')}>{k}</button>
+              <button key={k} className={`seg seg-fill ${asAgent === (k === 'agent') ? 'selected' : ''}`} style={{ textTransform: 'capitalize' }} onClick={() => setAsAgent(k === 'agent')}>{k}</button>
             ))}
           </div>
           <button className="btn primary" onClick={create}>Add</button>
@@ -604,7 +604,7 @@ function AppearanceSettings() {
         <div><div className="field-label">Theme</div><div className="field-help">Dark is the default; light follows the reference look.</div></div>
         <div style={{ display: 'flex', gap: 6 }}>
           {(['dark', 'light'] as const).map(t => (
-            <button key={t} className={`seg ${theme === t ? 'selected' : ''}`} style={{ textTransform: 'capitalize' }} onClick={() => setTheme(t)}>{t}</button>
+            <button key={t} className={`seg seg-fill ${theme === t ? 'selected' : ''}`} style={{ textTransform: 'capitalize' }} onClick={() => setTheme(t)}>{t}</button>
           ))}
         </div>
       </div>

@@ -160,35 +160,35 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
 
 /* ---------------- toasts ----------------
    Enter 260ms rise on the global ease; exit 220ms. The auto-close window is
-   drawn as a depleting ring so the undo deadline is visible, not guessed at. */
+   drawn as a depleting register line on the bottom edge (5200ms linear, square
+   ends — same clock as the store's undo timer). Three at most; the older two
+   recede to 72% and drop their line. Undo is the surface's paper button. */
 export function Toasts() {
   const toasts = useApp(s => s.toasts);
   const dismiss = useApp(s => s.dismissToast);
+  const shown = toasts.slice(-3);
   return createPortal(
     <div className="toasts">
       <AnimatePresence>
-        {toasts.map(t => (
-          <motion.div key={t.id} className="toast" layout
+        {shown.map((t, i) => (
+          <motion.div key={t.id} className={`toast ${i < shown.length - 1 ? 'stacked' : ''}`} layout
             initial={{ opacity: 0, y: 14, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.98, transition: { duration: 0.22, ease: 'easeOut' } }}
             transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}>
-            {t.autoClose !== false && (
-              <svg className="toast-ring" width={18} height={18} viewBox="0 0 18 18">
-                <circle cx="9" cy="9" r="8" fill="none" stroke="var(--border-strong)" strokeWidth="1.6" />
-                <circle className="toast-ring-fill" cx="9" cy="9" r="8" fill="none" stroke="var(--brand)" strokeWidth="1.6" strokeLinecap="round" strokeDasharray="50.3" />
-              </svg>
-            )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="toast-title">{t.title}</div>
               {t.line && <div className="toast-line">{t.line}</div>}
               {t.link && <a className="toast-link" href={t.link.to}>{t.link.label}</a>}
             </div>
             {t.actions?.map(a => (
-              <button key={a.label} className="btn" style={{ height: 26, fontSize: 12 }}
+              <button key={a.label} className="btn primary" style={{ height: 26, fontSize: 12 }}
                 onClick={async () => { await a.onClick(); dismiss(t.id); }}>{a.label}</button>
             ))}
             <button className="icon-btn" onClick={() => dismiss(t.id)}><IconClose size={13} /></button>
+            {t.autoClose !== false && (
+              <div className="toast-line-track"><div className="toast-line-fill" /></div>
+            )}
           </motion.div>
         ))}
       </AnimatePresence>

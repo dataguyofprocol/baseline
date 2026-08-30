@@ -1,20 +1,91 @@
+// The mark: a rule with a node cut out of it — the datum work is measured against.
+// The node is knocked out of the rule (a paper-coloured gap), never stroked on top.
+// Two cuts, not one scaled mark: >=24px keeps the register line and the 7.6 radius;
+// <24px drops the register line, thickens the rule 1.9 -> 2.6 and tightens radius to 6.4.
+// The small cut also opens the gap wider than a scaled-down large cut would (1.8 grid
+// units, not 1.2) and centres the node at 14 rather than 12.6: at 16px a 1.2-unit gap
+// lands on 0.6 device px and greys out, and a node further left leaves a rule stub too
+// short to read. Every part of the small cut is >= 1 device px at 16. This cut lives in
+// the tab bar; it has to survive it.
+// Grounds stay flat — no gradient, no sheen, no glow, at any size.
+
 export function Logo({ size = 18 }: { size?: number }) {
+  const small = size < 24;
+  const uid = small ? 'bl-logo-s' : 'bl-logo-l';
+  const rule = small ? 2.6 : 1.9;
+  const ruleX = small ? 4.4 : 6;
+  const ruleW = small ? 23.2 : 20;
+  const ruleY = small ? 18.3 : 18.6;
+  const nodeCx = small ? 14.0 : 12.4;
+  const nodeR = small ? 4.0 : 3.6;
+  const gapR = small ? 6.0 : 4.7;
+  const cy = ruleY + rule / 2;
+
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
       <defs>
-        <linearGradient id="baseline-bg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#6e79d6" />
-          <stop offset="100%" stopColor="#4f5bbd" />
-        </linearGradient>
-        <filter id="baseline-shadow" x="-25%" y="-25%" width="150%" height="150%">
-          <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodColor="#0b0b0f" floodOpacity={0.35} />
-        </filter>
+        <mask id={uid + '-gap'}>
+          <rect width="32" height="32" fill="#fff" />
+          <circle cx={nodeCx} cy={cy} r={gapR} fill="#000" />
+        </mask>
       </defs>
-      <rect width="32" height="32" rx="7" fill="url(#baseline-bg)" />
-      <g filter="url(#baseline-shadow)">
-        <line x1="7" y1="16" x2="25" y2="16" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
-        <circle cx="16" cy="16" r="4.5" fill="url(#baseline-bg)" stroke="#fff" strokeWidth="2.5" />
+      <rect width="32" height="32" rx={small ? 6.4 : 7.6} fill="#14151A" />
+      {!small && (
+        <>
+          <rect x={0.5} y={0.5} width={31} height={31} rx={7.2} fill="none" stroke="#fff" strokeOpacity={0.09} />
+          <rect x={6} y={22.3} width={20} height={0.9} fill="#5E6AD2" />
+        </>
+      )}
+      <g fill="#F3F1EC">
+        <rect x={ruleX} y={ruleY} width={ruleW} height={rule} mask={`url(#${uid}-gap)`} />
+        <circle cx={nodeCx} cy={cy} r={nodeR} />
       </g>
     </svg>
+  );
+}
+
+// Containerless mark — inherits currentColor. The only illustration the product
+// uses: empty states, watermarks, print.
+export function LogoMark({ size = 32 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <defs>
+        <mask id="bl-mark-gap">
+          <rect width="32" height="32" fill="#fff" />
+          <circle cx={11} cy={19.35} r={5.5} fill="#000" />
+        </mask>
+      </defs>
+      <g fill="currentColor">
+        <rect x={1.6} y={18.3} width={28.8} height={2.1} mask="url(#bl-mark-gap)" />
+        <circle cx={11} cy={19.35} r={4.4} />
+      </g>
+    </svg>
+  );
+}
+
+// Lockup: node + wordmark + one rule running under both and past the word.
+// Sign-in and marketing only — never product chrome.
+export function Lockup({ size = 44, tone = 'var(--brand-paper)' }: { size?: number; tone?: string }) {
+  const dot = Math.round(size * 0.295);
+  const ruleW = Math.round(size * 6.45);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: size * 0.25, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: size * 0.295 }}>
+        <span style={{ width: dot, height: dot, borderRadius: '50%', background: tone, flex: 'none' }} />
+        <span
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: size,
+            fontWeight: 400,
+            letterSpacing: '-0.015em',
+            lineHeight: 1,
+            color: tone,
+          }}
+        >
+          Baseline
+        </span>
+      </div>
+      <div style={{ width: ruleW, height: Math.max(1.4, size * 0.045), background: tone }} />
+    </div>
   );
 }

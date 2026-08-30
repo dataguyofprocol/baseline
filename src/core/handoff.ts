@@ -27,15 +27,43 @@ export const PROMPT_TEMPLATE_VARS = [
   ['{{labels}}', 'comma-separated label names'],
 ] as const;
 
-export function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-    .replace(/-+$/g, '');
+/** Filler words that carry no meaning in a branch name — dropped before the length cap
+ *  so the words that identify the work survive ("fix", "add", nouns) rather than "the-issue-with". */
+const BRANCH_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'of', 'for', 'to', 'in', 'into', 'on', 'onto', 'at',
+  'by', 'from', 'with', 'without', 'as', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'it', 'its', 'this', 'that', 'these', 'those', 'we', 'our', 'you', 'your', 'they', 'their',
+  'so', 'than', 'then', 'when', 'while', 'not', 'no', 'all', 'any', 'via',
+]);
+
+/** Words kept in a branch slug, and the slug's hard character cap. */
+const BRANCH_MAX_WORDS = 4;
+const BRANCH_MAX_CHARS = 28;
+
+/** Lowercase, hyphenated slug that stops on a word boundary — never mid-word.
+ *  Titles are often a whole sentence, so this keeps the first few meaningful words
+ *  instead of truncating the sentence into an unreadable stub. */
+export function slugify(text: string, maxChars = BRANCH_MAX_CHARS, maxWords = BRANCH_MAX_WORDS): string {
+  const words = text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+  if (words.length === 0) return '';
+  const meaningful = words.filter(w => !BRANCH_STOPWORDS.has(w));
+  const candidates = meaningful.length > 0 ? meaningful : words;
+
+  const kept: string[] = [];
+  let len = 0;
+  for (const w of candidates) {
+    if (kept.length >= maxWords) break;
+    const cost = kept.length === 0 ? w.length : w.length + 1;
+    if (kept.length > 0 && len + cost > maxChars) break;
+    kept.push(w);
+    len += cost;
+  }
+  // a single word longer than the cap is the only case we cut mid-word
+  if (kept.length === 1 && kept[0]!.length > maxChars) return kept[0]!.slice(0, maxChars).replace(/-+$/g, '');
+  return kept.join('-');
 }
 
+/** e.g. ENG-42 "Fix the flaky login redirect on Safari" → `eng-42-fix-flaky-login-redirect` */
 export function branchName(key: string, title: string): string {
   const slug = slugify(title);
   return slug ? `${key.toLowerCase()}-${slug}` : key.toLowerCase();

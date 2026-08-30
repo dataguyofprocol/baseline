@@ -5,7 +5,7 @@ import { api } from './api.js';
 import type { Issue, Priority, Team } from '../../src/core/types.js';
 import {
   StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled,
-  PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconUsers, IconBot,
+  PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconUsers, IconAgent,
   IconCycle, IconEstimate, IconClose, IconBlocks, IconBlocked, IconRelated, IconDuplicate,
 } from './icons.js';
 import { STATUS_ORDER } from './store.js';
@@ -32,9 +32,11 @@ export function Avatar({ user, size = 20 }: { user?: { name: string; initials: s
     return <span className="avatar placeholder" style={{ width: size, height: size }}><IconUser size={12} /></span>;
   }
   if (user.kind === 'agent') {
+    // agents are tools, not people: a neutral rounded square (never a saturated
+    // person-coloured disc) so a glance separates them from human avatars
     return (
-      <span className="avatar agent" title={`${user.name} (agent)`} style={{ width: size, height: size, background: user.color }}>
-        <IconBot size={Math.max(10, Math.round(size * 0.62))} />
+      <span className="avatar agent" title={`${user.name} (agent)`} style={{ width: size, height: size, borderRadius: Math.max(4, Math.round(size * 0.3)) }}>
+        <IconAgent size={Math.max(10, Math.round(size * 0.66))} />
       </span>
     );
   }
@@ -263,7 +265,7 @@ export function CalendarGrid(props: { selected?: string; onPick: (iso: string) =
     <>
       <div style={{ display: 'flex', alignItems: 'center', padding: '2px 8px' }}>
         <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m - 1, 1))}>‹</button>
-        <span style={{ flex: 1, textAlign: 'center', fontSize: 12.5, fontWeight: 560 }}>{cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+        <span style={{ flex: 1, textAlign: 'center', fontSize: 12.5, fontWeight: 600 }}>{cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
         <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m + 1, 1))}>›</button>
       </div>
       <div className="cal-grid">
@@ -321,7 +323,7 @@ export function EstimateMenu(props: { issue: { id: string; estimate: number | nu
           <div className="menu-header"><span>Set estimate to…</span></div>
           <MenuItem icon={<IconEstimate size={14} />} label="No estimate" selected={props.issue.estimate == null} onClick={() => pick(null)} />
           {ESTIMATE_POINTS.filter(p => p > 0).map(pt => (
-            <MenuItem key={pt} icon={<span style={{ fontSize: 12, fontWeight: 590, width: 16, textAlign: 'center' }}>{pt}</span>} label={`point${pt > 1 ? 's' : ''}`} selected={props.issue.estimate === pt} onClick={() => pick(pt)} />
+            <MenuItem key={pt} icon={<span style={{ fontSize: 12, fontWeight: 600, width: 16, textAlign: 'center' }}>{pt}</span>} label={`point${pt > 1 ? 's' : ''}`} selected={props.issue.estimate === pt} onClick={() => pick(pt)} />
           ))}
         </Menu>
       )}

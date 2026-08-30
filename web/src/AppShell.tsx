@@ -9,10 +9,22 @@ import {
   IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
 } from './icons.js';
 
+/** Panel-with-a-left-rail glyph: the standard "toggle the nav" affordance. */
+function IconSidebar({ size = 15 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
+      <path d="M6.25 2.75v10.5" />
+    </svg>
+  );
+}
+
 export function Sidebar() {
   const snap = useApp(s => s.snap);
   const theme = useApp(s => s.theme);
   const workspaceMenu = useMenu();
+  const collapsed = useApp(s => s.sidebarCollapsed);
+  const toggleSidebar = useApp(s => s.toggleSidebar);
   const navigate = useNavigate();
   if (!snap) return null;
   const unread = snap.notifications.filter(n => !n.readAt).length;
@@ -58,7 +70,7 @@ export function Sidebar() {
     .filter(Boolean) as Array<{ id: string; label: string; title?: string; icon: React.ReactNode; to: string }>;
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${collapsed ? ' collapsed' : ''}`} aria-hidden={collapsed}>
       <div className="sidebar-main">
         <div className="ws-row">
           <button className="ws-switch" onClick={workspaceMenu.open}>
@@ -69,6 +81,7 @@ export function Sidebar() {
           <div className="ws-actions">
             <button className="icon-btn" title="Search (⌘K)" onClick={() => useApp.getState().setPalette(true)}><IconSearch size={15} /></button>
             <button className="icon-btn" title="New issue (C)" onClick={() => useApp.getState().openCreate()}><IconNew size={15} /></button>
+            <button className="icon-btn" title="Collapse sidebar (⌘B)" onClick={toggleSidebar}><IconSidebar size={15} /></button>
           </div>
         </div>
         {workspaceMenu.anchor && (
@@ -102,7 +115,7 @@ export function Sidebar() {
       <div className="sidebar-footer">
         <button
           className="icon-btn footer-btn"
-          title="Toggle theme (T)"
+          title="Toggle theme"
           onClick={() => useApp.getState().setTheme(theme === 'dark' ? 'light' : 'dark')}
         >
           {theme === 'dark' ? <IconMoon size={15} /> : <IconSun size={15} />}
@@ -112,23 +125,6 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
-  );
-}
-
-function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: number; end?: boolean; title?: string; isActive?: (loc: { pathname: string }) => boolean }) {
-  const loc = useLocation();
-  const active = props.isActive ? props.isActive(loc) : undefined;
-  return (
-    <NavLink
-      to={props.to}
-      className={({ isActive }) => `nav-item ${active ?? isActive ? 'active' : ''}`}
-      end={props.end}
-      title={props.title ?? props.label}
-    >
-      {props.icon}
-      <span className="nav-label">{props.label}</span>
-      {props.badge ? <span className="nav-count">{props.badge}</span> : null}
-    </NavLink>
   );
 }
 
@@ -147,6 +143,24 @@ function SectionHeader(props: { label: string; action?: React.ReactNode; onActio
   );
 }
 
+function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: number; end?: boolean; title?: string; isActive?: (loc: { pathname: string }) => boolean }) {
+  const loc = useLocation();
+  const active = props.isActive ? props.isActive(loc) : undefined;
+  return (
+    <NavLink
+      to={props.to}
+      className={({ isActive }) => `nav-item ${active ?? isActive ? 'active' : ''}`}
+      end={props.end}
+      title={props.title ?? props.label}
+    >
+      {props.icon}
+      <span className="nav-label"><span className="nav-text">{props.label}</span></span>
+      {props.badge ? <span className="nav-count">{props.badge}</span> : null}
+    </NavLink>
+  );
+}
+
+
 /* ---------------- top bar ---------------- */
 export function TopBar(props: {
   crumbs: Array<{ label: string; icon?: React.ReactNode; to?: string; muted?: boolean }>;
@@ -161,8 +175,18 @@ export function TopBar(props: {
     ? snap.favorites.some(f => f.type === props.favoriteRef!.type && f.refId === props.favoriteRef!.refId)
     : false;
 
+  const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
+
   return (
     <div className="topbar">
+      {sidebarCollapsed && (
+        <button
+          className="icon-btn topbar-sidebar-btn" title="Show sidebar (⌘B)"
+          onClick={() => useApp.getState().toggleSidebar()}
+        >
+          <IconSidebar size={15} />
+        </button>
+      )}
       <div className="breadcrumb">
         {props.crumbs.map((c, i) => (
           <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>

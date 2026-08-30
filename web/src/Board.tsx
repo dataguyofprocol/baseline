@@ -268,7 +268,7 @@ function BoardColumn(props: {
   const addIssue = () => openCreate({ teamId: createTeamId, stateId: props.id });
 
   return (
-    <div className="board-col">
+    <div className={`board-col ${isOver ? 'drop-active' : ''}`}>
       <div className="board-col-header">
         {props.icon}
         <span className="bch-label">{props.label}</span>

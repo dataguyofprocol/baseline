@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useApp } from './store.js';
 import { api } from './api.js';
 import { Avatar } from './pickers.js';
-import { Logo } from './Logo.js';
+import { Lockup } from './Logo.js';
 
 const keyFromName = (name: string) => name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'TEAM';
 
@@ -27,12 +27,13 @@ export function Onboarding() {
   };
 
   return (
-    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div className="on-ink" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ width: 400, display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, animation: 'bl-fade-up 320ms var(--ease) both' }}>
-          <Logo size={30} />
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Welcome to {snap.workspace.name}</h1>
-          <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, animation: 'bl-fade-up 320ms var(--ease) both' }}>
+          {/* the serif lockup lives here and nowhere in product chrome */}
+          <Lockup size={34} />
+          <h1 className="brand-headline">Welcome to {snap.workspace.name}</h1>
+          <div className="brand-sub">
             One step to get started: create your first team — issues always live inside a team.
           </div>
         </div>

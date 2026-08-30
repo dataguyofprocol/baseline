@@ -98,7 +98,6 @@ export const IconArrowUp = (p: P) => <S {...p}><path d="M7.5 12V3M3.8 6.7 7.5 3l
 export const IconCheck = (p: P) => <S {...p}><path d="m3.4 7.9 2.7 2.7 5.5-6.2" {...stroke} /></S>;
 export const IconTextAa = (p: P) => <S {...p}><path d="M2.4 11.5 5.6 3.5l3.2 8M3.5 9h4.2" {...stroke} /><path d="M11.1 11.5c.9 0 1.5-.5 1.5-1.6V6.6h-2.8M12.6 8.8c-2.2-.4-3 .2-3 1.2 0 .9.8 1.5 1.6 1.5.6 0 1.1-.2 1.4-.7" {...stroke} /></S>;
 export const IconSplit = (p: P) => <S {...p}><rect x="2.2" y="2.8" width="10.6" height="9.4" rx="2" {...stroke} /><path d="M7.5 2.8v9.4" {...stroke} /></S>;
-export const IconSidebarCollapse = IconPanel;
 export const IconBack = (p: P) => <S {...p}><path d="M9.6 3.4 5.4 7.5l4.2 4.1" {...stroke} /></S>;
 export const IconDrag = (p: P) => <S {...p}><circle cx="5.4" cy="4" r="1" fill="currentColor" /><circle cx="9.6" cy="4" r="1" fill="currentColor" /><circle cx="5.4" cy="7.5" r="1" fill="currentColor" /><circle cx="9.6" cy="7.5" r="1" fill="currentColor" /><circle cx="5.4" cy="11" r="1" fill="currentColor" /><circle cx="9.6" cy="11" r="1" fill="currentColor" /></S>;
 export const IconCalendar = (p: P) => <S {...p}><rect x="2.6" y="3.4" width="9.8" height="9" rx="2" {...stroke} /><path d="M2.6 6.4h9.8M5.4 2.4v2M9.6 2.4v2" {...stroke} /></S>;
@@ -131,4 +130,7 @@ export const IconInboxArrow = (p: P) => <S {...p}><path d="M2.6 7.5h9.8M9 4.1l3.
 export const IconBot = (p: P) => <S {...p}><rect x="2.8" y="4.4" width="9.4" height="7.6" rx="2" {...stroke} /><path d="M7.5 2.2v2.2" {...stroke} /><circle cx="5.4" cy="8.2" r="0.9" fill="currentColor" /><circle cx="9.6" cy="8.2" r="0.9" fill="currentColor" /><path d="M6 10.6h3" {...stroke} /></S>;
 export const IconPrompt = (p: P) => <S {...p}><path d="M4.6 4.4 2 7.5l2.6 3.1M10.4 4.4 13 7.5l-2.6 3.1" {...stroke} /><path d="m8.4 3.4-1.8 8.2" {...stroke} /></S>;
 export const IconTerminal = (p: P) => <S {...p}><rect x="2.2" y="2.8" width="10.6" height="9.4" rx="2" {...stroke} /><path d="m4.8 5.9 2.3 2.1-2.3 2.1" {...stroke} /><path d="M8.4 10.3h2.4" {...stroke} /></S>;
+/* Agents read as a shell prompt: chevron + caret, no chrome around it. The boxed
+   terminal turns to mush under 16px and fights every other outline icon. */
+export const IconAgent = (p: P) => <S {...p}><path d="m4.4 5 2.6 2.5-2.6 2.5" {...stroke} /><path d="M8.6 10.2h2.6" {...stroke} /></S>;
 export const IconBranch = (p: P) => <S {...p}><circle cx="4.5" cy="3.4" r="1.5" {...stroke} /><circle cx="4.5" cy="11.6" r="1.5" {...stroke} /><circle cx="10.9" cy="5.3" r="1.5" {...stroke} /><path d="M4.5 4.9v5.2" {...stroke} /><path d="M10.9 6.8v.3a4.3 4.3 0 0 1-4.3 4.3h-.4" {...stroke} /></S>;

@@ -230,7 +230,7 @@ function buildEstimatePage(): PaletteItem[] {
     { id: 'bulk-est-none', icon: <IconClose size={13} />, label: 'No estimate', section: 'Estimate', checked: uniform === null, action: () => void applyBulk({ estimate: null }, 'Estimate') },
     ...ESTIMATE_POINTS.filter(p => p > 0).map(pt => ({
       id: `bulk-est-${pt}`,
-      icon: <span style={{ fontSize: 12, fontWeight: 590, width: 16, textAlign: 'center' }}>{pt}</span>,
+      icon: <span style={{ fontSize: 12, fontWeight: 600, width: 16, textAlign: 'center' }}>{pt}</span>,
       label: `point${pt > 1 ? 's' : ''}`,
       section: 'Estimate',
       checked: uniform === pt,
@@ -538,7 +538,6 @@ export function ShortcutsOverlay() {
       ['?', 'Show keyboard shortcuts'],
       ['C', 'Create new issue'],
       ['/ ', 'Filter issues'],
-      ['⌘B', 'Toggle sidebar'],
       ['Esc', 'Close / go back'],
     ]],
     ['Issues', [
@@ -563,11 +562,11 @@ export function ShortcutsOverlay() {
   return (
     <Modal onClose={() => setOpen(false)} className="modal" dismissOnBackdrop={false}>
       <div style={{ padding: '20px 24px', overflowY: 'auto', maxHeight: '72vh' }}>
-        <div style={{ fontSize: 16, fontWeight: 590, marginBottom: 14 }}>Keyboard shortcuts</div>
+        <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 14 }}>Keyboard shortcuts</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
           {groups.map(([name, rows]) => (
             <div key={name}>
-              <div className="menu-header" style={{ padding: '0 0 6px', fontSize: 12.5, color: 'var(--text-primary)', fontWeight: 590 }}>{name}</div>
+              <div className="menu-header" style={{ padding: '0 0 6px', fontSize: 12.5, color: 'var(--text-primary)', fontWeight: 600 }}>{name}</div>
               {rows.map(([k, d]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', color: 'var(--text-secondary)', gap: 12 }}>
                   <span>{d}</span>

@@ -18,6 +18,8 @@ interface AppState {
   toasts: Toast[];
   peekIssueId: string | null;
   paletteOpen: boolean;
+  /** left nav collapsed (⌘B / the nav toggle); persisted across reloads */
+  sidebarCollapsed: boolean;
   createModal: { open: boolean; teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string };
   shortcutsOpen: boolean;
   /** hovered/focused row quick-action menu, e.g. pressing S or P on a row */
@@ -28,6 +30,8 @@ interface AppState {
   dismissToast: (id: number) => void;
   setPeek: (issueId: string | null) => void;
   setPalette: (open: boolean) => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+  toggleSidebar: () => void;
   openCreate: (opts?: { teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string }) => void;
   closeCreate: () => void;
   setShortcuts: (open: boolean) => void;
@@ -43,6 +47,7 @@ export const useApp = create<AppState>((set, get) => ({
   toasts: [],
   peekIssueId: null,
   paletteOpen: false,
+  sidebarCollapsed: localStorage.getItem('baseline:sidebarCollapsed') === '1',
   createModal: { open: false },
   shortcutsOpen: false,
   quickMenu: null,
@@ -66,6 +71,11 @@ export const useApp = create<AppState>((set, get) => ({
   dismissToast: (id) => set(s => ({ toasts: s.toasts.filter(x => x.id !== id) })),
   setPeek: (issueId) => set({ peekIssueId: issueId }),
   setPalette: (open) => set({ paletteOpen: open }),
+  setSidebarCollapsed: (collapsed) => {
+    localStorage.setItem('baseline:sidebarCollapsed', collapsed ? '1' : '0');
+    set({ sidebarCollapsed: collapsed });
+  },
+  toggleSidebar: () => get().setSidebarCollapsed(!get().sidebarCollapsed),
   openCreate: (opts = {}) => set({ createModal: { open: true, ...opts } }),
   closeCreate: () => set({ createModal: { open: false } }),
   setShortcuts: (open) => set({ shortcutsOpen: open }),

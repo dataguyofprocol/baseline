@@ -9,6 +9,8 @@ import {
   DEFAULT_DISPLAY, activeFilterCount, applyFilters, type ViewOptions,
 } from './IssueViews.js';
 import { Board } from './Board.js';
+import { Logo, LogoMark } from './Logo.js';
+import { AvatarStack } from './AvatarStack.js';
 import { Markdown } from './Markdown.js';
 import {
   StateIcon, PriorityIcon, Avatar, Donut, DueDateMenu, EstimateMenu, CycleMenu, CalendarGrid,
@@ -193,7 +195,7 @@ export function ProjectsPage({ startWithCreate = false }: { startWithCreate?: bo
       <div className="content">
         {snap.projects.length === 0 ? (
           <div className="empty-state">
-            <div style={{ fontSize: 44, marginBottom: 12 }}>🧊</div>
+            <div className="empty-mark"><LogoMark size={30} /></div>
             <div className="empty-title">Projects</div>
             <div className="empty-desc">Projects are larger units of work with a clear outcome, such as a new feature you want to ship. They can be shared across multiple teams and are comprised of issues and optional documents.</div>
             <div className="empty-actions">
@@ -219,7 +221,7 @@ export function ProjectsPage({ startWithCreate = false }: { startWithCreate?: bo
                 >
                   <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span className="proj-icon" style={{ background: 'var(--bg-hover)' }}>{p.icon}</span>
-                    <span style={{ fontWeight: 550 }}>{p.name}</span>
+                    <span style={{ fontWeight: 600 }}>{p.name}</span>
                     {faved && <IconStar size={12} filled style={{ color: 'var(--brand)' }} />}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
@@ -343,7 +345,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
     <Modal onClose={onClose} className="modal modal-create np-modal">
       <div className="cm-root" onKeyDown={onKeyDown}>
         <div className="cm-header">
-          <span style={{ color: 'var(--text-primary)', fontWeight: 560 }}>New project</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>New project</span>
           <span style={{ marginLeft: 'auto', display: 'flex' }}>
             <button className="icon-btn" onClick={onClose}><IconClose size={14} /></button>
           </span>
@@ -597,12 +599,12 @@ function EditableProjectHeader(props: { project: NonNullable<ReturnType<typeof u
     <div className="proj-page-hero">
       <div className="proj-icon" style={{ width: 32, height: 32, fontSize: 19, borderRadius: 8, background: 'var(--bg-hover)', marginBottom: 12 }}>{project.icon}</div>
       {editing ? (
-        <input className="text-input" style={{ fontSize: 21, fontWeight: 590, height: 38, background: 'var(--bg-input)' }} autoFocus value={name}
+        <input className="text-input" style={{ fontSize: 21, fontWeight: 600, height: 38, background: 'var(--bg-input)' }} autoFocus value={name}
           onChange={e => setName(e.target.value)}
           onBlur={() => save({ name })}
           onKeyDown={e => { if (e.key === 'Enter') save({ name }); if (e.key === 'Escape') setEditing(false); }} />
       ) : (
-        <div style={{ fontSize: 21, fontWeight: 590, letterSpacing: '-0.017em', cursor: 'text' }} onClick={() => setEditing(true)}>{project.name}</div>
+        <div style={{ fontSize: 21, fontWeight: 600, letterSpacing: '-0.017em', cursor: 'text' }} onClick={() => setEditing(true)}>{project.name}</div>
       )}
     </div>
   );
@@ -831,7 +833,11 @@ function ProjectRail(props: { project: NonNullable<ReturnType<typeof useApp.getS
               <span className="rail-kv-label">Members</span>
               <span className={`rail-kv-value ${project.memberIds.length ? '' : 'dim'}`}>
                 <span style={{ display: 'flex' }}>
-                  {project.memberIds.slice(0, 3).map(id => <Avatar key={id} user={snap.users.find(u => u.id === id)} size={16} />)}
+                  {/* overlapping avatars punch a gap in the one behind, no surface-coloured ring */}
+                  <AvatarStack size={16} people={project.memberIds.slice(0, 3)
+                    .map(id => snap.users.find(u => u.id === id))
+                    .filter(Boolean)
+                    .map(u => ({ name: u!.name, initials: u!.initials, color: u!.color }))} />
                   {project.memberIds.length === 0 && <IconUsers size={13} />}
                 </span>
                 {project.memberIds.length ? `${project.memberIds.length} member${project.memberIds.length !== 1 ? 's' : ''}` : 'Add members'}
@@ -862,7 +868,7 @@ function ProjectRail(props: { project: NonNullable<ReturnType<typeof useApp.getS
           <div key={a.id} className="rail-activity">
             <span style={{ color: 'var(--text-secondary)', display: 'flex', paddingTop: 1, fontSize: 12 }}>{project.icon}</span>
             <span style={{ fontSize: 12, lineHeight: '17px', color: 'var(--text-secondary)', minWidth: 0 }}>
-              <b style={{ color: 'var(--text-primary)', fontWeight: 550 }}>{snap.users.find(u => u.id === a.userId)?.name}</b>{' '}
+              <b style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{snap.users.find(u => u.id === a.userId)?.name}</b>{' '}
               {a.type === 'projectCreated' ? 'created the project' : a.type === 'projectHealth' ? `set health to ${PROJECT_HEALTH_LABELS[String(a.data.to)] ?? String(a.data.to)}` : a.type === 'projectUpdated' ? `updated ${((a.data.fields as string[]) ?? []).join(', ')}` : 'updated the project'}
               {' · '}{relTime(a.createdAt)}
             </span>
@@ -903,11 +909,12 @@ export function InboxPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={[{ label: 'Inbox' }]} right={
-        unread > 0 ? <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={async () => { await api.markAllNotificationsRead(); await useApp.getState().bootstrap(); }}>Mark all as read</button> : undefined
+        unread > 0 ? <button className="btn secondary" style={{ height: 26, fontSize: 12 }} onClick={async () => { await api.markAllNotificationsRead(); await useApp.getState().bootstrap(); }}>Mark all as read</button> : undefined
       } />
       <div className="content">
         {notifications.length === 0 ? (
           <div className="empty-state">
+            <div className="empty-mark"><LogoMark size={30} /></div>
             <div className="empty-title">You're all caught up</div>
             <div className="empty-desc">Notifications about assignments, mentions and comments will show up here.</div>
           </div>
@@ -918,9 +925,11 @@ export function InboxPage() {
                 <div className="group-header" style={{ marginTop: 8 }}>
                   <span>{name}</span>
                   <span className="count">{items.length}</span>
+                  <span className="gh-rule" />
                 </div>
                 {items.map(n => {
                   const l = label(n);
+                  const actor = snap.users.find(u => u.id === n.actorId);
                   return (
                     <div
                       key={n.id}
@@ -931,12 +940,16 @@ export function InboxPage() {
                         if (l.key) navigate(`/issue/${l.key}`);
                       }}
                     >
-                      {!n.readAt && <span className="unread-dot" />}
-                      <Avatar user={snap.users.find(u => u.id === n.actorId) ?? snap.currentUser} size={24} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                      {/* unread is a paper node in its own 6px gutter — no wash, no rail */}
+                      <span className="inbox-node" />
+                      {actor ? <Avatar user={actor} size={24} /> : (
+                        /* no human actor: the app signs as its own tile */
+                        <span style={{ display: 'flex', paddingTop: 4 }}><Logo size={16} /></span>
+                      )}
+                      <div className="inbox-body">
                         <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ color: 'var(--text-secondary)', display: 'flex' }}>{l.icon}</span>
-                          <span><b>{snap.users.find(u => u.id === n.actorId)?.name ?? 'Baseline'}</b> {l.text} {l.issue && <b>{l.key} {l.issue.title}</b>}</span>
+                          <span><b>{actor?.name ?? 'Baseline'}</b> {l.text} {l.issue && <b>{l.key} {l.issue.title}</b>}</span>
                         </div>
                         {n.type === 'issueCommented' && <div style={{ color: 'var(--text-secondary)', fontSize: 12.5, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</div>}
                         <div className="rel-time">{relTime(n.createdAt)}</div>
@@ -1060,10 +1073,11 @@ export function ViewsIndexPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Views' }]} right={<button className="btn" onClick={createView}>＋ New view</button>} />
+      <TopBar crumbs={[{ label: 'Views' }]} right={<button className="btn secondary" onClick={createView}>＋ New view</button>} />
       <div className="content">
         {snap.views.length === 0 ? (
           <div className="empty-state">
+            <div className="empty-mark"><LogoMark size={30} /></div>
             <div className="empty-title">Views</div>
             <div className="empty-desc">Create views to save filters and groupings you return to.</div>
             <div className="empty-actions">
@@ -1086,7 +1100,7 @@ export function ViewsIndexPage() {
                       if (e.key === 'Escape') setRenaming(null);
                     }} />
                 ) : (
-                  <span className="row-title" style={{ fontWeight: 550 }}>{v.name}</span>
+                  <span className="row-title" style={{ fontWeight: 600 }}>{v.name}</span>
                 )}
                 <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{describe(v.filters)}</span>
                 <button className="icon-btn hover-only" onClick={(e) => { e.stopPropagation(); setMenuView(v.id); rowMenu.open(e); }}><IconMore size={13} /></button>
@@ -1189,7 +1203,7 @@ export function CyclesPage() {
       <div className="content">
         {cycles.length === 0 ? (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, animation: 'bl-fade-up 320ms var(--ease) both' }}>
-            <IconCycle size={22} style={{ color: 'var(--text-dim)' }} />
+            <div className="empty-mark"><LogoMark size={28} /></div>
             <div className="empty-title">No cycles yet</div>
             <div style={{ color: 'var(--text-secondary)', fontSize: 12.5, maxWidth: 360, textAlign: 'center' }}>
               Cycles are time-boxed iterations for {team.name}. Create one with a name and start/end dates, then add issues to it.

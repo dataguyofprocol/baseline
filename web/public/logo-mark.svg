@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <mask id="gap"><rect width="32" height="32" fill="#fff"/><circle cx="11" cy="19.35" r="5.5" fill="#000"/></mask>
+  <g fill="currentColor">
+    <rect x="1.6" y="18.3" width="28.8" height="2.1" mask="url(#gap)"/>
+    <circle cx="11" cy="19.35" r="4.4"/>
+  </g>
+</svg>

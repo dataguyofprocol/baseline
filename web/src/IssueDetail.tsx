@@ -9,11 +9,12 @@ import {
   StateIcon, PriorityIcon, Avatar, StatusMenu, PriorityMenu, AssigneeMenu, LabelsMenu, ProjectMenu,
   DueDateMenu, EstimateMenu, CycleMenu, IssuePickerMenu, AddRelationMenu,
 } from './pickers.js';
+import { SubIssueSpine } from './AvatarStack.js';
 import {
   IconLink, IconSplit, IconAttach, IconArrowUp, IconPlus, IconClose,
   IconArchive, IconRestore, IconTrash, IconEdit, IconSubIssue, IconDuplicate,
   IconEstimate, IconCycle, IconCalendar, IconBox, IconPrompt, IconCopy,
-  IconTerminal, IconBranch,
+  IconAgent, IconBranch,
 } from './icons.js';
 import type { Issue } from '../../src/core/types.js';
 
@@ -82,7 +83,7 @@ function CommentItem(props: { comment: { id: string; userId: string; body: strin
       <Avatar user={author} size={24} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ fontWeight: 550 }}>{author?.name ?? 'Someone'}</span>
+          <span style={{ fontWeight: 600 }}>{author?.name ?? 'Someone'}</span>
           <span className="rel-time">{relTime(c.createdAt)}{c.editedAt ? ' (edited)' : ''}</span>
           <span style={{ flex: 1 }} />
           <button className="icon-btn hover-only" style={{ width: 22, height: 22 }} title="Add reaction" onClick={menu.open}>🙂</button>
@@ -168,6 +169,10 @@ function SubIssuesSection(props: { issue: Issue }) {
             <span>{done}/{children.length} done</span>
             <span className="progress-track" style={{ width: 80 }}><span className="progress-fill" style={{ width: `${children.length ? (done / children.length) * 100 : 0}%` }} /></span>
           </div>
+          {/* the nodes punch the spine they sit on — no opaque dot on a continuous rule */}
+          <div style={{ display: 'flex', gap: 4 }}>
+          <SubIssueSpine rows={children.map(ch => ({ active: snap.states.find(s => s.id === ch.stateId)?.type === 'started' }))} />
+          <div style={{ flex: 1, minWidth: 0 }}>
           {children.map(ch => {
             const st = snap.states.find(s => s.id === ch.stateId);
             const team = snap.teams.find(t => t.id === ch.teamId);
@@ -189,6 +194,8 @@ function SubIssuesSection(props: { issue: Issue }) {
               </div>
             );
           })}
+          </div>
+          </div>
         </div>
       )}
       <div style={{ display: 'flex', gap: 8 }}>
@@ -485,7 +492,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
           right={
             <div className="issue-toolbar">
               {/* copy-as-prompt is the core workflow — brand-colored terminal glyph, first position */}
-              <button className="icon-btn prompt-btn" title="Copy agent prompt" onClick={copyPrompt}><IconTerminal size={15} /></button>
+              <button className="icon-btn prompt-btn" title="Copy agent prompt" onClick={copyPrompt}><IconAgent size={15} /></button>
               <button className="icon-btn" title="Copy branch name" onClick={copyBranch}><IconBranch size={15} /></button>
               <button className="icon-btn" title="Copy issue URL" onClick={copyUrl}><IconLink size={15} /></button>
               <button className="icon-btn" title="Copy issue ID" onClick={copyId}><IconCopy size={15} /></button>

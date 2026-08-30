@@ -23,16 +23,17 @@ function KeyboardManager() {
     let gPending = false;
     let gTimer: ReturnType<typeof setTimeout>;
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const typing = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      if (!e.key || e.isComposing) return;
+      const target = e.target as HTMLElement | null;
+      const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       const s = useApp.getState();
       const team = s.snap?.teams[0]?.key ?? '';
 
-      if (typing) return;
+      // ⌘K is handled in the capture-phase effect below, so it fires from inside
+      // inputs and modals too (nothing downstream can swallow it).
 
-      // global shortcuts
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); s.setPalette(!s.paletteOpen); return; }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); document.querySelector('.sidebar')?.toggleAttribute('hidden'); return; }
+      // everything below is a bare key: skip it while typing or while the palette owns the keyboard
+      if (typing || s.paletteOpen || s.createModal.open || s.shortcutsOpen) return;
 
       if (e.key === 'c' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); s.openCreate(); return; }
       if (e.key === '?') { e.preventDefault(); s.setShortcuts(true); return; }
@@ -133,6 +134,27 @@ function KeyboardManager() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [navigate, location]);
+
+  // ⌘K / ⌘B, capture phase: they must survive focus inside an input, a TipTap
+  // editor, or a modal — anywhere a bubbling listener would never see them.
+  useEffect(() => {
+    const onChord = (e: KeyboardEvent) => {
+      if (!e.key || e.isComposing || e.altKey || !(e.metaKey || e.ctrlKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'k') {
+        e.preventDefault();
+        e.stopPropagation();
+        const s = useApp.getState();
+        s.setPalette(!s.paletteOpen);
+      } else if (k === 'b') {
+        e.preventDefault();
+        e.stopPropagation();
+        useApp.getState().toggleSidebar();
+      }
+    };
+    window.addEventListener('keydown', onChord, true);
+    return () => window.removeEventListener('keydown', onChord, true);
+  }, []);
 
   return null;
 }

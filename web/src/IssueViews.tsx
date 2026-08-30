@@ -4,6 +4,7 @@ import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleLis
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, MenuInput } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
+import { LogoMark } from './Logo.js';
 import {
   IconChevronDown, IconChevronRight, IconPlus, IconFilter, IconClose, IconArchive, IconTrash,
   IconCalendar, IconCycle, IconFocus, IconPrompt,
@@ -531,8 +532,8 @@ export function DisplayOptionsMenu(props: {
       {props.showLayout !== false && (
         <>
           <div style={{ display: 'flex', gap: 6, padding: '4px 6px 8px' }}>
-            <button className={`seg ${opts.layout === 'list' ? 'selected' : ''}`} style={{ flex: 1, justifyContent: 'center' }} onClick={() => onPatch({ layout: 'list' })}>☰ List</button>
-            <button className={`seg ${opts.layout === 'board' ? 'selected' : ''}`} style={{ flex: 1, justifyContent: 'center' }} onClick={() => onPatch({ layout: 'board' })}>▦ Board</button>
+            <button className={`seg seg-fill ${opts.layout === 'list' ? 'selected' : ''}`} style={{ flex: 1, justifyContent: 'center' }} onClick={() => onPatch({ layout: 'list' })}>☰ List</button>
+            <button className={`seg seg-fill ${opts.layout === 'board' ? 'selected' : ''}`} style={{ flex: 1, justifyContent: 'center' }} onClick={() => onPatch({ layout: 'board' })}>▦ Board</button>
           </div>
           <MenuSep />
         </>
@@ -663,12 +664,8 @@ export function GroupedList(props: {
   if (pool.length === 0) {
     return (
       <div className="empty-state">
-        <div className="empty-icons">
-          {snap.states
-            .filter(s => (!props.teamId || s.teamId === props.teamId) && ['backlog', 'unstarted', 'started', 'completed'].includes(s.type))
-            .slice(0, 4)
-            .map(s => <span key={s.id} style={{ display: 'flex', color: 'var(--text-secondary)' }}><StateIcon type={s.type} size={32} /></span>)}
-        </div>
+        {/* the containerless mark is the only illustration the product uses */}
+        <div className="empty-mark"><LogoMark size={30} /></div>
         <div className="empty-title">{props.emptyTitle ?? 'All issues'}</div>
         <div className="empty-desc">{props.emptyDesc ?? 'All issues is the place where you can see all your team\u2019s work in one view. Once you have created issues for this team, they will show up here.'}</div>
         <div className="empty-actions">
@@ -698,6 +695,8 @@ export function GroupedList(props: {
               {item.spec.icon}
               <span>{item.spec.label}</span>
               <span className="count">{item.count}</span>
+              {/* the label + count cut this rule; it runs to the right edge */}
+              <span className="gh-rule" />
               <span className="group-actions" onClick={e => e.stopPropagation()}>
                 {props.teamId && props.opts.groupBy === 'status' && (
                   <>
@@ -720,6 +719,7 @@ export function GroupedList(props: {
               {item.spec.icon}
               <span>{item.spec.label}</span>
               <span className="count">{item.count}</span>
+              <span className="gh-rule" />
             </div>
           );
         }

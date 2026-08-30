@@ -208,10 +208,10 @@ export function CreateIssueModal() {
         <span className="crumb-sep">›</span>
         {parent ? (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
-            <IconSubIssue size={13} style={{ color: 'var(--text-dim)' }} /> New sub-issue of <b style={{ color: 'var(--text-primary)', fontWeight: 590 }}>{parentKey}</b>
+            <IconSubIssue size={13} style={{ color: 'var(--text-dim)' }} /> New sub-issue of <b style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{parentKey}</b>
           </span>
         ) : (
-          <span style={{ color: 'var(--text-primary)', fontWeight: 560 }}>New issue</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>New issue</span>
         )}
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
           {title.trim() && <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={saveDraft}>Save as draft</button>}
@@ -456,7 +456,7 @@ function MorePropsMenu(props: {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', padding: '2px 8px' }}>
           <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m - 1, 1))}>‹</button>
-          <span style={{ flex: 1, textAlign: 'center', fontSize: 12.5, fontWeight: 560 }}>{cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+          <span style={{ flex: 1, textAlign: 'center', fontSize: 12.5, fontWeight: 600 }}>{cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
           <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m + 1, 1))}>›</button>
         </div>
         <div className="cal-grid">
@@ -482,7 +482,7 @@ function MorePropsMenu(props: {
         <MenuItem label="No estimate" selected={props.estimate == null}
           onClick={() => { props.setEstimate(null); setPhase('root'); props.onClose(); }} />
         {[1, 2, 3, 5, 8, 13, 21].map(pt => (
-          <MenuItem key={pt} icon={<span style={{ fontSize: 12, fontWeight: 590, width: 16, textAlign: 'center' }}>{pt}</span>}
+          <MenuItem key={pt} icon={<span style={{ fontSize: 12, fontWeight: 600, width: 16, textAlign: 'center' }}>{pt}</span>}
             label={`point${pt > 1 ? 's' : ''}`} selected={props.estimate === pt}
             onClick={() => { props.setEstimate(pt); setPhase('root'); props.onClose(); }} />
         ))}
