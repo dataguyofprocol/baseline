@@ -69,7 +69,15 @@ export const IconIssues = (p: P) => <S {...p}><rect x="2.6" y="2.6" width="9.8" 
 export const IconSearch = (p: P) => <S {...p}><circle cx="6.7" cy="6.7" r="4.1" {...stroke} /><path d="m9.9 9.9 2.8 2.8" {...stroke} /></S>;
 export const IconPlus = (p: P) => <S {...p}><path d="M7.5 3v9M3 7.5h9" {...stroke} /></S>;
 export const IconNew = (p: P) => <S {...p}><path d="M9.2 2.9l2.9 2.9-6.6 6.6H2.6V9.5l6.6-6.6Z" {...stroke} /></S>;
-export const IconSettings = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="1.9" {...stroke} /><path d="M7.5 2.2v1.6M7.5 11.2v1.6M2.2 7.5h1.6M11.2 7.5h1.6M3.8 3.8l1.1 1.1M10.1 10.1l1.1 1.1M11.2 3.8l-1.1 1.1M4.9 10.1l-1.1 1.1" {...stroke} /></S>;
+export const IconSettings = (p: P) => (
+  <S {...p}>
+    {/* Feather-style gear, scaled from a 24px grid into the 15px house grid */}
+    <g transform="translate(7.5 7.5) scale(0.6) translate(-12 -12)">
+      <circle cx="12" cy="12" r="3" {...stroke} strokeWidth={2.3} />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" {...stroke} strokeWidth={2.3} />
+    </g>
+  </S>
+);
 export const IconChevronDown = (p: P) => <S {...p}><path d="m4.5 6.2 3 3 3-3" {...stroke} /></S>;
 export const IconChevronRight = (p: P) => <S {...p}><path d="m6.2 4.5 3 3-3 3" {...stroke} /></S>;
 export const IconStar = (p: P & { filled?: boolean }) => (

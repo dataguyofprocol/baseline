@@ -13,6 +13,7 @@ import {
 } from './Views.js';
 import { SettingsLayout } from './Settings.js';
 import { IssuePage } from './IssueDetail.js';
+import { Onboarding } from './Onboarding.js';
 
 function KeyboardManager() {
   const navigate = useNavigate();
@@ -169,6 +170,7 @@ export function App() {
   const loaded = useApp(s => s.loaded);
   const bootstrap = useApp(s => s.bootstrap);
   const theme = useApp(s => s.theme);
+  const hasTeam = useApp(s => (s.snap?.teams.length ?? 0) > 0);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -184,6 +186,11 @@ export function App() {
         ))}
       </div>
     );
+  }
+
+  if (!hasTeam) {
+    // fresh workspace: issues need a team, so onboarding comes before any route
+    return <Onboarding />;
   }
 
   return (

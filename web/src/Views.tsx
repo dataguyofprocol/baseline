@@ -130,14 +130,10 @@ function TeamSubnav(props: { teamId: string; filter: 'all' | 'active' | 'backlog
   const team = snap.teams.find(t => t.id === props.teamId);
   useEffect(() => { if (team) localStorage.setItem('baseline:issuesTeam', team.key); }, [team]);
   if (!team) return null;
-  const hasCycles = snap.cycles.some(c => c.teamId === team.id);
 
   const goTeam = (key: string) => {
     teamMenu.close();
-    const target = snap.teams.find(t => t.key === key);
-    // a team without cycles has no cycles tab to land on — fall back to All issues
-    const filter = props.filter === 'cycles' && !snap.cycles.some(c => c.teamId === target?.id) ? 'all' : props.filter;
-    navigate(`/team/${key}/${filter}`);
+    navigate(`/team/${key}/${props.filter}`);
   };
   const chip = (t: { key: string; color: string; icon?: string }) => (
     <span className="ws-avatar" style={{ background: t.color, borderRadius: 4, fontSize: 9, width: 18, height: 18 }}>
@@ -152,7 +148,7 @@ function TeamSubnav(props: { teamId: string; filter: 'all' | 'active' | 'backlog
         <span>{team.name}</span>
         <IconChevronDown size={13} style={{ color: 'var(--text-secondary)' }} />
       </button>
-      {(['all', 'active', 'backlog', ...(hasCycles ? ['cycles' as const] : [])] as const).map(f => (
+      {(['all', 'active', 'backlog', 'cycles'] as const).map(f => (
         <button key={f} className={`seg ${props.filter === f ? 'selected' : ''}`} onClick={() => navigate(`/team/${team.key}/${f}`)}>
           {f === 'all' ? 'All issues' : f === 'active' ? 'Active' : f === 'backlog' ? 'Backlog' : 'Cycles'}
         </button>
@@ -403,7 +399,10 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
         <div className="cm-footer">
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
             <button className="btn" onClick={onClose}>Cancel</button>
-            <button className="btn primary" onClick={create} disabled={!name.trim()}>Create project</button>
+            <button className="btn primary" onClick={create} disabled={!name.trim()}>
+              Create project
+              <span className="btn-kbd kbd">⌘↵</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1188,6 +1187,16 @@ export function CyclesPage() {
       <TopBar crumbs={[{ label: team.name, to: `/team/${team.key}`, muted: true }, { label: 'Cycles' }]} />
       <TeamSubnav teamId={team.id} filter="cycles" />
       <div className="content">
+        {cycles.length === 0 ? (
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, animation: 'bl-fade-up 320ms var(--ease) both' }}>
+            <IconCycle size={22} style={{ color: 'var(--text-dim)' }} />
+            <div className="empty-title">No cycles yet</div>
+            <div style={{ color: 'var(--text-secondary)', fontSize: 12.5, maxWidth: 360, textAlign: 'center' }}>
+              Cycles are time-boxed iterations for {team.name}. Create one with a name and start/end dates, then add issues to it.
+            </div>
+            <button className="btn primary" style={{ height: 28, fontSize: 12, marginTop: 6 }} onClick={() => navigate('/settings/teams')}>Create a cycle</button>
+          </div>
+        ) : (
         <div style={{ padding: '8px 24px', display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 860 }}>
           {[['Current', current ? [current] : []], ['Upcoming', upcoming], ['Previous', previous.slice(0, 3)]].map(([label, list]) => {
             const items = list as typeof cycles;
@@ -1232,6 +1241,7 @@ export function CyclesPage() {
           })}
           <button className="prop-chip" style={{ color: 'var(--text-dim)', alignSelf: 'flex-start' }} onClick={() => navigate(`/settings/teams`)}>Manage cycles in team settings</button>
         </div>
+        )}
       </div>
     </div>
   );
