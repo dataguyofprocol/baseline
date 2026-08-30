@@ -352,6 +352,14 @@ svg { display: block; flex: none; }
 .btn.primary { background: var(--brand); border-color: transparent; color: var(--text-on-accent); }
 .btn.primary:hover { background: var(--brand-hover); }
 .btn .btn-kbd { margin-left: 2px; opacity: 0.7; }
+/* keyboard hint on accent buttons: translucent white chip + white text so the
+   glyphs stay readable on the brand fill (generic gray-on-gray .kbd vanishes there) */
+.btn.primary .kbd {
+  color: var(--text-on-accent);
+  background: rgba(255, 255, 255, 0.22);
+  border-color: transparent;
+  opacity: 1;
+}
 
 /* ---------- menus ---------- */
 /* Menus portal to document.body, so their z-index must beat .overlay (100):
