@@ -130,6 +130,20 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
     store.addComment(first.id, me.id, 'Agreed. Menu surfaces sample `#212122`, modals `#1a1a1b`.');
   }
 
+  // inbox: every notification shape the design calls for — a mention, an assignment
+  // with its actor, two actors on one issue (the punched-gap stack), a plain comment,
+  // and a system row with no human actor (that one signs with the app's tile).
+  const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
+  const themeKey = theme.id;
+  const cmdk = store.listIssues({ teamId: core.id }).find(i => i.title.startsWith('Cmd+K'));
+  const wal = store.listIssues({ teamId: agents.id }).find(i => i.title.startsWith('Concurrent writer'));
+  store.notify('issueMentioned', { actorId: ada.id, issueId: cmdk?.id ?? themeKey, body: `@${me.name} scroll jumps a row when the list re-scores — can you take it?`, createdAt: hoursAgo(2) });
+  store.notify('issueCommented', { actorId: jun.id, issueId: cmdk?.id ?? themeKey, body: 'Repro is the fuzzy re-rank, not the scroll container.', createdAt: hoursAgo(2.4) });
+  store.notify('issueAssignedToYou', { actorId: jun.id, issueId: wal?.id ?? themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(5) });
+  store.notify('systemUpdate', { issueId: null, body: `Cycle ${prevCycle.number} closed — 3 issues rolled over into Cycle ${currentCycle.number}`, createdAt: hoursAgo(9) });
+  store.notify('issueCommented', { actorId: ada.id, issueId: themeKey, body: 'Light theme needs a second pass before the toggle ships.', createdAt: hoursAgo(27) });
+  store.notify('issueAssignedToYou', { actorId: ada.id, issueId: themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(74) });
+
   // project update
   store.addProjectUpdate(project.id, me.id, 'Scope locked: CLI-first agent story, UI polish tracked in Core.', 'onTrack');
 
@@ -142,6 +156,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.toggleFavorite('project', project.id);
   store.toggleFavorite('view', store.snapshot().views[0].id);
 
-  setMeta(db, 'seedVersion', '2');
+  setMeta(db, 'seedVersion', '3');
   void nowIso;
 }

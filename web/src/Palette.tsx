@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp, useSelection, copyText } from './store.js';
 import { api } from './api.js';
+import { playExit } from './motion.js';
 import { Modal } from './ui.js';
 import { Avatar, CalendarGrid, ESTIMATE_POINTS, PriorityIcon, StateIcon } from './pickers.js';
 import { scoreItem } from './fuzzy.js';
@@ -87,6 +88,7 @@ async function applyBulk(patch: Record<string, unknown>, label: string) {
 async function bulkArchive() {
   const ids = selIds();
   if (!ids.length) return;
+  await playExit(ids);
   for (const id of ids) await api.archiveIssue(id);
   await useApp.getState().bootstrap();
   useApp.getState().setPalette(false);
@@ -100,6 +102,7 @@ async function bulkArchive() {
 async function bulkDelete() {
   const ids = selIds();
   if (!ids.length) return;
+  await playExit(ids);
   for (const id of ids) await api.deleteIssue(id);
   await useApp.getState().bootstrap();
   useApp.getState().setPalette(false);
@@ -328,11 +331,10 @@ export function CommandPalette() {
       { id: 'act-shortcuts', icon: <span className="kbd">?</span>, label: 'Show keyboard shortcuts', section: 'Actions', keywords: 'hotkeys keys', action: () => useApp.getState().setShortcuts(true) },
     ];
 
-    // "Copy as prompt" for the issue currently in view (peek or issue page)
-    const peekId = useApp.getState().peekIssueId;
+    // "Copy as prompt" for the issue page currently in view
     const pageKey = /^#\/issue\/(.+?)$/.exec(location.hash ?? '')?.[1];
-    let current = peekId ? snap.issues.find(i => i.id === peekId) : undefined;
-    if (!current && pageKey) {
+    let current: typeof snap.issues[number] | undefined;
+    if (pageKey) {
       const m = /^(.+)-(\d+)$/.exec(pageKey);
       const t = snap.teams.find(x => x.key.toLowerCase() === (m?.[1] ?? '').toLowerCase());
       current = snap.issues.find(i => i.teamId === t?.id && i.number === Number(m?.[2]));

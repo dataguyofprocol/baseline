@@ -4,7 +4,7 @@ import { id, nowIso, midSort } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import type {
   ActivityItem, ActivityType, Comment, Cycle, Favorite, Handoff,
-  Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, Priority, Project, ProjectUpdate,
+  Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType,
 } from './types.js';
@@ -316,8 +316,11 @@ export class Store {
     const c: Comment = { id: id('c'), issueId, userId, body, createdAt: now, editedAt: null, reactions: {}, resolvedAt: null };
     this.db.prepare('INSERT INTO comments (id, issue_id, user_id, body, created_at, reactions) VALUES (?, ?, ?, ?, ?, ?)').run(c.id, issueId, userId, body, now, '{}');
     this.logActivity({ issueId, type: 'commented', data: { commentId: c.id } }, userId);
-    if (userId !== getMeta(this.db, 'currentUser')) {
-      this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id('n'), 'issueCommented', userId, issueId, body.slice(0, 140), now);
+    const me = getMeta(this.db, 'currentUser');
+    if (userId !== me) {
+      // a mention outranks the plain comment notification — never raise both
+      this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id('n'), (me ? this.mentions(body).includes(me) : false) ? 'issueMentioned' : 'issueCommented', userId, issueId, body.slice(0, 140), now);
     }
     return c;
   }
@@ -470,8 +473,25 @@ export class Store {
   private notifyAssign(issueId: string, assigneeId: string, actorId?: string): void {
     const me = getMeta(this.db, 'currentUser');
     if (assigneeId === me && assigneeId !== (actorId ?? me)) {
-      this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, body, created_at) VALUES (?, ?, NULL, ?, ?, ?)').run(id('n'), 'issueAssignedToYou', issueId, 'You were assigned this issue', ts());
+      // the actor is who the inbox row leads with — without it the row falls back
+      // to the app's own tile, which reads as a system message it isn't
+      this.notify('issueAssignedToYou', { actorId: actorId ?? null, issueId, body: 'You were assigned this issue' });
     }
+  }
+  /** single insert point for every notification the store raises */
+  notify(type: NotificationType, o: { actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string }): void {
+    this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, project_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id('n'), type, o.actorId ?? null, o.issueId ?? null, o.projectId ?? null, o.body ?? '', o.createdAt ?? ts());
+  }
+  /** @Name mentions resolved against the member list — longest name first so
+      "@Ada Osei" doesn't match a member called "Ada" and stop there */
+  private mentions(body: string): string[] {
+    const users = this.db.prepare('SELECT id, name FROM users').all() as unknown as Array<{ id: string; name: string }>;
+    const hit: string[] = [];
+    for (const u of [...users].sort((a, b) => b.name.length - a.name.length)) {
+      if (new RegExp(`@${u.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(body)) hit.push(u.id);
+    }
+    return hit;
   }
   listNotifications(): Notification[] { return this.snapshot().notifications; }
   markNotificationRead(notificationId: string, read = true): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE id = ?').run(read ? ts() : null, notificationId); }

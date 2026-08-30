@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, createContext, useContext, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { useApp } from './store.js';
 import { IconClose, IconCheck } from './icons.js';
 
@@ -179,7 +180,7 @@ export function Toasts() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="toast-title">{t.title}</div>
               {t.line && <div className="toast-line">{t.line}</div>}
-              {t.link && <a className="toast-link" href={t.link.to}>{t.link.label}</a>}
+              {t.link && <Link className="toast-link" to={t.link.to}>{t.link.label}</Link>}
             </div>
             {t.actions?.map(a => (
               <button key={a.label} className="btn primary" style={{ height: 26, fontSize: 12 }}

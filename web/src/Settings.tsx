@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useParams } from 'react-router-dom';
 import { useApp } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
-import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash, IconAgent } from './icons.js';
+import { Menu, MenuItem, MenuSep, useMenu, Modal } from './ui.js';
+import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar } from './icons.js';
+import { dateLabel } from './Views.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
 import type { WorkflowStateType, Priority } from '../../src/core/types.js';
 
@@ -114,9 +115,6 @@ function TeamEditor(props: { teamId: string }) {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(team.name);
   const [addingCycle, setAddingCycle] = useState(false);
-  const [cyName, setCyName] = useState('');
-  const [cyStart, setCyStart] = useState('');
-  const [cyEnd, setCyEnd] = useState('');
 
   const patchTeam = async (patch: Record<string, unknown>) => {
     await api.updateTeam(team.id, patch);
@@ -138,13 +136,6 @@ function TeamEditor(props: { teamId: string }) {
   };
 
   const nextCycleNumber = cycles.length ? Math.max(...cycles.map(c => c.number)) + 1 : 1;
-  const createCycle = async () => {
-    if (!cyStart || !cyEnd) return;
-    await api.createCycle({ teamId: team.id, number: nextCycleNumber, name: cyName.trim() || `Cycle ${nextCycleNumber}`, startsAt: new Date(cyStart).toISOString(), endsAt: new Date(cyEnd + 'T23:59:59').toISOString() });
-    setCyName(''); setCyStart(''); setCyEnd(''); setAddingCycle(false);
-    await useApp.getState().bootstrap();
-    toast({ title: 'Cycle created' });
-  };
 
   return (
     <div style={{ marginBottom: 28 }}>
@@ -211,16 +202,9 @@ function TeamEditor(props: { teamId: string }) {
         <div style={{ display: 'flex', alignItems: 'center', padding: '4px 0' }}>
           <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Cycles</span>
           <span style={{ flex: 1 }} />
-          <button className="prop-chip" style={{ color: 'var(--text-dim)', height: 22, fontSize: 11.5 }} onClick={() => setAddingCycle(a => !a)}>＋ Add cycle</button>
+          <button className="prop-chip" style={{ color: 'var(--text-dim)', height: 22, fontSize: 11.5 }} onClick={() => setAddingCycle(true)}>＋ Add cycle</button>
         </div>
-        {addingCycle && (
-          <div style={{ display: 'flex', gap: 6, padding: '4px 0', alignItems: 'center' }}>
-            <input className="text-input" style={{ height: 26 }} autoFocus placeholder={`Cycle ${nextCycleNumber} name`} value={cyName} onChange={e => setCyName(e.target.value)} />
-            <input type="date" className="text-input" style={{ height: 26, width: 130 }} value={cyStart} onChange={e => setCyStart(e.target.value)} />
-            <input type="date" className="text-input" style={{ height: 26, width: 130 }} value={cyEnd} onChange={e => setCyEnd(e.target.value)} />
-            <button className="btn primary" style={{ height: 26, fontSize: 12 }} onClick={createCycle}>Add</button>
-          </div>
-        )}
+        {addingCycle && <NewCycleModal teamId={team.id} number={nextCycleNumber} onClose={() => setAddingCycle(false)} />}
         {cycles.map(c => (
           <div key={c.id} className="prop-row group">
             <span style={{ color: 'var(--text-secondary)', fontSize: 12, width: 16 }}>#{c.number}</span>
@@ -234,6 +218,112 @@ function TeamEditor(props: { teamId: string }) {
         {cycles.length === 0 && !addingCycle && <div style={{ color: 'var(--text-dim)', padding: '4px 0', fontSize: 12 }}>No cycles yet.</div>}
       </div>
     </div>
+  );
+}
+
+function addDaysIso(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + n);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+/* Linear-style create-cycle modal: big name field + calendar pill pickers */
+function NewCycleModal(props: { teamId: string; number: number; onClose: () => void }) {
+  const toast = useApp(s => s.toast);
+  const [name, setName] = useState('');
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const nameRef = useRef<HTMLInputElement>(null);
+  const startMenu = useMenu();
+  const endMenu = useMenu();
+
+  useEffect(() => {
+    const t = setTimeout(() => nameRef.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, []);
+
+  const valid = !!start && !!end && end >= start;
+  const create = async () => {
+    if (!valid) return;
+    await api.createCycle({
+      teamId: props.teamId, number: props.number,
+      name: name.trim() || `Cycle ${props.number}`,
+      startsAt: new Date(start).toISOString(),
+      endsAt: new Date(end + 'T23:59:59').toISOString(),
+    });
+    await useApp.getState().bootstrap();
+    props.onClose();
+    toast({ title: 'Cycle created', line: `${name.trim() || `Cycle ${props.number}`} · ${dateLabel(start)} → ${dateLabel(end)}` });
+  };
+
+  // ⌘/Ctrl+Enter creates from anywhere in the modal (menus portal outside this
+  // wrapper, but their React events still bubble here — so exclude them)
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest?.('.menu')) return;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      void create();
+    } else if (e.key === 'Enter' && !e.shiftKey && e.target === nameRef.current) {
+      e.preventDefault();
+      void create();
+    }
+  };
+
+  return (
+    <Modal onClose={props.onClose} className="modal modal-create cy-modal">
+      <div className="cm-root" onKeyDown={onKeyDown}>
+        <div className="cm-header">
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>New cycle</span>
+          <span style={{ marginLeft: 'auto', display: 'flex' }}>
+            <button className="icon-btn" onClick={props.onClose}><IconClose size={14} /></button>
+          </span>
+        </div>
+
+        <div className="np-head">
+          <input ref={nameRef} className="np-name" placeholder={`Cycle ${props.number} name`} value={name} spellCheck={false}
+            onChange={e => setName(e.target.value)} />
+        </div>
+
+        <div className="cm-pills">
+          <button className="prop-chip" onClick={startMenu.open}>
+            <IconCalendar size={13} style={{ color: 'var(--text-dim)' }} />
+            {start ? dateLabel(start) : 'Start date'}
+          </button>
+          <button className="prop-chip" onClick={endMenu.open}>
+            <IconCalendar size={13} style={{ color: 'var(--text-dim)' }} />
+            {end ? dateLabel(end) : 'End date'}
+          </button>
+        </div>
+
+        <div className="cm-footer">
+          {start && end && end < start ? (
+            <span style={{ color: '#eb5757', fontSize: 12 }}>End date must be on or after the start date.</span>
+          ) : (
+            <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{start && !end ? 'End date defaults to a two-week cycle.' : undefined}</span>
+          )}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button className="btn" onClick={props.onClose}>Cancel</button>
+            <button className="btn primary" style={{ whiteSpace: 'nowrap' }} onClick={create} disabled={!valid}>
+              Create cycle
+              <span className="btn-kbd kbd">⌘↵</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {startMenu.anchor && (
+        <Menu anchor={startMenu.anchor} onClose={startMenu.close} width={250}>
+          <div className="menu-header"><span>Start date</span></div>
+          <CalendarGrid selected={start || undefined} onPick={iso => { setStart(iso); if (!end) setEnd(addDaysIso(iso, 13)); startMenu.close(); }} />
+        </Menu>
+      )}
+      {endMenu.anchor && (
+        <Menu anchor={endMenu.anchor} onClose={endMenu.close} width={250}>
+          <div className="menu-header"><span>End date</span></div>
+          <CalendarGrid selected={end || undefined} onPick={iso => { setEnd(iso); endMenu.close(); }} />
+        </Menu>
+      )}
+    </Modal>
   );
 }
 

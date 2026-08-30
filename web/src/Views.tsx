@@ -283,7 +283,7 @@ function progressOf(snap: NonNullable<ReturnType<typeof useApp.getState>['snap']
 const PROJECT_ICONS = ['🧊', '🤖', '📱', '🎨', '🚀', '⚡', '🔧', '📦', '🌐', '💡', '🧪', '📊', '🔒', '🛠️', '📝', '🎯'];
 
 /** local-timezone label for a YYYY-MM-DD input value (shortDate parses it as UTC and can shift a day) */
-function dateLabel(iso: string): string {
+export function dateLabel(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
@@ -492,7 +492,6 @@ export function NewProjectPage() {
 export function ProjectPage() {
   const { projectId = '' } = useParams();
   const snap = useApp(s => s.snap)!;
-  const setPeek = useApp(s => s.setPeek);
   const openCreate = useApp(s => s.openCreate);
   const toast = useApp(s => s.toast);
   const navigate = useNavigate();
@@ -899,10 +898,32 @@ export function InboxPage() {
     const issue = n.issueId ? snap.issues.find(i => i.id === n.issueId) : undefined;
     const team = issue ? snap.teams.find(t => t.id === issue.teamId) : undefined;
     const key = issue && team ? `${team.key}-${issue.number}` : '';
-    if (n.type === 'issueAssignedToYou') return { text: 'assigned you an issue', issue, key, icon: <IconAssignArrow size={14} /> };
+    if (n.type === 'issueAssignedToYou') return { text: 'assigned you', issue, key, icon: <IconAssignArrow size={14} /> };
     if (n.type === 'issueCommented') return { text: 'commented on', issue, key, icon: <IconComment size={14} /> };
     if (n.type === 'issueMentioned') return { text: 'mentioned you on', issue, key, icon: <IconMention size={14} /> };
+    if (n.type === 'systemUpdate') return { text: '', issue, key, icon: undefined };
     return { text: 'updated', issue, key, icon: <IconComment size={14} /> };
+  };
+
+  /* Multiple actors on the same issue collapse into one row with a punched-gap
+     stack — two people saying the same thing about BAS-214 is one thing to read,
+     not two. Only same-issue, same-kind, same-day notifications merge; the merged
+     row keeps the newest timestamp and stays unread while any part is unread. */
+  type Row = { lead: typeof notifications[number]; actors: string[]; ids: string[]; unread: boolean };
+  const collapse = (items: typeof notifications): Row[] => {
+    const rows: Row[] = [];
+    for (const n of items) {
+      const kind = n.type === 'issueMentioned' ? 'issueMentioned' : n.type;
+      const hit = n.issueId ? rows.find(r => r.lead.issueId === n.issueId && (r.lead.type === 'issueMentioned' ? 'issueMentioned' : r.lead.type) === kind) : undefined;
+      if (hit) {
+        if (n.actorId && !hit.actors.includes(n.actorId)) hit.actors.push(n.actorId);
+        hit.ids.push(n.id);
+        hit.unread = hit.unread || !n.readAt;
+      } else {
+        rows.push({ lead: n, actors: n.actorId ? [n.actorId] : [], ids: [n.id], unread: !n.readAt });
+      }
+    }
+    return rows;
   };
 
   const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
@@ -933,43 +954,53 @@ export function InboxPage() {
               <div key={name}>
                 <div className="group-header" style={{ marginTop: 8 }}>
                   <span>{name}</span>
-                  <span className="count">{items.length}</span>
+                  <span className="count">{collapse(items).length}</span>
                   <span className="gh-rule" />
                 </div>
-                {items.map(n => {
+                {collapse(items).map(row => {
+                  const n = row.lead;
                   const l = label(n);
-                  const actor = snap.users.find(u => u.id === n.actorId);
+                  const actors = row.actors.map(a => snap.users.find(u => u.id === a)).filter(Boolean) as NonNullable<ReturnType<typeof snap.users.find>>[];
+                  const read = async (value: boolean) => {
+                    for (const nid of row.ids) await api.markNotificationRead(nid, value);
+                    await useApp.getState().bootstrap();
+                  };
+                  const others = actors.length > 1 ? ` and ${actors.length - 1} other${actors.length > 2 ? 's' : ''}` : '';
                   return (
                     <div
                       key={n.id}
-                      className={`inbox-row ${n.readAt ? '' : 'unread'}`}
+                      className={`inbox-row ${row.unread ? 'unread' : ''}`}
                       onClick={async () => {
-                        await api.markNotificationRead(n.id, true);
-                        await useApp.getState().bootstrap();
+                        await read(true);
                         if (l.key) navigate(`/issue/${l.key}`);
                       }}
                     >
                       {/* unread is a paper node in its own 6px gutter — no wash, no rail */}
                       <span className="inbox-node" />
-                      {actor ? <Avatar user={actor} size={24} /> : (
+                      {actors.length > 1 ? (
+                        /* several actors on one issue: the punched-gap stack, not a row each */
+                        <span style={{ display: 'flex', paddingTop: 1 }}>
+                          <AvatarStack size={24} people={actors.map(a => ({ name: a.name, initials: a.initials, color: a.color }))} />
+                        </span>
+                      ) : actors.length === 1 ? <Avatar user={actors[0]} size={24} /> : (
                         /* no human actor: the app signs as its own tile */
                         <span style={{ display: 'flex', paddingTop: 4 }}><Logo size={16} /></span>
                       )}
                       <div className="inbox-body">
                         <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ color: 'var(--text-secondary)', display: 'flex' }}>{l.icon}</span>
-                          <span><b>{actor?.name ?? 'Baseline'}</b> {l.text} {l.issue && <b>{l.key} {l.issue.title}</b>}</span>
+                          {l.icon && <span style={{ color: 'var(--text-secondary)', display: 'flex' }}>{l.icon}</span>}
+                          <span>
+                            <b>{actors[0]?.name ?? 'Baseline'}</b>{others} {l.text}{' '}
+                            {l.issue ? <b>{l.issue.title}</b> : n.body}
+                          </span>
                         </div>
-                        {n.type === 'issueCommented' && <div style={{ color: 'var(--text-secondary)', fontSize: 12.5, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</div>}
-                        <div className="rel-time">{relTime(n.createdAt)}</div>
+                        {(n.type === 'issueCommented' || n.type === 'issueMentioned') && <div style={{ color: 'var(--text-secondary)', fontSize: 12.5, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</div>}
+                        {/* rel-time and key ride one mono line: "2h · BAS-214" */}
+                        <div className="rel-time">{relTime(n.createdAt)} · {l.key || 'SYSTEM'}</div>
                       </div>
                       <button
-                        className="icon-btn hover-only" title={n.readAt ? 'Mark unread' : 'Mark read'}
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          await api.markNotificationRead(n.id, !n.readAt);
-                          await useApp.getState().bootstrap();
-                        }}
+                        className="icon-btn hover-only" title={row.unread ? 'Mark read' : 'Mark unread'}
+                        onClick={async (e) => { e.stopPropagation(); await read(row.unread); }}
                       ><IconCheck size={13} /></button>
                     </div>
                   );

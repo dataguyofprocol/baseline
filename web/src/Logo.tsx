@@ -9,9 +9,10 @@
 // the tab bar; it has to survive it.
 // Grounds stay flat — no gradient, no sheen, no glow, at any size.
 
-export function Logo({ size = 18 }: { size?: number }) {
+export function Logo({ size = 18, tone = 'ink' }: { size?: number; tone?: 'ink' | 'paper' }) {
   const small = size < 24;
-  const uid = small ? 'bl-logo-s' : 'bl-logo-l';
+  const paper = tone === 'paper';
+  const uid = (small ? 'bl-logo-s' : 'bl-logo-l') + (paper ? '-p' : '');
   const rule = small ? 2.6 : 1.9;
   const ruleX = small ? 4.4 : 6;
   const ruleW = small ? 23.2 : 20;
@@ -29,14 +30,17 @@ export function Logo({ size = 18 }: { size?: number }) {
           <circle cx={nodeCx} cy={cy} r={gapR} fill="#000" />
         </mask>
       </defs>
-      <rect width="32" height="32" rx={small ? 6.4 : 7.6} fill="#14151A" />
+      {/* the paper cut inverts the ground only — geometry, register line and the
+          knocked-out gap are identical; it is for ink-on-paper surfaces (print,
+          export cards, a light marketing ground) */}
+      <rect width="32" height="32" rx={small ? 6.4 : 7.6} fill={paper ? '#F3F1EC' : '#14151A'} />
       {!small && (
         <>
-          <rect x={0.5} y={0.5} width={31} height={31} rx={7.2} fill="none" stroke="#fff" strokeOpacity={0.09} />
+          <rect x={0.5} y={0.5} width={31} height={31} rx={7.2} fill="none" stroke={paper ? '#09090A' : '#fff'} strokeOpacity={paper ? 0.1 : 0.09} />
           <rect x={6} y={22.3} width={20} height={0.9} fill="#5E6AD2" />
         </>
       )}
-      <g fill="#F3F1EC">
+      <g fill={paper ? '#14151A' : '#F3F1EC'}>
         <rect x={ruleX} y={ruleY} width={ruleW} height={rule} mask={`url(#${uid}-gap)`} />
         <circle cx={nodeCx} cy={cy} r={nodeR} />
       </g>

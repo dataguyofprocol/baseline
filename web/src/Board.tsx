@@ -13,10 +13,11 @@ import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { IconPlus, IconMore, IconCopy, IconFocus } from './icons.js';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { groupsFor, issuesOfGroup, orderIssues } from './IssueViews.js';
+import { useLanding } from './motion.js';
 import type { Issue, GroupBy, Priority } from '../../src/core/types.js';
 
 /* card internals — shared by the sortable card and the drag overlay */
-function CardBody(props: { issue: Issue; groupBy: GroupBy }) {
+function CardBody(props: { issue: Issue; groupBy: GroupBy; becameDone?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const team = snap.teams.find(t => t.id === props.issue.teamId);
   const state = snap.states.find(s => s.id === props.issue.stateId);
@@ -30,7 +31,7 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy }) {
       </div>
       <div className="bc-title">
         {/* the column already says where it lives — only repeat the state on non-status boards */}
-        {props.groupBy !== 'status' && state && <StateIcon type={state.type} color={state.color} size={13} />}
+        {props.groupBy !== 'status' && state && <StateIcon type={state.type} color={state.color} size={13} morph={props.becameDone} />}
         <span>{props.issue.title}</span>
       </div>
       {(props.issue.priority > 0 || labels.length > 0) && (
@@ -51,6 +52,9 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy }) {
 function BoardCard(props: { issue: Issue; groupBy: GroupBy }) {
   const navigate = useNavigate();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.issue.id, data: { issue: props.issue } });
+  const state = useApp(s => s.snap!.states.find(st => st.id === props.issue.stateId));
+  // a card that lands in a new column gets the same enter + flash as a row
+  const { justMoved, becameDone } = useLanding(props.issue, state?.type);
   // a completed drag must not land as a click on the (hidden) source card
   const suppressClick = useRef(false);
   useEffect(() => {
@@ -72,12 +76,13 @@ function BoardCard(props: { issue: Issue; groupBy: GroupBy }) {
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={`board-card ${isDragging ? 'source-hidden' : ''}`}
+      data-issue-row={props.issue.id}
+      className={`board-card ${isDragging ? 'source-hidden' : ''} ${justMoved && !isDragging ? 'just-moved' : ''}`}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       onClick={open}
       onAuxClick={open}
     >
-      <CardBody issue={props.issue} groupBy={props.groupBy} />
+      <CardBody issue={props.issue} groupBy={props.groupBy} becameDone={becameDone} />
     </div>
   );
 }

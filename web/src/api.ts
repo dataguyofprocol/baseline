@@ -1,3 +1,4 @@
+import { markCreated } from './motion.js';
 import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate } from '../../src/core/types.js';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -13,7 +14,11 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 
 export const api = {
   bootstrap: () => req<Snapshot>('GET', '/api/bootstrap'),
-  createIssue: (b: Partial<Issue> & { teamId: string; title: string }) => req<{ issue: Issue }>('POST', '/api/issues', b),
+  createIssue: async (b: Partial<Issue> & { teamId: string; title: string }) => {
+    const r = await req<{ issue: Issue }>('POST', '/api/issues', b);
+    markCreated(r.issue.id);   // the row plays its enter + flash when it lands
+    return r;
+  },
   updateIssue: (id: string, patch: Record<string, unknown>) => req<{ issue: Issue }>('PATCH', `/api/issues/${id}`, patch),
   deleteIssue: (id: string) => req<{ ok: true }>('DELETE', `/api/issues/${id}`),
   restoreIssue: (id: string) => req<{ ok: true }>('POST', `/api/issues/${id}/restore`),

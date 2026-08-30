@@ -10,8 +10,10 @@ import {
   DueDateMenu, EstimateMenu, CycleMenu, IssuePickerMenu, AddRelationMenu,
 } from './pickers.js';
 import { SubIssueSpine } from './AvatarStack.js';
+import { Logo } from './Logo.js';
+import { useLanding, playExit } from './motion.js';
 import {
-  IconLink, IconSplit, IconAttach, IconArrowUp, IconPlus, IconClose,
+  IconLink, IconAttach, IconArrowUp, IconPlus, IconClose,
   IconArchive, IconRestore, IconTrash, IconEdit, IconSubIssue, IconDuplicate,
   IconEstimate, IconCycle, IconCalendar, IconBox, IconPrompt, IconCopy,
   IconAgent, IconBranch,
@@ -269,6 +271,8 @@ export function PropertiesRail(props: { issue: Issue }) {
   const cycle = snap.cycles.find(c => c.id === issue.cycleId);
   const parent = issue.parentId ? snap.issues.find(i => i.id === issue.parentId) : undefined;
   const parentTeam = parent ? snap.teams.find(t => t.id === parent.teamId) : undefined;
+  // the rail's own status line morphs when the issue lands on completed
+  const { becameDone } = useLanding(issue, state?.type);
   const navigate = useNavigate();
 
   return (
@@ -278,7 +282,7 @@ export function PropertiesRail(props: { issue: Issue }) {
         <StatusMenu issue={issue}>
           {({ open }) => (
             <button className="prop-line" onClick={open}>
-              {state && <StateIcon type={state.type} color={state.color} size={14} />}
+              {state && <StateIcon type={state.type} color={state.color} size={14} morph={becameDone} />}
               <span className="prop-line-label">{state?.name ?? 'Set status'}</span>
             </button>
           )}
@@ -369,7 +373,7 @@ export function PropertiesRail(props: { issue: Issue }) {
   );
 }
 
-/* ---------------- issue detail body (shared by peek & page) ---------------- */
+/* ---------------- issue detail body ---------------- */
 export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const issue = props.issue;
@@ -422,9 +426,9 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
     await useApp.getState().bootstrap();
   };
   const archive = async () => {
+    await playExit([issue.id]);
     await api.archiveIssue(issue.id);
     await useApp.getState().bootstrap();
-    useApp.getState().setPeek(null);
     navigate(`/team/${team.key}/all`);
     toast({
       title: 'Issue archived', line: <>{key} — {issue.title}</>,
@@ -452,6 +456,17 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
 
   return (
     <div className="issue-page">
+      {/* Print / export header: the app appears as an object on paper, so it is
+          the paper cut of the tile over an ink rule. Screen-hidden; @media print
+          strips the chrome around it. */}
+      <div className="print-head" aria-hidden="true">
+        <div className="print-head-row">
+          <Logo size={26} tone="paper" />
+          <span className="print-wordmark">Baseline</span>
+          <span className="print-key">{key}</span>
+        </div>
+        <div className="print-rule" />
+      </div>
       <TopBar
           crumbs={[
             { label: team.name, to: `/team/${team.key}/all`, muted: true },
@@ -480,7 +495,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                 onClick={async () => {
                   await api.deleteIssue(issue.id);
                   await useApp.getState().bootstrap();
-                  useApp.getState().setPeek(null);
                   navigate(`/team/${team.key}/all`);
                   toast({
                     title: 'Issue deleted', line: <>{key} — {issue.title}</>,
@@ -496,9 +510,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
               <button className="icon-btn" title="Copy branch name" onClick={copyBranch}><IconBranch size={15} /></button>
               <button className="icon-btn" title="Copy issue URL" onClick={copyUrl}><IconLink size={15} /></button>
               <button className="icon-btn" title="Copy issue ID" onClick={copyId}><IconCopy size={15} /></button>
-              {props.full
-                ? <button className="icon-btn" title="Open in split view" onClick={() => useApp.getState().setPeek(issue.id)}><IconSplit size={15} /></button>
-                : <button className="icon-btn" title="Open full page" onClick={() => { useApp.getState().setPeek(null); navigate(`/issue/${key}`); }}><IconSplit size={15} /></button>}
             </div>
           }
         />
@@ -590,25 +601,9 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   );
 }
 
-/* ---------------- peek wrapper ---------------- */
-export function IssuePeek() {
-  const peekId = useApp(s => s.peekIssueId);
-  const snap = useApp(s => s.snap);
-  if (!peekId || !snap) return null;
-  const issue = snap.issues.find(i => i.id === peekId);
-  if (!issue) return null;
-  return (
-    <div className="peek">
-      <IssueDetail issue={issue} />
-    </div>
-  );
-}
-
 /* ---------------- full page ---------------- */
 export function IssuePage(props: { issueKey: string }) {
   const snap = useApp(s => s.snap);
-  const setPeek = useApp(s => s.setPeek);
-  useEffect(() => { setPeek(null); }, [props.issueKey]); // eslint-disable-line
   if (!snap) return null;
   const m = /^(.+)-(\d+)$/.exec(props.issueKey);
   const team = snap.teams.find(t => t.key.toLowerCase() === (m?.[1] ?? '').toLowerCase());

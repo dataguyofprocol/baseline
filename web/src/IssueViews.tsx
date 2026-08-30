@@ -5,6 +5,7 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, MenuInput } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { LogoMark } from './Logo.js';
+import { useLanding, playExit } from './motion.js';
 import {
   IconChevronDown, IconChevronRight, IconPlus, IconFilter, IconClose, IconArchive, IconTrash,
   IconCalendar, IconCycle, IconFocus, IconPrompt,
@@ -150,7 +151,6 @@ export function issuesOfGroup(groupBy: GroupBy, issues: Issue[], groupId: string
 
 /* last-seen workflow state per issue id — lets a remounted row (rows are keyed
    by position, so moving groups remounts them) still detect that it just moved */
-const lastStateById = new Map<string, string>();
 
 let lastCheckedId: string | null = null;
 /** shift-click a checkbox: extend the selection across the visible list from the last clicked row */
@@ -191,21 +191,9 @@ export function IssueRow(props: {
   const project = snap.projects.find(p => p.id === props.issue.projectId);
   const key = `${team?.key ?? 'ISS'}-${props.issue.number}`;
 
-  // optimistic reflow: when the issue just changed status, play the landing
-  // animation on this row and morph the done icon if it landed on completed
-  const [justMoved, setJustMoved] = useState(() => {
-    const seen = lastStateById.get(props.issue.id);
-    return seen !== undefined && seen !== props.issue.stateId;
-  });
-  useEffect(() => {
-    lastStateById.set(props.issue.id, props.issue.stateId);
-  }, [props.issue.id, props.issue.stateId]);
-  useEffect(() => {
-    if (!justMoved) return;
-    const t = setTimeout(() => setJustMoved(false), 1200);
-    return () => clearTimeout(t);
-  }, [justMoved]);
-  const becameDone = justMoved && state?.type === 'completed';
+  // optimistic landing: a status change or a fresh create lands the row with
+  // the enter + flash, and a move into completed morphs the status icon
+  const { justMoved, becameDone } = useLanding(props.issue, state?.type);
 
   const open = () => {
     if (props.onOpen) props.onOpen();
@@ -262,7 +250,6 @@ export function IssueRow(props: {
 /* ---------------- row context menu ---------------- */
 export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; issue: Issue }) {
   const snap = useApp(s => s.snap)!;
-  const setPeek = useApp(s => s.setPeek);
   const setQuickMenu = useApp(s => s.setQuickMenu);
   const toast = useApp(s => s.toast);
   const team = snap.teams.find(t => t.id === props.issue.teamId);
@@ -297,7 +284,6 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
           else toast({ title: 'Clipboard unavailable', line: <>{key}</> });
         }}
       />
-      <MenuItem label="Open in full page" onClick={() => { setPeek(null); location.hash = `#/issue/${key}`; }} />
       <MenuItem label="Duplicate issue" onClick={async () => {
         const { issue } = await api.createIssue({
           teamId: props.issue.teamId, title: props.issue.title, description: props.issue.description,
@@ -309,9 +295,9 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
       }} />
       <MenuSep />
       <MenuItem icon={<IconArchive size={14} />} label="Archive" onClick={async () => {
+        await playExit([props.issue.id]);
         await api.archiveIssue(props.issue.id);
         await useApp.getState().bootstrap();
-        setPeek(null);
         toast({
           title: 'Issue archived',
           line: <>{key} — {props.issue.title}</>,
@@ -319,9 +305,9 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
         });
       }} />
       <MenuItem icon={<IconTrash size={14} />} danger label="Delete issue" onClick={async () => {
+        await playExit([props.issue.id]);
         await api.deleteIssue(props.issue.id);
         await useApp.getState().bootstrap();
-        setPeek(null);
         toast({
           title: 'Issue deleted',
           line: <>{key} — {props.issue.title}</>,

@@ -184,6 +184,14 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   0% { opacity: 1; max-height: 40px; }
   100% { opacity: 0; max-height: 0; transform: translateX(10px); }
 }
+@keyframes bl-card-enter {
+  0% { opacity: 0; transform: translateY(-6px); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes bl-card-leave {
+  0% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateX(10px); }
+}
 @keyframes bl-deplete {
   from { width: 100%; }
   to { width: 0%; }
@@ -297,9 +305,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 
 /* ---------- main column ---------- */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-main); }
-/* Shrink boundary between the routed page and the peek panel: the page may
-   compress below its content width (rows/breadcrumbs ellipsize) instead of
-   pushing the peek's properties rail off-screen. */
 .page-host { flex: 1 1 0%; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .topbar {
   height: 46px; flex: none; display: flex; align-items: center; gap: 6px;
@@ -409,6 +414,15 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   overflow: hidden;
   animation: bl-enter 340ms var(--ease) both, bl-flash 900ms ease 220ms both;
 }
+/* fresh create lands the same way — the row is new, not moved, so it enters
+   from the same 340ms and takes the same single flash */
+.issue-row.leaving {
+  overflow: hidden;
+  pointer-events: none;
+  animation: bl-leave 260ms var(--ease) both;
+}
+.board-card.just-moved { animation: bl-card-enter 340ms var(--ease) both, bl-flash 900ms ease 220ms both; }
+.board-card.leaving { pointer-events: none; animation: bl-card-leave 260ms var(--ease) both; }
 .issue-row .row-check { display: none; }
 /* Linear behavior: once anything is selected, every row shows its checkbox */
 .issue-row.checks-on .row-check, .issue-row:hover .row-check, .issue-row.selected .row-check {
@@ -471,6 +485,20 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   animation: bl-menu-in 150ms var(--ease) both;
   transform-origin: top;
 }
+/* Items stagger in behind the menu: 26ms apart, capped at 10 so a long menu
+   never feels slow. Same figure the palette uses. */
+.menu .menu-item { animation: bl-fade-up 150ms var(--ease) both; }
+.menu .menu-item:nth-child(2) { animation-delay: 26ms; }
+.menu .menu-item:nth-child(3) { animation-delay: 52ms; }
+.menu .menu-item:nth-child(4) { animation-delay: 78ms; }
+.menu .menu-item:nth-child(5) { animation-delay: 104ms; }
+.menu .menu-item:nth-child(6) { animation-delay: 130ms; }
+.menu .menu-item:nth-child(7) { animation-delay: 156ms; }
+.menu .menu-item:nth-child(8) { animation-delay: 182ms; }
+.menu .menu-item:nth-child(9) { animation-delay: 208ms; }
+.menu .menu-item:nth-child(10) { animation-delay: 234ms; }
+.menu .menu-item:nth-child(n+11) { animation-delay: 260ms; }
+
 .menu-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 6px 8px 4px; font-size: 12px; color: var(--text-dim);
@@ -537,6 +565,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 /* new-project modal (Linear create-project layout: icon chip above a big
    borderless name, pills, then a tall description area) */
 .np-modal { width: 640px; }
+.cy-modal { width: 460px; }
 .np-head { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px 0; }
 .np-icon {
   width: 36px; height: 36px; border-radius: 8px; font-size: 20px;
@@ -769,6 +798,33 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .rail-kv-value.dim { color: var(--text-dim); }
 .rail-activity { display: flex; gap: 8px; padding: 5px 6px; align-items: flex-start; }
 
+/* ---------- print / export card ----------
+   On paper the app is an object: the paper cut of the tile, the serif wordmark,
+   the key in mono, and one ink rule under the header. Everything interactive
+   comes out. */
+.print-head { display: none; }
+@media print {
+  :root { color-scheme: light; }
+  body { background: #fff; }
+  .sidebar, .topbar, .toasts, .selection-bar, .filter-bar, .issue-rail, .menu, .overlay { display: none !important; }
+  .app, .main, .page-host, .issue-page, .content { display: block !important; height: auto !important; overflow: visible !important; background: #fff !important; color: #14151a !important; }
+  .print-head { display: block; margin-bottom: 14px; }
+  .print-head-row { display: flex; align-items: center; gap: 9px; }
+  .print-wordmark { font-family: var(--font-display); font-size: 16px; line-height: 1; color: #14151a; }
+  .print-key { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--brand-graphite); }
+  .print-rule { height: 1.6px; background: #14151a; margin-top: 9px; }
+}
+
+/* ---------- boot ----------
+   Tile + a 2px paper rule beneath it, 1.4s alternate. Square ends; the rule is
+   the only thing that moves. */
+.boot { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; }
+.boot-rule { width: 96px; height: 2px; background: var(--border-strong); }
+.boot-rule span { display: block; height: 2px; background: var(--brand-paper); animation: bl-deplete 1.4s linear infinite alternate; }
+@media (prefers-reduced-motion: reduce) {
+  .boot-rule span { animation: none; width: 100%; }
+}
+
 /* ---------- toasts ---------- */
 .toasts { position: fixed; right: 16px; bottom: 16px; z-index: 200; display: flex; flex-direction: column; gap: 8px; width: 340px; }
 .toast {
@@ -867,9 +923,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
   background-size: 220px 100%;
   animation: bl-shimmer 1.6s linear infinite;
 }
-
-/* peek */
-.peek { width: 55%; min-width: 560px; flex: none; border-left: 1px solid var(--border); background: var(--bg-main); display: flex; flex-direction: column; min-height: 0; }
 
 /* ---------- v2 additions: cursor, selection, filters, bulk, calendar ---------- */
 .hover-only { opacity: 0; transition: opacity 120ms ease; pointer-events: none; }

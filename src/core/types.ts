@@ -197,7 +197,9 @@ export type NotificationType =
   | 'issueAssigned'
   | 'issueCommented'
   | 'issueMentioned'
-  | 'projectUpdate';
+  | 'projectUpdate'
+  /** raised by the app itself — no human actor, so the inbox row signs with the tile */
+  | 'systemUpdate';
 
 export interface Notification {
   id: string;

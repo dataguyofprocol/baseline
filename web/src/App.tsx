@@ -4,7 +4,6 @@ import { useApp, useCursor, useSelection, visibleList } from './store.js';
 import { api } from './api.js';
 import { Sidebar } from './AppShell.js';
 import { CreateIssueModal } from './CreateIssueModal.js';
-import { IssuePeek } from './IssueDetail.js';
 import { CommandPalette, ShortcutsOverlay } from './Palette.js';
 import { QuickMenus, SelectionBar } from './IssueViews.js';
 import { Toasts } from './ui.js';
@@ -14,6 +13,8 @@ import {
 import { SettingsLayout } from './Settings.js';
 import { IssuePage } from './IssueDetail.js';
 import { Onboarding } from './Onboarding.js';
+import { Logo } from './Logo.js';
+import { playExit } from './motion.js';
 
 function KeyboardManager() {
   const navigate = useNavigate();
@@ -70,6 +71,7 @@ function KeyboardManager() {
           void (async () => {
             const t2 = s.snap?.teams.find(t => t.id === issue.teamId);
             const key = `${t2?.key}-${issue.number}`;
+            await playExit([issue.id]);
             await api.archiveIssue(issue.id);
             await s.bootstrap();
             s.toast({
@@ -84,6 +86,7 @@ function KeyboardManager() {
           void (async () => {
             const t2 = s.snap?.teams.find(t => t.id === issue.teamId);
             const key = `${t2?.key}-${issue.number}`;
+            await playExit([issue.id]);
             await api.deleteIssue(issue.id);
             await s.bootstrap();
             s.toast({
@@ -127,8 +130,7 @@ function KeyboardManager() {
         return;
       }
       if (e.key === 'Escape') {
-        if (s.peekIssueId) s.setPeek(null);
-        else if (location.pathname !== '/') navigate(-1);
+        if (location.pathname !== '/') navigate(-1);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -200,12 +202,13 @@ export function App() {
   }, []); // eslint-disable-line
 
   if (!loaded) {
-    // shimmering placeholder bars at list-row rhythm so the list never jumps once data arrives
+    // Boot: the app appears as an object here, so it is the tile — large cut at 28
+    // over a 2px paper rule that carries the wait. The tile's own register line,
+    // hairline and node never animate; only the rule beneath it does.
     return (
-      <div style={{ height: '100%', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {[82, 64, 73, 55, 70, 46].map((w, i) => (
-          <div key={i} className="skeleton-bar" style={{ width: `${w}%`, animationDelay: `${i * 120}ms` }} />
-        ))}
+      <div className="boot">
+        <Logo size={28} />
+        <div className="boot-rule"><span /></div>
       </div>
     );
   }
@@ -240,7 +243,6 @@ export function App() {
                 <Route path="/settings" element={<SettingsLayout />} />
               </Routes>
             </div>
-            <IssuePeek />
           </div>
         </div>
       </div>

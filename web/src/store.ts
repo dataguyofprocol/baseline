@@ -16,7 +16,6 @@ interface AppState {
   loaded: boolean;
   theme: 'dark' | 'light';
   toasts: Toast[];
-  peekIssueId: string | null;
   paletteOpen: boolean;
   /** left nav collapsed (⌘B / the nav toggle); persisted across reloads */
   sidebarCollapsed: boolean;
@@ -28,7 +27,6 @@ interface AppState {
   setTheme: (t: 'dark' | 'light') => void;
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: number) => void;
-  setPeek: (issueId: string | null) => void;
   setPalette: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
@@ -45,7 +43,6 @@ export const useApp = create<AppState>((set, get) => ({
   loaded: false,
   theme: (localStorage.getItem('baseline:theme') as 'dark' | 'light') ?? 'dark',
   toasts: [],
-  peekIssueId: null,
   paletteOpen: false,
   sidebarCollapsed: localStorage.getItem('baseline:sidebarCollapsed') === '1',
   createModal: { open: false },
@@ -69,7 +66,6 @@ export const useApp = create<AppState>((set, get) => ({
     if (t.autoClose !== false) setTimeout(() => get().dismissToast(id), 5200);
   },
   dismissToast: (id) => set(s => ({ toasts: s.toasts.filter(x => x.id !== id) })),
-  setPeek: (issueId) => set({ peekIssueId: issueId }),
   setPalette: (open) => set({ paletteOpen: open }),
   setSidebarCollapsed: (collapsed) => {
     localStorage.setItem('baseline:sidebarCollapsed', collapsed ? '1' : '0');
