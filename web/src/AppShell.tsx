@@ -30,10 +30,12 @@ export function Sidebar() {
   const unread = snap.notifications.filter(n => !n.readAt).length;
   const me = snap.currentUser;
 
-  // track the team being viewed so "Issues" always deep-links to it; fall back to the last-visited team
+  // track the team being viewed so "Issues" always deep-links to it; fall back to the
+  // last-visited team — but only if it still exists (a stale key from a wiped team would dead-end)
   const loc = useLocation();
   const locTeam = /^\/team\/([^/]+)/.exec(loc.pathname)?.[1];
-  const issuesTeamKey = locTeam ?? localStorage.getItem('baseline:issuesTeam') ?? snap.teams[0]?.key;
+  const storedTeamKey = localStorage.getItem('baseline:issuesTeam');
+  const issuesTeamKey = locTeam ?? (storedTeamKey && snap.teams.some(t => t.key === storedTeamKey) ? storedTeamKey : snap.teams[0]?.key);
 
   const favorites = snap.favorites
     .slice().sort((a, b) => a.position - b.position)

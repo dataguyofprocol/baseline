@@ -62,7 +62,7 @@ export function TeamPage() {
     return applyFilters(out, opts.filters, snap.states);
   }, [issues, team, filter, snap.states, opts.filters]);
 
-  if (!team) return <div className="empty-state"><div className="empty-title">Team not found</div></div>;
+  if (!team) return <TeamMissingRedirect />;
 
   const faved = snap.favorites.some(f => f.type === 'view' && f.refId === `team-${team.id}-${filter}`);
   const title = filter === 'active' ? 'Active' : filter === 'backlog' ? 'Backlog' : 'All issues';
@@ -122,6 +122,15 @@ export function TeamPage() {
 
 function teamStates(states: Array<{ id: string; teamId: string; type: string }>, teamId: string, types: string[]): string[] {
   return states.filter(s => s.teamId === teamId && types.includes(s.type)).map(s => s.id);
+}
+
+/** A stale team route (pre-reset URL left in the tab, an old localStorage key) should
+ *  fall back to the first team instead of dead-ending on "Team not found". */
+function TeamMissingRedirect() {
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  useEffect(() => { if (snap.teams[0]) navigate(`/team/${snap.teams[0].key}/all`, { replace: true }); }, []); // eslint-disable-line
+  return null;
 }
 
 /** team selector + All/Active/Backlog/Cycles tabs shared by the team issues page and the cycles page */
@@ -1189,7 +1198,7 @@ export function CyclesPage() {
   const navigate = useNavigate();
   const openCreate = useApp(s => s.openCreate);
   const team = snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase());
-  if (!team) return <div className="empty-state"><div className="empty-title">Team not found</div></div>;
+  if (!team) return <TeamMissingRedirect />;
   const cycles = snap.cycles.filter(c => c.teamId === team.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const now = new Date().toISOString();
   const current = cycles.find(c => c.startsAt <= now && c.endsAt >= now);

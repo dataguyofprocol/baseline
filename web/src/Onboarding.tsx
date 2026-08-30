@@ -20,6 +20,9 @@ export function Onboarding() {
     setBusy(true);
     try {
       await api.createTeam({ key: key.trim().toUpperCase(), name: name.trim() });
+      // land on Inbox — the tab may still carry a stale route (e.g. a team URL from before
+      // a reset), and mounting the router on it would show "Team not found"
+      window.location.hash = '#/';
       await useApp.getState().bootstrap();
     } finally {
       setBusy(false);
