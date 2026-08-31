@@ -636,6 +636,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .rail-labels { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 8px 4px; }
 .card { background: var(--bg-overlay); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
 .prop-row { display: flex; align-items: center; height: 30px; gap: 8px; font-size: 12.5px; }
+.prop-row.editing { height: auto; }
 .prop-row .prop-label { width: 72px; flex: none; color: var(--text-secondary); }
 .activity { border-top: 1px solid var(--border); margin-top: 28px; padding-top: 20px; }
 .activity-item { display: flex; gap: 10px; padding: 8px 0; align-items: flex-start; }

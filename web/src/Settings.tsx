@@ -635,7 +635,7 @@ function TemplatesSettings() {
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>{t.name}</div>
             <div className="card" style={{ padding: '6px 10px' }}>
               {tpls.map(tpl => (
-                <div key={tpl.id} className="prop-row group" style={{ alignItems: 'flex-start' }}>
+                <div key={tpl.id} className={'prop-row group' + (editing === tpl.id ? ' editing' : '')} style={{ alignItems: 'flex-start' }}>
                   {editing === tpl.id ? (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
                       <div style={{ display: 'flex', gap: 6 }}>
