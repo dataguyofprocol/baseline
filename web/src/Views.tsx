@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useApp, useHelpers, shortDate, relTime, copyText, refresh } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
@@ -22,7 +22,7 @@ import {
   IconCalendar, IconComment, IconAssignArrow, IconMention, IconCheck, IconCycle, IconUsers,
   IconLink, IconSettings, IconEdit, IconUser, IconChevronDown,
 } from './icons.js';
-import type { GroupBy, Priority, Project, ProjectHealth, ViewFilters, Issue } from '../../src/core/types.js';
+import type { GroupBy, Priority, Project, ProjectHealth, SavedView, ViewFilters, Issue } from '../../src/core/types.js';
 
 /** the right-toolbar filter icon opens the filter menu anchored to itself */
 export function openFilterMenu(e: React.MouseEvent) {
@@ -1093,6 +1093,9 @@ export function ViewsIndexPage() {
   const [menuView, setMenuView] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const renameRef = useRef<HTMLInputElement | null>(null);
+  // select after mount — a focus-event select() loses to the caret's default placement
+  useEffect(() => { if (renaming) renameRef.current?.select(); }, [renaming]);
 
   const describe = (filters: ViewFilters) => {
     const bits: string[] = [];
@@ -1108,7 +1111,8 @@ export function ViewsIndexPage() {
   const createView = async () => {
     const { view } = await api.createView({ name: 'New view', filters: {}, icon: '🗂' });
     await useApp.getState().bootstrap();
-    navigate(`/views/${view.id}`);
+    // land inside the fresh view with its name selected — naming it is the next natural step
+    navigate(`/views/${view.id}`, { state: { rename: true } });
   };
 
   return (
@@ -1131,7 +1135,7 @@ export function ViewsIndexPage() {
                 onContextMenu={(e) => { setMenuView(v.id); rowMenu.open(e); }}>
                 <span style={{ fontSize: 15 }}>{v.icon || '🗂'}</span>
                 {renaming === v.id ? (
-                  <input className="text-input" style={{ height: 26, flex: 1 }} autoFocus value={renameValue}
+                  <input ref={renameRef} className="text-input" style={{ height: 26, flex: 1 }} autoFocus value={renameValue}
                     onClick={e => e.stopPropagation()}
                     onChange={e => setRenameValue(e.target.value)}
                     onBlur={async () => { await api.updateView(v.id, { name: renameValue || v.name }); await useApp.getState().bootstrap(); setRenaming(null); }}
@@ -1170,8 +1174,44 @@ export function ViewsIndexPage() {
   );
 }
 
+/** the view's name rendered as the subnav tab — click it (or arrive from "New view") to rename in place */
+function ViewNameSeg(props: { view: SavedView; startEditing?: boolean }) {
+  const [editing, setEditing] = useState(props.startEditing ?? false);
+  const [name, setName] = useState(props.view.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { setName(props.view.name); }, [props.view.name]);
+  // select after mount — a focus-event select() loses to the caret's default placement
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+  const save = async () => {
+    setEditing(false);
+    const trimmed = name.trim();
+    if (trimmed && trimmed !== props.view.name) {
+      await api.updateView(props.view.id, { name: trimmed });
+      await useApp.getState().bootstrap();
+      useApp.getState().toast({ title: 'View renamed', line: <>{props.view.icon} {trimmed}</> });
+    }
+  };
+  if (editing) return (
+    <input ref={inputRef} className="text-input" style={{ height: 28, width: 240, fontWeight: 600 }} autoFocus value={name}
+      onChange={e => setName(e.target.value)}
+      onBlur={save}
+      onKeyDown={e => {
+        if (e.key === 'Enter') save();
+        if (e.key === 'Escape') { setName(props.view.name); setEditing(false); }
+      }} />
+  );
+  return (
+    <button className="seg selected" title="Click to rename" style={{ gap: 6 }}
+      onClick={() => { setName(props.view.name); setEditing(true); }}>
+      {props.view.name}
+      <IconEdit size={11} style={{ opacity: 0.45 }} />
+    </button>
+  );
+}
+
 export function SavedViewPage() {
   const { viewId = '' } = useParams();
+  const location = useLocation();
   const snap = useApp(s => s.snap)!;
   const view = snap.views.find(v => v.id === viewId);
   const defaults = useMemo<ViewOptions>(() => ({
@@ -1202,7 +1242,7 @@ export function SavedViewPage() {
         ) : undefined}
       />
       <div className="subnav">
-        <button className="seg selected">{view.name}</button>
+        <ViewNameSeg view={view} startEditing={Boolean((location.state as { rename?: boolean } | null)?.rename)} />
         <span style={{ flex: 1 }} />
         <button className="icon-btn" title="Filter" onClick={openFilterMenu}><IconFilter size={15} /></button>
         <button className="icon-btn" title="Display options" onClick={displayBtn.open} style={opts.layout === 'board' ? { color: 'var(--brand)' } : undefined}><IconDisplay size={15} /></button>
