@@ -446,7 +446,7 @@ function MorePropsMenu(props: {
 
   if (phase === 'due') {
     return (
-      <Menu anchor={props.anchor} onClose={() => { setPhase('root'); props.onClose(); }} width={236}>
+      <Menu key={phase} anchor={props.anchor} onClose={() => { setPhase('root'); props.onClose(); }} width={236}>
         <div className="menu-header"><span>Due date</span></div>
         <div style={{ display: 'flex', gap: 4, padding: '2px 6px 6px', flexWrap: 'wrap' }}>
           {[['Today', 0], ['Tomorrow', 1], ['Next week', 7]].map(([label, off]) => (
@@ -477,7 +477,7 @@ function MorePropsMenu(props: {
   }
   if (phase === 'estimate') {
     return (
-      <Menu anchor={props.anchor} onClose={() => { setPhase('root'); props.onClose(); }} width={200}>
+      <Menu key={phase} anchor={props.anchor} onClose={() => { setPhase('root'); props.onClose(); }} width={200}>
         <div className="menu-header"><span>Set estimate to…</span></div>
         <MenuItem label="No estimate" selected={props.estimate == null}
           onClick={() => { props.setEstimate(null); setPhase('root'); props.onClose(); }} />
@@ -490,10 +490,18 @@ function MorePropsMenu(props: {
     );
   }
   return (
-    <Menu anchor={props.anchor} onClose={props.onClose} width={220}>
+    <Menu key={phase} anchor={props.anchor} onClose={props.onClose} width={220}>
       <div className="menu-header"><span>More properties</span></div>
-      <MenuItem icon={<IconCalendar size={14} />} label={props.dueDate ? `Due ${shortDate(props.dueDate)}` : 'Set due date…'} onClick={() => setPhase('due')} />
-      <MenuItem icon={<IconEstimate size={14} />} label={props.estimate != null ? `${props.estimate} point${props.estimate !== 1 ? 's' : ''}` : 'Set estimate…'} onClick={() => setPhase('estimate')} />
+      {/* raw menu-item buttons (not MenuItem) — MenuItem auto-closes the menu on
+          click, which would unmount it before the due/estimate phase can render */}
+      <button className="menu-item" onClick={() => setPhase('due')}>
+        <span className="mi-icon"><IconCalendar size={14} /></span>
+        <span className="mi-label">{props.dueDate ? `Due ${shortDate(props.dueDate)}` : 'Set due date…'}</span>
+      </button>
+      <button className="menu-item" onClick={() => setPhase('estimate')}>
+        <span className="mi-icon"><IconEstimate size={14} /></span>
+        <span className="mi-label">{props.estimate != null ? `${props.estimate} point${props.estimate !== 1 ? 's' : ''}` : 'Set estimate…'}</span>
+      </button>
     </Menu>
   );
 }
