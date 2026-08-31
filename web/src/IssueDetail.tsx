@@ -201,7 +201,8 @@ function SubIssuesSection(props: { issue: Issue }) {
         </div>
       )}
       <div style={{ display: 'flex', gap: 8 }}>
-        <button className="prop-chip" style={{ color: 'var(--text-dim)' }} onClick={() => openCreate({ teamId: props.issue.teamId, parentId: props.issue.id })}>
+        <button className="prop-chip" style={{ color: 'var(--text-dim)' }}
+          onClick={() => openCreate({ teamId: props.issue.teamId, parentId: props.issue.id, projectId: props.issue.projectId, cycleId: props.issue.cycleId })}>
           <IconPlus size={13} /> Add sub-issue
         </button>
         <IssuePickerMenu
