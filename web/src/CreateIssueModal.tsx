@@ -3,7 +3,7 @@ import { useApp, refresh, shortDate } from './store.js';
 import { api } from './api.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconClose, IconExpand, IconAttach, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser } from './icons.js';
+import { IconClose, IconExpand, IconAttach, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck } from './icons.js';
 import type { Priority, Team } from '../../src/core/types.js';
 
 const SUGGESTIONS: Array<[RegExp, string]> = [
@@ -11,6 +11,9 @@ const SUGGESTIONS: Array<[RegExp, string]> = [
   [/\b(feature|add|support|implement|introduce)\b/i, 'Feature'],
   [/\b(improve|refactor|polish|cleanup|optimi[sz]e|speed)\b/i, 'Improvement'],
 ];
+
+// same palette as Settings → Labels; kept local to avoid importing the settings page
+const LABEL_COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
 
 interface Draft {
   title: string; description: string; statusId?: string; priority: Priority;
@@ -50,6 +53,8 @@ export function CreateIssueModal() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [morePhase, setMorePhase] = useState<'root' | 'due' | 'estimate'>('root');
+  const [newLabelName, setNewLabelName] = useState('');
+  const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[3]);
   const [appliedTemplateId, setAppliedTemplateId] = useState<string | undefined>(undefined);
 
   const titleRef = useRef<HTMLInputElement>(null);
@@ -114,7 +119,10 @@ export function CreateIssueModal() {
   const selectedLabels = snap?.labels.filter(l => labelIds.includes(l.id)) ?? [];
   const teamLabels = snap?.labels.filter(l => l.teamId === team?.id) ?? [];
   const suggestion = title.trim()
-    ? SUGGESTIONS.find(([re, name]) => re.test(title) && !selectedLabels.some(l => l.name === name))
+    ? SUGGESTIONS.find(([re, name]) =>
+        re.test(title)
+        && !selectedLabels.some(l => l.name === name)
+        && teamLabels.some(l => l.name === name))
     : undefined;
   const parent = state.parentId && snap ? snap.issues.find(i => i.id === state.parentId) : undefined;
   const parentKey = parent ? `${snap?.teams.find(t => t.id === parent.teamId)?.key}-${parent.number}` : '';
@@ -126,6 +134,21 @@ export function CreateIssueModal() {
     if (!tpl) return;
     setDescription(tpl.description);
     if (tpl.title && !title.trim()) setTitle(tpl.title);
+  };
+
+  const createLabelInline = async () => {
+    const name = newLabelName.trim();
+    if (!name || !team) return;
+    const dupe = teamLabels.find(l => l.name.toLowerCase() === name.toLowerCase());
+    if (dupe) {
+      setLabelIds(prev => prev.includes(dupe.id) ? prev : [...prev, dupe.id]);
+    } else {
+      const { label } = await api.createLabel({ teamId: team.id, name, color: newLabelColor });
+      setLabelIds(prev => prev.includes(label.id) ? prev : [...prev, label.id]);
+      await refresh();
+    }
+    setNewLabelName('');
+    setNewLabelColor(LABEL_COLORS[(LABEL_COLORS.indexOf(newLabelColor) + 1) % LABEL_COLORS.length]);
   };
 
   const saveDraft = () => {
@@ -314,7 +337,7 @@ export function CreateIssueModal() {
           <IconEstimate size={13} style={{ color: 'var(--text-dim)' }} />
           {estimate != null ? `${estimate} pt${estimate !== 1 ? 's' : ''}` : 'Estimate'}
         </button>
-        <button className="prop-chip" onClick={labelsMenu.open}>
+        <button className="prop-chip" onClick={e => { setNewLabelName(''); labelsMenu.open(e); }}>
           <IconTag size={13} style={{ color: 'var(--text-dim)' }} />
           {selectedLabels.length ? selectedLabels.map(l => l.name).join(', ') : 'Labels'}
         </button>
@@ -387,15 +410,38 @@ export function CreateIssueModal() {
       {labelsMenu.anchor && (
         <Menu anchor={labelsMenu.anchor} onClose={labelsMenu.close} width={244}>
           <div className="menu-header"><span>Add labels…</span><span className="kbd">L</span></div>
-          {teamLabels.map(l => (
-            <MenuItem
-              key={l.id}
-              icon={<span className="label-dot" style={{ background: l.color }} />}
-              label={l.name}
-              selected={labelIds.includes(l.id)}
-              onClick={() => setLabelIds(prev => prev.includes(l.id) ? prev.filter(x => x !== l.id) : [...prev, l.id])}
+          {/* create-on-the-fly row: dot cycles the color, Enter or Add creates + applies */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 8px 8px' }} onClick={e => e.stopPropagation()}>
+            <button
+              className="icon-btn" title="Change color"
+              style={{ width: 22, height: 22, flex: 'none' }}
+              onClick={() => setNewLabelColor(c => LABEL_COLORS[(LABEL_COLORS.indexOf(c) + 1) % LABEL_COLORS.length])}
+            >
+              <span className="label-dot" style={{ background: newLabelColor, width: 11, height: 11 }} />
+            </button>
+            <input
+              className="text-input"
+              style={{ flex: 1, minWidth: 0, height: 28, fontSize: 12.5 }}
+              placeholder="New label…"
+              value={newLabelName}
+              onChange={e => setNewLabelName(e.target.value)}
+              onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); void createLabelInline(); } }}
             />
-          ))}
+            <button className="btn" style={{ height: 26, fontSize: 12, flex: 'none' }} disabled={!newLabelName.trim()} onClick={() => void createLabelInline()}>Add</button>
+          </div>
+          {teamLabels.length > 0 && <MenuSep />}
+          {/* raw menu-item buttons (not MenuItem) so a toggle doesn't auto-close — multi-select stays open */}
+          {teamLabels.map(l => {
+            const on = labelIds.includes(l.id);
+            return (
+              <button key={l.id} className="menu-item"
+                onClick={() => setLabelIds(prev => prev.includes(l.id) ? prev.filter(x => x !== l.id) : [...prev, l.id])}>
+                <span className="mi-icon"><span className="label-dot" style={{ background: l.color }} /></span>
+                <span className="mi-label">{l.name}</span>
+                <span className="mi-right">{on && <IconCheck size={13} />}</span>
+              </button>
+            );
+          })}
         </Menu>
       )}
       {projectMenu.anchor && (

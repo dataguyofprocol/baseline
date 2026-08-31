@@ -101,7 +101,7 @@ export function MenuItem(props: {
 
 export function MenuSep() { return <div className="menu-sep" />; }
 
-export function MenuInput(props: { value: string; onChange: (value: string) => void; placeholder?: string }) {
+export function MenuInput(props: { value: string; onChange: (value: string) => void; placeholder?: string; onEnter?: () => void }) {
   return (
     <div className="menu-input" onClick={(e) => e.stopPropagation()}>
       <input
@@ -109,7 +109,7 @@ export function MenuInput(props: { value: string; onChange: (value: string) => v
         value={props.value}
         placeholder={props.placeholder}
         onChange={(e) => props.onChange(e.target.value)}
-        onKeyDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); props.onEnter?.(); } }}
       />
     </div>
   );
