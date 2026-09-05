@@ -8,7 +8,7 @@ import { Avatar, CalendarGrid, ESTIMATE_POINTS, PriorityIcon, StateIcon } from '
 import { scoreItem } from './fuzzy.js';
 import {
   IconSearch, IconPlus, IconSettings, IconInbox, IconBox, IconViews, IconMyIssues,
-  IconCycle, IconTeam, IconMoon, IconSun, IconHome, IconPrompt,
+  IconCycle, IconTeam, IconMoon, IconSun, IconHome, IconPrompt, IconPanel,
   IconArchive, IconBack, IconCalendar, IconCheck, IconClose, IconEstimate, IconTag, IconTrash, IconUser,
 } from './icons.js';
 import type { Issue, Priority } from '../../src/core/types.js';
@@ -327,7 +327,8 @@ export function CommandPalette() {
     const actions: PaletteItem[] = [
       { id: 'act-create', icon: <IconPlus />, label: 'Create new issue', section: 'Actions', hint: 'C', keywords: 'new issue add', action: () => openCreate() },
       { id: 'act-create-project', icon: <IconBox />, label: 'Create new project', section: 'Actions', keywords: 'new project add', action: () => navigate('/projects/new') },
-      { id: 'act-theme', icon: document.documentElement.dataset.theme === 'dark' ? <IconSun size={14} /> : <IconMoon size={14} />, label: `Switch to ${document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'} theme`, section: 'Actions', keywords: 'dark light appearance toggle', action: () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark') },
+      { id: 'act-theme', icon: document.documentElement.dataset.theme === 'dark' ? <IconSun size={14} /> : <IconMoon size={14} />, label: `Switch to ${document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'} theme`, section: 'Actions', keywords: 'dark light system appearance toggle', action: () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark') },
+      { id: 'act-theme-system', icon: <IconPanel size={14} />, label: 'Use system theme', section: 'Actions', keywords: 'system appearance auto browser os', action: () => setTheme('system') },
       { id: 'act-shortcuts', icon: <span className="kbd">?</span>, label: 'Show keyboard shortcuts', section: 'Actions', keywords: 'hotkeys keys', action: () => useApp.getState().setShortcuts(true) },
     ];
 

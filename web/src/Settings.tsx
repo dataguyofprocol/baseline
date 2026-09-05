@@ -691,9 +691,9 @@ function AppearanceSettings() {
     <div className="settings-card">
       <h1>Appearance</h1>
       <div className="field-row">
-        <div><div className="field-label">Theme</div><div className="field-help">Dark is the default; light follows the reference look.</div></div>
+        <div><div className="field-label">Theme</div><div className="field-help">System follows your device appearance; light and dark override it.</div></div>
         <div style={{ display: 'flex', gap: 6 }}>
-          {(['dark', 'light'] as const).map(t => (
+          {(['system', 'light', 'dark'] as const).map(t => (
             <button key={t} className={`seg seg-fill ${theme === t ? 'selected' : ''}`} style={{ textTransform: 'capitalize' }} onClick={() => setTheme(t)}>{t}</button>
           ))}
         </div>

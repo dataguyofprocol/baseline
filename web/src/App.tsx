@@ -193,11 +193,11 @@ function InboxRedirect() {
 export function App() {
   const loaded = useApp(s => s.loaded);
   const bootstrap = useApp(s => s.bootstrap);
-  const theme = useApp(s => s.theme);
+  const resolvedTheme = useApp(s => s.resolvedTheme);
   const hasTeam = useApp(s => (s.snap?.teams.length ?? 0) > 0);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.theme = resolvedTheme;
     void bootstrap();
   }, []); // eslint-disable-line
 

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -9,6 +9,21 @@
     <link rel="mask-icon" href="/mask-icon.svg" color="#14151A" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#14151A" />
+    <script>
+      // resolve the theme before first paint (React mounts later): stored
+      // explicit choice, else the browser's prefers-color-scheme
+      (function () {
+        try {
+          var p = localStorage.getItem('baseline:theme');
+          var t = p === 'light' || p === 'dark'
+            ? p
+            : window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+          document.documentElement.dataset.theme = t;
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', t === 'light' ? '#ffffff' : '#14151A');
+        } catch (e) { /* :root defaults to dark */ }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Baseline</title>
   </head>

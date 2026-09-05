@@ -14,7 +14,9 @@ export interface Toast {
 interface AppState {
   snap: Snapshot | null;
   loaded: boolean;
-  theme: 'dark' | 'light';
+  theme: ThemePref;
+  /** theme with 'system' resolved to the dark/light actually applied */
+  resolvedTheme: 'dark' | 'light';
   toasts: Toast[];
   paletteOpen: boolean;
   /** left nav collapsed (⌘B / the nav toggle); persisted across reloads */
@@ -24,7 +26,7 @@ interface AppState {
   /** hovered/focused row quick-action menu, e.g. pressing S or P on a row */
   quickMenu: { issueId: string; kind: 'status' | 'priority' | 'assignee' | 'labels'; anchor: DOMRect } | null;
   bootstrap: () => Promise<void>;
-  setTheme: (t: 'dark' | 'light') => void;
+  setTheme: (t: ThemePref) => void;
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: number) => void;
   setPalette: (open: boolean) => void;
@@ -36,12 +38,24 @@ interface AppState {
   setQuickMenu: (m: AppState['quickMenu']) => void;
 }
 
+/** theme preference; 'system' tracks the browser's prefers-color-scheme */
+export type ThemePref = 'system' | 'dark' | 'light';
+
+export function resolveTheme(p: ThemePref): 'dark' | 'light' {
+  if (p !== 'system') return p;
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
 let toastSeq = 1;
+
+const storedTheme = localStorage.getItem('baseline:theme');
+const initialTheme: ThemePref = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : 'system';
 
 export const useApp = create<AppState>((set, get) => ({
   snap: null,
   loaded: false,
-  theme: (localStorage.getItem('baseline:theme') as 'dark' | 'light') ?? 'dark',
+  theme: initialTheme,
+  resolvedTheme: resolveTheme(initialTheme),
   toasts: [],
   paletteOpen: false,
   sidebarCollapsed: localStorage.getItem('baseline:sidebarCollapsed') === '1',
@@ -56,8 +70,9 @@ export const useApp = create<AppState>((set, get) => ({
 
   setTheme: (t) => {
     localStorage.setItem('baseline:theme', t);
-    document.documentElement.dataset.theme = t;
-    set({ theme: t });
+    const resolved = resolveTheme(t);
+    document.documentElement.dataset.theme = resolved;
+    set({ theme: t, resolvedTheme: resolved });
   },
 
   toast: (t) => {
@@ -77,6 +92,15 @@ export const useApp = create<AppState>((set, get) => ({
   setShortcuts: (open) => set({ shortcutsOpen: open }),
   setQuickMenu: (m) => set({ quickMenu: m }),
 }));
+
+// while the preference is 'system', follow the OS/browser appearance live;
+// e.matches is that change's own verdict, so no re-query race
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  if (useApp.getState().theme !== 'system') return;
+  const resolved = e.matches ? 'dark' : 'light';
+  document.documentElement.dataset.theme = resolved;
+  useApp.setState({ resolvedTheme: resolved });
+});
 
 /* ---------- selection (X key / checkboxes) ---------- */
 interface SelectionState {

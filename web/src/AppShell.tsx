@@ -21,7 +21,7 @@ function IconSidebar({ size = 15 }: { size?: number }) {
 
 export function Sidebar() {
   const snap = useApp(s => s.snap);
-  const theme = useApp(s => s.theme);
+  const resolvedTheme = useApp(s => s.resolvedTheme);
   const workspaceMenu = useMenu();
   const collapsed = useApp(s => s.sidebarCollapsed);
   const toggleSidebar = useApp(s => s.toggleSidebar);
@@ -118,9 +118,9 @@ export function Sidebar() {
         <button
           className="icon-btn footer-btn"
           title="Toggle theme"
-          onClick={() => useApp.getState().setTheme(theme === 'dark' ? 'light' : 'dark')}
+          onClick={() => useApp.getState().setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
         >
-          {theme === 'dark' ? <IconMoon size={15} /> : <IconSun size={15} />}
+          {resolvedTheme === 'dark' ? <IconMoon size={15} /> : <IconSun size={15} />}
         </button>
         <button className="icon-btn footer-btn" title="Settings" onClick={() => navigate('/settings/workspace')}>
           <IconSettings size={15} />
