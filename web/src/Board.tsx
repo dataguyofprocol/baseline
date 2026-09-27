@@ -183,8 +183,14 @@ export function Board(props: {
     const sourceColId = columns.find(col => (byColumn.get(col.id) ?? []).some(c => c.id === issue.id))?.id;
     const sameSpot = targetCol.id === sourceColId && beforeId === neighborOf(byColumn, sourceColId, issue.id, -1) && afterId === neighborOf(byColumn, sourceColId, issue.id, +1);
 
+    if (sameSpot) return;
+
+    // Land the card now, persist after: the local snapshot moves it into its new
+    // column/slot this frame, so the drop never snaps back to where it came from
+    // while the server round-trip runs. The bootstrap below reconciles.
+    const optimistic: Partial<Issue> = {};
     let fieldChanged = false;
-    if (field && !sameSpot) {
+    if (field) {
       const current = (issue as unknown as Record<string, unknown>)[field];
       // on merged status boards, resolve the drop column to the issue's own team state
       let nextValue: string | number | null = targetCol.id;
@@ -199,13 +205,26 @@ export function Board(props: {
         nextValue = null;
       }
       if (current !== nextValue) {
-        await api.updateIssue(issue.id, { [field]: nextValue });
+        (optimistic as Record<string, unknown>)[field] = nextValue;
         fieldChanged = true;
       }
     }
     const moved = beforeId !== issue.id && afterId !== issue.id;
-    if (!sameSpot && moved) await api.moveIssue(issue.id, beforeId, afterId);
-    if (!sameSpot && (fieldChanged || moved)) await useApp.getState().bootstrap();
+    if (moved) {
+      const target = byColumn.get(targetCol.id) ?? [];
+      const lo = target.find(c => c.id === afterId)?.sortOrder;
+      const hi = target.find(c => c.id === beforeId)?.sortOrder;
+      optimistic.sortOrder = lo !== undefined && hi !== undefined ? (lo + hi) / 2
+        : hi !== undefined ? hi - 1 : lo !== undefined ? lo + 1 : issue.sortOrder;
+    }
+    if (!fieldChanged && !moved) return;
+    useApp.setState(s => s.snap ? { snap: { ...s.snap, issues: s.snap.issues.map(i => i.id === issue.id ? { ...i, ...optimistic } : i) } } : {});
+    try {
+      if (fieldChanged) await api.updateIssue(issue.id, { [field!]: optimistic[field as keyof Issue] });
+      if (moved) await api.moveIssue(issue.id, beforeId, afterId);
+    } finally {
+      await useApp.getState().bootstrap();
+    }
   };
 
   return (
@@ -231,7 +250,11 @@ export function Board(props: {
           />
         ))}
       </div>
-      <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }}>
+      <DragOverlay dropAnimation={{
+        duration: 200, easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+        // the lifted tilt settles flat while the overlay flies to its slot
+        sideEffects: ({ dragOverlay }) => { dragOverlay.node.querySelector('.overlay-card')?.classList.add('dropping'); },
+      }}>
         {active && (
           <div className="board-card overlay-card" style={{ width: active.width }}>
             <CardBody issue={active.issue} groupBy={groupBy} />

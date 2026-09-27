@@ -3,7 +3,8 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useApp, useHelpers, shortDate, relTime, copyText, refresh } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
+import { Modal, Menu, MenuItem, MenuSep, useMenu, RegisterMark } from './ui.js';
+import { AnimatePresence } from 'framer-motion';
 import {
   GroupedList, IssueRow, FlatIssueList, FilterBar, DisplayOptionsMenu, useViewPrefs,
   DEFAULT_DISPLAY, activeFilterCount, applyFilters, type ViewOptions,
@@ -162,6 +163,7 @@ function TeamSubnav(props: { teamId: string; filter: 'all' | 'active' | 'backlog
       {(['all', 'active', 'backlog', 'cycles'] as const).map(f => (
         <button key={f} className={`seg ${props.filter === f ? 'selected' : ''}`} onClick={() => navigate(`/team/${team.key}/${f}`)}>
           {f === 'all' ? 'All issues' : f === 'active' ? 'Active' : f === 'backlog' ? 'Backlog' : 'Cycles'}
+          {props.filter === f && <RegisterMark group="team-tabs" />}
         </button>
       ))}
       <span style={{ flex: 1 }} />
@@ -264,7 +266,7 @@ export function ProjectsPage({ startWithCreate = false }: { startWithCreate?: bo
           <MenuItem icon={<IconTrash size={14} />} danger label="Delete project" onClick={() => del(menuProject)} />
         </Menu>
       )}
-      {creating && <NewProjectModal onClose={closeCreate} />}
+      <AnimatePresence>{creating && <NewProjectModal key="np" onClose={closeCreate} />}</AnimatePresence>
     </div>
   );
 }
@@ -523,7 +525,9 @@ export function ProjectPage() {
       />
       <div className="subnav" style={{ paddingTop: 0 }}>
         {(['overview', 'issues'] as const).map(t => (
-          <button key={t} className={`tab ${tab === t ? 'selected' : ''}`} onClick={() => setTab(t)} style={{ textTransform: 'capitalize' }}>{t}</button>
+          <button key={t} className={`tab ${tab === t ? 'selected' : ''}`} onClick={() => setTab(t)} style={{ textTransform: 'capitalize' }}>
+            {t}{tab === t && <RegisterMark group="project-tabs" />}
+          </button>
         ))}
       </div>
       <div className="content">
@@ -1056,6 +1060,7 @@ export function MyIssuesPage() {
         {(['assigned', 'created', 'subscribed'] as const).map(t => (
           <button key={t} className={`seg ${tab === t ? 'selected' : ''}`} onClick={() => setTab(t)}>
             {t === 'assigned' ? 'Assigned' : t === 'created' ? 'Created' : 'Subscribed'}
+            {tab === t && <RegisterMark group="my-issues-tabs" />}
           </button>
         ))}
         <span style={{ flex: 1 }} />

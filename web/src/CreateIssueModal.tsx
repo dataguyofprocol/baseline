@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp, refresh, shortDate } from './store.js';
 import { api } from './api.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
+import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { IconClose, IconExpand, IconAttach, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck } from './icons.js';
 import type { Priority, Team } from '../../src/core/types.js';
@@ -173,7 +174,7 @@ export function CreateIssueModal() {
     setTimeout(() => titleRef.current?.focus(), 30);
   };
 
-  if (!snap || !team || !state.open) return null;
+  if (!snap || !team) return null;
 
   const create = async () => {
     if (!title.trim() || !current) return;
@@ -220,6 +221,8 @@ export function CreateIssueModal() {
   };
 
   return (
+    <AnimatePresence>
+    {state.open && (
     <Modal onClose={closeCreate} className={`modal modal-create ${expanded ? 'expanded' : ''}`}>
       <div className="cm-root" onKeyDown={onModalKeyDown}>
       <div className="cm-header">
@@ -468,6 +471,8 @@ export function CreateIssueModal() {
       )}
       </div>
     </Modal>
+    )}
+    </AnimatePresence>
   );
 }
 

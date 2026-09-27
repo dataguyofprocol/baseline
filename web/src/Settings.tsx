@@ -3,6 +3,7 @@ import { Link, NavLink, useParams } from 'react-router-dom';
 import { useApp } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, Modal } from './ui.js';
+import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
 import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar } from './icons.js';
 import { dateLabel } from './Views.js';
@@ -204,7 +205,7 @@ function TeamEditor(props: { teamId: string }) {
           <span style={{ flex: 1 }} />
           <button className="prop-chip" style={{ color: 'var(--text-dim)', height: 22, fontSize: 11.5 }} onClick={() => setAddingCycle(true)}>＋ Add cycle</button>
         </div>
-        {addingCycle && <NewCycleModal teamId={team.id} number={nextCycleNumber} onClose={() => setAddingCycle(false)} />}
+        <AnimatePresence>{addingCycle && <NewCycleModal key="cy" teamId={team.id} number={nextCycleNumber} onClose={() => setAddingCycle(false)} />}</AnimatePresence>
         {cycles.map(c => (
           <div key={c.id} className="prop-row group">
             <span style={{ color: 'var(--text-secondary)', fontSize: 12, width: 16 }}>#{c.number}</span>

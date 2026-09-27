@@ -4,6 +4,27 @@ import { useEffect, useState } from 'react';
 export const reducedMotion = () =>
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/* Where the last press landed — the theme reveal grows from it, so the switch
+   visibly comes out of the control that asked for it. */
+let lastPress = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+window.addEventListener('pointerdown', (e) => { lastPress = { x: e.clientX, y: e.clientY }; }, { capture: true, passive: true });
+
+/** Swap the theme under a circular reveal from the last press (View Transitions).
+    Falls back to an instant swap without the API or with reduced motion. */
+export function revealTheme(apply: () => void) {
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } };
+  if (!doc.startViewTransition || reducedMotion()) { apply(); return; }
+  const { x, y } = lastPress;
+  const r = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+  const vt = doc.startViewTransition(apply);
+  vt.ready.then(() => {
+    document.documentElement.animate(
+      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
+      { duration: 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', pseudoElement: '::view-transition-new(root)' },
+    );
+  }).catch(() => { /* transition skipped — the swap already happened */ });
+}
+
 /* Last stateId each issue was last rendered with. Module-level so it survives
    the row being remounted into a different group by the reflow — comparing
    against previous props alone would miss exactly the case we animate. */

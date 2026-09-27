@@ -1,5 +1,7 @@
 import { create } from 'zustand';
+import { flushSync } from 'react-dom';
 import { api } from './api.js';
+import { revealTheme } from './motion.js';
 import type { Snapshot, Issue, Priority } from '../../src/core/types.js';
 
 export interface Toast {
@@ -71,8 +73,12 @@ export const useApp = create<AppState>((set, get) => ({
   setTheme: (t) => {
     localStorage.setItem('baseline:theme', t);
     const resolved = resolveTheme(t);
-    document.documentElement.dataset.theme = resolved;
-    set({ theme: t, resolvedTheme: resolved });
+    const apply = () => {
+      document.documentElement.dataset.theme = resolved;
+      set({ theme: t, resolvedTheme: resolved });
+    };
+    if (resolved === document.documentElement.dataset.theme) apply();
+    else revealTheme(() => flushSync(apply));
   },
 
   toast: (t) => {

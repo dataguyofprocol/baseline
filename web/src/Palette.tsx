@@ -4,6 +4,7 @@ import { useApp, useSelection, copyText } from './store.js';
 import { api } from './api.js';
 import { playExit } from './motion.js';
 import { Modal } from './ui.js';
+import { AnimatePresence } from 'framer-motion';
 import { Avatar, CalendarGrid, ESTIMATE_POINTS, PriorityIcon, StateIcon } from './pickers.js';
 import { scoreItem } from './fuzzy.js';
 import {
@@ -457,13 +458,14 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', onKey);
   }, [open, filtered, index, setOpen, q, sub, items, selIssues.length]);
 
-  if (!open) return null;
 
   const uniformDue = selIssues.length && selIssues.every(i => i.dueDate?.slice(0, 10) === selIssues[0]!.dueDate?.slice(0, 10))
     ? selIssues[0]!.dueDate?.slice(0, 10) : undefined;
 
   let lastSection = '';
   return (
+    <AnimatePresence>
+      {open && (
     <Modal onClose={() => { if (sub) setSub(null); else setOpen(false); }} className="modal modal-palette" dismissOnBackdrop={false}>
       {selIssues.length > 0 && (
         <div className="pal-scope">
@@ -527,6 +529,8 @@ export function CommandPalette() {
         {filtered.length === 0 && <div className="menu-header"><span>No results for "{q}"</span></div>}
       </div>
     </Modal>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -534,7 +538,6 @@ export function CommandPalette() {
 export function ShortcutsOverlay() {
   const open = useApp(s => s.shortcutsOpen);
   const setOpen = useApp(s => s.setShortcuts);
-  if (!open) return null;
   const groups: Array<[string, Array<[string, string]>]> = [
     ['General', [
       ['⌘K', 'Open command palette'],
@@ -563,6 +566,8 @@ export function ShortcutsOverlay() {
     ]],
   ];
   return (
+    <AnimatePresence>
+      {open && (
     <Modal onClose={() => setOpen(false)} className="modal" dismissOnBackdrop={false}>
       <div style={{ padding: '20px 24px', overflowY: 'auto', maxHeight: '72vh' }}>
         <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 14 }}>Keyboard shortcuts</div>
@@ -581,5 +586,7 @@ export function ShortcutsOverlay() {
         </div>
       </div>
     </Modal>
+      )}
+    </AnimatePresence>
   );
 }

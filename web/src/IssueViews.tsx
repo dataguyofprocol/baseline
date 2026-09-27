@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, visibleList, LIST_GROUP_ORDER, copyText } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, MenuInput } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { LogoMark } from './Logo.js';
-import { useLanding, playExit } from './motion.js';
+import { useLanding, playExit, reducedMotion } from './motion.js';
 import {
-  IconChevronDown, IconChevronRight, IconPlus, IconFilter, IconClose, IconArchive, IconTrash,
+  IconChevronDown, IconPlus, IconFilter, IconClose, IconArchive, IconTrash,
   IconCalendar, IconCycle, IconFocus, IconPrompt,
 } from './icons.js';
 import type { Issue, Priority, ViewFilters, GroupBy, OrderBy } from '../../src/core/types.js';
@@ -236,7 +237,7 @@ export function IssueRow(props: {
           </span>
         ))}
         {display.assignee && <Avatar user={assignee} />}
-        <span className="row-date" title={props.issue.updatedAt}>
+        <span className="row-date" title={`Updated ${new Date(props.issue.updatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`}>
           {Date.now() - new Date(props.issue.updatedAt).getTime() < 7 * 86400000
             ? relTime(props.issue.updatedAt)
             : shortDate(props.issue.updatedAt)}
@@ -568,15 +569,27 @@ export function SelectionBar() {
   const ids = useSelection(s => s.ids);
   const clear = useSelection(s => s.clear);
   const setPalette = useApp(s => s.setPalette);
-  if (ids.length === 0) return null;
+  // the pill rises in and sinks out; the count ticks up/down as rows join or leave
   return (
-    <div className="bulk-bar">
-      <span className="bulk-count">{ids.length} selected</span>
-      <button className="bulk-actions-btn" onClick={() => setPalette(true)}>
-        <span className="kbd">⌘</span> Actions
-      </button>
-      <button className="icon-btn" title="Clear selection (Esc)" onClick={clear}><IconClose size={13} /></button>
-    </div>
+    <AnimatePresence>
+      {ids.length > 0 && (
+        <motion.div
+          key="bulk" className="bulk-bar"
+          initial={{ opacity: 0, y: 14, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 10, scale: 0.97, transition: { duration: 0.16, ease: 'easeIn' } }}
+          transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <span className="bulk-count">
+            <span className="bulk-num" key={ids.length}>{ids.length}</span> selected
+          </span>
+          <button className="bulk-actions-btn" onClick={() => setPalette(true)}>
+            <span className="kbd">⌘</span> Actions
+          </button>
+          <button className="icon-btn" title="Clear selection (Esc)" onClick={clear}><IconClose size={13} /></button>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -647,6 +660,24 @@ export function GroupedList(props: {
 
   useEffect(() => { registerVisibleList(flat, props.teamId ?? ''); }, [flat, props.teamId]);
 
+  // expanding a group cascades its rows in (collapse stays instant: getting
+  // rows out of the way should never wait on an animation)
+  const justExpanded = useRef<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const id = justExpanded.current;
+    justExpanded.current = null;
+    if (!id || reducedMotion()) return;
+    const header = listRef.current?.querySelector(`[data-group-header="${CSS.escape(id)}"]`);
+    let el = header?.nextElementSibling as HTMLElement | null;
+    for (let n = 0; el && !el.classList.contains('group-header'); n++, el = el.nextElementSibling as HTMLElement | null) {
+      el.animate(
+        [{ opacity: 0, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 200, delay: Math.min(n, 10) * 14, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' },
+      );
+    }
+  }, [collapsed]);
+
   if (pool.length === 0) {
     return (
       <div className="empty-state">
@@ -664,19 +695,24 @@ export function GroupedList(props: {
   }
 
   const toggleCollapse = (id: string) => setCollapsed(c => {
+    if (c[id]) justExpanded.current = id;
     const next = { ...c, [id]: !c[id] };
     try { localStorage.setItem('baseline:collapsedGroups', JSON.stringify(next)); } catch { /* ignore */ }
     return next;
   });
 
   return (
-    <div style={{ paddingBottom: 40 }}>
+    <div style={{ paddingBottom: 40 }} ref={listRef}>
       {render.map((item, idx) => {
         if (item.kind === 'header') {
           return (
-            <div key={`h-${item.spec.id}`} className="group-header" onClick={() => toggleCollapse(item.spec.id)}>
-              <button className="gh-chevron" onClick={e => { e.stopPropagation(); toggleCollapse(item.spec.id); }}>
-                {collapsed[item.spec.id] ? <IconChevronRight size={13} /> : <IconChevronDown size={13} />}
+            <div key={`h-${item.spec.id}`} className="group-header" data-group-header={item.spec.id} onClick={() => toggleCollapse(item.spec.id)}>
+              <button
+                className={`gh-chevron${collapsed[item.spec.id] ? ' collapsed' : ''}`}
+                aria-expanded={!collapsed[item.spec.id]}
+                onClick={e => { e.stopPropagation(); toggleCollapse(item.spec.id); }}
+              >
+                <IconChevronDown size={13} />
               </button>
               {item.spec.icon}
               <span>{item.spec.label}</span>

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, RegisterMark } from './ui.js';
 import { Logo } from './Logo.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues,
@@ -155,9 +155,19 @@ function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: 
       end={props.end}
       title={props.title ?? props.label}
     >
-      {props.icon}
-      <span className="nav-label"><span className="nav-text">{props.label}</span></span>
-      {props.badge ? <span className="nav-count">{props.badge}</span> : null}
+      {({ isActive }) => (
+        <>
+          {props.icon}
+          <span className="nav-label">
+            {/* the mark sits outside .nav-text's ellipsis clip, sized to the label */}
+            <span className="nav-text-wrap">
+              <span className="nav-text">{props.label}</span>
+              {(active ?? isActive) && <RegisterMark group="nav" />}
+            </span>
+          </span>
+          {props.badge ? <span className="nav-count">{props.badge}</span> : null}
+        </>
+      )}
     </NavLink>
   );
 }

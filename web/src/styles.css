@@ -161,8 +161,12 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 
 /* ---------- motion vocabulary (bl-*) ---------- */
 @keyframes bl-menu-in {
-  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  from { opacity: 0; transform: translateY(var(--menu-dy, -4px)) scale(0.97); }
   to { opacity: 1; transform: none; }
+}
+@keyframes bl-menu-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.98); }
 }
 @keyframes bl-check {
   from { stroke-dashoffset: 14; }
@@ -282,16 +286,12 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
    inset rail. The line is the width of the label, not the row. */
 .nav-item.active { background: none; color: var(--text-primary); font-weight: 600; letter-spacing: -0.015em; }
 .nav-item .nav-label { flex: 1; min-width: 0; }
+.nav-item .nav-text-wrap { display: inline-block; position: relative; max-width: 100%; vertical-align: bottom; }
 .nav-item .nav-text {
-  display: inline-block; position: relative; max-width: 100%; vertical-align: bottom;
+  display: block; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.nav-item .nav-text::after {
-  content: ''; position: absolute; left: 0; right: 0; bottom: -3px;
-  height: var(--register-w); background: transparent;
-  transition: background 160ms var(--ease);
-}
-.nav-item.active .nav-text::after { background: var(--brand-register); }
+.nav-item .register-mark { bottom: -3px; }
 .nav-item .nav-count { font-size: 11px; color: var(--text-dim); }
 .nav-item .nav-action { visibility: hidden; }
 .nav-item:hover .nav-action { visibility: visible; }
@@ -338,6 +338,13 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .seg:hover { background: var(--bg-hover); color: var(--text-primary); }
 .seg.selected { color: var(--text-primary); font-weight: 600; letter-spacing: -0.015em; }
 .seg.selected::after { background: var(--brand-register); }
+/* a sliding RegisterMark replaces the static line wherever one is rendered */
+.register-mark {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: var(--register-w); background: var(--brand-register);
+  pointer-events: none;
+}
+.seg:has(> .register-mark)::after, .tab:has(> .register-mark)::after { background: transparent; }
 .seg.seg-fill { border-radius: 7px; }
 .seg.seg-fill::after { display: none; }
 .seg.seg-fill.selected { background: var(--bg-active); }
@@ -388,6 +395,8 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   color: var(--text-dim); flex: none;
 }
 .group-header .gh-chevron:hover { color: var(--text-primary); background: var(--bg-hover); }
+.group-header .gh-chevron svg { transition: transform 180ms var(--ease); }
+.group-header .gh-chevron.collapsed svg { transform: rotate(-90deg); }
 .group-header .count {
   color: var(--text-dim); font-weight: 400; margin-left: 2px;
   font-family: var(--font-mono); font-size: 10.5px; font-variant-numeric: tabular-nums;
@@ -427,9 +436,29 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 /* Linear behavior: once anything is selected, every row shows its checkbox */
 .issue-row.checks-on .row-check, .issue-row:hover .row-check, .issue-row.selected .row-check {
   display: flex; position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
-  width: 13px; height: 13px; margin: 0; padding: 0; z-index: 1;
-  accent-color: var(--brand); background: var(--bg-main);
+  width: 14px; height: 14px; margin: 0; padding: 0; z-index: 1;
 }
+/* Drawn checkbox: hairline box that fills brand and draws its tick (the same
+   stroke-dash the done-state morph uses), rather than the platform's control. */
+.row-check {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  align-items: center; justify-content: center;
+  border-radius: 4px; border: 1px solid var(--border-strong); background: var(--bg-main);
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms var(--ease);
+  animation: bl-check-in 140ms var(--ease) both;
+}
+.row-check:hover { border-color: var(--text-dim); }
+.row-check:active { transform: translateY(-50%) scale(0.88) !important; }
+.row-check:checked { background: var(--brand); border-color: var(--brand); }
+.row-check::after {
+  content: ''; width: 8px; height: 8px;
+  background: #fff;
+  clip-path: polygon(14% 52%, 0 66%, 38% 100%, 100% 22%, 86% 8%, 38% 72%);
+  transform: scale(0); transition: transform 160ms var(--ease);
+}
+.row-check:checked::after { transform: scale(1); }
+.issue-row.selected .row-check:checked { background: var(--brand-ink); border-color: var(--brand-ink); }
+@keyframes bl-check-in { from { opacity: 0; } to { opacity: 1; } }
 .issue-key { width: 52px; flex: none; font-size: 12px; font-weight: 400; color: var(--text-dim); }
 .row-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-meta { display: flex; align-items: center; gap: 10px; flex: none; }
@@ -482,22 +511,23 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   position: fixed; z-index: 120; min-width: 200px; max-height: 60vh; overflow-y: auto;
   background: var(--bg-menu); border-radius: 10px; padding: 6px;
   box-shadow: var(--shadow-menu);
-  animation: bl-menu-in 150ms var(--ease) both;
-  transform-origin: top;
+  animation: bl-menu-in 130ms var(--ease) both;
 }
-/* Items stagger in behind the menu: 26ms apart, capped at 10 so a long menu
-   never feels slow. Same figure the palette uses. */
-.menu .menu-item { animation: bl-fade-up 150ms var(--ease) both; }
-.menu .menu-item:nth-child(2) { animation-delay: 26ms; }
-.menu .menu-item:nth-child(3) { animation-delay: 52ms; }
-.menu .menu-item:nth-child(4) { animation-delay: 78ms; }
-.menu .menu-item:nth-child(5) { animation-delay: 104ms; }
-.menu .menu-item:nth-child(6) { animation-delay: 130ms; }
-.menu .menu-item:nth-child(7) { animation-delay: 156ms; }
-.menu .menu-item:nth-child(8) { animation-delay: 182ms; }
-.menu .menu-item:nth-child(9) { animation-delay: 208ms; }
-.menu .menu-item:nth-child(10) { animation-delay: 234ms; }
-.menu .menu-item:nth-child(n+11) { animation-delay: 260ms; }
+/* Close: a quick fade + settle toward the anchor. The owner unmounts at 100ms. */
+.menu.closing { pointer-events: none; animation: bl-menu-out 100ms ease-in both; }
+/* A barely-there stagger (10ms, capped at 6) keeps the cascade without slowing a
+   keyboard user: the whole menu is readable by ~110ms. */
+.menu .menu-item { animation: bl-fade-up 120ms var(--ease) both; }
+.menu .menu-item:nth-child(2) { animation-delay: 10ms; }
+.menu .menu-item:nth-child(3) { animation-delay: 20ms; }
+.menu .menu-item:nth-child(4) { animation-delay: 30ms; }
+.menu .menu-item:nth-child(5) { animation-delay: 40ms; }
+.menu .menu-item:nth-child(n+6) { animation-delay: 50ms; }
+/* one highlight, driven by pointer and arrow keys alike; it snaps, never fades */
+.menu .menu-item { transition: none; }
+.menu .menu-item:hover:not(.highlighted),
+.modal-palette .menu-item:hover:not(.highlighted) { background: transparent; }
+.modal-palette .menu-item { transition: none; }
 
 .menu-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -715,10 +745,26 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .board-card:active { cursor: grabbing; }
 /* while a card is dragged the sortable strategy closes its source slot and opens
    one at the drop index — the original renders invisibly inside that slot */
-.board-card.source-hidden { opacity: 0; }
+.board-card.source-hidden {
+  background: transparent; box-shadow: none;
+  border: 1px dashed var(--border-strong); translate: none;
+}
+.board-card.source-hidden > * { visibility: hidden; }
+/* picked up: the card lifts off the board (scale + a slight tilt), then settles
+   back flat as the drop animation carries it home */
 .board-card.overlay-card {
   cursor: grabbing;
   box-shadow: 0 14px 32px rgba(9, 9, 10, 0.28), 0 0 0 1px var(--border-strong), var(--inner-hi);
+  animation: bl-lift 180ms var(--ease) both;
+}
+.board-card.overlay-card.dropping { animation: bl-settle 200ms var(--ease) both; }
+@keyframes bl-settle {
+  from { transform: rotate(1.4deg) scale(1.025); }
+  to { transform: none; }
+}
+@keyframes bl-lift {
+  from { transform: none; box-shadow: var(--inner-hi); }
+  to { transform: rotate(1.4deg) scale(1.025); }
 }
 .board-card .bc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .board-card .bc-key { font-size: 12px; color: var(--text-dim); font-feature-settings: 'tnum'; }
@@ -975,10 +1021,12 @@ button.rail-kv:hover { background: var(--bg-hover); }
   display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 18px;
   background: var(--bg-menu); border-radius: 8px;
   box-shadow: var(--shadow-menu), 0 10px 32px rgba(0, 0, 0, 0.22);
-  animation: bl-fade-up 260ms var(--ease) both;
-  /* centered without `transform` — a transformed ancestor would become the
-     containing block for fixed-position overlays and push them off-screen */
+  /* centered without a static `transform` — a transformed ancestor would become
+     the containing block for fixed-position overlays. Framer's enter/exit
+     transform is transient and resolves to none. */
 }
+.bulk-num { display: inline-block; font-variant-numeric: tabular-nums; animation: bl-tick 180ms var(--ease) both; }
+@keyframes bl-tick { from { opacity: 0.2; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
 .bulk-count { font-size: 12.5px; font-weight: 600; color: var(--text-primary); margin-right: 4px; white-space: nowrap; }
 .bulk-actions-btn {
   display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px;
@@ -1051,3 +1099,41 @@ button.rail-kv:hover { background: var(--bg-hover); }
   letter-spacing: -0.015em; margin: 0; color: var(--brand-paper);
 }
 .on-ink .brand-sub { color: #8a8f98; font-size: 13px; line-height: 1.55; }
+
+/* ---------- tooltips ---------- */
+.tooltip {
+  position: fixed; z-index: 200; pointer-events: none;
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 320px; padding: 4px 8px; border-radius: 6px;
+  background: var(--bg-menu); color: var(--text-primary);
+  font-size: 12px; font-weight: 500; letter-spacing: -0.005em; line-height: 16px;
+  box-shadow: var(--shadow-menu);
+  opacity: 0; transform: translateY(-2px);
+}
+.tooltip.above { transform: translateY(2px); }
+.tooltip.shown { opacity: 1; transform: none; transition: opacity 110ms ease, transform 140ms var(--ease); }
+.tooltip .kbd { height: 16px; min-width: 16px; font-size: 10.5px; }
+.tooltip .kbd + .kbd { margin-left: -3px; }
+.tooltip-then { color: var(--text-dim); font-size: 11px; }
+
+/* ---------- keyboard focus ----------
+   Mouse clicks never draw a ring; Tab does, so keyboard travel is always legible. */
+:where(button, a, [role="button"], [tabindex], summary, input[type="checkbox"]):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand) 75%, transparent);
+  outline-offset: 1px;
+}
+.menu-item:focus-visible, .issue-row:focus-visible { outline: none; }
+
+/* ---------- press feedback ----------
+   A 1–4% dip on press: enough to feel the click land, too small to read as motion. */
+.btn, .icon-btn, .seg, .pill, .prop-chip, .filter-pill, .bulk-actions-btn, .reaction-chip, .cm-team, .ws-switch, .nav-item, .tab {
+  transition-property: background, color, border-color, box-shadow, transform;
+}
+.btn:active:not(:disabled), .bulk-actions-btn:active { transform: scale(0.97); transition-duration: 60ms; }
+.icon-btn:active:not(:disabled) { transform: scale(0.9); transition-duration: 60ms; }
+.pill:active, .prop-chip:active, .filter-pill:active, .reaction-chip:active, .seg:active, .tab:active, .ws-switch:active, .cm-team:active { transform: scale(0.98); transition-duration: 60ms; }
+.nav-item:active { transform: scale(0.99); transition-duration: 60ms; }
+
+/* theme reveal (motion.ts revealTheme): the new theme is clipped open from the
+   press point; neither snapshot runs the default crossfade */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }

@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { MotionConfig } from 'framer-motion';
 import { HashRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useApp, useCursor, useSelection, visibleList } from './store.js';
 import { api } from './api.js';
@@ -6,7 +7,7 @@ import { Sidebar } from './AppShell.js';
 import { CreateIssueModal } from './CreateIssueModal.js';
 import { CommandPalette, ShortcutsOverlay } from './Palette.js';
 import { QuickMenus, SelectionBar } from './IssueViews.js';
-import { Toasts } from './ui.js';
+import { Toasts, Tooltips } from './ui.js';
 import {
   TeamPage, ProjectsPage, NewProjectPage, ProjectPage, InboxPage, MyIssuesPage, ViewsIndexPage, SavedViewPage, CyclesPage,
 } from './Views.js';
@@ -14,7 +15,7 @@ import { SettingsLayout } from './Settings.js';
 import { IssuePage } from './IssueDetail.js';
 import { Onboarding } from './Onboarding.js';
 import { Logo } from './Logo.js';
-import { playExit } from './motion.js';
+import { playExit, reducedMotion } from './motion.js';
 
 function KeyboardManager() {
   const navigate = useNavigate();
@@ -161,6 +162,31 @@ function KeyboardManager() {
   return null;
 }
 
+/* Navigation settles instead of hard-cutting: the incoming page rises from 40%
+   opacity (never from zero, so it can't flash the canvas or feel like a wait).
+   Switching tabs inside one page is quieter still — the sliding register mark
+   already carries that change. */
+function RouteSettle() {
+  const { pathname } = useLocation();
+  const prev = useRef(pathname);
+  useEffect(() => {
+    const from = prev.current;
+    prev.current = pathname;
+    if (from === pathname || reducedMotion()) return;
+    const host = document.querySelector<HTMLElement>('.page-host');
+    if (!host) return;
+    const section = (p: string) => p.split('/').slice(0, 3).join('/');
+    const sameSection = section(from) === section(pathname);
+    host.animate(
+      sameSection
+        ? [{ opacity: 0.6 }, { opacity: 1 }]
+        : [{ opacity: 0.4, transform: 'translateY(3px)' }, { opacity: 1, transform: 'none' }],
+      { duration: sameSection ? 110 : 170, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+    );
+  }, [pathname]);
+  return null;
+}
+
 function listIssueAtCursor() {
   const { index } = useCursor.getState();
   if (index < 0 || index >= visibleList.issues.length) return null;
@@ -219,8 +245,10 @@ export function App() {
   }
 
   return (
+    <MotionConfig reducedMotion="user">
     <HashRouter>
       <KeyboardManager />
+      <RouteSettle />
       <div className="app">
         <Sidebar />
         <div className="main">
@@ -252,7 +280,9 @@ export function App() {
       <SelectionBar />
       <ShortcutsOverlay />
       <Toasts />
+      <Tooltips />
     </HashRouter>
+    </MotionConfig>
   );
 }
 
