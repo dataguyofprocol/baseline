@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useParams } from 'react-router-dom';
-import { useApp } from './store.js';
+import { useApp, shortDate } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, useMenu, Modal } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
 import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar } from './icons.js';
@@ -69,7 +69,7 @@ function WorkspaceSettings() {
       </div>
       <div className="field-row">
         <div><div className="field-label">Agents</div><div className="field-help">Coding agents drive this workspace through the baseline CLI — the repo ships a skill (<code>skills/baseline/SKILL.md</code>) that teaches them the commands.</div></div>
-        <code style={{ fontSize: 12, color: 'var(--text-secondary)' }}>node bin/baseline.js --help</code>
+        <code className="cli-chip">node bin/baseline.js --help</code>
       </div>
     </div>
   );
@@ -210,7 +210,7 @@ function TeamEditor(props: { teamId: string }) {
           <div key={c.id} className="prop-row group">
             <span style={{ color: 'var(--text-secondary)', fontSize: 12, width: 16 }}>#{c.number}</span>
             <span style={{ flex: 1 }}>{c.name}</span>
-            <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{new Date(c.startsAt).toLocaleDateString()} → {new Date(c.endsAt).toLocaleDateString()}</span>
+            <span className="cy-dates">{shortDate(c.startsAt)} – {shortDate(c.endsAt)}</span>
             <button className="icon-btn hover-only" title="Delete cycle" onClick={async () => { await api.deleteCycle(c.id); await useApp.getState().bootstrap(); }}>
               <IconTrash size={13} />
             </button>
@@ -229,7 +229,7 @@ function addDaysIso(iso: string, n: number): string {
 }
 
 /* Linear-style create-cycle modal: big name field + calendar pill pickers */
-function NewCycleModal(props: { teamId: string; number: number; onClose: () => void }) {
+export function NewCycleModal(props: { teamId: string; number: number; onClose: () => void }) {
   const toast = useApp(s => s.toast);
   const [name, setName] = useState('');
   const [start, setStart] = useState('');
@@ -514,9 +514,9 @@ function LabelsSettings() {
           </div>
         </div>
       ))}
-      <div className="field-row" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+      <div className="field-row stack" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
         <div><div className="field-label">Create label</div></div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div className="label-form">
           <select className="text-input" value={teamId} onChange={e => setTeamId(e.target.value)}>
             {snap.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
@@ -731,7 +731,7 @@ function DataSettings() {
       </div>
       <div className="field-row">
         <div><div className="field-label">Reset sample workspace</div><div className="field-help">Wipes everything and reseeds the demo data.</div></div>
-        <button className="btn" onClick={async () => { await api.reseed(); await useApp.getState().bootstrap(); toast({ title: 'Workspace reset' }); }}>Reset</button>
+        <ConfirmButton label="Reset" confirmLabel="Wipe all data?" onConfirm={async () => { await api.reseed(); await useApp.getState().bootstrap(); toast({ title: 'Workspace reset' }); }} />
       </div>
     </div>
   );

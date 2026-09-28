@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { Component, useEffect, useRef } from 'react';
 import { MotionConfig } from 'framer-motion';
 import { HashRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useApp, useCursor, useSelection, visibleList } from './store.js';
@@ -187,6 +187,40 @@ function RouteSettle() {
   return null;
 }
 
+/* A render error takes down one page, not the app: the sidebar, palette and
+   shortcuts keep working, and navigating anywhere (the boundary is keyed by
+   path) gives the next page a clean start. */
+class PageBoundary extends Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error) { console.error(error); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="page-error">
+        <div className="page-error-title">This page hit an error</div>
+        <div className="page-error-msg">{this.state.error.message}</div>
+        <div className="page-error-actions">
+          <button className="btn secondary" onClick={() => this.setState({ error: null })}>Try again</button>
+          <button className="btn secondary" onClick={() => location.reload()}>Reload app</button>
+        </div>
+      </div>
+    );
+  }
+}
+
+/* Settings brings its own nav (with "Back to app"), so it takes the sidebar's
+   place instead of standing beside it as a second column. */
+function ShellSidebar() {
+  const { pathname } = useLocation();
+  return pathname.startsWith('/settings') ? null : <Sidebar />;
+}
+
+function PageHost({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  return <PageBoundary key={pathname}>{children}</PageBoundary>;
+}
+
 function listIssueAtCursor() {
   const { index } = useCursor.getState();
   if (index < 0 || index >= visibleList.issues.length) return null;
@@ -250,10 +284,11 @@ export function App() {
       <KeyboardManager />
       <RouteSettle />
       <div className="app">
-        <Sidebar />
+        <ShellSidebar />
         <div className="main">
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
             <div className="page-host">
+              <PageHost>
               <Routes>
                 <Route path="/" element={<InboxRedirect />} />
                 <Route path="/inbox" element={<InboxPage />} />
@@ -270,6 +305,7 @@ export function App() {
                 <Route path="/settings/:section" element={<SettingsLayout />} />
                 <Route path="/settings" element={<SettingsLayout />} />
               </Routes>
+              </PageHost>
             </div>
           </div>
         </div>

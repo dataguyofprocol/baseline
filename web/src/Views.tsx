@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { useApp, useHelpers, shortDate, relTime, copyText, refresh } from './store.js';
+import { useApp, useHelpers, shortDate, relTime, copyText, refresh, useCursor, registerVisibleList } from './store.js';
+import { IssueDetail } from './IssueDetail.js';
+import { NewCycleModal } from './Settings.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu, RegisterMark } from './ui.js';
@@ -216,7 +218,8 @@ export function ProjectsPage({ startWithCreate = false }: { startWithCreate?: bo
         ) : (
           <div style={{ padding: '0 16px' }}>
             <div className="proj-grid proj-head">
-              <span>Name</span><span>Health</span><span>Priority</span><span>Lead</span><span>Target date</span><span>Issues</span><span>Status</span>
+              <span>Name</span><span>Status</span><span>Health</span><span>Priority</span><span>Lead</span><span>Target</span>
+              <span className="num">Issues</span><span className="num">Progress</span>
             </div>
             {snap.projects.map(p => {
               const prog = progressOf(snap, p.id);
@@ -235,19 +238,24 @@ export function ProjectsPage({ startWithCreate = false }: { startWithCreate?: bo
                     <span style={{ fontWeight: 600 }}>{p.name}</span>
                     {faved && <IconStar size={12} filled style={{ color: 'var(--brand)' }} />}
                   </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
-                    <span style={{ color: HEALTH_COLORS[p.health] }}>●</span>
+                  <span className="pc">{statusGlyph(p.status)}{PROJECT_STATUS_LABELS[p.status]}</span>
+                  <span className="pc">
+                    <span className="health-dot" style={{ background: HEALTH_COLORS[p.health] }} />
                     {PROJECT_HEALTH_LABELS[p.health]}
                   </span>
-                  <span style={{ display: 'flex', alignItems: 'center' }}>
-                    {p.priority ? <PriorityIcon priority={p.priority} size={14} /> : <span style={{ color: 'var(--text-dim)' }}>---</span>}
+                  <span className="pc">
+                    {p.priority ? <PriorityIcon priority={p.priority} size={14} /> : <span className="dim">—</span>}
                   </span>
-                  <span style={{ display: 'flex' }}><Avatar user={lead} size={20} /></span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{p.targetDate ? shortDate(p.targetDate) : '---'}</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{issueCount}</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Donut percent={prog} />
-                    <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{prog}%</span>
+                  <span className="pc">
+                    {lead ? <><Avatar user={lead} size={18} /><span className="pc-name">{lead.name.split(' ')[0]}</span></> : <span className="dim">—</span>}
+                  </span>
+                  <span className={`pc mono${p.targetDate && p.status !== 'completed' && p.targetDate.slice(0, 10) < new Date().toISOString().slice(0, 10) ? ' overdue' : ''}`}>
+                    {p.targetDate ? shortDate(p.targetDate) : <span className="dim">—</span>}
+                  </span>
+                  <span className="pc mono num">{issueCount}</span>
+                  <span className="pc num">
+                    <span className="proj-bar"><span style={{ width: `${prog}%` }} /></span>
+                    <span className="mono">{prog}%</span>
                   </span>
                 </div>
               );
@@ -535,11 +543,12 @@ export function ProjectPage() {
           <div style={{ display: 'flex', minHeight: '100%' }}>
             <div style={{ flex: 1, minWidth: 0, padding: '4px 40px 80px' }}>
               <div className="issue-col" style={{ maxWidth: 760 }}>
+                {/* properties live in the rail (as on an issue); the column reads
+                    top-down: what it is, where it stands, what's next */}
                 <EditableProjectHeader project={project} />
-                <ProjectPropertiesRow project={project} />
+                <ProjectDescription project={project} />
                 <UpdatesSection projectId={project.id} updates={updates} />
                 <MilestonesSection projectId={project.id} milestones={milestones} />
-                <ProjectDescription project={project} />
               </div>
             </div>
             <ProjectRail project={project} prog={prog} />
@@ -624,42 +633,6 @@ function EditableProjectHeader(props: { project: NonNullable<ReturnType<typeof u
 
 function HealthDot({ health }: { health: ProjectHealth }) {
   return <span style={{ width: 8, height: 8, borderRadius: 99, background: HEALTH_COLORS[health], flex: 'none' }} />;
-}
-
-function ProjectPropertiesRow(props: { project: NonNullable<ReturnType<typeof useApp.getState>['snap']>['projects'][number] }) {
-  const project = props.project;
-  const snap = useApp(s => s.snap)!;
-  const lead = snap.users.find(u => u.id === project.leadId);
-  return (
-    <div className="proj-props">
-      <div className="proj-props-label">Properties</div>
-      <div className="proj-props-list">
-        <ProjectStatusMenu project={project}>
-          {({ open }) => <button className="proj-chip" onClick={open}>
-            <StateIcon type={project.status === 'started' ? 'started' : project.status === 'completed' ? 'completed' : project.status === 'paused' ? 'canceled' : 'unstarted'} size={13} />
-            {PROJECT_STATUS_LABELS[project.status]}
-          </button>}
-        </ProjectStatusMenu>
-        <ProjectHealthMenu project={project}>
-          {({ open }) => <button className="proj-chip" onClick={open}><HealthDot health={project.health} /> {PROJECT_HEALTH_LABELS[project.health]}</button>}
-        </ProjectHealthMenu>
-        <ProjectPriorityMenu project={project}>
-          {({ open }) => <button className={`proj-chip ${project.priority === 0 ? 'dim' : ''}`} onClick={open}><PriorityIcon priority={project.priority} size={13} /> {project.priority === 0 ? 'Priority' : ['', 'Urgent', 'High', 'Medium', 'Low'][project.priority]}</button>}
-        </ProjectPriorityMenu>
-        <UserPickMenu title="Set lead to…" value={project.leadId} onPick={async uid => { await api.updateProject(project.id, { leadId: uid }); await useApp.getState().bootstrap(); }}>
-          {({ open }) => <button className={`proj-chip ${lead ? '' : 'dim'}`} onClick={open}>{lead ? <><Avatar user={lead} size={16} /> {lead.name}</> : 'Lead'}</button>}
-        </UserPickMenu>
-        <ProjectDatesMenu project={project}>
-          {({ open }) => <button className={`proj-chip ${project.targetDate || project.startDate ? '' : 'dim'}`} onClick={open}>
-            <IconCalendar size={13} />
-            {project.startDate || project.targetDate
-              ? <>{project.startDate ? shortDate(project.startDate) : 'Start'} → {project.targetDate ? shortDate(project.targetDate) : 'Target'}</>
-              : 'Target date'}
-          </button>}
-        </ProjectDatesMenu>
-      </div>
-    </div>
-  );
 }
 
 function ProjectDescription(props: { project: NonNullable<ReturnType<typeof useApp.getState>['snap']>['projects'][number] }) {
@@ -817,6 +790,14 @@ function ProjectRail(props: { project: NonNullable<ReturnType<typeof useApp.getS
             </button>
           )}
         </ProjectStatusMenu>
+        <ProjectHealthMenu project={project}>
+          {({ open }) => (
+            <button className="rail-kv" onClick={open}>
+              <span className="rail-kv-label">Health</span>
+              <span className="rail-kv-value"><HealthDot health={project.health} /> {PROJECT_HEALTH_LABELS[project.health]}</span>
+            </button>
+          )}
+        </ProjectHealthMenu>
         <ProjectPriorityMenu project={project}>
           {({ open }) => (
             <button className="rail-kv" onClick={open}>
@@ -868,17 +849,14 @@ function ProjectRail(props: { project: NonNullable<ReturnType<typeof useApp.getS
             </button>
           )}
         </ProjectDatesMenu>
-        <div className="rail-kv">
-          <span className="rail-kv-label">Progress</span>
-          <span className="rail-kv-value"><Donut percent={props.prog} size={13} /> {props.prog}%</span>
-        </div>
       </div>
+      <ProjectProgressCard project={project} prog={props.prog} />
       <div className="rail-card">
         <div className="rail-card-header">Activity</div>
         {activity.length === 0 && <div className="rail-kv"><span className="rail-kv-value dim">No activity yet.</span></div>}
         {activity.map(a => (
           <div key={a.id} className="rail-activity">
-            <span style={{ color: 'var(--text-secondary)', display: 'flex', paddingTop: 1, fontSize: 12 }}>{project.icon}</span>
+            <span style={{ display: 'flex', paddingTop: 1 }}><Avatar user={snap.users.find(u => u.id === a.userId)} size={16} /></span>
             <span style={{ fontSize: 12, lineHeight: '17px', color: 'var(--text-secondary)', minWidth: 0 }}>
               <b style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{snap.users.find(u => u.id === a.userId)?.name}</b>{' '}
               {a.type === 'projectCreated' ? 'created the project' : a.type === 'projectHealth' ? `set health to ${PROJECT_HEALTH_LABELS[String(a.data.to)] ?? String(a.data.to)}` : a.type === 'projectUpdated' ? `updated ${((a.data.fields as string[]) ?? []).join(', ')}` : 'updated the project'}
@@ -891,6 +869,43 @@ function ProjectRail(props: { project: NonNullable<ReturnType<typeof useApp.getS
   );
 }
 
+/* where the project stands: one segmented bar over its issues, the count per
+   bucket, and the time left against the target date */
+function ProjectProgressCard(props: { project: Project; prog: number }) {
+  const snap = useApp(s => s.snap)!;
+  const issues = snap.issues.filter(i => i.projectId === props.project.id && !i.archivedAt && !i.deletedAt);
+  const typeOf = (i: Issue) => snap.states.find(s => s.id === i.stateId)?.type;
+  const done = issues.filter(i => typeOf(i) === 'completed' || typeOf(i) === 'canceled').length;
+  const started = issues.filter(i => typeOf(i) === 'started').length;
+  const rest = issues.length - done - started;
+  const target = props.project.targetDate?.slice(0, 10);
+  const days = target ? Math.ceil((new Date(target + 'T23:59:59').getTime() - Date.now()) / 86400000) : null;
+  const when = days === null ? null
+    : props.project.status === 'completed' ? 'Completed'
+    : days < 0 ? `${-days} day${days === -1 ? '' : 's'} past target`
+    : days === 0 ? 'Due today' : `${days} day${days === 1 ? '' : 's'} to target`;
+  return (
+    <div className="rail-card">
+      <div className="rail-card-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <span>Progress</span>
+        <span className="mono" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>{props.prog}%</span>
+      </div>
+      <div style={{ padding: '4px 8px 8px' }}>
+        <span className="cy-bar" style={{ width: '100%' }}>
+          <span className="cy-done" style={{ width: issues.length ? `${(done / issues.length) * 100}%` : 0 }} />
+          <span className="cy-started" style={{ width: issues.length ? `${(started / issues.length) * 100}%` : 0 }} />
+        </span>
+        <div className="pp-stats">
+          <span><b>{done}</b> done</span>
+          <span><b>{started}</b> in progress</span>
+          <span><b>{rest}</b> to do</span>
+        </div>
+        {when && <div className={`pp-when${days !== null && days < 0 && props.project.status !== 'completed' ? ' late' : ''}`}>{when}</div>}
+      </div>
+    </div>
+  );
+}
+
 /* ================= inbox ================= */
 export function InboxPage() {
   const snap = useApp(s => s.snap)!;
@@ -898,121 +913,150 @@ export function InboxPage() {
   const notifications = snap.notifications;
   const unread = notifications.filter(n => !n.readAt).length;
 
-  const label = (n: typeof notifications[number]) => {
-    const issue = n.issueId ? snap.issues.find(i => i.id === n.issueId) : undefined;
+  const describe = (n: typeof notifications[number]) => {
+    const issue = n.issueId ? snap.issues.find(i => i.id === n.issueId && !i.deletedAt) : undefined;
     const team = issue ? snap.teams.find(t => t.id === issue.teamId) : undefined;
     const key = issue && team ? `${team.key}-${issue.number}` : '';
-    if (n.type === 'issueAssignedToYou') return { text: 'assigned you', issue, key, icon: <IconAssignArrow size={14} /> };
-    if (n.type === 'issueCommented') return { text: 'commented on', issue, key, icon: <IconComment size={14} /> };
-    if (n.type === 'issueMentioned') return { text: 'mentioned you on', issue, key, icon: <IconMention size={14} /> };
-    if (n.type === 'systemUpdate') return { text: '', issue, key, icon: undefined };
-    return { text: 'updated', issue, key, icon: <IconComment size={14} /> };
+    if (n.type === 'issueAssignedToYou') return { verb: 'assigned you', issue, key, icon: <IconAssignArrow size={12} /> };
+    if (n.type === 'issueCommented') return { verb: 'commented', issue, key, icon: <IconComment size={12} /> };
+    if (n.type === 'issueMentioned') return { verb: 'mentioned you', issue, key, icon: <IconMention size={12} /> };
+    if (n.type === 'systemUpdate') return { verb: '', issue, key, icon: <IconCycle size={12} /> };
+    return { verb: 'updated', issue, key, icon: <IconComment size={12} /> };
   };
 
   /* Multiple actors on the same issue collapse into one row with a punched-gap
      stack — two people saying the same thing about BAS-214 is one thing to read,
-     not two. Only same-issue, same-kind, same-day notifications merge; the merged
-     row keeps the newest timestamp and stays unread while any part is unread. */
-  type Row = { lead: typeof notifications[number]; actors: string[]; ids: string[]; unread: boolean };
-  const collapse = (items: typeof notifications): Row[] => {
-    const rows: Row[] = [];
-    for (const n of items) {
-      const kind = n.type === 'issueMentioned' ? 'issueMentioned' : n.type;
-      const hit = n.issueId ? rows.find(r => r.lead.issueId === n.issueId && (r.lead.type === 'issueMentioned' ? 'issueMentioned' : r.lead.type) === kind) : undefined;
+     not two. Only same-issue, same-kind notifications merge; the merged row keeps
+     the newest timestamp and stays unread while any part is unread. */
+  type Row = { lead: typeof notifications[number]; actors: string[]; ids: string[]; unread: boolean; group: string };
+  const rows = useMemo(() => {
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    const startOfYesterday = new Date(startOfToday.getTime() - 86400000);
+    const groupOf = (iso: string) => {
+      const d = new Date(iso);
+      return d >= startOfToday ? 'Today' : d >= startOfYesterday ? 'Yesterday' : 'Earlier';
+    };
+    const out: Row[] = [];
+    for (const n of notifications) {
+      const group = groupOf(n.createdAt);
+      const kind = n.type;
+      const hit = n.issueId ? out.find(r => r.group === group && r.lead.issueId === n.issueId && r.lead.type === kind) : undefined;
       if (hit) {
         if (n.actorId && !hit.actors.includes(n.actorId)) hit.actors.push(n.actorId);
         hit.ids.push(n.id);
         hit.unread = hit.unread || !n.readAt;
       } else {
-        rows.push({ lead: n, actors: n.actorId ? [n.actorId] : [], ids: [n.id], unread: !n.readAt });
+        out.push({ lead: n, actors: n.actorId ? [n.actorId] : [], ids: [n.id], unread: !n.readAt, group });
       }
     }
-    return rows;
+    return out;
+  }, [notifications]);
+
+  // J/K and the row shortcuts (S, P, A, L, E) run on the shared list cursor, so
+  // the inbox registers the issues its rows point at; rows without an issue
+  // (system notices) are read-only and the cursor steps over them.
+  const navigable = useMemo(() => rows.filter(r => describe(r.lead).issue), [rows, snap.issues]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cursor = useCursor(s => s.index);
+  useEffect(() => {
+    registerVisibleList(navigable.map(r => describe(r.lead).issue!), '');
+  }, [navigable]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // land on the newest unread notification (or the newest one) on arrival
+    const first = navigable.findIndex(r => r.unread);
+    useCursor.setState({ index: navigable.length ? Math.max(first, 0) : -1 });
+    return () => useCursor.getState().reset();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selected = cursor >= 0 ? navigable[cursor] : undefined;
+  const selectedIssue = selected ? describe(selected.lead).issue : undefined;
+  const markRead = async (row: Row, value: boolean) => {
+    for (const nid of row.ids) await api.markNotificationRead(nid, value);
+    await useApp.getState().bootstrap();
   };
+  // viewing a notification reads it — after a beat, so skimming with J/K past
+  // a row doesn't silently clear it
+  useEffect(() => {
+    if (!selected?.unread) return;
+    const t = setTimeout(() => void markRead(selected, true), 900);
+    return () => clearTimeout(t);
+  }, [selected?.lead.id, selected?.unread]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    document.querySelector('.inbox-row.selected')?.scrollIntoView({ block: 'nearest' });
+  }, [cursor]);
 
-  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
-  const startOfYesterday = new Date(startOfToday.getTime() - 86400000);
-  const groups: Array<[string, typeof notifications, number]> = [];
-  const today = notifications.filter(n => new Date(n.createdAt) >= startOfToday);
-  const yesterday = notifications.filter(n => new Date(n.createdAt) >= startOfYesterday && new Date(n.createdAt) < startOfToday);
-  const earlier = notifications.filter(n => new Date(n.createdAt) < startOfYesterday);
-  if (today.length) groups.push(['Today', today, 0]);
-  if (yesterday.length) groups.push(['Yesterday', yesterday, today.length]);
-  if (earlier.length) groups.push(['Earlier', earlier, today.length + yesterday.length]);
-
+  let lastGroup = '';
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Inbox' }]} right={
-        unread > 0 ? <button className="btn secondary" style={{ height: 26, fontSize: 12 }} onClick={async () => { await api.markAllNotificationsRead(); await useApp.getState().bootstrap(); }}>Mark all as read</button> : undefined
-      } />
-      <div className="content">
-        {notifications.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-mark"><LogoMark size={30} /></div>
-            <div className="empty-title">You're all caught up</div>
-            <div className="empty-desc">Notifications about assignments, mentions and comments will show up here.</div>
-          </div>
-        ) : (
-          <div style={{ padding: '6px 16px' }}>
-            {groups.map(([name, items]) => (
-              <div key={name}>
-                <div className="group-header" style={{ marginTop: 8 }}>
-                  <span>{name}</span>
-                  <span className="count">{collapse(items).length}</span>
-                  <span className="gh-rule" />
-                </div>
-                {collapse(items).map(row => {
-                  const n = row.lead;
-                  const l = label(n);
-                  const actors = row.actors.map(a => snap.users.find(u => u.id === a)).filter(Boolean) as NonNullable<ReturnType<typeof snap.users.find>>[];
-                  const read = async (value: boolean) => {
-                    for (const nid of row.ids) await api.markNotificationRead(nid, value);
-                    await useApp.getState().bootstrap();
-                  };
-                  const others = actors.length > 1 ? ` and ${actors.length - 1} other${actors.length > 2 ? 's' : ''}` : '';
-                  return (
-                    <div
-                      key={n.id}
-                      className={`inbox-row ${row.unread ? 'unread' : ''}`}
-                      onClick={async () => {
-                        await read(true);
-                        if (l.key) navigate(`/issue/${l.key}`);
-                      }}
-                    >
-                      {/* unread is a paper node in its own 6px gutter — no wash, no rail */}
-                      <span className="inbox-node" />
-                      {actors.length > 1 ? (
-                        /* several actors on one issue: the punched-gap stack, not a row each */
-                        <span style={{ display: 'flex', paddingTop: 1 }}>
-                          <AvatarStack size={24} people={actors.map(a => ({ name: a.name, initials: a.initials, color: a.color }))} />
-                        </span>
-                      ) : actors.length === 1 ? <Avatar user={actors[0]} size={24} /> : (
-                        /* no human actor: the app signs as its own tile */
-                        <span style={{ display: 'flex', paddingTop: 4 }}><Logo size={16} /></span>
-                      )}
-                      <div className="inbox-body">
-                        <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          {l.icon && <span style={{ color: 'var(--text-secondary)', display: 'flex' }}>{l.icon}</span>}
-                          <span>
-                            <b>{actors[0]?.name ?? 'Baseline'}</b>{others} {l.text}{' '}
-                            {l.issue ? <b>{l.issue.title}</b> : n.body}
-                          </span>
-                        </div>
-                        {(n.type === 'issueCommented' || n.type === 'issueMentioned') && <div style={{ color: 'var(--text-secondary)', fontSize: 12.5, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</div>}
-                        {/* rel-time and key ride one mono line: "2h · BAS-214" */}
-                        <div className="rel-time">{relTime(n.createdAt)} · {l.key || 'SYSTEM'}</div>
-                      </div>
-                      <button
-                        className="icon-btn hover-only" title={row.unread ? 'Mark read' : 'Mark unread'}
-                        onClick={async (e) => { e.stopPropagation(); await read(row.unread); }}
-                      ><IconCheck size={13} /></button>
+    <div className="inbox">
+      <div className="inbox-list">
+        <TopBar crumbs={[{ label: 'Inbox' }]} right={
+          unread > 0 ? <button className="btn secondary" style={{ height: 26, fontSize: 12 }} onClick={async () => { await api.markAllNotificationsRead(); await useApp.getState().bootstrap(); }}>Mark all read</button> : undefined
+        } />
+        <div className="content">
+          {notifications.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-mark"><LogoMark size={30} /></div>
+              <div className="empty-title">You're all caught up</div>
+              <div className="empty-desc">Assignments, mentions and comments land here.</div>
+            </div>
+          ) : rows.map(row => {
+            const n = row.lead;
+            const d = describe(n);
+            const actors = row.actors.map(a => snap.users.find(u => u.id === a)).filter(Boolean) as NonNullable<ReturnType<typeof snap.users.find>>[];
+            const others = actors.length > 1 ? ` +${actors.length - 1}` : '';
+            const header = row.group !== lastGroup ? row.group : null;
+            lastGroup = row.group;
+            const idx = navigable.indexOf(row);
+            const isSel = idx >= 0 && idx === cursor;
+            const excerpt = n.type === 'issueCommented' || n.type === 'issueMentioned' ? n.body : '';
+            return (
+              <div key={n.id}>
+                {header && <div className="inbox-group">{header}</div>}
+                <div
+                  className={`inbox-row${row.unread ? ' unread' : ''}${isSel ? ' selected' : ''}${idx < 0 ? ' static' : ''}`}
+                  onClick={() => { if (idx >= 0) useCursor.setState({ index: idx }); }}
+                  onDoubleClick={() => { if (d.key) navigate(`/issue/${d.key}`); }}
+                >
+                  <span className="inbox-lead">
+                    {actors.length > 1
+                      ? <AvatarStack size={20} people={actors.map(a => ({ name: a.name, initials: a.initials, color: a.color }))} />
+                      : actors.length === 1 ? <Avatar user={actors[0]} size={20} />
+                      : <span className="inbox-sys">{d.icon}</span>}
+                  </span>
+                  <div className="inbox-body">
+                    <div className="inbox-line1">
+                      <span className="inbox-title">{d.issue ? d.issue.title : (n.body || 'Issue no longer exists')}</span>
+                      <span className="rel-time">{relTime(n.createdAt)}</span>
                     </div>
-                  );
-                })}
+                    <div className="inbox-line2">
+                      {d.key && <span className="inbox-key">{d.key}</span>}
+                      {d.verb && (
+                        <span className="inbox-what">
+                          {actors[0] ? <>{actors[0].name}{others} {d.verb}</> : d.verb === 'assigned you' ? 'Assigned to you' : d.verb}
+                          {excerpt && <>: <span className="inbox-excerpt">{excerpt}</span></>}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    className="icon-btn hover-only" title={row.unread ? 'Mark read' : 'Mark unread'}
+                    onClick={async (e) => { e.stopPropagation(); await markRead(row, row.unread); }}
+                  ><IconCheck size={13} /></button>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
+      </div>
+      <div className="inbox-preview">
+        {selectedIssue
+          ? <IssueDetail key={selectedIssue.id} issue={selectedIssue} />
+          : (
+            <div className="empty-state">
+              <div className="empty-mark"><LogoMark size={26} /></div>
+              <div className="empty-title">{notifications.length ? 'Pick a notification' : 'Nothing to preview'}</div>
+              {notifications.length > 0 && <div className="empty-desc"><span className="kbd">J</span> <span className="kbd">K</span> to move through the list, <span className="kbd">↵</span> to open the issue.</div>}
+            </div>
+          )}
       </div>
     </div>
   );
@@ -1102,16 +1146,19 @@ export function ViewsIndexPage() {
   // select after mount — a focus-event select() loses to the caret's default placement
   useEffect(() => { if (renaming) renameRef.current?.select(); }, [renaming]);
 
-  const describe = (filters: ViewFilters) => {
-    const bits: string[] = [];
-    if (filters.query) bits.push(`“${filters.query}”`);
-    if (filters.priority?.length) bits.push(`Priority: ${filters.priority.slice().sort().map(p => ['', 'Urgent', 'High', 'Medium', 'Low'][p]).join(', ')}`);
-    if (filters.assigneeIds?.length) bits.push(`Assignee: ${filters.assigneeIds.map(id => snap.users.find(u => u.id === id)?.name ?? id).join(', ')}`);
-    if (filters.labelIds?.length) bits.push(`Label: ${filters.labelIds.map(id => snap.labels.find(l => l.id === id)?.name ?? id).join(', ')}`);
-    if (filters.projectIds?.length) bits.push(`Project: ${filters.projectIds.map(id => snap.projects.find(p => p.id === id)?.name ?? id).join(', ')}`);
-    if (filters.states?.length) bits.push(`Status: ${filters.states.map(id => snap.states.find(s => s.id === id)?.name ?? id).join(', ')}`);
-    return bits.join(' · ') || 'All issues';
+  // each active filter becomes one chip: what it filters on, and the values
+  const describe = (filters: ViewFilters): Array<[string, string]> => {
+    const bits: Array<[string, string]> = [];
+    if (filters.query) bits.push(['Text', `“${filters.query}”`]);
+    if (filters.priority?.length) bits.push(['Priority', filters.priority.slice().sort().map(p => ['None', 'Urgent', 'High', 'Medium', 'Low'][p]).join(', ')]);
+    if (filters.assigneeIds?.length) bits.push(['Assignee', filters.assigneeIds.map(id => snap.users.find(u => u.id === id)?.name ?? id).join(', ')]);
+    if (filters.labelIds?.length) bits.push(['Label', filters.labelIds.map(id => snap.labels.find(l => l.id === id)?.name ?? id).join(', ')]);
+    if (filters.projectIds?.length) bits.push(['Project', filters.projectIds.map(id => snap.projects.find(p => p.id === id)?.name ?? id).join(', ')]);
+    if (filters.states?.length) bits.push(['Status', [...new Set(filters.states.map(id => snap.states.find(s => s.id === id)?.name ?? id))].join(', ')]);
+    if (filters.stateTypes?.length) bits.push(['Status', filters.stateTypes.join(', ')]);
+    return bits;
   };
+  const live = snap.issues.filter(i => !i.archivedAt && !i.deletedAt);
 
   const createView = async () => {
     const { view } = await api.createView({ name: 'New view', filters: {}, icon: '🗂' });
@@ -1134,11 +1181,19 @@ export function ViewsIndexPage() {
             </div>
           </div>
         ) : (
-          <div style={{ padding: '6px 16px' }}>
-            {snap.views.map(v => (
-              <div key={v.id} className="issue-row" style={{ cursor: 'pointer' }} onClick={() => navigate(`/views/${v.id}`)}
+          <div style={{ padding: '0 16px' }}>
+            <div className="view-grid proj-head">
+              <span>Name</span><span>Filters</span><span className="num">Issues</span><span />
+            </div>
+            {snap.views.map(v => {
+              const chips = describe(v.filters);
+              const count = applyFilters(live.filter(i => !v.teamId || i.teamId === v.teamId), v.filters, snap.states).length;
+              const faved = snap.favorites.some(f => f.type === 'view' && f.refId === v.id);
+              return (
+              <div key={v.id} className="view-grid view-row" onClick={() => navigate(`/views/${v.id}`)}
                 onContextMenu={(e) => { setMenuView(v.id); rowMenu.open(e); }}>
-                <span style={{ fontSize: 15 }}>{v.icon || '🗂'}</span>
+                <span className="view-name">
+                <span className="view-icon">{v.icon || '🗂'}</span>
                 {renaming === v.id ? (
                   <input ref={renameRef} className="text-input" style={{ height: 26, flex: 1 }} autoFocus value={renameValue}
                     onClick={e => e.stopPropagation()}
@@ -1151,10 +1206,18 @@ export function ViewsIndexPage() {
                 ) : (
                   <span className="row-title" style={{ fontWeight: 600 }}>{v.name}</span>
                 )}
-                <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{describe(v.filters)}</span>
-                <button className="icon-btn hover-only" onClick={(e) => { e.stopPropagation(); setMenuView(v.id); rowMenu.open(e); }}><IconMore size={13} /></button>
+                {faved && <IconStar size={12} filled style={{ color: 'var(--brand)', flex: 'none' }} />}
+                </span>
+                <span className="view-chips">
+                  {chips.length === 0
+                    ? <span className="view-chip all">All issues</span>
+                    : chips.map(([k, val], i) => <span key={i} className="view-chip"><span className="vk">{k}</span>{val}</span>)}
+                </span>
+                <span className="pc mono num">{count}</span>
+                <button className="icon-btn hover-only" title="View actions" onClick={(e) => { e.stopPropagation(); setMenuView(v.id); rowMenu.open(e); }}><IconMore size={13} /></button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1271,8 +1334,9 @@ export function SavedViewPage() {
 export function CyclesPage() {
   const { teamKey = '' } = useParams();
   const snap = useApp(s => s.snap)!;
-  const navigate = useNavigate();
   const openCreate = useApp(s => s.openCreate);
+  const [creating, setCreating] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
   const team = snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase());
   if (!team) return <TeamMissingRedirect />;
   const cycles = snap.cycles.filter(c => c.teamId === team.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
@@ -1280,68 +1344,129 @@ export function CyclesPage() {
   const current = cycles.find(c => c.startsAt <= now && c.endsAt >= now);
   const upcoming = cycles.filter(c => c.startsAt > now);
   const previous = cycles.filter(c => c.endsAt < now).reverse();
+  const nextNumber = cycles.length ? Math.max(...cycles.map(c => c.number)) + 1 : 1;
+
+  const statsOf = (cycleId: string) => {
+    const issues = snap.issues.filter(i => i.cycleId === cycleId && !i.archivedAt && !i.deletedAt);
+    const typeOf = (i: Issue) => snap.states.find(s => s.id === i.stateId)?.type;
+    const done = issues.filter(i => typeOf(i) === 'completed' || typeOf(i) === 'canceled').length;
+    const started = issues.filter(i => typeOf(i) === 'started').length;
+    return { issues, done, started, total: issues.length, pct: issues.length ? Math.round((done / issues.length) * 100) : 0 };
+  };
+  const daysBetween = (a: string, b: string) => Math.ceil((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+  const rowDisplay = { id: true, status: true, assignee: true, priority: true, labels: true, project: false, due: false };
+
+  /* one bar, three segments: done (brand), in progress (started yellow), the rest track */
+  const Bar = ({ done, started, total }: { done: number; started: number; total: number }) => (
+    <span className="cy-bar">
+      <span className="cy-done" style={{ width: total ? `${(done / total) * 100}%` : 0 }} />
+      <span className="cy-started" style={{ width: total ? `${(started / total) * 100}%` : 0 }} />
+    </span>
+  );
+
+  const compactRow = (c: typeof cycles[number], when: string) => {
+    const st = statsOf(c.id);
+    const isOpen = open === c.id;
+    return (
+      <div key={c.id} className={`cy-row-wrap${isOpen ? ' open' : ''}`}>
+        <button className="cy-row" onClick={() => setOpen(isOpen ? null : c.id)} aria-expanded={isOpen}>
+          <IconChevronDown size={12} className="cy-chev" />
+          <span className="cy-name">{c.name || `Cycle ${c.number}`}</span>
+          <span className="cy-dates">{shortDate(c.startsAt)} – {shortDate(c.endsAt)}</span>
+          <span className="cy-when">{when}</span>
+          <span className="cy-fill" />
+          <Bar done={st.done} started={st.started} total={st.total} />
+          <span className="cy-count">{st.done}/{st.total}</span>
+        </button>
+        {isOpen && (
+          <div className="cy-issues">
+            {st.issues.map(i => <IssueRow key={i.id} issue={i} display={rowDisplay} />)}
+            <button className="lane-add" onClick={() => openCreate({ teamId: team.id, cycleId: c.id })}><IconPlus size={12} /> New issue in this cycle</button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: team.name, to: `/team/${team.key}`, muted: true }, { label: 'Cycles' }]} />
+      <TopBar crumbs={[{ label: team.name, to: `/team/${team.key}`, muted: true }, { label: 'Cycles' }]}
+        right={<button className="btn secondary" onClick={() => setCreating(true)}><IconPlus size={13} /> New cycle</button>} />
       <TeamSubnav teamId={team.id} filter="cycles" />
       <div className="content">
         {cycles.length === 0 ? (
-          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, animation: 'bl-fade-up 320ms var(--ease) both' }}>
+          <div className="empty-state">
             <div className="empty-mark"><LogoMark size={28} /></div>
             <div className="empty-title">No cycles yet</div>
-            <div style={{ color: 'var(--text-secondary)', fontSize: 12.5, maxWidth: 360, textAlign: 'center' }}>
-              Cycles are time-boxed iterations for {team.name}. Create one with a name and start/end dates, then add issues to it.
+            <div className="empty-desc">Cycles are time-boxed iterations for {team.name}. Give one a start and end date, then pull issues into it.</div>
+            <div className="empty-actions">
+              <button className="btn primary" onClick={() => setCreating(true)}>Start a cycle</button>
             </div>
-            <button className="btn primary" style={{ height: 28, fontSize: 12, marginTop: 6 }} onClick={() => navigate('/settings/teams')}>Create a cycle</button>
           </div>
         ) : (
-        <div style={{ padding: '8px 24px', display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 860 }}>
-          {[['Current', current ? [current] : []], ['Upcoming', upcoming], ['Previous', previous.slice(0, 3)]].map(([label, list]) => {
-            const items = list as typeof cycles;
+        <div className="cy-page">
+          {current ? (() => {
+            const st = statsOf(current.id);
+            const left = daysBetween(now, current.endsAt);
+            const length = Math.max(1, daysBetween(current.startsAt, current.endsAt));
+            const elapsed = Math.min(100, Math.max(0, ((length - left) / length) * 100));
             return (
-              <div key={label as string}>
-                <div className="menu-header" style={{ padding: '0 0 8px' }}><span>{label as string}</span></div>
-                {items.length === 0 && <div style={{ color: 'var(--text-dim)', fontSize: 12.5 }}>No {String(label).toLowerCase()} cycle.</div>}
-                {items.map(c => {
-                  const issues = snap.issues.filter(i => i.cycleId === c.id);
-                  const done = issues.filter(i => {
-                    const st = snap.states.find(s => s.id === i.stateId);
-                    return st?.type === 'completed' || st?.type === 'canceled';
-                  }).length;
-                  const pct = issues.length ? Math.round((done / issues.length) * 100) : 0;
-                  return (
-                    <div key={c.id} className="card" style={{ padding: '12px 14px', marginBottom: 10 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <IconCycle size={15} style={{ color: 'var(--text-secondary)' }} />
-                        <b>{c.name || `Cycle ${c.number}`}</b>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: 12.5 }}>{shortDate(c.startsAt)} → {shortDate(c.endsAt)}</span>
-                        <span style={{ flex: 1 }} />
-                        <span style={{ color: 'var(--text-secondary)', fontSize: 12.5 }}>{done}/{issues.length} issues</span>
-                        <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => openCreate({ teamId: team.id, cycleId: c.id })}>＋ Issue</button>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0 4px' }}>
-                        <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{pct}%</span>
-                      </div>
-                      {issues.length > 0 && (
-                        <div style={{ marginTop: 6 }}>
-                          {issues.map(i => <IssueRow key={i.id} issue={i} display={{ id: true, status: true, assignee: true, priority: false, labels: true, project: false, due: false }} />)}
-                        </div>
-                      )}
-                      {issues.length === 0 && (
-                        <button className="prop-chip" style={{ color: 'var(--text-dim)', marginTop: 4 }} onClick={() => openCreate({ teamId: team.id, cycleId: c.id })}>＋ Add issue to this cycle</button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              <section className="cy-current">
+                <div className="cy-cur-head">
+                  <span className="cy-live">Current</span>
+                  <span className="cy-cur-name">{current.name || `Cycle ${current.number}`}</span>
+                  <span className="cy-dates">{shortDate(current.startsAt)} – {shortDate(current.endsAt)}</span>
+                  <span className="cy-fill" />
+                  <span className="cy-left">{left <= 0 ? 'Ends today' : `${left} day${left === 1 ? '' : 's'} left`}</span>
+                </div>
+                <div className="cy-stats">
+                  <span><b>{st.done}</b> done</span>
+                  <span><b>{st.started}</b> in progress</span>
+                  <span><b>{st.total - st.done - st.started}</b> not started</span>
+                  <span className="cy-fill" />
+                  <span className="cy-pct">{st.pct}%</span>
+                </div>
+                {/* the bar carries a tick for how much of the cycle's time has passed */}
+                <div className="cy-bar-wrap">
+                  <Bar done={st.done} started={st.started} total={st.total} />
+                  <span className="cy-now" style={{ left: `${elapsed}%` }} title="Today" />
+                </div>
+                <div className="cy-issues">
+                  {st.issues.map(i => <IssueRow key={i.id} issue={i} display={rowDisplay} />)}
+                  <button className="lane-add" onClick={() => openCreate({ teamId: team.id, cycleId: current.id })}><IconPlus size={12} /> New issue in this cycle</button>
+                </div>
+              </section>
             );
-          })}
-          <button className="prop-chip" style={{ color: 'var(--text-dim)', alignSelf: 'flex-start' }} onClick={() => navigate(`/settings/teams`)}>Manage cycles in team settings</button>
+          })() : (
+            <section className="cy-none">
+              <span>No cycle is running for {team.name}.</span>
+              <button className="btn secondary" onClick={() => setCreating(true)}>Start a cycle</button>
+            </section>
+          )}
+
+          {upcoming.length > 0 && (
+            <section>
+              <div className="cy-section">Upcoming</div>
+              {upcoming.map(c => {
+                const d = daysBetween(now, c.startsAt);
+                return compactRow(c, d <= 1 ? 'starts tomorrow' : `starts in ${d} days`);
+              })}
+            </section>
+          )}
+
+          {previous.length > 0 && (
+            <section>
+              <div className="cy-section">Previous</div>
+              {previous.map(c => {
+                const st = statsOf(c.id);
+                return compactRow(c, !st.total ? 'no issues' : st.done < st.total ? `ended with ${st.total - st.done} open` : 'completed');
+              })}
+            </section>
+          )}
         </div>
         )}
       </div>
+      <AnimatePresence>{creating && <NewCycleModal key="cy" teamId={team.id} number={nextNumber} onClose={() => setCreating(false)} />}</AnimatePresence>
     </div>
   );
 }

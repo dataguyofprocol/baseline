@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, useMenu, RegisterMark } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, RegisterMark, ConfirmButton } from './ui.js';
 import { Logo } from './Logo.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues,
@@ -90,7 +90,8 @@ export function Sidebar() {
           <Menu anchor={workspaceMenu.anchor} onClose={workspaceMenu.close} width={250}>
             <div className="menu-header"><span>{me.name} — {me.email || 'local user'}</span></div>
             <MenuSep />
-            <MenuItem danger label="Reset sample workspace" onClick={async () => { await api.reseed(); await useApp.getState().bootstrap(); }} />
+            <ConfirmButton className="menu-item danger" label={<span className="mi-label">Reset sample workspace</span>} confirmLabel={<span className="mi-label">Click again to wipe all data</span>}
+              onConfirm={async () => { workspaceMenu.close(); await api.reseed(); await useApp.getState().bootstrap(); }} />
           </Menu>
         )}
 

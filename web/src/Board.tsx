@@ -7,44 +7,64 @@ import {
 } from '@dnd-kit/core';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useApp, STATUS_ORDER, copyText } from './store.js';
+import { useApp, STATUS_ORDER, copyText, shortDate } from './store.js';
 import { api } from './api.js';
-import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
+import { StateIcon, PriorityIcon, Avatar, Donut } from './pickers.js';
 import { IconPlus, IconMore, IconCopy, IconFocus } from './icons.js';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { groupsFor, issuesOfGroup, orderIssues } from './IssueViews.js';
 import { useLanding } from './motion.js';
 import type { Issue, GroupBy, Priority } from '../../src/core/types.js';
 
-/* card internals — shared by the sortable card and the drag overlay */
+/* card internals — shared by the sortable card and the drag overlay.
+   Title first (it is what you scan a board for), avatar beside it, and one
+   footer line for everything else — each fact appears only when it has a value,
+   so a bare issue is a two-line card, not a box of empty slots. */
 function CardBody(props: { issue: Issue; groupBy: GroupBy; becameDone?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const team = snap.teams.find(t => t.id === props.issue.teamId);
   const state = snap.states.find(s => s.id === props.issue.stateId);
   const assignee = snap.users.find(u => u.id === props.issue.assigneeId);
   const labels = snap.labels.filter(l => props.issue.labelIds.includes(l.id));
+  const children = snap.issues.filter(i => i.parentId === props.issue.id && !i.archivedAt && !i.deletedAt);
+  const childDone = children.filter(c => {
+    const t = snap.states.find(s => s.id === c.stateId)?.type;
+    return t === 'completed' || t === 'canceled';
+  }).length;
+  const closed = state?.type === 'completed' || state?.type === 'canceled';
+  const due = props.issue.dueDate?.slice(0, 10);
+  const overdue = !!due && !closed && due < new Date().toISOString().slice(0, 10);
   return (
     <>
-      <div className="bc-top">
-        <span className="bc-key">{team?.key}-{props.issue.number}</span>
-        <span data-no-drag><Avatar user={assignee} /></span>
-      </div>
-      <div className="bc-title">
+      <div className="bc-head">
         {/* the column already says where it lives — only repeat the state on non-status boards */}
         {props.groupBy !== 'status' && state && <StateIcon type={state.type} color={state.color} size={13} morph={props.becameDone} />}
-        <span>{props.issue.title}</span>
+        <span className="bc-title">{props.issue.title}</span>
+        {assignee && <span className="bc-avatar" data-no-drag><Avatar user={assignee} size={18} /></span>}
       </div>
-      {(props.issue.priority > 0 || labels.length > 0) && (
-        <div className="bc-meta">
-          {props.issue.priority > 0 && <PriorityIcon priority={props.issue.priority} size={13} />}
-          {labels.slice(0, 3).map(l => (
-            <span key={l.id} className="label-pill" style={{ background: `color-mix(in srgb, ${l.color} calc(var(--label-bg-alpha) * 100%), transparent)`, color: 'var(--text-secondary)' }}>
-              <span className="label-dot" style={{ background: l.color }} />
-              {l.name}
-            </span>
-          ))}
-        </div>
-      )}
+      <div className="bc-foot">
+        {props.issue.priority > 0 && props.groupBy !== 'priority' && <PriorityIcon priority={props.issue.priority} size={12} />}
+        <span className="bc-key">{team?.key}-{props.issue.number}</span>
+        {labels.length > 0 && (
+          <span className="bc-label" title={labels.map(l => l.name).join(', ')}>
+            {labels.slice(0, 3).map(l => <span key={l.id} className="label-dot" style={{ background: l.color }} />)}
+            <span className="bc-label-name">{labels[0].name}</span>
+            {labels.length > 1 && <span className="bc-more">+{labels.length - 1}</span>}
+          </span>
+        )}
+        <span className="bc-fill" />
+        {children.length > 0 && (
+          <span className="bc-sub" title={`${childDone} of ${children.length} sub-issues done`}>
+            <Donut percent={(childDone / children.length) * 100} size={12} />
+            {childDone}/{children.length}
+          </span>
+        )}
+        {due && (
+          <span className={`bc-due${overdue ? ' overdue' : ''}`} title={overdue ? `Overdue — was due ${shortDate(due)}` : `Due ${shortDate(due)}`}>
+            {shortDate(due)}
+          </span>
+        )}
+      </div>
     </>
   );
 }
@@ -53,6 +73,8 @@ function BoardCard(props: { issue: Issue; groupBy: GroupBy }) {
   const navigate = useNavigate();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.issue.id, data: { issue: props.issue } });
   const state = useApp(s => s.snap!.states.find(st => st.id === props.issue.stateId));
+  // finished work recedes: done dims, canceled also strikes through
+  const closedClass = state?.type === 'completed' ? ' is-done' : state?.type === 'canceled' ? ' is-canceled' : '';
   // a card that lands in a new column gets the same enter + flash as a row
   const { justMoved, becameDone } = useLanding(props.issue, state?.type);
   // a completed drag must not land as a click on the (hidden) source card
@@ -77,7 +99,7 @@ function BoardCard(props: { issue: Issue; groupBy: GroupBy }) {
       {...listeners}
       {...attributes}
       data-issue-row={props.issue.id}
-      className={`board-card ${isDragging ? 'source-hidden' : ''} ${justMoved && !isDragging ? 'just-moved' : ''}`}
+      className={`board-card${closedClass}${isDragging ? ' source-hidden' : ''}${justMoved && !isDragging ? ' just-moved' : ''}`}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       onClick={open}
       onAuxClick={open}
@@ -122,15 +144,15 @@ export function Board(props: {
           const ib = STATUS_ORDER.indexOf(b.type as never);
           return ia !== ib ? ia - ib : a.position - b.position;
         });
-      const seen = new Map<string, { id: string; label: string; icon: React.ReactNode; stateIds: string[] }>();
+      const seen = new Map<string, { id: string; label: string; icon: React.ReactNode; stateIds: string[]; stateType?: string }>();
       for (const s of states) {
         const col = seen.get(s.name);
         if (col) { col.stateIds.push(s.id); continue; }
-        seen.set(s.name, { id: s.id, label: s.name, icon: <StateIcon type={s.type} color={s.color} size={14} />, stateIds: [s.id] });
+        seen.set(s.name, { id: s.id, label: s.name, icon: <StateIcon type={s.type} color={s.color} size={14} />, stateIds: [s.id], stateType: s.type });
       }
       return [...seen.values()];
     }
-    return groupsFor(groupBy, snap, props.teamId).map(g => ({ id: g.id, label: g.label, icon: g.icon, stateIds: [g.id] }));
+    return groupsFor(groupBy, snap, props.teamId).map(g => ({ id: g.id, label: g.label, icon: g.icon, stateIds: [g.id], stateType: undefined as string | undefined }));
   }, [groupBy, snap, props.teamId]);
 
   const byColumn = useMemo(() => {
@@ -145,6 +167,19 @@ export function Board(props: {
   }, [props.issues, props.orderBy, columns, groupBy]);
 
   const field = FIELD_FOR[groupBy];
+
+  // collapsed columns fold to a rail (still a drop target). Keyed by grouping +
+  // label so the choice follows a status name across teams; Canceled starts folded.
+  const [folded, setFolded] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem('baseline:boardFolded') ?? '{}'); } catch { return {}; }
+  });
+  const foldKey = (label: string) => `${groupBy}:${label}`;
+  const isFolded = (col: { label: string; stateType?: string }) => folded[foldKey(col.label)] ?? col.stateType === 'canceled';
+  const setFold = (label: string, v: boolean) => setFolded(f => {
+    const next = { ...f, [foldKey(label)]: v };
+    try { localStorage.setItem('baseline:boardFolded', JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
 
   const onDragStart = (e: DragStartEvent) => {
     const issue = e.active.data.current?.issue as Issue | undefined;
@@ -247,6 +282,8 @@ export function Board(props: {
             groupBy={groupBy}
             teamId={props.teamId}
             onFocus={props.onFocusColumn}
+            folded={isFolded(col)}
+            onFold={v => setFold(col.label, v)}
           />
         ))}
       </div>
@@ -284,6 +321,8 @@ function BoardColumn(props: {
   groupBy: GroupBy;
   teamId?: string;
   onFocus?: (stateIds: string[]) => void;
+  folded: boolean;
+  onFold: (folded: boolean) => void;
 }) {
   const snap = useApp(s => s.snap)!;
   const openCreate = useApp(s => s.openCreate);
@@ -293,17 +332,30 @@ function BoardColumn(props: {
   // cross-team boards pass no teamId — resolve it from the column's state so
   // the create modal opens on the team the column actually belongs to
   const createTeamId = props.teamId ?? snap.states.find(s => s.id === props.id)?.teamId;
+  const canCreate = props.groupBy === 'status';
   const addIssue = () => openCreate({ teamId: createTeamId, stateId: props.id });
 
+  if (props.folded) {
+    return (
+      <div ref={setNodeRef} className={`board-col folded${isOver ? ' drop-active' : ''}`}>
+        <button className="board-rail" title={`Expand ${props.label}`} onClick={() => props.onFold(false)}>
+          {props.icon}
+          <span className="count">{props.issues.length}</span>
+          <span className="rail-label">{props.label}</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className={`board-col ${isOver ? 'drop-active' : ''}`}>
+    <div className={`board-col${isOver ? ' drop-active' : ''}`}>
       <div className="board-col-header">
         {props.icon}
         <span className="bch-label">{props.label}</span>
         <span className="count">{props.issues.length}</span>
         <span className="col-actions">
           <button className="icon-btn" data-no-drag title="Column actions" onClick={menu.open}><IconMore size={13} /></button>
-          {props.groupBy === 'status' && (
+          {canCreate && (
             <button className="icon-btn" data-no-drag title="Create issue in this status" onClick={addIssue}>
               <IconPlus size={13} />
             </button>
@@ -311,13 +363,21 @@ function BoardColumn(props: {
         </span>
       </div>
       <SortableContext items={props.issues.map(i => i.id)} strategy={verticalListSortingStrategy}>
-        <div ref={setNodeRef} className={`board-col-body ${isOver ? 'drag-over' : ''}`}>
+        <div ref={setNodeRef} className="board-col-body">
           {props.issues.map(i => <BoardCard key={i.id} issue={i} groupBy={props.groupBy} />)}
+          {props.issues.length === 0 ? (
+            <div className="lane-empty">
+              <span>No issues</span>
+              {canCreate && <button className="lane-add" onClick={addIssue}><IconPlus size={12} /> New issue</button>}
+            </div>
+          ) : canCreate && (
+            <button className="lane-add trailing" onClick={addIssue}><IconPlus size={12} /> New issue</button>
+          )}
         </div>
       </SortableContext>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={210}>
-          {props.groupBy === 'status' && (
+          {canCreate && (
             <>
               <MenuItem icon={<IconPlus size={14} />} label="Add issue…" onClick={addIssue} />
               {props.onFocus && (
@@ -326,6 +386,7 @@ function BoardColumn(props: {
               <MenuSep />
             </>
           )}
+          <MenuItem label="Collapse column" onClick={() => props.onFold(true)} />
           <MenuItem icon={<IconCopy size={14} />} label="Copy as markdown" onClick={async () => {
             const lines = props.issues.map(i => {
               const t = snap.teams.find(x => x.id === i.teamId);

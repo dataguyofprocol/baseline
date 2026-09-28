@@ -353,3 +353,35 @@ export function Tooltips() {
     document.body,
   );
 }
+
+/* ---------------- confirm button ----------------
+   Destructive actions take two presses: the first arms it (the label turns
+   into the consequence, in danger red), the second within 3s runs it. Leaving
+   it alone disarms it — no modal for a one-line decision. */
+export function ConfirmButton(props: {
+  label: React.ReactNode;
+  confirmLabel: React.ReactNode;
+  onConfirm: () => void | Promise<void>;
+  className?: string;
+}) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <button
+      className={`${props.className ?? 'btn'}${armed ? ' armed' : ''}`}
+      onClick={async (e) => {
+        e.stopPropagation();
+        if (!armed) { setArmed(true); return; }
+        setArmed(false);
+        await props.onConfirm();
+      }}
+      onBlur={() => setArmed(false)}
+    >
+      {armed ? props.confirmLabel : props.label}
+    </button>
+  );
+}

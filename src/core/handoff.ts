@@ -94,7 +94,9 @@ export function buildHandoff(
     .map(lid => ctx.labels.find(l => l.id === lid)?.name)
     .filter((n): n is string => !!n);
   const branch = branchName(key, issue.title);
-  const base = (ctx.baseUrl ?? process.env.BASELINE_URL ?? 'http://localhost:7770').replace(/\/+$/, '');
+  // core also runs in the browser (Settings ▸ Handoff preview), where `process` doesn't exist
+  const envUrl = typeof process !== 'undefined' ? process.env.BASELINE_URL : undefined;
+  const base = (ctx.baseUrl ?? envUrl ?? windowOrigin() ?? 'http://localhost:7770').replace(/\/+$/, '');
   const vars: Record<string, string> = {
     key,
     title: issue.title,
@@ -110,4 +112,11 @@ export function buildHandoff(
     labels: labelNames.join(', '),
   };
   return { key, title: issue.title, branchName: branch, url: vars.url, prompt: renderHandoff(template, vars) };
+}
+
+/** in the browser, prompt links point at the instance actually being used */
+function windowOrigin(): string | undefined {
+  // core is compiled without DOM types, so reach `location` through globalThis
+  const origin = (globalThis as { location?: { origin?: string } }).location?.origin;
+  return origin?.startsWith('http') ? origin : undefined;
 }
