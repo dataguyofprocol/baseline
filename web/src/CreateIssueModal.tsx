@@ -4,7 +4,7 @@ import { api } from './api.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconClose, IconExpand, IconAttach, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck } from './icons.js';
+import { IconClose, IconPlus, IconExpand, IconAttach, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck } from './icons.js';
 import type { Priority, Team } from '../../src/core/types.js';
 
 const SUGGESTIONS: Array<[RegExp, string]> = [
@@ -226,9 +226,9 @@ export function CreateIssueModal() {
     <Modal onClose={closeCreate} className={`modal modal-create ${expanded ? 'expanded' : ''}`}>
       <div className="cm-root" onKeyDown={onModalKeyDown}>
       <div className="cm-header">
-        <button className="cm-team" onClick={teamMenu.open} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className="ws-avatar" style={{ background: team.color, borderRadius: 4, fontSize: 9, width: 18, height: 18 }}>{team.key.slice(0, 2)}</span>
-          <span>{team.key}</span>
+        <button className="cm-team" onClick={teamMenu.open} title="Switch team">
+          <span className="cm-team-mark" style={{ background: team.color }}>{team.key.slice(0, 1)}</span>
+          <span>{team.name}</span>
           <IconChevronDown size={12} style={{ color: 'var(--text-dim)' }} />
         </button>
         <span className="crumb-sep">›</span>
@@ -240,7 +240,13 @@ export function CreateIssueModal() {
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>New issue</span>
         )}
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
-          {title.trim() && <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={saveDraft}>Save as draft</button>}
+          {templates.length > 0 && (
+            <button className={`cm-template${appliedTemplate ? ' on' : ''}`} onClick={templateMenu.open} title="Apply a template">
+              <IconDoc size={13} />
+              {appliedTemplate?.name ?? 'Template'}
+              <IconChevronDown size={10} style={{ color: 'var(--text-dim)' }} />
+            </button>
+          )}
           <button className="icon-btn" title={expanded ? 'Contract' : 'Expand'} onClick={() => setExpanded(v => !v)}>
             <IconExpand size={14} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 140ms var(--ease)' }} />
           </button>
@@ -249,9 +255,9 @@ export function CreateIssueModal() {
       </div>
 
       {draft && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px 0', fontSize: 12, color: 'var(--text-secondary)' }}>
-          <span>Draft restored · saved {shortDate(draft.savedAt)}</span>
-          <button className="btn" style={{ height: 20, fontSize: 11 }} onClick={discardDraft}>Discard</button>
+        <div className="cm-draft">
+          <span>Restored your draft from {shortDate(draft.savedAt)}</span>
+          <button className="cm-link" onClick={discardDraft}>Discard</button>
         </div>
       )}
 
@@ -274,36 +280,6 @@ export function CreateIssueModal() {
         />
       </div>
 
-      {suggestion && (
-        <div className="cm-suggest">
-          <span style={{ display: 'flex' }}>💡</span>
-          Quick suggestions
-          <button
-            className="label-pill" style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}
-            onClick={() => {
-              const l = teamLabels.find(x => x.name === suggestion[1]);
-              if (l) setLabelIds(prev => [...prev, l.id]);
-            }}
-          >
-            <span className="label-dot" style={{ background: teamLabels.find(x => x.name === suggestion[1])?.color ?? '#8a8f98' }} />
-            {suggestion[1]}
-          </button>
-        </div>
-      )}
-
-      {templates.length > 0 && (
-        <div className="cm-suggest">
-          <IconDoc size={13} style={{ color: 'var(--text-dim)', display: 'flex' }} />
-          Template
-          <button
-            className="label-pill" style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)', gap: 4 }}
-            onClick={templateMenu.open}
-          >
-            {appliedTemplate?.name ?? 'None'}
-            <IconChevronDown size={10} style={{ color: 'var(--text-dim)' }} />
-          </button>
-        </div>
-      )}
       {templateMenu.anchor && (
         <Menu anchor={templateMenu.anchor} onClose={templateMenu.close} width={220}>
           <div className="menu-header"><span>Apply template</span></div>
@@ -352,10 +328,27 @@ export function CreateIssueModal() {
         <button className="prop-chip" style={{ padding: '0 8px' }} onClick={e => { setMorePhase('root'); moreMenu.open(e); }} title="More properties">
           <IconMore size={13} />
         </button>
+        {/* the title reads like a known label: offer it in place — a dashed chip
+            at the end of the row, so nothing above it moves */}
+        {suggestion && (
+          <button
+            key={suggestion[1]} className="prop-chip cm-suggest-chip" title="Suggested from the title"
+            onClick={() => {
+              const l = teamLabels.find(x => x.name === suggestion[1]);
+              if (l) setLabelIds(prev => [...prev, l.id]);
+            }}
+          >
+            <IconPlus size={11} />
+            <span className="label-dot" style={{ background: teamLabels.find(x => x.name === suggestion[1])?.color ?? '#8a8f98' }} />
+            {suggestion[1]}
+          </button>
+        )}
       </div>
 
       <div className="cm-footer">
         <button className="icon-btn" title="Attach file"><IconAttach size={15} /></button>
+        {/* always laid out, only shown once there's something to save — no reflow */}
+        <button className="cm-link" style={{ visibility: title.trim() ? 'visible' : 'hidden', marginLeft: 6 }} onClick={saveDraft}>Save draft</button>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-secondary)' }}>
             <button className={`toggle ${createMore ? 'on' : ''}`} onClick={() => setCreateMore(v => !v)} aria-label="Create more" />

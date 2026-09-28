@@ -5,7 +5,7 @@ import { useApp, useCursor, useSelection, visibleList } from './store.js';
 import { api } from './api.js';
 import { Sidebar } from './AppShell.js';
 import { CreateIssueModal } from './CreateIssueModal.js';
-import { CommandPalette, ShortcutsOverlay } from './Palette.js';
+import { CommandPalette, ShortcutsOverlay, recordRecentIssue } from './Palette.js';
 import { QuickMenus, SelectionBar } from './IssueViews.js';
 import { Toasts, Tooltips } from './ui.js';
 import {
@@ -172,6 +172,8 @@ function RouteSettle() {
   useEffect(() => {
     const from = prev.current;
     prev.current = pathname;
+    const opened = /^\/issue\/([^/]+)$/.exec(pathname)?.[1];
+    if (opened) recordRecentIssue(decodeURIComponent(opened).toUpperCase());
     if (from === pathname || reducedMotion()) return;
     const host = document.querySelector<HTMLElement>('.page-host');
     if (!host) return;

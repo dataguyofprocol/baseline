@@ -28,6 +28,24 @@ interface PaletteItem {
   danger?: boolean;
   /** check mark on the right — this value is shared by every selected issue */
   checked?: boolean;
+  /** leading chars of the label drawn as a mono key ("CORE-12 …") */
+  prefixLen?: number;
+  /** trailing element, e.g. the issue's assignee */
+  trail?: React.ReactNode;
+  /** what Enter does, named in the footer ("Open issue") */
+  verb?: string;
+}
+
+/* issues opened recently, newest first — the palette's empty state leads with them */
+const RECENT_KEY = 'baseline:recentIssues';
+export function recordRecentIssue(key: string) {
+  try {
+    const list: string[] = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
+    localStorage.setItem(RECENT_KEY, JSON.stringify([key, ...list.filter(k => k !== key)].slice(0, 8)));
+  } catch { /* ignore */ }
+}
+function recentIssueKeys(): string[] {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]'); } catch { return []; }
 }
 
 /** render a label with fuzzy-matched characters highlighted */
@@ -364,16 +382,21 @@ export function CommandPalette() {
         nav.push({ id: `nav-team-cycles-${t.id}`, icon: <IconCycle size={14} />, label: `Go to ${t.name} cycles`, section: 'Navigation', keywords: `${t.key} cycles`, action: () => navigate(`/team/${t.key}/cycles`) });
       }
     }
-    const issueItems: PaletteItem[] = snap.issues.map(i => {
+    const issueItems: PaletteItem[] = snap.issues.filter(i => !i.deletedAt).map(i => {
       const team = snap.teams.find(t => t.id === i.teamId);
       const state = snap.states.find(s => s.id === i.stateId);
+      const key = `${team?.key}-${i.number}`;
+      const assignee = snap.users.find(u => u.id === i.assigneeId);
       return {
         id: `issue-${i.id}`,
         icon: state ? <StateIcon type={state.type} color={state.color} size={14} /> : undefined,
-        label: `${team?.key}-${i.number} ${i.title}`,
+        label: `${key} ${i.title}`,
+        prefixLen: key.length,
+        trail: assignee ? <Avatar user={assignee} size={16} /> : undefined,
+        verb: 'Open issue',
         section: 'Issues',
-        keywords: `${i.title} ${team?.key}-${i.number}`,
-        action: () => navigate(`/issue/${team?.key}-${i.number}`),
+        keywords: `${i.title} ${key}`,
+        action: () => navigate(`/issue/${key}`),
       };
     });
     const projectItems: PaletteItem[] = snap.projects.map(p => ({
@@ -404,18 +427,27 @@ export function CommandPalette() {
   const filtered = useMemo<Array<{ item: PaletteItem; match: { indices: number[] } | null }>>(() => {
     if (!q.trim()) {
       if (sub) return active.map(item => ({ item, match: null }));
+      // empty query: what you were just looking at comes first, then commands
+      const byKey = new Map(items.filter(i => i.section === 'Issues').map(i => [i.label.slice(0, i.prefixLen), i]));
+      const recent = recentIssueKeys().map(k => byKey.get(k)).filter(Boolean)
+        .slice(0, 5).map(i => ({ ...i!, section: 'Recent' }));
       const nonIssues = items.filter(i => i.section !== 'Issues');
-      const topIssues = items.filter(i => i.section === 'Issues')
-        .sort((a, b) => b.label.localeCompare(a.label)).slice(0, 5);
-      return [...nonIssues, ...topIssues].map(item => ({ item, match: null }));
+      return [...recent, ...nonIssues].map(item => ({ item, match: null }));
     }
-    return active
+    const hits = active
       .map(i => ({ i, s: scoreItem(q.trim(), i) }))
       .filter(({ s }) => s !== null)
       .sort((a, b) => b.s!.score - a.s!.score)
       .slice(0, 24)
       .map(({ i, s }) => ({ item: i, match: s!.match }));
-  }, [active, items, q, sub]);
+    if (sub) return hits;
+    // whatever you typed can always become an issue — last, unless nothing matched
+    const title = q.trim();
+    return [...hits, { item: {
+      id: 'act-create-from-query', icon: <IconPlus size={14} />, label: `Create issue “${title}”`,
+      section: 'Create', verb: 'Create issue', action: () => openCreate({ title }),
+    }, match: null }];
+  }, [active, items, q, sub, openCreate]);
 
   const runItem = (item: PaletteItem) => {
     if (item.keepOpen) item.action();
@@ -490,7 +522,6 @@ export function CommandPalette() {
           placeholder="Type a command or search…"
           spellCheck={false}
         />
-        <span className="pal-hint"><span className="kbd">↑↓</span> navigate <span className="kbd">↵</span> select <span className="kbd">esc</span> {sub ? 'back' : 'dismiss'}</span>
       </div>
       <div className="pal-list" ref={listRef}>
         {sub && (
@@ -504,10 +535,7 @@ export function CommandPalette() {
           const header = item.section !== lastSection ? item.section : null;
           lastSection = item.section;
           return (
-            <div
-              key={item.id}
-              style={{ animation: 'bl-fade-up 260ms cubic-bezier(0.16, 1, 0.3, 1) both', animationDelay: `${Math.min(i, 10) * 26}ms` }}
-            >
+            <div key={item.id}>
               {header && <div className="menu-header" style={{ paddingTop: 8 }}><span>{header}</span></div>}
               <button
                 className={`menu-item ${i === index ? 'highlighted' : ''} ${item.danger ? 'danger' : ''}`}
@@ -516,9 +544,17 @@ export function CommandPalette() {
               >
                 {item.icon && <span className="mi-icon">{item.icon}</span>}
                 <span className="mi-label" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  <Highlighted text={item.label} indices={match?.indices ?? []} />
+                  {item.prefixLen ? (
+                    <>
+                      <span className="pal-key">
+                        <Highlighted text={item.label.slice(0, item.prefixLen)} indices={(match?.indices ?? []).filter(n => n < item.prefixLen!)} />
+                      </span>
+                      <Highlighted text={item.label.slice(item.prefixLen + 1)} indices={(match?.indices ?? []).filter(n => n > item.prefixLen!).map(n => n - item.prefixLen! - 1)} />
+                    </>
+                  ) : <Highlighted text={item.label} indices={match?.indices ?? []} />}
                 </span>
                 <span className="mi-right">
+                  {item.trail}
                   {item.checked && <IconCheck size={13} style={{ color: 'var(--brand)' }} />}
                   {item.hint && <span className="kbd">{item.hint}</span>}
                 </span>
@@ -526,7 +562,22 @@ export function CommandPalette() {
             </div>
           );
         })}
-        {filtered.length === 0 && <div className="menu-header"><span>No results for "{q}"</span></div>}
+        {filtered.length === 0 && <div className="pal-empty">No results for “{q}”</div>}
+      </div>
+      {/* the footer names what Enter will do for the highlighted row */}
+      <div className="pal-foot">
+        <span className="pal-foot-scope">{sub ? sub.title : selIssues.length ? `${selIssues.length} selected` : 'Baseline'}</span>
+        <span className="pal-foot-keys">
+          <span className="kbd">↑</span><span className="kbd">↓</span>
+          <span className="pal-foot-verb">{(() => {
+            const it = filtered[index]?.item;
+            if (!it) return 'Select';
+            return it.verb ?? (it.keepOpen ? 'Choose' : it.section === 'Navigation' ? 'Go' : it.section === 'Projects' ? 'Open project' : it.section === 'Views' ? 'Open view' : 'Run');
+          })()}</span>
+          <span className="kbd">↵</span>
+          <span className="pal-foot-verb">{sub ? 'Back' : 'Close'}</span>
+          <span className="kbd">esc</span>
+        </span>
       </div>
     </Modal>
       )}

@@ -56,6 +56,11 @@ export function fuzzyMatch(term: string, text: string): FuzzyMatch | null {
     for (let qi = 1; qi < q.length; qi++) {
       const idx = t.indexOf(q[qi], prev + 1);
       if (idx === -1) { failed = true; break; }
+      // a jump may land mid-word only inside the word it left ("thm" → Theme);
+      // hopping into the middle of another word ("toast" → tools/creAte) is junk
+      if (idx !== prev + 1 && !isBoundary(text, idx) && [...text.slice(prev + 1, idx)].some(ch => BOUNDARY_PRECEDERS.has(ch))) {
+        failed = true; break;
+      }
       score += 6;
       if (idx === prev + 1) score += 16;
       else score -= Math.min(idx - prev - 1, 10);
@@ -95,7 +100,10 @@ export function scoreItem<T extends { label: string; keywords?: string }>(
   let allInLabel = true;
   for (const term of terms) {
     const lm = fuzzyMatch(term, item.label);
-    if (lm && lm.score > 15) {
+    // the bar rises with the term's length: "cfs" may scatter across three
+    // words, but four letters strewn over a whole title ("sync" in "Milestone
+    // display on board cards") is noise, not a match
+    if (lm && lm.score > 15 + term.length * 6) {
       total += lm.score;
       labelIndices.push(...lm.indices);
       continue;
