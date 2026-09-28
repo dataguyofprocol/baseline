@@ -238,6 +238,8 @@ export interface Workspace {
   agentRunner: AgentRunner;
   /** directory the integrated agent runs in */
   agentCwd: string;
+  /** the "Claude Code" agent user whose assigned issues the runner picks up */
+  agentUserId: string | null;
   /** issue the integrated agent is working on right now (server memory, null when idle) */
   agentRunningIssueId: string | null;
 }

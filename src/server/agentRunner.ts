@@ -1,4 +1,4 @@
-// Integrated agent: picks up issues assigned to an agent user and runs them through Claude Code
+// Integrated agent: picks up issues assigned to the "Claude Code" user and runs them through Claude Code
 // headlessly (`claude -p`), one at a time. The result lands on the issue as a comment by that
 // agent — summary, branch, changed files — and the state moves.
 // No tables of its own: the claim is the state flip to "started", config lives in meta.
@@ -57,24 +57,30 @@ async function execute(store: Store, dbPath: string, issue: Issue, key: string, 
 
   const env = { ...process.env, BASELINE_DB: dbPath, BASELINE_AS: agentId, BASELINE_PROMPT: prompt, BASELINE_ISSUE: key };
   const [cmd, args]: [string, string[]] = fake ? ['sh', ['-c', fake]]
-    : ['claude', ['-p', prompt, '--output-format', 'json', '--permission-mode', 'acceptEdits', '--allowedTools', ...CLAUDE_TOOLS]];
+    : ['claude', ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits', '--allowedTools', ...CLAUDE_TOOLS]];
 
   const log = createWriteStream(logPath);
   log.write(`$ ${fake ?? 'claude -p <prompt> --permission-mode acceptEdits'}\n# cwd: ${cwd}\n\n`);
   let stdout = '';
-  const exitCode = await new Promise<number | null>((done) => {
+  let timedOut = false;
+  const { exitCode, signal } = await new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((done) => {
     const child = spawn(cmd, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
-    const timer = setTimeout(() => { log.write('\n# timed out — stopping\n'); child.kill('SIGTERM'); }, TIMEOUT_MS);
+    const timer = setTimeout(() => { timedOut = true; log.write('\n# timed out — stopping\n'); child.kill('SIGTERM'); }, TIMEOUT_MS);
     child.stdout.on('data', (d: Buffer) => { stdout += d; log.write(d); });
     child.stderr.on('data', (d: Buffer) => log.write(d));
-    child.on('error', (err) => { log.write(`\n# spawn failed: ${err.message}\n`); clearTimeout(timer); done(127); });
-    child.on('close', (code) => { clearTimeout(timer); done(code); });
+    child.on('error', (err) => { log.write(`\n# spawn failed: ${err.message}\n`); clearTimeout(timer); done({ exitCode: 127, signal: null }); });
+    child.on('close', (code, sig) => { clearTimeout(timer); done({ exitCode: code, signal: sig }); });
   });
   await new Promise<void>(r => log.end(r));
 
   const ok = exitCode === 0;
+  // killed from outside (signal, or a shell reporting 128+signal) reads as "stopped", not a failure of the work
+  const stopped = !ok && !timedOut && (signal !== null || exitCode === 143 || exitCode === 137);
+  const headline = timedOut ? `**Run timed out** after ${Math.round(TIMEOUT_MS / 60_000)} min.`
+    : stopped ? `**Run stopped** before it finished (${signal ?? `exit ${exitCode}`}).`
+    : `**Run failed** (exit ${exitCode}).`;
   const body = [
-    ok ? lastMessage(stdout) || '_Finished without a summary._' : `**Run failed** (exit ${exitCode ?? 'stopped'}).\n\n${tail(readSafe(logPath), 20)}`,
+    ok ? lastMessage(stdout) || '_Finished without a summary._' : `${headline}\n\n${tail(readSafe(logPath), 20)}`,
     '',
     ...gitSummary(cwd),
     `Log: \`${logPath}\``,
@@ -102,14 +108,18 @@ Baseline CLI: \`node ${CLI_BIN}\` (BASELINE_DB and BASELINE_AS are set, so write
 When you finish, end with a short summary of what you did, the branch, and any files or artifacts you produced — Baseline posts your final message on ${key} automatically.`;
 }
 
-/** --output-format json prints one JSON object with a `result`; anything else is taken as plain text */
+/** stream-json ends with a `{"type":"result","result":…}` line; anything else is taken as plain text */
 function lastMessage(stdout: string): string {
   const text = stdout.trim();
   if (!text) return '';
-  try {
-    const j = JSON.parse(text.split('\n').filter(Boolean).pop()!) as { result?: unknown };
-    if (typeof j.result === 'string') return j.result.trim();
-  } catch { /* plain text */ }
+  const lines = text.split('\n').filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const j = JSON.parse(lines[i]!) as { type?: string; result?: unknown };
+      if (j.type === 'result' && typeof j.result === 'string') return j.result.trim();
+    } catch { /* not json */ }
+  }
+  if (lines.every(l => l.startsWith('{'))) return '';
   return text.length > 4000 ? text.slice(-4000) : text;
 }
 
@@ -128,7 +138,7 @@ function gitSummary(cwd: string): string[] {
 }
 
 function readSafe(p: string): string { try { return readFileSync(p, 'utf8').trim(); } catch { return ''; } }
-function tail(s: string, n: number): string { return '```\n' + s.split('\n').slice(-n).join('\n') + '\n```'; }
+function tail(s: string, n: number): string { return '```\n' + s.split('\n').slice(-n).map(l => l.length > 300 ? l.slice(0, 300) + '…' : l).join('\n') + '\n```'; }
 
 /** background loop for `baseline serve`: one pickup attempt per tick, never overlapping */
 export function startAgentRunner(store: Store, dbPath: string): () => void {

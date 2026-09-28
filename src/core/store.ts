@@ -186,21 +186,34 @@ export class Store {
   }
 
   // ---------- integrated agent ----------
-  getAgentConfig(): { agentRunner: AgentRunner; agentCwd: string } {
+  getAgentConfig(): { agentRunner: AgentRunner; agentCwd: string; agentUserId: string | null } {
     const r = getMeta(this.db, 'agentRunner');
-    return { agentRunner: r === 'claude' ? r : 'none', agentCwd: getMeta(this.db, 'agentCwd') ?? '' };
+    return { agentRunner: r === 'claude' ? r : 'none', agentCwd: getMeta(this.db, 'agentCwd') ?? '', agentUserId: this.claudeCodeUser()?.id ?? null };
   }
   setAgentConfig(patch: { agentRunner?: AgentRunner; agentCwd?: string }): void {
     if (patch.agentRunner !== undefined) setMeta(this.db, 'agentRunner', patch.agentRunner === 'claude' ? 'claude' : 'none');
     if (patch.agentCwd !== undefined) setMeta(this.db, 'agentCwd', patch.agentCwd.trim());
+    if (patch.agentRunner === 'claude') this.ensureClaudeCodeUser();
   }
-  /** oldest not-yet-started issue assigned to any agent user — the integrated agent's queue */
+  /** the dedicated assignee the runner owns — other agent users (e.g. "Agent") stay copy-prompt only */
+  private claudeCodeUser(): { id: string } | undefined {
+    const byId = getMeta(this.db, 'agentUserId');
+    return (byId ? this.db.prepare('SELECT id FROM users WHERE id = ?').get(byId) as { id: string } | undefined : undefined)
+      ?? this.db.prepare("SELECT id FROM users WHERE kind = 'agent' AND name = 'Claude Code'").get() as { id: string } | undefined;
+  }
+  private ensureClaudeCodeUser(): string {
+    const uid = this.claudeCodeUser()?.id ?? this.createUser('Claude Code', 'claude-code@local', false, 'agent').id;
+    setMeta(this.db, 'agentUserId', uid);
+    return uid;
+  }
+  /** oldest not-yet-started issue assigned to the Claude Code user — the integrated agent's queue */
   nextAgentIssue(): Issue | undefined {
+    const uid = this.claudeCodeUser()?.id;
+    if (!uid) return undefined;
     const row = this.db.prepare(`SELECT i.* FROM issues i
-      JOIN users u ON u.id = i.assignee_id AND u.kind = 'agent'
       JOIN states s ON s.id = i.state_id AND s.type IN ('backlog', 'unstarted')
-      WHERE i.archived_at IS NULL AND i.deleted_at IS NULL
-      ORDER BY i.updated_at LIMIT 1`).get() as IssueRow | undefined;
+      WHERE i.assignee_id = ? AND i.archived_at IS NULL AND i.deleted_at IS NULL
+      ORDER BY i.updated_at LIMIT 1`).get(uid) as IssueRow | undefined;
     return row ? this.mapIssue(row) : undefined;
   }
   /** first state of a type by position — e.g. the team's "In Progress" for 'started' */

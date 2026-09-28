@@ -876,7 +876,7 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof stor
 }
 
 // ---------- integrated agent (Claude Code) ----------
-const agent = program.command('agent').description('Integrated agent: runs issues assigned to an agent user through Claude Code');
+const agent = program.command('agent').description('Integrated agent: runs issues assigned to the "Claude Code" user through Claude Code');
 withDb(agent.command('config')).description('Show or change the integrated agent setup')
   .option('--claude', 'turn the integrated agent on (Claude Code)')
   .option('--off', 'turn it off (copy-prompt only)')
@@ -892,7 +892,7 @@ withDb(agent.command('run')).description('Run the next queued agent issue now an
   .action(async (opts: { db?: string }) => {
     const path = resolveDbPath(opts.db);
     const r = await runNextAgentIssue(storeFor(path), path);
-    if (!r) console.log('nothing to run (agent off, no working directory, or no queued issue assigned to an agent)');
+    if (!r) console.log('nothing to run (agent off, no working directory, or no Todo/Backlog issue assigned to Claude Code)');
     else console.log(`${r.ok ? 'finished' : 'failed'} ${r.key} — log: ${r.logPath}`);
     process.exit(r && !r.ok ? 1 : 0);
   });

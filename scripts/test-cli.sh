@@ -312,23 +312,31 @@ mkdir -p "$REPO" && git -C "$REPO" init -q -b main && echo hi > "$REPO/README.md
   && git -C "$REPO" add . && git -C "$REPO" -c user.email=t@t -c user.name=t commit -qm init
 export BASELINE_RUNS_DIR="$WORK/runs"
 ab() { BASELINE_DB="$ADB" $BIN "$@"; }
-akey() { ab issue create "$1" -t CORE -s Todo -a Agent --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))"; }
+akey() { ab issue create "$1" -t CORE -s Todo -a "${2:-Claude Code}" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))"; }
 checkon "$ADB" "agent off by default" "runner: off" agent config
 checkon "$ADB" "agent run is a no-op when off" "nothing to run" agent run
 checkon "$ADB" "agent config on" "Claude Code" agent config --claude --cwd "$REPO"
+checkon "$ADB" "enabling creates the Claude Code user" "Claude Code" user list
+K0=$(akey "manual handoff task" Agent)
 K1=$(akey "agent task one"); K2=$(akey "agent task two")
 FAKE_OK="git checkout -q -b agent-branch && echo x > new.txt && git add . && git -c user.email=t@t -c user.name=t commit -qm work && node $PWD/bin/baseline.js issue comment \$BASELINE_ISSUE 'progress from inside the run' >/dev/null && echo 'did the thing'"
 BASELINE_AGENT_CMD="$FAKE_OK" checkon "$ADB" "agent run finishes first queued issue" "finished $K1" agent run
 ab issue show "$K1" --json > "$WORK/a1.json"
-check_json "agent run → Done + summary comment" "$WORK/a1.json" "d.state==='Done'&&d.comments.some(c=>c.author==='Agent'&&c.body.includes('did the thing')&&c.body.includes('agent-branch')&&c.body.includes('new.txt'))"
-check_json "BASELINE_AS set inside the run" "$WORK/a1.json" "d.comments.some(c=>c.author==='Agent'&&c.body==='progress from inside the run')"
+check_json "agent run → Done + summary comment" "$WORK/a1.json" "d.state==='Done'&&d.comments.some(c=>c.author==='Claude Code'&&c.body.includes('did the thing')&&c.body.includes('agent-branch')&&c.body.includes('new.txt'))"
+check_json "BASELINE_AS set inside the run" "$WORK/a1.json" "d.comments.some(c=>c.author==='Claude Code'&&c.body==='progress from inside the run')"
 ab issue show "$K2" --json > "$WORK/a2.json"
-check_json "second issue untouched (one at a time)" "$WORK/a2.json" "d.state==='Todo'&&d.assignee==='Agent'"
+check_json "second issue untouched (one at a time)" "$WORK/a2.json" "d.state==='Todo'&&d.assignee==='Claude Code'"
 BASELINE_AGENT_CMD="echo boom >&2; exit 3" BASELINE_DB="$ADB" $BIN agent run >/dev/null 2>&1; RC=$?
 if [[ $RC -eq 1 ]]; then PASS=$((PASS+1)); else echo "FAIL  failed agent run exits 1 (got $RC)"; FAILED_NAMES+=("failed agent run exit"); FAIL=$((FAIL+1)); fi
 ab issue show "$K2" --json > "$WORK/a3.json"
-check_json "failed run hands issue back to me" "$WORK/a3.json" "d.state==='Todo'&&d.assignee!=='Agent'&&d.comments.some(c=>c.author==='Agent'&&c.body.includes('Run failed')&&c.body.includes('boom'))"
+check_json "failed run hands issue back to me" "$WORK/a3.json" "d.state==='Todo'&&d.assignee!=='Claude Code'&&d.comments.some(c=>c.author==='Claude Code'&&c.body.includes('Run failed')&&c.body.includes('boom'))"
+K3=$(akey "agent task stopped")
+BASELINE_AGENT_CMD='kill -TERM $$' BASELINE_DB="$ADB" $BIN agent run >/dev/null 2>&1
+ab issue show "$K3" --json > "$WORK/a4.json"
+check_json "killed run reads as stopped, handed back" "$WORK/a4.json" "d.state==='Todo'&&d.assignee!=='Claude Code'&&d.comments.some(c=>c.author==='Claude Code'&&c.body.includes('Run stopped')&&!c.body.includes('Run failed'))"
 checkon "$ADB" "queue empty after hand-back" "nothing to run" agent run
+ab issue show "$K0" --json > "$WORK/a0.json"
+check_json "issues assigned to Agent are never auto-run" "$WORK/a0.json" "d.state==='Todo'&&d.assignee==='Agent'&&d.comments.length===0"
 checkon "$ADB" "agent config off" "runner: off" agent config --off
 unset BASELINE_RUNS_DIR
 

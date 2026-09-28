@@ -617,7 +617,7 @@ function AgentRunnerSettings() {
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 500 }}>Run with Claude Code</div>
           <div className="field-help">
-            Issues assigned to an agent are picked up within 30s, one at a time, via <code>claude -p</code> (edits, git and the baseline CLI only).
+            Issues assigned to <b>Claude Code</b> are picked up within 30s, one at a time, via <code>claude -p</code> (edits, git and the baseline CLI only). Other agents like “Agent” stay copy-prompt only.
             The result is posted as a comment with the branch and changed files; the issue moves to Done, or back to you if the run fails.
           </div>
         </div>
