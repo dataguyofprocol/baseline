@@ -506,6 +506,9 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
           }
           right={
             <div className="issue-toolbar">
+              {snap.workspace.agentRunningIssueId === issue.id && (
+                <span title="Claude Code is working on this issue" style={{ color: 'var(--text-secondary)', fontSize: 12, marginRight: 6 }}>Agent running…</span>
+              )}
               {/* copy-as-prompt is the core workflow — brand-colored terminal glyph, first position */}
               <button className="icon-btn prompt-btn" title="Copy agent prompt" onClick={copyPrompt}><IconAgent size={15} /></button>
               <button className="icon-btn" title="Copy branch name" onClick={copyBranch}><IconBranch size={15} /></button>

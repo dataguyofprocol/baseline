@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createApp, serve } from '../server/index.js';
+import { runNextAgentIssue } from '../server/agentRunner.js';
 import { resolveDbPath } from '../core/db.js';
 import { seedWorkspace } from '../core/seed.js';
 import { issueKey, PRIORITY_SHORT, PRIORITY_LABELS } from '../core/types.js';
@@ -86,10 +87,13 @@ function relationRows(snap: Snapshot, issueId: string) {
 
 const withDb = (cmd: Command) => cmd.option('--db <path>', 'database path');
 
-/** --as <user>: attribute the write to a named user (typically an agent identity like "Codex") */
-function actorId(snap: Snapshot, name?: string): string | undefined {
+/** --as <user>: attribute the write to a named user (typically an agent identity like "Codex").
+ *  Falls back to BASELINE_AS (name or user id) so an agent session can set its identity once. */
+function actorId(snap: Snapshot, flag?: string): string | undefined {
+  const name = flag ?? process.env.BASELINE_AS;
   if (!name) return undefined;
-  const u = snap.users.find(u => u.name.toLowerCase() === name.toLowerCase())
+  const u = snap.users.find(u => u.id === name)
+    ?? snap.users.find(u => u.name.toLowerCase() === name.toLowerCase())
     ?? snap.users.find(u => u.name.toLowerCase().includes(name.toLowerCase()));
   if (!u) fail(`Unknown user "${name}" — valid users: ${snap.users.map(u => u.name).join(', ')}`);
   return u.id;
@@ -870,5 +874,27 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof stor
     .map(m => ({ name: m.name, targetDate: m.targetDate, status: m.status }));
   return { ...projectJson(p, snap, store), issues, updates, milestones };
 }
+
+// ---------- integrated agent (Claude Code) ----------
+const agent = program.command('agent').description('Integrated agent: runs issues assigned to an agent user through Claude Code');
+withDb(agent.command('config')).description('Show or change the integrated agent setup')
+  .option('--claude', 'turn the integrated agent on (Claude Code)')
+  .option('--off', 'turn it off (copy-prompt only)')
+  .option('--cwd <dir>', 'directory the agent runs in')
+  .action((opts: { db?: string; claude?: boolean; off?: boolean; cwd?: string }) => {
+    const store = storeFor(opts.db);
+    store.setAgentConfig({ agentRunner: opts.claude ? 'claude' : opts.off ? 'none' : undefined, agentCwd: opts.cwd });
+    const c = store.getAgentConfig();
+    console.log(`runner: ${c.agentRunner === 'claude' ? 'Claude Code' : 'off'}\ncwd:    ${c.agentCwd || '(not set)'}`);
+    process.exit(0);
+  });
+withDb(agent.command('run')).description('Run the next queued agent issue now and wait for it (the server does this every 30s)')
+  .action(async (opts: { db?: string }) => {
+    const path = resolveDbPath(opts.db);
+    const r = await runNextAgentIssue(storeFor(path), path);
+    if (!r) console.log('nothing to run (agent off, no working directory, or no queued issue assigned to an agent)');
+    else console.log(`${r.ok ? 'finished' : 'failed'} ${r.key} — log: ${r.logPath}`);
+    process.exit(r && !r.ok ? 1 : 0);
+  });
 
 program.parseAsync(process.argv);

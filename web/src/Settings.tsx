@@ -566,6 +566,7 @@ function HandoffSettings() {
         “Copy as prompt” turns an issue into a ready-to-paste brief for a coding agent CLI. Edit the template below;
         the same prompt is served to the web app, <code>baseline issue handoff</code> and the palette.
       </div>
+      <AgentRunnerSettings />
       <textarea
         className="text-input"
         style={{ width: '100%', minHeight: 190, fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, lineHeight: 1.55, resize: 'vertical' }}
@@ -593,6 +594,41 @@ function HandoffSettings() {
           <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 6 }}>branch: <code>{preview.branchName}</code></div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* integrated agent: issues assigned to an agent user run through Claude Code, one at a time */
+function AgentRunnerSettings() {
+  const ws = useApp(s => s.snap)!.workspace;
+  const toast = useApp(s => s.toast);
+  const [cwd, setCwd] = useState(ws.agentCwd);
+  const on = ws.agentRunner === 'claude';
+
+  const save = async (patch: { agentRunner?: 'none' | 'claude'; agentCwd?: string }) => {
+    await api.updateWorkspace(patch);
+    await useApp.getState().bootstrap();
+    toast({ title: 'Integrated agent saved' });
+  };
+
+  return (
+    <div className="card" style={{ padding: '12px 14px', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 500 }}>Run with Claude Code</div>
+          <div className="field-help">
+            Issues assigned to an agent are picked up within 30s, one at a time, via <code>claude -p</code> (edits, git and the baseline CLI only).
+            The result is posted as a comment with the branch and changed files; the issue moves to Done, or back to you if the run fails.
+          </div>
+        </div>
+        <button className={'btn' + (on ? '' : ' primary')} onClick={() => void save({ agentRunner: on ? 'none' : 'claude' })}>{on ? 'Turn off' : 'Turn on'}</button>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 10, alignItems: 'center' }}>
+        <input className="text-input" style={{ flex: 1, fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5 }}
+          placeholder="Working directory, e.g. /Users/you/code/my-repo" value={cwd} onChange={e => setCwd(e.target.value)} spellCheck={false} />
+        <button className="btn" disabled={cwd.trim() === ws.agentCwd} onClick={() => void save({ agentCwd: cwd })}>Save</button>
+      </div>
+      {on && !ws.agentCwd && <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 6 }}>Set a working directory — nothing runs until it exists.</div>}
     </div>
   );
 }

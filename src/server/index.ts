@@ -3,6 +3,7 @@ import { serve as nodeServe, type ServerType } from '@hono/node-server';
 import { openDb, resolveDbPath } from '../core/db.js';
 import { Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
+import { agentRunningIssueId, startAgentRunner } from './agentRunner.js';
 import type { Priority, Snapshot, WorkflowStateType, RelationType } from '../core/types.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -32,7 +33,11 @@ export function createApp(dbPath: string) {
   const app = new Hono();
 
   // ---------- bootstrap ----------
-  app.get('/api/bootstrap', (c) => c.json(store.snapshot()));
+  app.get('/api/bootstrap', (c) => {
+    const snap = store.snapshot();
+    snap.workspace.agentRunningIssueId = agentRunningIssueId();
+    return c.json(snap);
+  });
 
   // ---------- issues ----------
   app.post('/api/issues', async (c) => {
@@ -253,6 +258,7 @@ export function createApp(dbPath: string) {
     if (b.name) store.setWorkspaceName(b.name);
     if (b.currentUserId) store.setCurrentUser(b.currentUserId);
     if ('handoffPromptTemplate' in b) store.setHandoffTemplate(b.handoffPromptTemplate ?? null);
+    if ('agentRunner' in b || 'agentCwd' in b) store.setAgentConfig({ agentRunner: b.agentRunner, agentCwd: b.agentCwd });
     return c.json({ ok: true });
   });
 
@@ -296,7 +302,8 @@ export function createApp(dbPath: string) {
 export function serve(opts: ServeOptions = {}): { server: ServerType; port: number } {
   const dbPath = resolveDbPath(opts.dbPath);
   const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7770);
-  const { app } = createApp(dbPath);
+  const { app, store } = createApp(dbPath);
+  startAgentRunner(store, dbPath);
   const server = nodeServe({ fetch: app.fetch, port });
   server.once('listening', () => {
     const url = `http://localhost:${port}`;

@@ -3,7 +3,7 @@ import { getMeta, setMeta } from './db.js';
 import { id, nowIso, midSort } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import type {
-  ActivityItem, ActivityType, Comment, Cycle, Favorite, Handoff,
+  ActivityItem, ActivityType, AgentRunner, Comment, Cycle, Favorite, Handoff,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType,
@@ -37,7 +37,7 @@ export class Store {
     const rows = <T>(sql: string): T[] => this.db.prepare(sql).all() as unknown as T[];
     const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human' }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
-    const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE };
+    const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig(), agentRunningIssueId: null };
     const currentUser = users.find(u => u.id === (getMeta(this.db, 'currentUser') ?? '')) ?? users[0];
     return {
       workspace, users, currentUser: currentUser!,
@@ -183,6 +183,32 @@ export class Store {
   setHandoffTemplate(template: string | null): void {
     if (template == null) this.db.prepare('DELETE FROM meta WHERE key = ?').run('handoffPromptTemplate');
     else setMeta(this.db, 'handoffPromptTemplate', template);
+  }
+
+  // ---------- integrated agent ----------
+  getAgentConfig(): { agentRunner: AgentRunner; agentCwd: string } {
+    const r = getMeta(this.db, 'agentRunner');
+    return { agentRunner: r === 'claude' ? r : 'none', agentCwd: getMeta(this.db, 'agentCwd') ?? '' };
+  }
+  setAgentConfig(patch: { agentRunner?: AgentRunner; agentCwd?: string }): void {
+    if (patch.agentRunner !== undefined) setMeta(this.db, 'agentRunner', patch.agentRunner === 'claude' ? 'claude' : 'none');
+    if (patch.agentCwd !== undefined) setMeta(this.db, 'agentCwd', patch.agentCwd.trim());
+  }
+  /** oldest not-yet-started issue assigned to any agent user — the integrated agent's queue */
+  nextAgentIssue(): Issue | undefined {
+    const row = this.db.prepare(`SELECT i.* FROM issues i
+      JOIN users u ON u.id = i.assignee_id AND u.kind = 'agent'
+      JOIN states s ON s.id = i.state_id AND s.type IN ('backlog', 'unstarted')
+      WHERE i.archived_at IS NULL AND i.deleted_at IS NULL
+      ORDER BY i.updated_at LIMIT 1`).get() as IssueRow | undefined;
+    return row ? this.mapIssue(row) : undefined;
+  }
+  /** first state of a type by position — e.g. the team's "In Progress" for 'started' */
+  stateOfType(teamId: string, type: WorkflowStateType): string | undefined {
+    return (this.db.prepare('SELECT id FROM states WHERE team_id = ? AND type = ? ORDER BY position LIMIT 1').get(teamId, type) as { id: string } | undefined)?.id;
+  }
+  stateType(stateId: string): WorkflowStateType | undefined {
+    return (this.db.prepare('SELECT type FROM states WHERE id = ?').get(stateId) as { type: WorkflowStateType } | undefined)?.type;
   }
 
   // ---------- issues ----------

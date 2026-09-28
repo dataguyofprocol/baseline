@@ -294,6 +294,44 @@ else
   PASS=$((PASS+1))
 fi
 
+echo "=== BASELINE_AS attribution ==="
+BASELINE_AS=Agent b issue comment "$KEY" "attributed via env" >/dev/null
+AGENT_ID=$(b user list --json 2>/dev/null | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{try{console.log(JSON.parse(s).find(u=>u.kind==='agent').id)}catch{}})")
+if [[ -n "$AGENT_ID" ]]; then
+  BASELINE_AS="$AGENT_ID" b issue comment "$KEY" "attributed via env id" >/dev/null
+  check "BASELINE_AS accepts user id" "attributed via env id" issue comments "$KEY"
+fi
+BASELINE_AS=Agent b issue comment "$KEY" "flag wins" --as Ada >/dev/null
+if b issue comments "$KEY" | grep -q "Ada Osei .*flag wins"; then PASS=$((PASS+1)); else echo "FAIL  --as overrides BASELINE_AS"; FAILED_NAMES+=("--as overrides BASELINE_AS"); FAIL=$((FAIL+1)); fi
+if b issue comments "$KEY" | grep -q "Agent .*attributed via env$"; then PASS=$((PASS+1)); else echo "FAIL  BASELINE_AS name attribution"; FAILED_NAMES+=("BASELINE_AS name attribution"); FAIL=$((FAIL+1)); fi
+
+echo "=== integrated agent (fake claude via BASELINE_AGENT_CMD) ==="
+ADB=$(newdb agent)
+REPO="$WORK/agent-repo"
+mkdir -p "$REPO" && git -C "$REPO" init -q -b main && echo hi > "$REPO/README.md" \
+  && git -C "$REPO" add . && git -C "$REPO" -c user.email=t@t -c user.name=t commit -qm init
+export BASELINE_RUNS_DIR="$WORK/runs"
+ab() { BASELINE_DB="$ADB" $BIN "$@"; }
+akey() { ab issue create "$1" -t CORE -s Todo -a Agent --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))"; }
+checkon "$ADB" "agent off by default" "runner: off" agent config
+checkon "$ADB" "agent run is a no-op when off" "nothing to run" agent run
+checkon "$ADB" "agent config on" "Claude Code" agent config --claude --cwd "$REPO"
+K1=$(akey "agent task one"); K2=$(akey "agent task two")
+FAKE_OK="git checkout -q -b agent-branch && echo x > new.txt && git add . && git -c user.email=t@t -c user.name=t commit -qm work && node $PWD/bin/baseline.js issue comment \$BASELINE_ISSUE 'progress from inside the run' >/dev/null && echo 'did the thing'"
+BASELINE_AGENT_CMD="$FAKE_OK" checkon "$ADB" "agent run finishes first queued issue" "finished $K1" agent run
+ab issue show "$K1" --json > "$WORK/a1.json"
+check_json "agent run → Done + summary comment" "$WORK/a1.json" "d.state==='Done'&&d.comments.some(c=>c.author==='Agent'&&c.body.includes('did the thing')&&c.body.includes('agent-branch')&&c.body.includes('new.txt'))"
+check_json "BASELINE_AS set inside the run" "$WORK/a1.json" "d.comments.some(c=>c.author==='Agent'&&c.body==='progress from inside the run')"
+ab issue show "$K2" --json > "$WORK/a2.json"
+check_json "second issue untouched (one at a time)" "$WORK/a2.json" "d.state==='Todo'&&d.assignee==='Agent'"
+BASELINE_AGENT_CMD="echo boom >&2; exit 3" BASELINE_DB="$ADB" $BIN agent run >/dev/null 2>&1; RC=$?
+if [[ $RC -eq 1 ]]; then PASS=$((PASS+1)); else echo "FAIL  failed agent run exits 1 (got $RC)"; FAILED_NAMES+=("failed agent run exit"); FAIL=$((FAIL+1)); fi
+ab issue show "$K2" --json > "$WORK/a3.json"
+check_json "failed run hands issue back to me" "$WORK/a3.json" "d.state==='Todo'&&d.assignee!=='Agent'&&d.comments.some(c=>c.author==='Agent'&&c.body.includes('Run failed')&&c.body.includes('boom'))"
+checkon "$ADB" "queue empty after hand-back" "nothing to run" agent run
+checkon "$ADB" "agent config off" "runner: off" agent config --off
+unset BASELINE_RUNS_DIR
+
 echo "=== export / import ==="
 b export --out "$WORK/export.json"
 check_json "export has issues" "$WORK/export.json" "d.issues.length>5&&d.teams.length>=2&&Array.isArray(d.projects)"

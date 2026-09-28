@@ -153,6 +153,7 @@ export function AssigneeMenu(props: { issue: Issue; children: (p: { isOpen: bool
                   key={u.id}
                   icon={<Avatar user={u} size={18} />}
                   label={u.name}
+                  right={snap.workspace.agentRunner === 'claude' ? <span style={{ color: 'var(--text-dim)', fontSize: 11.5 }}>Claude Code</span> : undefined}
                   selected={props.issue.assigneeId === u.id}
                   onClick={() => pick(u.id)}
                 />

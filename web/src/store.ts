@@ -207,3 +207,18 @@ export async function copyText(text: string): Promise<boolean> {
 export async function refresh() {
   await useApp.getState().bootstrap();
 }
+
+// Agents write through the CLI straight to SQLite, so the server never tells us — poll while
+// the tab is visible (and on focus) and only swap the snapshot when something actually moved.
+let lastSnapJson = '';
+async function pollSnapshot() {
+  if (!useApp.getState().loaded || document.visibilityState !== 'visible') return;
+  try {
+    const snap = await api.bootstrap();
+    const json = JSON.stringify(snap);
+    if (json !== lastSnapJson) useApp.setState({ snap });
+    lastSnapJson = json;
+  } catch { /* server restarting — next tick retries */ }
+}
+setInterval(() => void pollSnapshot(), 5000);
+window.addEventListener('focus', () => void pollSnapshot());

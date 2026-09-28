@@ -234,7 +234,15 @@ export interface Workspace {
   createdAt: string;
   /** resolved handoff prompt template (meta value or code default) */
   handoffPromptTemplate: string;
+  /** runs issues assigned to an agent user through Claude Code ('none' = copy-prompt only) */
+  agentRunner: AgentRunner;
+  /** directory the integrated agent runs in */
+  agentCwd: string;
+  /** issue the integrated agent is working on right now (server memory, null when idle) */
+  agentRunningIssueId: string | null;
 }
+
+export type AgentRunner = 'none' | 'claude';
 
 /** Full client snapshot — small scale, so the web app boots from one payload. */
 export interface Snapshot {
