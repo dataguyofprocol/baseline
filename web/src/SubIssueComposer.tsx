@@ -7,7 +7,7 @@ import { useApp, shortDate } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
-import { IconEstimate, IconTag, IconCycle, IconMore, IconUser, IconBox, IconCalendar, IconCheck, IconClose } from './icons.js';
+import { IconEstimate, IconTag, IconCycle, IconMore, IconUser, IconBox, IconCalendar, IconCheck, IconClose, IconFolder } from './icons.js';
 import type { Issue, Priority } from '../../src/core/types.js';
 
 const PRIORITIES: Array<[Priority, string]> = [[0, 'No priority'], [1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low']];
@@ -29,13 +29,17 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [cycleId, setCycleId] = useState<string | null>(parent.cycleId);
   const [projectId, setProjectId] = useState<string | null>(parent.projectId);
+  // one location per task: until you pick one, a sub-task takes the server's default
+  // (the parent's location, else its project's only one) — shown here, never sent
+  const [pickedLocation, setPickedLocation] = useState<{ id: string | null } | null>(null);
+  const setLocationId = (id: string | null) => setPickedLocation({ id });
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const descRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  const status = useMenu(), prio = useMenu(), who = useMenu(), est = useMenu(), lbl = useMenu(), cyc = useMenu(), more = useMenu();
+  const status = useMenu(), prio = useMenu(), who = useMenu(), est = useMenu(), lbl = useMenu(), cyc = useMenu(), more = useMenu(), locMenu = useMenu();
   const [morePhase, setMorePhase] = useState<'root' | 'project' | 'due'>('root');
 
   useEffect(() => { titleRef.current?.focus(); cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, []);
@@ -53,6 +57,11 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
   const cycle = snap.cycles.find(c => c.id === cycleId);
   const teamCycles = snap.cycles.filter(c => c.teamId === team.id && !c.completedAt).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const project = snap.projects.find(p => p.id === projectId);
+  const projectLocs = project?.locationIds ?? [];
+  const locationId = pickedLocation ? pickedLocation.id : (parent.locationId ?? (projectLocs.length === 1 ? projectLocs[0]! : null));
+  const loc = snap.locations.find(l => l.id === locationId);
+  const locOrder = [...(project?.locationIds ?? []).map(id => snap.locations.find(l => l.id === id)).filter((l): l is NonNullable<typeof l> => !!l),
+    ...snap.locations.filter(l => !(project?.locationIds ?? []).includes(l.id))];
 
   const create = async () => {
     if (!title.trim() || busy) return;
@@ -61,6 +70,7 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
       const { issue } = await api.createIssue({
         teamId: team.id, title: title.trim(), description, stateId, priority, assigneeId,
         labelIds, projectId, cycleId, dueDate, estimate, parentId: parent.id,
+        ...(pickedLocation ? { locationId: pickedLocation.id } : {}),
       });
       await useApp.getState().bootstrap();
       useApp.getState().toast({ title: 'Sub-issue created', line: <>{team.key}-{issue.number} — {issue.title}</> });
@@ -113,6 +123,11 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
         {teamCycles.length > 0 && (
           <button className={`prop-chip boxed${cycle ? ' set' : ''}`} onClick={cyc.open}>
             <IconCycle size={13} /><span className="chip-text">{cycle ? (cycle.name || `Cycle ${cycle.number}`) : 'Cycle'}</span>
+          </button>
+        )}
+        {(snap.locations.length > 0 || loc) && (
+          <button className={`prop-chip boxed${loc ? ' set' : ''}`} onClick={locMenu.open} title={loc ? loc.path : 'Where agents work on it'}>
+            <IconFolder size={13} /><span className="chip-text">{loc?.name ?? 'Location'}</span>
           </button>
         )}
         {project && project.id !== parent.projectId && (
@@ -198,6 +213,16 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
           ))}
           <MenuSep />
           <MenuItem label="No cycle" selected={!cycleId} onClick={() => setCycleId(null)} />
+        </Menu>
+      )}
+      {locMenu.anchor && (
+        <Menu anchor={locMenu.anchor} onClose={locMenu.close} width={240}>
+          <div className="menu-header"><span>Set location…</span></div>
+          {locOrder.map(l => (
+            <MenuItem key={l.id} icon={<IconFolder size={14} />} label={l.name} selected={l.id === locationId} onClick={() => setLocationId(l.id)} />
+          ))}
+          <MenuSep />
+          <MenuItem label="No location" selected={!locationId} onClick={() => setLocationId(null)} />
         </Menu>
       )}
       {more.anchor && (

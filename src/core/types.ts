@@ -59,6 +59,8 @@ export interface Issue {
   projectId: string | null;
   cycleId: string | null;
   parentId: string | null;
+  /** where coding agents work on this issue — one location per task (null = not set) */
+  locationId: string | null;
   estimate: number | null;
   dueDate: string | null;
   sortOrder: number;
@@ -121,8 +123,8 @@ export interface Project {
   health: ProjectHealth;
   /** 0 = no priority, 1 = urgent … 4 = low (same scale as issues) */
   priority: Priority;
-  /** local checkout coding agents work in for this project's issues ('' = workspace default) */
-  directory: string;
+  /** locations this project's work happens in (a location can serve several projects) */
+  locationIds: string[];
   startDate: string | null;
   targetDate: string | null;
   leadId: string | null;
@@ -131,6 +133,15 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+}
+
+/** a directory on this machine that coding agents can work in — usually a git repo */
+export interface Location {
+  id: string;
+  name: string;
+  /** absolute path */
+  path: string;
+  createdAt: string;
 }
 
 export interface Milestone {
@@ -218,7 +229,7 @@ export type ActivityType =
   | 'created' | 'renamed' | 'described' | 'stateChanged' | 'priorityChanged'
   | 'assigned' | 'unassigned' | 'labeled' | 'unlabeled' | 'projected'
   | 'parented' | 'commented' | 'archived' | 'restored' | 'dueChanged'
-  | 'estimateChanged' | 'related' | 'cycleChanged' | 'projectCreated' | 'projectUpdated' | 'projectHealth';
+  | 'estimateChanged' | 'related' | 'cycleChanged' | 'locationChanged' | 'projectCreated' | 'projectUpdated' | 'projectHealth';
 
 export interface ActivityItem {
   id: string;
@@ -238,10 +249,6 @@ export interface Workspace {
   handoffPromptTemplate: string;
   /** runs issues assigned to an agent user through Claude Code ('none' = copy-prompt only) */
   agentRunner: AgentRunner;
-  /** default directory for agents — used when an issue's project has no directory of its own */
-  agentCwd: string;
-  /** directories picked for "Open in Claude Code", most recent first */
-  recentDirectories: string[];
   /** macOS app that interactive Claude Code sessions open in */
   terminalApp: TerminalApp;
   /** the "Claude Code" agent user whose assigned issues the runner picks up */
@@ -267,6 +274,7 @@ export interface Snapshot {
   comments: Comment[];
   relations: IssueRelation[];
   projects: Project[];
+  locations: Location[];
   projectUpdates: ProjectUpdate[];
   milestones: Milestone[];
   cycles: Cycle[];

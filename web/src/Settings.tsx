@@ -7,7 +7,7 @@ import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
 import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar } from './icons.js';
 import { dateLabel } from './Views.js';
-import { DirectoryField, tildify } from './CodingTools.js';
+import { LocationsSettings } from './CodingTools.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
 import type { WorkflowStateType, Priority } from '../../src/core/types.js';
 
@@ -565,10 +565,10 @@ function HandoffSettings() {
       <h1>Coding tools</h1>
       <div className="field-help" style={{ marginBottom: 16 }}>
         Hand an issue to Claude Code from its toolbar: <b>Copy as prompt</b> puts the brief on your clipboard, and <b>Open in Claude Code</b> starts
-        an interactive session in a terminal window, in the issue's project directory.
+        an interactive session in a terminal window, in the issue's location. Every issue works in exactly one location; nothing runs without one.
       </div>
+      <LocationsSettings />
       <ClaudeCodeSettings />
-      <ProjectDirectorySettings />
       <AgentRunnerSettings />
       <h2 className="settings-h2">Prompt template</h2>
       <div className="field-help" style={{ marginBottom: 10 }}>
@@ -609,7 +609,7 @@ function HandoffSettings() {
 function ClaudeCodeSettings() {
   const ws = useApp(s => s.snap)!.workspace;
   const toast = useApp(s => s.toast);
-  const save = async (patch: { agentCwd?: string; terminalApp?: 'Terminal' | 'iTerm' }, title: string) => {
+  const save = async (patch: { terminalApp?: 'Terminal' | 'iTerm' }, title: string) => {
     await api.updateWorkspace(patch);
     await useApp.getState().bootstrap();
     toast({ title });
@@ -624,45 +624,6 @@ function ClaudeCodeSettings() {
           ))}
         </div>
       </div>
-      <div className="field-row stack">
-        <div><div className="field-label">Default directory</div><div className="field-help">Used for issues whose project has no directory of its own.</div></div>
-        <DirectoryField value={ws.agentCwd} placeholder="/Users/you/code/my-repo" pickPrompt="Choose the default directory for Claude Code"
-          onSave={dir => save({ agentCwd: dir }, dir ? 'Default directory saved' : 'Default directory cleared')} />
-      </div>
-      {(ws.recentDirectories ?? []).length > 0 && (
-        <div className="field-row stack">
-          <div><div className="field-label">Recent directories</div><div className="field-help">Offered under Open in Claude Code.</div></div>
-          <div className="recent-dirs">
-            {ws.recentDirectories.map(d => (
-              <div key={d} className="recent-dir">
-                <code>{tildify(d, ws.homeDir)}</code>
-                <button className="icon-btn" title="Remove from recents" onClick={async () => { await api.forgetDirectory(d); await useApp.getState().bootstrap(); }}><IconClose size={12} /></button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* one checkout per project: agents working on a project's issues start there */
-function ProjectDirectorySettings() {
-  const snap = useApp(s => s.snap)!;
-  const toast = useApp(s => s.toast);
-  if (snap.projects.length === 0) return null;
-  return (
-    <div className="card settings-block">
-      <div className="field-label">Project directories</div>
-      <div className="field-help" style={{ marginBottom: 6 }}>Claude Code works in a project's directory for all of its issues — both interactive sessions and background runs.</div>
-      {snap.projects.map(p => (
-        <div key={p.id} className="project-dir-row">
-          <span className="project-dir-name"><span className="fav-emoji">{p.icon}</span>{p.name}</span>
-          <DirectoryField value={p.directory} placeholder={snap.workspace.agentCwd ? `Default — ${tildify(snap.workspace.agentCwd, snap.workspace.homeDir)}` : 'Not set'}
-            pickPrompt={`Choose the directory for ${p.name}`}
-            onSave={async dir => { await api.updateProject(p.id, { directory: dir }); await useApp.getState().bootstrap(); toast({ title: dir ? `${p.name} directory saved` : `${p.name} directory cleared` }); }} />
-        </div>
-      ))}
     </div>
   );
 }
@@ -683,15 +644,20 @@ function AgentRunnerSettings() {
         <div style={{ flex: 1 }}>
           <div className="field-label">Run in the background</div>
           <div className="field-help">
-            Issues assigned to <b>Claude Code</b> are picked up within 30s, one at a time, via <code>claude -p</code> (edits, git and the baseline CLI only), in the issue's project directory.
-            The result is posted as a comment with the branch and changed files; the issue moves to Done, or back to you if the run fails. Other agents like “Agent” are never run.
+            Issues assigned to <b>Claude Code</b> are picked up within 30s, one at a time, via <code>claude -p</code> (edits, git and the baseline CLI only).
+            Each run gets its own git worktree of the issue's location under <code>~/.baseline/agent-runs</code>, on the issue's branch — your checkout is never touched.
+            An issue without a git-repo location isn't started; it gets one comment saying what it needs. Other agents like “Agent” are never run.
           </div>
         </div>
         <button className={'btn' + (on ? '' : ' primary')} onClick={() => void save(on ? 'none' : 'claude')}>{on ? 'Turn off' : 'Turn on'}</button>
       </div>
-      {on && !ws.agentCwd && !useApp.getState().snap!.projects.some(p => p.directory) && (
-        <div className="dir-field-warn" style={{ marginTop: 6 }}>Set a default or project directory — nothing runs until one exists.</div>
-      )}
+      <div className="field-row" style={{ marginTop: 10, paddingBottom: 0, borderBottom: 0 }}>
+        <div><div className="field-label">Finished worktrees</div><div className="field-help">Remove run worktrees whose issue is done or canceled. Branches are kept, and a worktree with uncommitted changes is never removed.</div></div>
+        <button className="btn" onClick={async () => {
+          const r = await api.cleanWorktrees();
+          toast({ title: r.removed.length ? `Removed ${r.removed.length} worktree${r.removed.length === 1 ? '' : 's'}` : 'Nothing to clean up', line: r.kept.length ? `${r.kept.length} kept (open issue or uncommitted changes)` : undefined });
+        }}>Clean up</button>
+      </div>
     </div>
   );
 }

@@ -4,12 +4,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createApp, serve } from '../server/index.js';
-import { runNextAgentIssue } from '../server/agentRunner.js';
+import { cleanWorktrees, isDirectory, runNextAgentIssue } from '../server/agentRunner.js';
 import { LaunchError, openInClaudeCode } from '../server/launch.js';
 import { resolveDbPath } from '../core/db.js';
 import { seedWorkspace } from '../core/seed.js';
 import { issueKey, PRIORITY_SHORT, PRIORITY_LABELS } from '../core/types.js';
-import type { Priority, RelationType, Snapshot, Team, User, WorkflowState, Label, Project, Issue } from '../core/types.js';
+import type { Priority, RelationType, Snapshot, Team, User, WorkflowState, Label, Project, Issue, Location } from '../core/types.js';
 
 const program = new Command();
 program.name('baseline').description('Local issue & project tracker with a Linear-quality UI').version('0.1.0');
@@ -56,6 +56,18 @@ function resolveUser(snap: Snapshot, name: string): User | undefined {
   const u = snap.users.find(u => u.name.toLowerCase().includes(name.toLowerCase()));
   if (!u) fail(`Unknown assignee "${name}" — valid users: ${snap.users.map(u => u.name).join(', ')}`);
   return u;
+}
+
+/** a location by name or id — or a path, which is registered on the fly (it must exist) */
+function resolveLocationRef(store: ReturnType<typeof storeFor>, ref: string): Location {
+  if (/^[~/.]/.test(ref)) {
+    const path = resolvePath(ref.replace(/^~(?=\/|$)/, process.env.HOME ?? '~'));
+    if (!isDirectory(path)) fail(`Directory not found: ${path}`);
+    return store.createLocation(path);
+  }
+  const loc = store.resolveLocation(ref);
+  if (!loc) fail(`Unknown location "${ref}" — known: ${store.listLocations().map(l => l.name).join(', ') || '(none; add one with `location add <path>`)'}`);
+  return loc;
 }
 
 function resolveProject(snap: Snapshot, name: string, { required = true } = {}): Project | undefined {
@@ -284,6 +296,7 @@ withAs(withDb(issue.command('create <title>'))).description('Create an issue')
   .option('--parent <key>', 'parent issue key (sub-issue)')
   .option('--estimate <n>', 'estimate (points)')
   .option('--due <date>', 'due date (YYYY-MM-DD)')
+  .option('--location <name|path>', `where agents work on it ("none" for no location; default: the parent's, else the project's only location)`)
   .option('--json', 'print the created issue as JSON', false)
   .action(async (title: string, opts: Record<string, string | boolean | undefined>) => {
     const store = storeFor(opts.db as string | undefined);
@@ -302,6 +315,7 @@ withAs(withDb(issue.command('create <title>'))).description('Create an issue')
       projectId: proj?.id ?? null, parentId: parent?.id ?? null, labelIds,
       estimate: opts.estimate ? Number(opts.estimate) : null,
       dueDate: (opts.due as string | undefined) ?? null,
+      ...(opts.location !== undefined ? { locationId: String(opts.location).toLowerCase() === 'none' ? null : resolveLocationRef(store, String(opts.location)).id } : {}),
     }, actorId(snap, opts.as as string | undefined));
     if (opts.json) {
       console.log(JSON.stringify(issueJson(created, snap, store), null, 2));
@@ -330,18 +344,19 @@ withDb(issue.command('handoff <key>')).description('Print a ready-to-paste agent
     process.exit(0);
   });
 
-withDb(issue.command('open <key>')).description('Open an interactive Claude Code session for an issue in a new terminal window (macOS)')
-  .option('--dir <path>', "directory to work in (default: the issue's project directory, else the agent default)")
-  .action((key: string, opts: { db?: string; dir?: string }) => {
+withDb(issue.command('open <key>')).description("Open an interactive Claude Code session for an issue in a new terminal window (macOS), in the issue's location")
+  .option('--location <name|path>', 'open (and pin the issue to) this location instead')
+  .action((key: string, opts: { db?: string; location?: string }) => {
     const path = resolveDbPath(opts.db);
     const store = storeFor(path);
     const i = store.getByKey(key);
     if (!i) fail(`Unknown issue ${key}`);
     try {
-      const r = openInClaudeCode(store, path, i.id, { directory: opts.dir ? resolvePath(opts.dir) : undefined });
-      console.log(`Opened Claude Code for ${r.key} in ${r.directory}`);
+      const loc = opts.location ? resolveLocationRef(store, opts.location) : undefined;
+      const r = openInClaudeCode(store, path, i.id, { locationId: loc?.id });
+      console.log(`Opened Claude Code for ${r.key} in ${r.directory}${r.pinned ? ` (pinned to ${r.location.name})` : ''}`);
     } catch (err) {
-      if (err instanceof LaunchError) fail(err.code === 'no-directory' ? `No directory for ${key.toUpperCase()} — pass --dir, or set one with \`project update <name> --dir <path>\` or \`agent config --cwd <path>\`` : err.message);
+      if (err instanceof LaunchError) fail(err.code === 'no-location' ? `${key.toUpperCase()} has no location — pass --location <name|path>, or set one with \`issue update ${key.toUpperCase()} --location <name>\`` : err.message);
       throw err;
     }
     process.exit(0);
@@ -453,6 +468,7 @@ function issueJson(i: Issue, snap: Snapshot, store: ReturnType<typeof storeFor>)
     project: snap.projects.find(p => p.id === i.projectId)?.name ?? null,
     labels: i.labelIds.map(id => snap.labels.find(l => l.id === id)?.name ?? id),
     parentId: i.parentId ? issueKey(store.getIssue(i.parentId)!, snap.teams) : null,
+    location: (() => { const l = snap.locations.find(x => x.id === i.locationId); return l ? { name: l.name, path: l.path } : null; })(),
     estimate: i.estimate, dueDate: i.dueDate,
     createdAt: i.createdAt, updatedAt: i.updatedAt,
     completedAt: i.completedAt, archivedAt: i.archivedAt,
@@ -484,6 +500,7 @@ withAs(withDb(issue.command('update <key>'))).description('Update an issue')
   .option('--parent <key>', 'parent issue key ("none" to detach)')
   .option('--estimate <n>', 'estimate (points, "none" to clear)')
   .option('--due <date>', 'due date YYYY-MM-DD ("none" to clear)')
+  .option('--location <name|path>', 'where agents work on it (a location name, or a path to register; "none" to clear)')
   .action((key: string, opts: Record<string, string | undefined>) => {
     const store = storeFor(opts.db);
     const snap = store.snapshot();
@@ -512,6 +529,7 @@ withAs(withDb(issue.command('update <key>'))).description('Update an issue')
       priority: priorityNum(opts.priority), assigneeId, projectId, parentId, labelIds,
       estimate: opts.estimate === undefined ? undefined : (opts.estimate.toLowerCase() === 'none' ? null : Number(opts.estimate)),
       dueDate: opts.due === undefined ? undefined : (opts.due.toLowerCase() === 'none' ? null : opts.due),
+      locationId: opts.location === undefined ? undefined : (opts.location.toLowerCase() === 'none' ? null : resolveLocationRef(store, opts.location).id),
     }, actorId(snap, opts.as));
     console.log(`Updated ${key}`);
     process.exit(0);
@@ -742,7 +760,8 @@ withDb(project.command('show <name>')).description('Show project detail with pro
       console.log(`${p.icon} ${p.name}`);
       console.log(`status: ${p.status}  health: ${p.health}  priority: ${PRIORITY_LABELS[p.priority]}  lead: ${lead}${t ? `  team: ${t}` : ''}`);
       console.log(`start: ${fmtDate(p.startDate)}  target: ${fmtDate(p.targetDate)}`);
-      if (p.directory) console.log(`directory: ${p.directory}`);
+      const locs = p.locationIds.map(id => snap.locations.find(l => l.id === id)).filter((l): l is Location => !!l);
+      if (locs.length) console.log(`locations: ${locs.map(l => `${l.name} (${l.path})`).join(', ')}`);
       if (p.description) console.log(`\n${p.description}`);
       console.log(`\nprogress: ${prog.percent}% (${prog.done}/${prog.total} issues done)`);
       const issues = snap.issues.filter(i => i.projectId === p.id);
@@ -780,7 +799,8 @@ withDb(project.command('update <name>')).description('Update a project')
   .option('-p, --priority <level>', 'none|urgent|high|medium|low')
   .option('--start <date>', 'start date YYYY-MM-DD ("none" to clear)')
   .option('--target <date>', 'target date YYYY-MM-DD ("none" to clear)')
-  .option('--dir <path>', 'local directory coding agents work in for this project ("none" to clear)')
+  .option('--add-location <name|path>', 'link a location (a path is registered on the fly)')
+  .option('--remove-location <name>', 'unlink a location')
   .action((name: string, opts: Record<string, string | undefined>) => {
     const store = storeFor(opts.db);
     const snap = store.snapshot();
@@ -799,8 +819,12 @@ withDb(project.command('update <name>')).description('Update a project')
       ...(opts.priority ? { priority: priorityNum(opts.priority)! } : {}),
       ...(opts.start !== undefined ? { startDate: opts.start.toLowerCase() === 'none' ? null : opts.start } : {}),
       ...(opts.target !== undefined ? { targetDate: opts.target.toLowerCase() === 'none' ? null : opts.target } : {}),
-      ...(opts.dir !== undefined ? { directory: opts.dir.toLowerCase() === 'none' ? '' : resolvePath(opts.dir) } : {}),
     });
+    if (opts.addLocation || opts.removeLocation) {
+      const add = opts.addLocation ? resolveLocationRef(store, opts.addLocation).id : undefined;
+      const rem = opts.removeLocation ? resolveLocationRef(store, opts.removeLocation).id : undefined;
+      store.setProjectLocations(p.id, [...p.locationIds.filter(l => l !== rem), ...(add ? [add] : [])]);
+    }
     console.log(`Updated project ${opts.newName ?? p.name}`);
     process.exit(0);
   });
@@ -884,6 +908,7 @@ function projectJson(p: Project, snap: Snapshot, store: ReturnType<typeof storeF
     lead: snap.users.find(u => u.id === p.leadId)?.name ?? null,
     team: snap.teams.find(t => t.id === p.teamId)?.key ?? null,
     startDate: p.startDate, targetDate: p.targetDate,
+    locations: p.locationIds.map(id => snap.locations.find(l => l.id === id)).filter(Boolean).map(l => ({ name: l!.name, path: l!.path })),
     progress: prog, createdAt: p.createdAt, updatedAt: p.updatedAt,
   };
 }
@@ -902,25 +927,77 @@ const agent = program.command('agent').description('Integrated agent: runs issue
 withDb(agent.command('config')).description('Show or change the integrated agent setup')
   .option('--claude', 'turn the integrated agent on (Claude Code)')
   .option('--off', 'turn it off (copy-prompt only)')
-  .option('--cwd <dir>', "default directory agents work in (a project's own directory wins)")
   .option('--terminal <app>', 'Terminal|iTerm — where `issue open` sessions launch')
+  .option('--cwd <dir>', '(removed — agents now work in each issue\'s location; see `location --help`)')
   .action((opts: { db?: string; claude?: boolean; off?: boolean; cwd?: string; terminal?: string }) => {
     const store = storeFor(opts.db);
+    if (opts.cwd !== undefined) fail('There is no default directory any more: each issue has a location. Register one with `location add <path>`, link it with `project update <name> --add-location <name>`, and set it on issues with `issue update KEY --location <name>`.');
     if (opts.terminal && !['Terminal', 'iTerm'].includes(opts.terminal)) fail(`Invalid terminal "${opts.terminal}" — use Terminal|iTerm`);
-    store.setAgentConfig({ agentRunner: opts.claude ? 'claude' : opts.off ? 'none' : undefined, agentCwd: opts.cwd !== undefined ? resolvePath(opts.cwd) : undefined, terminalApp: opts.terminal as 'Terminal' | 'iTerm' | undefined });
+    store.setAgentConfig({ agentRunner: opts.claude ? 'claude' : opts.off ? 'none' : undefined, terminalApp: opts.terminal as 'Terminal' | 'iTerm' | undefined });
     const c = store.getAgentConfig();
-    const snap = store.snapshot();
-    const projectDirs = snap.projects.filter(p => p.directory).map(p => `  ${p.name}: ${p.directory}`);
-    console.log(`runner: ${c.agentRunner === 'claude' ? 'Claude Code' : 'off'}\ncwd:    ${c.agentCwd || '(not set)'}\nterminal: ${c.terminalApp}${projectDirs.length ? `\nproject directories:\n${projectDirs.join('\n')}` : ''}`);
+    console.log(`runner: ${c.agentRunner === 'claude' ? 'Claude Code' : 'off'}\nterminal: ${c.terminalApp}\nlocations: ${store.listLocations().length}`);
     process.exit(0);
   });
 withDb(agent.command('run')).description('Run the next queued agent issue now and wait for it (the server does this every 30s)')
   .action(async (opts: { db?: string }) => {
     const path = resolveDbPath(opts.db);
     const r = await runNextAgentIssue(storeFor(path), path);
-    if (!r) console.log('nothing to run (agent off, no working directory, or no Todo/Backlog issue assigned to Claude Code)');
+    if (!r) console.log('nothing to run (agent off, or no Todo/Backlog issue assigned to Claude Code with a git-repo location)');
     else console.log(`${r.ok ? 'finished' : 'failed'} ${r.key} — log: ${r.logPath}`);
     process.exit(r && !r.ok ? 1 : 0);
   });
+
+withDb(agent.command('clean')).description("Remove background-run worktrees (~/.baseline/agent-runs) whose issue is closed; dirty ones are kept")
+  .option('--all', 'also remove worktrees of open issues (still never a dirty one)', false)
+  .action((opts: { db?: string; all?: boolean }) => {
+    const r = cleanWorktrees(storeFor(opts.db), { all: opts.all });
+    for (const p of r.removed) console.log(`removed ${p}`);
+    for (const k of r.kept) console.log(`kept    ${k.path} — ${k.reason}`);
+    if (!r.removed.length && !r.kept.length) console.log('no run worktrees');
+    process.exit(0);
+  });
+
+// ---------- locations ----------
+const location = program.command('location').description('Directories agents work in (usually git repos); a location can serve several projects');
+withDb(location.command('list')).description('List locations with the projects that use them').action((opts: { db?: string }) => {
+  const store = storeFor(opts.db);
+  const snap = store.snapshot();
+  for (const l of snap.locations) {
+    const projects = snap.projects.filter(p => p.locationIds.includes(l.id)).map(p => p.name);
+    const issues = snap.issues.filter(i => i.locationId === l.id && !i.deletedAt).length;
+    console.log(`${l.name.padEnd(20)} ${l.path}${isDirectory(l.path) ? '' : '  (missing)'}${projects.length ? `  · ${projects.join(', ')}` : ''}${issues ? `  · ${issues} issue${issues === 1 ? '' : 's'}` : ''}`);
+  }
+  if (!snap.locations.length) console.log('no locations — add one with `location add <path>`');
+  process.exit(0);
+});
+withDb(location.command('add <path>')).description('Register a directory as a location')
+  .option('-n, --name <name>', 'display name (default: the folder name)')
+  .option('-j, --project <name>', 'also link it to this project')
+  .action((path: string, opts: { db?: string; name?: string; project?: string }) => {
+    const store = storeFor(opts.db);
+    const abs = resolvePath(path.replace(/^~(?=\/|$)/, process.env.HOME ?? '~'));
+    if (!isDirectory(abs)) fail(`Directory not found: ${abs}`);
+    const loc = store.createLocation(abs, opts.name);
+    if (opts.project) {
+      const p = resolveProject(store.snapshot(), opts.project)!;
+      store.setProjectLocations(p.id, [...p.locationIds, loc.id]);
+    }
+    console.log(`${loc.name} → ${loc.path}`);
+    process.exit(0);
+  });
+withDb(location.command('rename <name> <newName>')).description('Rename a location').action((name: string, newName: string, opts: { db?: string }) => {
+  const store = storeFor(opts.db);
+  const loc = resolveLocationRef(store, name);
+  try { store.renameLocation(loc.id, newName); } catch (err) { fail((err as Error).message); }
+  console.log(`Renamed ${loc.name} → ${newName}`);
+  process.exit(0);
+});
+withDb(location.command('remove <name>')).description('Unregister a location (projects drop it; issues on it go back to no location)').action((name: string, opts: { db?: string }) => {
+  const store = storeFor(opts.db);
+  const loc = resolveLocationRef(store, name);
+  store.deleteLocation(loc.id);
+  console.log(`Removed location ${loc.name}`);
+  process.exit(0);
+});
 
 program.parseAsync(process.argv);

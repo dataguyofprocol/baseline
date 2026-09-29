@@ -48,7 +48,7 @@ issue create "Title" -t CORE -s "In Progress" -p high -a Ada -l Bug -j "Project"
 issue list -t CORE -s Todo -a me -j Project -p high -L Bug -q text [--archived] [--json]
 issue show CORE-3 [--json]     # description, sub-issues, relations, comments, activity
 issue handoff CORE-3 [--copy|--json]   # ready-to-paste agent prompt + suggested branch name
-issue open CORE-3 [--dir <path>]       # interactive Claude Code session in a new Terminal window (macOS), in the project's directory
+issue open CORE-3 [--location <name|path>]   # interactive Claude Code session in a new Terminal window (macOS), in the issue's location
 issue update CORE-3 -s Done -p urgent -a Jun --title "New" -d "md" --labels Bug,Perf --parent none --estimate none --due none --project none
 issue archive CORE-3 · issue unarchive CORE-3 · issue restore CORE-3 · issue delete CORE-3 [--purge]
 issue bulk CORE-3 CORE-4 -s Done -a Ada --add-labels Bug [--delete] [--archive]
@@ -59,14 +59,16 @@ issue comments CORE-3 · issue comment CORE-3 "text" · comment edit <id> "text"
 # projects
 project create "Name" -d "desc" -l Jun -t CORE --start 2026-08-01 --target 2026-10-01 -p high
 project list [--json] · project show "Name" [--json]    # progress, issues, updates, milestones
-project update "Name" --status started --health atRisk -n "New" -l Ada -p low --target none --dir ~/code/repo
+project update "Name" --status started --health atRisk -n "New" -l Ada -p low --target none --add-location api --remove-location web
 project note "Name" "update body" --health onTrack · project delete "Name"
 project milestone-add "Name" "Beta cut" --target 2026-09-30 · milestone-update "Name" "Beta cut" --status done · milestone-delete "Name" "Beta cut"
 
 # discovery & workspace
 team list · user list · user add "Codex" --agent · label list [-t CORE] · search "query"
 label create "Bug" -t CORE -c "#eb5757" · label update … · label delete …
-agent config [--claude|--off] [--cwd <default dir>] [--terminal Terminal|iTerm] · agent run
+location list · location add ~/code/api [-n api] [-j "Project"] · location rename api backend · location remove backend
+issue update CORE-3 --location api     # every task works in exactly one location ("none" clears); new issues inherit the parent's, else the project's only one
+agent config [--claude|--off] [--terminal Terminal|iTerm] · agent run · agent clean [--all]   # background runs use a worktree per issue in ~/.baseline/agent-runs
 export [--out file] · import <file>    # full workspace backup / restore
 seed [--reset]
 ```

@@ -58,7 +58,7 @@ baseline search "query"                     # issues + projects by substring
 baseline issue list [-t CORE] [-s Todo] [-a me] [-j Project] [-p high] [-L Bug] [-q text] [--archived] [--json] [--limit N]
 baseline issue show CORE-3 [--json]         # description, sub-issues, relations, comments, activity
 baseline issue handoff CORE-3 [--copy|--json]   # ready-to-paste agent prompt + suggested branch name
-baseline issue open CORE-3 [--dir <path>]       # human-facing: opens an interactive Claude Code session in Terminal (macOS)
+baseline issue open CORE-3 [--location <name>]  # human-facing: opens an interactive Claude Code session in Terminal (macOS)
 
 # create / update issues
 baseline issue create "Title" -t CORE -s "In Progress" -p high -a "Ada Osei" \
@@ -86,7 +86,10 @@ baseline project create "Name" -d "desc" -l "Jun Watanabe" -t CORE --start 2026-
 baseline project list [--json]
 baseline project show "Name" [--json]         # status, health, progress %, issues, updates, milestones
 baseline project update "Name" --status started --health atRisk -p low --target none   # planned|started|completed|paused, onTrack|atRisk|offTrack
-baseline project update "Name" --dir ~/code/repo    # checkout agents work in for this project's issues ("none" clears)
+baseline location list                           # directories agents work in (usually git repos), with the projects using them
+baseline location add ~/code/api -n api -j "Name"  # register one (and link it to a project); a location can serve several projects
+baseline project update "Name" --add-location api  # / --remove-location api
+baseline issue update CORE-3 --location api      # where this task happens — exactly one per task ("none" clears)
 baseline project note "Name" "Weekly update: shipped X, Y at risk" --health onTrack
 baseline project milestone-add "Name" "Beta cut" --target 2026-09-30
 baseline project milestone-update "Name" "Beta cut" --status inProgress   # planned|inProgress|done
@@ -138,7 +141,7 @@ BASELINE_DB=/tmp/scratch.db baseline import /tmp/ws.json
 
 ## Handoff loop (picking up an issue handed to you)
 
-A human hands you an issue one of three ways: copies its brief into your prompt (web toolbar, or `baseline issue handoff KEY --copy`), opens it with **Open in Claude Code** (a Terminal session started in the project's directory, with `BASELINE_DB`/`BASELINE_AS` already set), or assigns it to the "Claude Code" user for a background run. The brief names the issue key and a suggested branch. Your side of the loop:
+A human hands you an issue one of three ways: copies its brief into your prompt (web toolbar, or `baseline issue handoff KEY --copy`), opens it with **Open in Claude Code** (a Terminal session started in the issue's location, with `BASELINE_DB`/`BASELINE_AS` already set), or assigns it to the "Claude Code" user for a background run. The brief names the issue key and a suggested branch. Your side of the loop:
 
 ```bash
 baseline issue show CORE-3 --json          # full context: description, comments, blockers
@@ -158,8 +161,8 @@ baseline issue update CORE-3 -s Done       # only when truly finished; otherwise
 - If the work splits into separate pieces, create sub-issues (`issue create "…" -t CORE --parent KEY`) instead of one long comment.
 - Attribute your writes to your agent identity: add `--as "Codex"` to write commands (`issue create|update|bulk|archive|relate|comment`, `project note`) so activity, comments and notifications land under that user instead of the human's. Agent identities are marked `agent` in `user list`.
 - `BASELINE_AS=<name or user id>` does the same for every command without the flag (an explicit `--as` still wins) — export it once per agent session.
-- Directories: each project can name the checkout agents work in (`project update "Name" --dir <path>`, or Settings ▸ Coding tools); `agent config --cwd <path>` is the default for issues whose project has none. Both Open in Claude Code and background runs start there.
-- Integrated agent: `baseline agent config --claude` makes the running server pick up issues assigned to the "Claude Code" agent user (created on first enable; other agents like "Agent" are never auto-run) every 30s and run them through `claude -p` (edits, git and this CLI only), one at a time, in the issue's directory; an issue whose directory is missing is skipped, not blocking the queue. In a background run, end with the report as your final message instead of commenting — the result is posted as a comment with branch + changed files, then the issue moves to Done (or back to the human on failure). `baseline agent run` runs the next one now; `--off` disables. Logs: `~/.baseline/runs/`.
+- Locations: every task works in exactly one **location** (a registered directory, usually a git repo). There is no default directory — an issue without a location is never run anywhere by guess. New issues inherit their parent's location, else their project's when the project has exactly one; when you create sub-issues from a task, they land in the same location. Set one with `issue update KEY --location <name>`.
+- Integrated agent: `baseline agent config --claude` makes the running server pick up issues assigned to the "Claude Code" agent user (created on first enable; other agents like "Agent" are never auto-run) every 30s and run them through `claude -p` (edits, git and this CLI only), one at a time. Each run gets its **own git worktree** of the issue's location at `~/.baseline/agent-runs/<KEY>`, on the brief's branch — the human's checkout is never touched; commit there and don't switch branches. An issue with no location, a missing path, or a non-git folder isn't started: it gets one comment saying what it needs and runs once that's fixed. `baseline agent clean` removes worktrees of closed issues (never ones with uncommitted changes). In a background run, end with the report as your final message instead of commenting — the result is posted as a comment with branch + changed files, then the issue moves to Done (or back to the human on failure). `baseline agent run` runs the next one now; `--off` disables. Logs: `~/.baseline/runs/`.
 - Template overrides live in the web app under Settings ▸ Coding tools; `issue handoff --json` always reflects the current template.
 
 ## Conventions the store enforces (why your updates look the way they do)

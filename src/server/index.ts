@@ -3,7 +3,7 @@ import { serve as nodeServe, type ServerType } from '@hono/node-server';
 import { openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
-import { agentRunningIssueId, isDirectory, startAgentRunner } from './agentRunner.js';
+import { agentRunningIssueId, cleanWorktrees, isDirectory, startAgentRunner } from './agentRunner.js';
 import { LaunchError, openInClaudeCode, pickDirectory } from './launch.js';
 import type { Priority, Snapshot, WorkflowStateType, RelationType } from '../core/types.js';
 import { existsSync, readFileSync } from 'node:fs';
@@ -74,6 +74,8 @@ export function createApp(dbPath: string) {
       priority: b.priority, assigneeId: b.assigneeId ?? null, projectId: b.projectId ?? null,
       parentId: b.parentId ?? null, cycleId: b.cycleId ?? null, labelIds: b.labelIds,
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null,
+      // omitted = inherit (parent, else the project's only location); null = explicitly none
+      ...('locationId' in b ? { locationId: b.locationId } : {}),
     });
     return c.json({ issue }, 201);
   });
@@ -130,7 +132,7 @@ export function createApp(dbPath: string) {
   app.use('/api/issues/:id/open-claude', localOnly);
   app.use('/api/directories/*', localOnly);
   app.post('/api/issues/:id/open-claude', async (c) => {
-    const b = await c.req.json().catch(() => ({})) as { directory?: string; saveToProject?: boolean };
+    const b = await c.req.json().catch(() => ({})) as { locationId?: string; directory?: string };
     try {
       return c.json(openInClaudeCode(store, dbPath, c.req.param('id'), b));
     } catch (err) {
@@ -153,10 +155,23 @@ export function createApp(dbPath: string) {
     const b = await c.req.json() as { directory?: string };
     return c.json({ exists: isDirectory(normalizeDir(b.directory)) });
   });
-  app.delete('/api/directories/recent', async (c) => {
-    const b = await c.req.json() as { directory?: string };
-    if (b.directory) store.forgetDirectory(b.directory);
+
+  // ---------- locations (directories agents work in) ----------
+  app.post('/api/locations', async (c) => {
+    const b = await c.req.json() as { path?: string; name?: string };
+    const path = normalizeDir(b.path);
+    if (!isDirectory(path)) return c.json({ error: `Directory not found: ${path || '(empty)'}` }, 400);
+    return c.json({ location: store.createLocation(path, b.name) }, 201);
+  });
+  app.patch('/api/locations/:id', async (c) => {
+    const b = await c.req.json() as { name?: string };
+    try { if (b.name) store.renameLocation(c.req.param('id'), b.name); } catch (err) { return c.json({ error: (err as Error).message }, 400); }
     return c.json({ ok: true });
+  });
+  app.delete('/api/locations/:id', (c) => { store.deleteLocation(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/agent/clean', async (c) => {
+    const b = await c.req.json().catch(() => ({})) as { all?: boolean };
+    return c.json(cleanWorktrees(store, { all: !!b.all }));
   });
 
   // ---------- comments ----------
@@ -190,6 +205,7 @@ export function createApp(dbPath: string) {
   app.patch('/api/projects/:id', async (c) => {
     const b = await c.req.json();
     store.updateProject(c.req.param('id'), b);
+    if (Array.isArray(b.locationIds)) store.setProjectLocations(c.req.param('id'), b.locationIds);
     return c.json({ ok: true });
   });
   app.delete('/api/projects/:id', (c) => { store.deleteProject(c.req.param('id')); return c.json({ ok: true }); });
@@ -327,7 +343,7 @@ export function createApp(dbPath: string) {
     if (b.name) store.setWorkspaceName(b.name);
     if (b.currentUserId) store.setCurrentUser(b.currentUserId);
     if ('handoffPromptTemplate' in b) store.setHandoffTemplate(b.handoffPromptTemplate ?? null);
-    if ('agentRunner' in b || 'agentCwd' in b || 'terminalApp' in b) store.setAgentConfig({ agentRunner: b.agentRunner, agentCwd: b.agentCwd, terminalApp: b.terminalApp });
+    if ('agentRunner' in b || 'terminalApp' in b) store.setAgentConfig({ agentRunner: b.agentRunner, terminalApp: b.terminalApp });
     return c.json({ ok: true });
   });
 

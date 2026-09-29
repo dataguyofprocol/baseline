@@ -14,7 +14,7 @@ import { CLI_BIN, isDirectory } from './agentRunner.js';
 const SESSIONS_DIR = process.env.BASELINE_SESSIONS_DIR ?? join(homedir(), '.baseline', 'sessions');
 
 export class LaunchError extends Error {
-  constructor(public code: 'not-found' | 'no-directory' | 'bad-directory' | 'unsupported' | 'launch-failed', message: string) { super(message); }
+  constructor(public code: 'not-found' | 'no-location' | 'bad-directory' | 'unsupported' | 'launch-failed', message: string) { super(message); }
 }
 
 const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -44,24 +44,26 @@ export function interactivePrompt(store: Store, issueId: string, key: string): s
 Baseline CLI: \`node ${CLI_BIN}\` (BASELINE_DB and BASELINE_AS are set, so writes go to this workspace and are attributed to you). Use it — or the /baseline skill if you have it — to read the issue (\`issue show ${key} --json\`) and to post your progress on ${key} yourself.`;
 }
 
-export interface LaunchResult { key: string; directory: string; savedToProject: boolean; scriptPath: string }
+export interface LaunchResult { key: string; directory: string; location: { id: string; name: string }; pinned: boolean; scriptPath: string }
 
-export function openInClaudeCode(store: Store, dbPath: string, issueId: string, opts: { directory?: string; saveToProject?: boolean } = {}): LaunchResult {
+/** Opens the issue's location — or pins the one given (an existing location, or a new folder,
+ *  which is registered as a location) and opens that. Nothing is guessed: no location, no launch. */
+export function openInClaudeCode(store: Store, dbPath: string, issueId: string, opts: { locationId?: string; directory?: string } = {}): LaunchResult {
   if (process.platform !== 'darwin' && !process.env.BASELINE_OPEN_CMD) throw new LaunchError('unsupported', 'Opening a terminal session is only supported on macOS — use `baseline issue handoff` instead');
   const issue = store.getIssue(issueId);
   if (!issue) throw new LaunchError('not-found', 'Issue not found');
   const key = issueKey(issue, store.snapshot().teams);
-  const directory = normalizeDir(opts.directory) || store.agentDirFor(issue);
-  if (!directory) throw new LaunchError('no-directory', 'No directory set for this issue — choose one');
-  if (!isDirectory(directory)) throw new LaunchError('bad-directory', `Directory not found: ${directory}`);
-
-  // only a directory the user explicitly picked becomes the project's — never the fallback default
-  let savedToProject = false;
-  if (opts.saveToProject && opts.directory && issue.projectId) {
-    const project = store.snapshot().projects.find(p => p.id === issue.projectId);
-    if (project && !project.directory) { store.updateProject(project.id, { directory }); savedToProject = true; }
-  }
-  store.rememberDirectory(directory);
+  const picked = opts.directory && normalizeDir(opts.directory);
+  if (picked && !isDirectory(picked)) throw new LaunchError('bad-directory', `Directory not found: ${picked}`);
+  const location = picked ? store.createLocation(picked)
+    : opts.locationId ? store.getLocation(opts.locationId)
+    : store.locationFor(issue);
+  if (!location) throw new LaunchError('no-location', `${key} has no location — pick one`);
+  const directory = location.path;
+  if (!isDirectory(directory)) throw new LaunchError('bad-directory', `The location ${location.name} points at ${directory}, which doesn't exist`);
+  // choosing where to open it is choosing where the task lives
+  const pinned = issue.locationId !== location.id;
+  if (pinned) store.updateIssue(issue.id, { locationId: location.id });
 
   mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
   pruneSessions();
@@ -89,7 +91,7 @@ export function openInClaudeCode(store: Store, dbPath: string, issueId: string, 
   try { execFileSync(cmd, args, { stdio: 'ignore' }); } catch (err) {
     throw new LaunchError('launch-failed', `Could not open ${store.getAgentConfig().terminalApp}: ${(err as Error).message}`);
   }
-  return { key, directory, savedToProject, scriptPath };
+  return { key, directory, location: { id: location.id, name: location.name }, pinned, scriptPath };
 }
 
 /** native folder picker; resolves null when the user cancels */

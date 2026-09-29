@@ -310,13 +310,15 @@ ADB=$(newdb agent)
 REPO="$WORK/agent-repo"
 mkdir -p "$REPO" && git -C "$REPO" init -q -b main && echo hi > "$REPO/README.md" \
   && git -C "$REPO" add . && git -C "$REPO" -c user.email=t@t -c user.name=t commit -qm init
-export BASELINE_RUNS_DIR="$WORK/runs"
+export BASELINE_RUNS_DIR="$WORK/runs" BASELINE_WORKTREES_DIR="$WORK/agent-runs"
 ab() { BASELINE_DB="$ADB" $BIN "$@"; }
-akey() { ab issue create "$1" -t CORE -s Todo -a "${2:-Claude Code}" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))"; }
+keyof() { node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))"; }
+akey() { ab issue create "$1" -t CORE -s Todo -a "${2:-Claude Code}" --location "${3:-agent-repo}" --json | keyof; }
 checkon "$ADB" "agent off by default" "runner: off" agent config
 checkon "$ADB" "agent run is a no-op when off" "nothing to run" agent run
-checkon "$ADB" "agent config on" "Claude Code" agent config --claude --cwd "$REPO"
+checkon "$ADB" "agent config on" "Claude Code" agent config --claude
 checkon "$ADB" "enabling creates the Claude Code user" "Claude Code" user list
+checkon "$ADB" "location add" "agent-repo → $REPO" location add "$REPO"
 K0=$(akey "manual handoff task" Agent)
 K1=$(akey "agent task one"); K2=$(akey "agent task two")
 FAKE_OK="git checkout -q -b agent-branch && echo x > new.txt && git add . && git -c user.email=t@t -c user.name=t commit -qm work && node $PWD/bin/baseline.js issue comment \$BASELINE_ISSUE 'progress from inside the run' >/dev/null && echo 'did the thing'"
@@ -324,6 +326,9 @@ BASELINE_AGENT_CMD="$FAKE_OK" checkon "$ADB" "agent run finishes first queued is
 ab issue show "$K1" --json > "$WORK/a1.json"
 check_json "agent run → Done + summary comment" "$WORK/a1.json" "d.state==='Done'&&d.comments.some(c=>c.author==='Claude Code'&&c.body.includes('did the thing')&&c.body.includes('agent-branch')&&c.body.includes('new.txt'))"
 check_json "BASELINE_AS set inside the run" "$WORK/a1.json" "d.comments.some(c=>c.author==='Claude Code'&&c.body==='progress from inside the run')"
+check_json "the run happened in its own worktree" "$WORK/a1.json" "d.comments.some(c=>c.author==='Claude Code'&&c.body.includes('agent-runs/$K1'))"
+if [[ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" == "main" && ! -e "$REPO/new.txt" ]]; then PASS=$((PASS+1)); else echo "FAIL  the location's own checkout is untouched"; FAILED_NAMES+=("checkout untouched"); FAIL=$((FAIL+1)); fi
+if git -C "$REPO" rev-parse --verify -q refs/heads/agent-branch >/dev/null; then PASS=$((PASS+1)); else echo "FAIL  the run's commits live on a branch of the repo"; FAILED_NAMES+=("run branch in repo"); FAIL=$((FAIL+1)); fi
 ab issue show "$K2" --json > "$WORK/a2.json"
 check_json "second issue untouched (one at a time)" "$WORK/a2.json" "d.state==='Todo'&&d.assignee==='Claude Code'"
 BASELINE_AGENT_CMD="echo boom >&2; exit 3" BASELINE_DB="$ADB" $BIN agent run >/dev/null 2>&1; RC=$?
@@ -337,45 +342,95 @@ check_json "killed run reads as stopped, handed back" "$WORK/a4.json" "d.state==
 checkon "$ADB" "queue empty after hand-back" "nothing to run" agent run
 ab issue show "$K0" --json > "$WORK/a0.json"
 check_json "issues assigned to Agent are never auto-run" "$WORK/a0.json" "d.state==='Todo'&&d.assignee==='Agent'&&d.comments.length===0"
-echo "=== project directories + Open in Claude Code ==="
-PREPO="$WORK/project-repo"; mkdir -p "$PREPO"
-checkon "$ADB" "project update --dir" "Updated project" project update "Agent Handoff" --dir "$PREPO"
-checkon "$ADB" "project show lists the directory" "directory: $PREPO" project show "Agent Handoff"
-checkon "$ADB" "agent config lists project directories" "Agent Handoff: $PREPO" agent config
-checkon "$ADB" "project update --dir none clears it" "Updated project" project update "Mobile Companion" --dir none
-ab project update "Mobile Companion" --dir "$WORK/missing-dir" >/dev/null
-KM=$(ab issue create "project dir missing" -t CORE -s Todo -a "Claude Code" -j "Mobile Companion" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))")
-KP=$(ab issue create "runs in project dir" -t CORE -s Todo -a "Claude Code" -j "Agent Handoff" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))")
-BASELINE_AGENT_CMD='pwd' checkon "$ADB" "runner skips an issue whose directory is missing" "finished $KP" agent run
-ab issue show "$KP" --json > "$WORK/ap.json"
-check_json "background run works in the project's directory" "$WORK/ap.json" "d.comments.some(c=>c.author==='Claude Code'&&c.body.includes('project-repo'))"
-ab issue show "$KM" --json > "$WORK/am.json"
-check_json "skipped issue stays queued" "$WORK/am.json" "d.state==='Todo'&&d.assignee==='Claude Code'"
+
+echo "=== locations: mandatory, shared, inherited ==="
+PREPO="$WORK/project-repo"; mkdir -p "$PREPO" && git -C "$PREPO" init -q -b main && echo p > "$PREPO/p.txt" \
+  && git -C "$PREPO" add . && git -C "$PREPO" -c user.email=t@t -c user.name=t commit -qm init
+PLAIN="$WORK/plain-folder"; mkdir -p "$PLAIN"
+checkon "$ADB" "location add links to a project" "proj-repo" location add "$PREPO" --name proj-repo -j "Agent Handoff"
+checkon "$ADB" "one location can serve several projects" "Updated project" project update "Mobile Companion" --add-location proj-repo
+checkon "$ADB" "location list shows its projects" "Agent Handoff, Mobile Companion" location list
+checkon "$ADB" "project show lists locations" "locations: proj-repo ($PREPO)" project show "Agent Handoff"
+checkon "$ADB" "adding a second location" "Updated project" project update "Mobile Companion" --add-location agent-repo
+KI=$(ab issue create "inherits the project's only location" -t CORE -j "Agent Handoff" --json | keyof)
+ab issue show "$KI" --json > "$WORK/l1.json"
+check_json "new issue takes its project's only location" "$WORK/l1.json" "d.location&&d.location.name==='proj-repo'"
+KS=$(ab issue create "sub-task" -t CORE --parent "$KI" --json | keyof)
+ab issue show "$KS" --json > "$WORK/l2.json"
+check_json "sub-issue inherits its parent's location" "$WORK/l2.json" "d.location&&d.location.name==='proj-repo'"
+KA=$(ab issue create "project has two locations" -t CORE -j "Mobile Companion" --json | keyof)
+ab issue show "$KA" --json > "$WORK/l3.json"
+check_json "no guess when the project has several" "$WORK/l3.json" "d.location===null"
+KN=$(akey "no location" "Claude Code" none)
+KG=$(ab issue create "plain folder" -t CORE -s Todo -a "Claude Code" --location "$PLAIN" --json | keyof)
+checkon "$ADB" "unrunnable issues are skipped, not guessed" "nothing to run" agent run
+ab agent run >/dev/null 2>&1
+ab issue show "$KN" --json > "$WORK/l4.json"
+check_json "no location → one comment, still queued" "$WORK/l4.json" "d.state==='Todo'&&d.assignee==='Claude Code'&&d.comments.filter(c=>c.body.includes('needs a location')).length===1"
+ab issue show "$KG" --json > "$WORK/l5.json"
+check_json "non-git location → told why, still queued" "$WORK/l5.json" "d.state==='Todo'&&d.comments.filter(c=>c.body.includes(\"isn't a git repo\")).length===1"
+ab issue update "$KN" --location proj-repo >/dev/null
+BASELINE_AGENT_CMD='pwd' checkon "$ADB" "setting a location lets it start" "finished $KN" agent run
+ab issue show "$KN" --json > "$WORK/l6.json"
+check_json "runs in a worktree of the location" "$WORK/l6.json" "d.comments.some(c=>c.author==='Claude Code'&&c.body.includes('agent-runs/$KN'))"
+if [[ "$(git -C "$PREPO" rev-parse --abbrev-ref HEAD)" == "main" ]]; then PASS=$((PASS+1)); else echo "FAIL  project checkout stays on main"; FAILED_NAMES+=("project checkout"); FAIL=$((FAIL+1)); fi
+checkon "$ADB" "agent clean removes finished worktrees" "removed $WORK/agent-runs/$KN" agent clean
+# review scenarios: a hand-deleted run folder, a subfolder missing on the base branch, re-queued nudges
+KR=$(ab issue create "rerun after rm -rf" -t CORE -s Todo -a "Claude Code" --location proj-repo --json | keyof)
+BASELINE_AGENT_CMD='echo ok' ab agent run >/dev/null 2>&1
+rm -rf "$WORK/agent-runs/$KR"
+ab issue update "$KR" -s Todo -a "Claude Code" >/dev/null
+BASELINE_AGENT_CMD='echo again' checkon "$ADB" "a hand-deleted run folder is recreated" "finished $KR" agent run
+mkdir -p "$PREPO/only-local"
+ab location add "$PREPO/only-local" --name only-local >/dev/null
+KL=$(ab issue create "subfolder not on main" -t CORE -s Todo -a "Claude Code" --location only-local --json | keyof)
+BASELINE_AGENT_CMD='echo nope' ab agent run >/dev/null 2>&1
+ab issue show "$KL" --json > "$WORK/l8.json"
+check_json "a subfolder missing on the base branch says so" "$WORK/l8.json" "d.comments.some(c=>c.body.includes(\"doesn't exist on\")&&c.body.includes('before it started'))"
+KQ=$(akey "nudged twice" "Claude Code" none)
+ab agent run >/dev/null 2>&1
+ab issue update "$KQ" -a me >/dev/null; ab issue update "$KQ" -a "Claude Code" >/dev/null
+ab agent run >/dev/null 2>&1
+ab issue show "$KQ" --json > "$WORK/l9.json"
+check_json "reassigning re-sends the what-I-need comment" "$WORK/l9.json" "d.comments.filter(c=>c.body.includes('needs a location')).length===2"
+if BASELINE_DB="$ADB" $BIN agent config --cwd /tmp >/dev/null 2>&1; then echo "FAIL  agent config --cwd should explain it's removed"; FAILED_NAMES+=("--cwd removed"); FAIL=$((FAIL+1)); else PASS=$((PASS+1)); fi
 export BASELINE_SESSIONS_DIR="$WORK/sessions" BASELINE_OPEN_CMD="true"
-KO=$(ab issue create "open me" -t CORE -j "Agent Handoff" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))")
-checkon "$ADB" "issue open uses the project directory" "in $PREPO" issue open "$KO"
-if grep -q "cd '$PREPO'" "$WORK"/sessions/"$KO"-*.command && grep -q "BASELINE_AS=" "$WORK"/sessions/"$KO"-*.command; then PASS=$((PASS+1)); else echo "FAIL  launcher cds into the directory with BASELINE_AS"; FAILED_NAMES+=("launcher script"); FAIL=$((FAIL+1)); fi
-if [[ "$(stat -f %Lp "$WORK"/sessions/"$KO"-*.md 2>/dev/null | head -1 || stat -c %a "$WORK"/sessions/"$KO"-*.md | head -1)" == "600" ]]; then PASS=$((PASS+1)); else echo "FAIL  session brief is owner-only"; FAILED_NAMES+=("session brief perms"); FAIL=$((FAIL+1)); fi
-if grep -q "issue show $KO --json" "$WORK"/sessions/"$KO"-*.md; then PASS=$((PASS+1)); else echo "FAIL  launcher prompt carries the brief"; FAILED_NAMES+=("launcher prompt"); FAIL=$((FAIL+1)); fi
-checkon "$ADB" "issue open --dir overrides" "in $REPO" issue open "$KO" --dir "$REPO"
-ODB=$(newdb open)
-KN=$(BASELINE_DB="$ODB" $BIN issue create "no dir anywhere" -t CORE --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))")
-OUT=$(BASELINE_DB="$ODB" $BIN issue open "$KN" 2>&1)
-if [[ "$OUT" == *"No directory for $KN"* ]]; then PASS=$((PASS+1)); else echo "FAIL  issue open without a directory explains itself"; FAILED_NAMES+=("issue open no dir"); FAIL=$((FAIL+1)); fi
+checkon "$ADB" "issue open uses the issue's location" "in $PREPO" issue open "$KI"
+if grep -q "cd '$PREPO'" "$WORK"/sessions/"$KI"-*.command && grep -q "BASELINE_AS=" "$WORK"/sessions/"$KI"-*.command; then PASS=$((PASS+1)); else echo "FAIL  launcher cds into the location with BASELINE_AS"; FAILED_NAMES+=("launcher script"); FAIL=$((FAIL+1)); fi
+if [[ "$(stat -f %Lp "$WORK"/sessions/"$KI"-*.md 2>/dev/null | head -1 || stat -c %a "$WORK"/sessions/"$KI"-*.md | head -1)" == "600" ]]; then PASS=$((PASS+1)); else echo "FAIL  session brief is owner-only"; FAILED_NAMES+=("session brief perms"); FAIL=$((FAIL+1)); fi
+if grep -q "issue show $KI --json" "$WORK"/sessions/"$KI"-*.md; then PASS=$((PASS+1)); else echo "FAIL  launcher prompt carries the brief"; FAILED_NAMES+=("launcher prompt"); FAIL=$((FAIL+1)); fi
+checkon "$ADB" "issue open --location pins it" "pinned to agent-repo" issue open "$KA" --location agent-repo
+OUT=$(BASELINE_DB="$ADB" $BIN issue open "$(ab issue create "nowhere" -t CORE --location none --json | keyof)" 2>&1)
+if [[ "$OUT" == *"has no location"* ]]; then PASS=$((PASS+1)); else echo "FAIL  issue open without a location explains itself"; FAILED_NAMES+=("issue open no location"); FAIL=$((FAIL+1)); fi
 unset BASELINE_SESSIONS_DIR BASELINE_OPEN_CMD
-checkon "$ADB" "handoff brief points at the baseline skill" "/baseline skill" issue handoff "$KO"
+checkon "$ADB" "location rename" "Renamed proj-repo" location rename proj-repo api
+checkon "$ADB" "location remove" "Removed location api" location remove api
+ab issue show "$KI" --json > "$WORK/l7.json"
+check_json "removing a location clears it from issues" "$WORK/l7.json" "d.location===null"
+checkon "$ADB" "handoff brief points at the baseline skill" "/baseline skill" issue handoff "$KI"
 
 checkon "$ADB" "agent config off" "runner: off" agent config --off
-unset BASELINE_RUNS_DIR
+unset BASELINE_RUNS_DIR BASELINE_WORKTREES_DIR
 
 echo "=== export / import ==="
-b agent config --cwd "$WORK" --terminal iTerm >/dev/null
+b agent config --terminal iTerm >/dev/null
+b location add "$WORK" --name workdir >/dev/null
 b export --out "$WORK/export.json"
 check_json "export has issues" "$WORK/export.json" "d.issues.length>5&&d.teams.length>=2&&Array.isArray(d.projects)"
 DB2=$(newdb 2)
 checkon "$DB2" "import summary" "Imported:" import "$WORK/export.json"
 checkon "$DB2" "import keeps the terminal choice" "terminal: iTerm" agent config
-checkon "$DB2" "import keeps the default directory" "cwd:    $WORK" agent config
+checkon "$DB2" "import keeps locations" "workdir" location list
+node -e '
+const f = process.argv[1]; const d = JSON.parse(require("fs").readFileSync(f, "utf8"));
+delete d.locations; d.projects.forEach(p => delete p.locationIds); d.issues.forEach(i => delete i.locationId);
+d.projects[0].directory = process.argv[2]; d.workspace.agentCwd = process.argv[3];
+require("fs").writeFileSync(process.argv[4], JSON.stringify(d));
+' "$WORK/export.json" "$WORK" "$WORK/runs" "$WORK/legacy.json"
+DB5=$(newdb legacy)
+checkon "$DB5" "legacy import" "Imported:" import "$WORK/legacy.json"
+BASELINE_DB="$DB5" $BIN project list --json > "$WORK/p5.json"
+check_json "a pre-locations export keeps its project directory as a location" "$WORK/p5.json" "d[0].locations.length===1&&d[0].locations[0].path==='$WORK'"
 checkon "$DB2" "import leaves the background runner off" "runner: off" agent config
 BASELINE_DB="$DB2" $BIN issue list -q "renamed issue" --json > "$J"
 check_json "imported issue round-trips" "$J" "d.length===1&&d[0].key==='$KEY'&&d[0].title==='renamed issue'"
@@ -409,6 +464,24 @@ check_rc "move both anchors"         1 issue move "$A" --before "$B" --after "$A
 echo "=== json purity (stderr not polluted into stdout) ==="
 b issue list --json > "$WORK/purity.json" 2>/dev/null
 check_json "issue list --json parses cleanly" "$WORK/purity.json" "Array.isArray(d)"
+
+echo "=== migration: project directories become locations ==="
+MDB=$(newdb migrate); MDIR="$WORK/old-project-dir"; mkdir -p "$MDIR"
+node --input-type=module -e '
+const { DatabaseSync } = await import("node:sqlite");
+const db = new DatabaseSync(process.argv[1]);
+const p = db.prepare("SELECT id FROM projects ORDER BY position LIMIT 1").get();
+db.prepare("UPDATE projects SET directory = ? WHERE id = ?").run(process.argv[2], p.id);
+db.prepare("UPDATE issues SET location_id = NULL").run();
+db.prepare("DELETE FROM locations").run();
+db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run("agentCwd", process.argv[3]);
+db.prepare("DELETE FROM meta WHERE key = ?").run("locationsMigrated");
+' "$MDB" "$MDIR" "$WORK"
+BASELINE_DB="$MDB" $BIN project list --json > "$WORK/m1.json"
+check_json "old project directory → linked location" "$WORK/m1.json" "d[0].locations.length===1&&d[0].locations[0].path==='$MDIR'"
+checkon "$MDB" "old default directory → a location pinned to nothing" "$(basename "$WORK")" location list
+BASELINE_DB="$MDB" $BIN issue list -j "$(node -e "console.log(JSON.parse(require('fs').readFileSync('$WORK/m1.json','utf8'))[0].name)")" --json > "$WORK/m2.json"
+check_json "that project's issues are pinned to it" "$WORK/m2.json" "d.length>0&&d.every(i=>i.location&&i.location.path==='$MDIR')"
 
 echo "=== server accepts only this machine ==="
 node --input-type=module -e '

@@ -159,6 +159,18 @@ function migrate(db: DatabaseSync): void {
       position REAL NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS locations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS project_locations (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      location_id TEXT NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+      position REAL NOT NULL DEFAULT 0,
+      PRIMARY KEY (project_id, location_id)
+    );
     CREATE TABLE IF NOT EXISTS views (
       id TEXT PRIMARY KEY,
       team_id TEXT,
@@ -205,6 +217,8 @@ function migrate(db: DatabaseSync): void {
   if (!columns('issues').includes('deleted_at')) db.exec('ALTER TABLE issues ADD COLUMN deleted_at TEXT');
   if (!columns('projects').includes('priority')) db.exec("ALTER TABLE projects ADD COLUMN priority INTEGER NOT NULL DEFAULT 0");
   if (!columns('projects').includes('directory')) db.exec("ALTER TABLE projects ADD COLUMN directory TEXT NOT NULL DEFAULT ''");
+  if (!columns('issues').includes('location_id')) db.exec('ALTER TABLE issues ADD COLUMN location_id TEXT');
+  migrateDirectoriesToLocations(db);
   if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
 
   // initiatives were removed from the model — drop leftover tables from pre-existing databases
@@ -217,6 +231,37 @@ function migrate(db: DatabaseSync): void {
     db.prepare("INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES (?, 'Agent', 'agent@local', 'AG', '#4cb782', 0, 'agent')")
       .run(id('u'));
   }
+}
+
+/* One-time move from "a directory per project + a workspace default" to a list of locations:
+   each project directory becomes a location linked to its project, and that project's issues
+   are pinned to it (they already ran there). The workspace default and recent picks become
+   plain locations — registered, but pinned to nothing, so nothing runs in them by accident. */
+export function migrateDirectoriesToLocations(db: DatabaseSync): void {
+  if (getMeta(db, 'locationsMigrated')) return;
+  const ensure = (path: string): string => {
+    const row = db.prepare('SELECT id FROM locations WHERE path = ?').get(path) as { id: string } | undefined;
+    if (row) return row.id;
+    const lid = id('loc');
+    const base = path.replace(/\/+$/, '').split('/').pop() || path;
+    let name = base;
+    for (let n = 2; db.prepare('SELECT 1 FROM locations WHERE name = ?').get(name); n++) name = `${base}-${n}`;
+    db.prepare('INSERT INTO locations (id, name, path, created_at) VALUES (?, ?, ?, ?)').run(lid, name, path, new Date().toISOString());
+    return lid;
+  };
+  const projects = db.prepare("SELECT id, directory FROM projects WHERE directory IS NOT NULL AND directory != ''").all() as Array<{ id: string; directory: string }>;
+  for (const p of projects) {
+    const lid = ensure(p.directory);
+    db.prepare('INSERT OR IGNORE INTO project_locations (project_id, location_id, position) VALUES (?, ?, 0)').run(p.id, lid);
+    db.prepare('UPDATE issues SET location_id = ? WHERE project_id = ? AND location_id IS NULL').run(lid, p.id);
+    db.prepare("UPDATE projects SET directory = '' WHERE id = ?").run(p.id);
+  }
+  const cwd = getMeta(db, 'agentCwd');
+  if (cwd) ensure(cwd);
+  try { for (const d of JSON.parse(getMeta(db, 'recentDirectories') ?? '[]') as string[]) if (d) ensure(d); } catch { /* ignore */ }
+  db.prepare("DELETE FROM meta WHERE key IN ('agentCwd', 'recentDirectories')").run();
+  // only mark workspaces that exist — a brand-new database is seeded after this runs
+  if (getMeta(db, 'workspaceId')) setMeta(db, 'locationsMigrated', '1');
 }
 
 export function getMeta(db: DatabaseSync, key: string): string | null {

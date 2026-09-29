@@ -1,17 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { homedir } from 'node:os';
 import { resolve as resolvePath } from 'node:path';
-import { getMeta, setMeta } from './db.js';
+import { getMeta, migrateDirectoriesToLocations, setMeta } from './db.js';
 import { id, nowIso, midSort } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import type {
-  ActivityItem, ActivityType, AgentRunner, TerminalApp, Comment, Cycle, Favorite, Handoff,
+  ActivityItem, ActivityType, AgentRunner, TerminalApp, Comment, Location, Cycle, Favorite, Handoff,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType,
 } from './types.js';
 
-interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; }
+interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; }
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
@@ -37,7 +37,7 @@ export class Store {
   private mapIssue = (r: IssueRow): Issue => ({
     id: r.id, teamId: r.team_id, number: r.number, title: r.title, description: r.description,
     stateId: r.state_id, priority: r.priority as Priority, assigneeId: r.assignee_id,
-    projectId: r.project_id, cycleId: r.cycle_id, parentId: r.parent_id, estimate: r.estimate,
+    projectId: r.project_id, cycleId: r.cycle_id, parentId: r.parent_id, locationId: r.location_id ?? null, estimate: r.estimate,
     dueDate: r.due_date, sortOrder: r.sort_order, labelIds: JSON.parse(r.labels),
     createdAt: r.created_at, updatedAt: r.updated_at, archivedAt: r.archived_at,
     completedAt: r.completed_at, canceledAt: r.canceled_at, deletedAt: r.deleted_at,
@@ -46,6 +46,7 @@ export class Store {
   // ---------- snapshot ----------
   snapshot(): Snapshot {
     const rows = <T>(sql: string): T[] => this.db.prepare(sql).all() as unknown as T[];
+    const projectLocs = this.projectLocationMap();
     const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human' }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
     const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig(), agentRunningIssueId: null };
@@ -59,7 +60,8 @@ export class Store {
       issues: rows<IssueRow>('SELECT * FROM issues WHERE archived_at IS NULL AND deleted_at IS NULL').map(this.mapIssue),
       comments: rows<{ id: string; issue_id: string; user_id: string; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null }>('SELECT * FROM comments ORDER BY created_at').map(c => ({ id: c.id, issueId: c.issue_id, userId: c.user_id, body: c.body, createdAt: c.created_at, editedAt: c.edited_at, reactions: JSON.parse(c.reactions), resolvedAt: c.resolved_at })),
       relations: rows<{ id: string; issue_id: string; related_id: string; type: string }>('SELECT * FROM relations').map(r => ({ id: r.id, issueId: r.issue_id, relatedIssueId: r.related_id, type: r.type as RelationType })),
-      projects: rows<{ id: string; team_id: string | null; name: string; description: string; icon: string; color: string; status: Project['status']; health: Project['health']; priority: number; directory: string | null; start_date: string | null; target_date: string | null; lead_id: string | null; members: string; position: number; created_at: string; updated_at: string; completed_at: string | null }>('SELECT * FROM projects ORDER BY position, created_at').map(p => ({ id: p.id, teamId: p.team_id, name: p.name, description: p.description, icon: p.icon, color: p.color, status: p.status, health: p.health, priority: p.priority as Priority, directory: p.directory ?? '', startDate: p.start_date, targetDate: p.target_date, leadId: p.lead_id, memberIds: JSON.parse(p.members), position: p.position, createdAt: p.created_at, updatedAt: p.updated_at, completedAt: p.completed_at })),
+      projects: rows<{ id: string; team_id: string | null; name: string; description: string; icon: string; color: string; status: Project['status']; health: Project['health']; priority: number; directory: string | null; start_date: string | null; target_date: string | null; lead_id: string | null; members: string; position: number; created_at: string; updated_at: string; completed_at: string | null }>('SELECT * FROM projects ORDER BY position, created_at').map(p => ({ id: p.id, teamId: p.team_id, name: p.name, description: p.description, icon: p.icon, color: p.color, status: p.status, health: p.health, priority: p.priority as Priority, locationIds: projectLocs.get(p.id) ?? [], startDate: p.start_date, targetDate: p.target_date, leadId: p.lead_id, memberIds: JSON.parse(p.members), position: p.position, createdAt: p.created_at, updatedAt: p.updated_at, completedAt: p.completed_at })),
+      locations: this.listLocations(),
       milestones: rows<{ id: string; project_id: string; name: string; target_date: string | null; status: Milestone['status']; position: number; created_at: string }>('SELECT * FROM milestones ORDER BY position, created_at').map(m => ({ id: m.id, projectId: m.project_id, name: m.name, targetDate: m.target_date, status: m.status, position: m.position, createdAt: m.created_at })),
       projectUpdates: rows<{ id: string; project_id: string; user_id: string; body: string; health: ProjectUpdate['health']; created_at: string }>('SELECT * FROM project_updates ORDER BY created_at DESC').map(u => ({ id: u.id, projectId: u.project_id, userId: u.user_id, body: u.body, health: u.health, createdAt: u.created_at })),
       cycles: rows<{ id: string; team_id: string; number: number; name: string; starts_at: string; ends_at: string; completed_at: string | null }>('SELECT * FROM cycles ORDER BY number').map(c => ({ id: c.id, teamId: c.team_id, number: c.number, name: c.name, startsAt: c.starts_at, endsAt: c.ends_at, completedAt: c.completed_at })),
@@ -197,36 +199,79 @@ export class Store {
   }
 
   // ---------- integrated agent ----------
-  getAgentConfig(): { agentRunner: AgentRunner; agentCwd: string; agentUserId: string | null; recentDirectories: string[]; terminalApp: TerminalApp } {
+  getAgentConfig(): { agentRunner: AgentRunner; agentUserId: string | null; terminalApp: TerminalApp } {
     const r = getMeta(this.db, 'agentRunner');
     return {
-      agentRunner: r === 'claude' ? r : 'none', agentCwd: getMeta(this.db, 'agentCwd') ?? '', agentUserId: this.claudeCodeUser()?.id ?? null,
-      recentDirectories: this.recentDirectories(), terminalApp: getMeta(this.db, 'terminalApp') === 'iTerm' ? 'iTerm' : 'Terminal',
+      agentRunner: r === 'claude' ? r : 'none', agentUserId: this.claudeCodeUser()?.id ?? null,
+      terminalApp: getMeta(this.db, 'terminalApp') === 'iTerm' ? 'iTerm' : 'Terminal',
     };
   }
-  setAgentConfig(patch: { agentRunner?: AgentRunner; agentCwd?: string; terminalApp?: TerminalApp }): void {
+  setAgentConfig(patch: { agentRunner?: AgentRunner; terminalApp?: TerminalApp }): void {
     if (patch.agentRunner !== undefined) setMeta(this.db, 'agentRunner', patch.agentRunner === 'claude' ? 'claude' : 'none');
-    if (patch.agentCwd !== undefined) setMeta(this.db, 'agentCwd', normalizeDir(patch.agentCwd));
     if (patch.terminalApp !== undefined) setMeta(this.db, 'terminalApp', patch.terminalApp === 'iTerm' ? 'iTerm' : 'Terminal');
     if (patch.agentRunner === 'claude') this.ensureClaudeCodeUser();
   }
-  /** where agents work on an issue: its project's directory, else the workspace default ('' = none set) */
-  agentDirFor(issue: Pick<Issue, 'projectId'>): string {
-    const dir = issue.projectId
-      ? (this.db.prepare('SELECT directory FROM projects WHERE id = ?').get(issue.projectId) as { directory: string } | undefined)?.directory
-      : undefined;
-    return dir || (getMeta(this.db, 'agentCwd') ?? '');
+  /** the one location an issue's agent works in — never a guess: unset means "ask" */
+  locationFor(issue: Pick<Issue, 'locationId'>): Location | undefined {
+    return issue.locationId ? this.getLocation(issue.locationId) : undefined;
   }
-  private recentDirectories(): string[] {
-    try { return JSON.parse(getMeta(this.db, 'recentDirectories') ?? '[]') as string[]; } catch { return []; }
+
+  // ---------- locations ----------
+  listLocations(): Location[] {
+    return (this.db.prepare('SELECT * FROM locations ORDER BY name COLLATE NOCASE').all() as Array<{ id: string; name: string; path: string; created_at: string }>)
+      .map(l => ({ id: l.id, name: l.name, path: l.path, createdAt: l.created_at }));
   }
-  /** most recent first, capped — feeds the "Open in Claude Code" submenu */
-  rememberDirectory(dir: string): void {
-    const next = [dir, ...this.recentDirectories().filter(d => d !== dir)].slice(0, 8);
-    setMeta(this.db, 'recentDirectories', JSON.stringify(next));
+  getLocation(locationId: string): Location | undefined { return this.listLocations().find(l => l.id === locationId); }
+  /** by id, exact name (case-insensitive), or path */
+  resolveLocation(ref: string): Location | undefined {
+    const all = this.listLocations();
+    const path = normalizeDir(ref);
+    return all.find(l => l.id === ref) ?? all.find(l => l.name.toLowerCase() === ref.trim().toLowerCase()) ?? all.find(l => l.path === path);
   }
-  forgetDirectory(dir: string): void {
-    setMeta(this.db, 'recentDirectories', JSON.stringify(this.recentDirectories().filter(d => d !== dir)));
+  /** registers a directory (idempotent by path); the name defaults to the folder name, made unique */
+  createLocation(rawPath: string, name?: string): Location {
+    const path = normalizeDir(rawPath);
+    if (!path) throw new Error('A location needs a path');
+    const existing = this.listLocations().find(l => l.path === path);
+    if (existing) return existing;
+    const base = (name?.trim() || path.split('/').pop() || path);
+    let unique = base;
+    for (let n = 2; this.listLocations().some(l => l.name.toLowerCase() === unique.toLowerCase()); n++) unique = `${base}-${n}`;
+    const loc: Location = { id: id('loc'), name: unique, path, createdAt: ts() };
+    this.db.prepare('INSERT INTO locations (id, name, path, created_at) VALUES (?, ?, ?, ?)').run(loc.id, loc.name, loc.path, loc.createdAt);
+    return loc;
+  }
+  renameLocation(locationId: string, name: string): void {
+    const n = name.trim();
+    if (!n) return;
+    if (this.listLocations().some(l => l.id !== locationId && l.name.toLowerCase() === n.toLowerCase())) throw new Error(`A location named "${n}" already exists`);
+    this.db.prepare('UPDATE locations SET name = ? WHERE id = ?').run(n, locationId);
+  }
+  /** unregisters it: projects drop it and issues pinned to it go back to "no location" */
+  deleteLocation(locationId: string): void {
+    this.db.prepare('UPDATE issues SET location_id = NULL WHERE location_id = ?').run(locationId);
+    this.db.prepare('DELETE FROM project_locations WHERE location_id = ?').run(locationId);
+    this.db.prepare('DELETE FROM locations WHERE id = ?').run(locationId);
+  }
+  private projectLocationMap(): Map<string, string[]> {
+    const m = new Map<string, string[]>();
+    for (const r of this.db.prepare('SELECT project_id, location_id FROM project_locations ORDER BY position, rowid').all() as Array<{ project_id: string; location_id: string }>) {
+      m.set(r.project_id, [...(m.get(r.project_id) ?? []), r.location_id]);
+    }
+    return m;
+  }
+  setProjectLocations(projectId: string, locationIds: string[]): void {
+    const known = new Set(this.listLocations().map(l => l.id));
+    this.db.prepare('DELETE FROM project_locations WHERE project_id = ?').run(projectId);
+    [...new Set(locationIds)].filter(l => known.has(l)).forEach((lid, n) =>
+      this.db.prepare('INSERT INTO project_locations (project_id, location_id, position) VALUES (?, ?, ?)').run(projectId, lid, n));
+  }
+  /** where a new issue starts: its parent's location, else its project's when the project has exactly one */
+  defaultLocationFor(input: { parentId?: string | null; projectId?: string | null }): string | null {
+    const parent = input.parentId ? this.getIssue(input.parentId) : undefined;
+    if (parent?.locationId) return parent.locationId;
+    const locs = input.projectId ? this.projectLocationMap().get(input.projectId) ?? [] : [];
+    return locs.length === 1 ? locs[0]! : null;
   }
   claudeCodeUserId(): string { return this.ensureClaudeCodeUser(); }
   /** the dedicated assignee the runner owns — other agent users (e.g. "Agent") stay copy-prompt only */
@@ -239,6 +284,15 @@ export class Store {
     const uid = this.claudeCodeUser()?.id ?? this.createUser('Claude Code', 'claude-code@local', false, 'agent').id;
     setMeta(this.db, 'agentUserId', uid);
     return uid;
+  }
+  /** why a queued issue can't start (one comment per reason, so the runner never spams a thread) */
+  agentNudges(): Record<string, string> {
+    try { return JSON.parse(getMeta(this.db, 'agentNudges') ?? '{}') as Record<string, string>; } catch { return {}; }
+  }
+  setAgentNudge(issueId: string, reason: string | null): void {
+    const all = this.agentNudges();
+    if (reason) all[issueId] = reason; else delete all[issueId];
+    setMeta(this.db, 'agentNudges', JSON.stringify(all));
   }
   /** not-yet-started issues assigned to the Claude Code user, oldest first — the integrated agent's queue */
   agentQueue(): Issue[] {
@@ -268,7 +322,7 @@ export class Store {
     return s.id;
   }
 
-  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null }, actorId?: string): Issue {
+  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null }, actorId?: string): Issue {
     const now = ts();
     const stateId = input.stateId ?? this.defaultState(input.teamId);
     const maxOrder = (this.db.prepare('SELECT COALESCE(MAX(sort_order), 0) m FROM issues WHERE team_id = ?').get(input.teamId) as { m: number }).m;
@@ -276,18 +330,20 @@ export class Store {
       id: id('i'), teamId: input.teamId, number: this.nextNumber(input.teamId), title: input.title,
       description: input.description ?? '', stateId, priority: input.priority ?? 0,
       assigneeId: input.assigneeId ?? null, projectId: input.projectId ?? null, cycleId: input.cycleId ?? null,
-      parentId: input.parentId ?? null, estimate: input.estimate ?? null, dueDate: input.dueDate ?? null,
+      parentId: input.parentId ?? null,
+      locationId: input.locationId !== undefined ? (input.locationId && this.getLocation(input.locationId) ? input.locationId : null) : this.defaultLocationFor(input),
+      estimate: input.estimate ?? null, dueDate: input.dueDate ?? null,
       sortOrder: maxOrder + 1024, labelIds: input.labelIds ?? [],
       createdAt: now, updatedAt: now, archivedAt: null, completedAt: null, canceledAt: null, deletedAt: null,
     };
-    this.db.prepare(`INSERT INTO issues (id, team_id, number, title, description, state_id, priority, assignee_id, project_id, cycle_id, parent_id, estimate, due_date, sort_order, labels, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(issue.id, issue.teamId, issue.number, issue.title, issue.description, issue.stateId, issue.priority, issue.assigneeId, issue.projectId, issue.cycleId, issue.parentId, issue.estimate, issue.dueDate, issue.sortOrder, JSON.stringify(issue.labelIds), now, now);
+    this.db.prepare(`INSERT INTO issues (id, team_id, number, title, description, state_id, priority, assignee_id, project_id, cycle_id, parent_id, location_id, estimate, due_date, sort_order, labels, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(issue.id, issue.teamId, issue.number, issue.title, issue.description, issue.stateId, issue.priority, issue.assigneeId, issue.projectId, issue.cycleId, issue.parentId, issue.locationId, issue.estimate, issue.dueDate, issue.sortOrder, JSON.stringify(issue.labelIds), now, now);
     this.logActivity({ issueId: issue.id, type: 'created', data: { title: issue.title } }, actorId);
     if (issue.assigneeId) this.notifyAssign(issue.id, issue.assigneeId, actorId);
     return issue;
   }
 
-  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt'>>, actorId?: string): Issue | undefined {
+  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt'>>, actorId?: string): Issue | undefined {
     // drop explicitly-undefined keys so partial patches never clobber values
     const patch = Object.fromEntries(Object.entries(rawPatch).filter(([, v]) => v !== undefined)) as typeof rawPatch;
     const row = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(issueId) as IssueRow | undefined;
@@ -295,6 +351,7 @@ export class Store {
     const before = this.mapIssue(row);
     const now = ts();
     const next: Issue = { ...before, ...patch, updatedAt: now };
+    if (patch.locationId !== undefined && patch.locationId !== null && !this.getLocation(patch.locationId)) next.locationId = before.locationId;
 
     // state side-effects
     if (patch.stateId && patch.stateId !== before.stateId) {
@@ -302,8 +359,8 @@ export class Store {
       next.completedAt = st.type === 'completed' ? now : null;
       next.canceledAt = st.type === 'canceled' ? now : null;
     }
-    this.db.prepare(`UPDATE issues SET title=?, description=?, state_id=?, priority=?, assignee_id=?, project_id=?, cycle_id=?, parent_id=?, estimate=?, due_date=?, sort_order=?, labels=?, updated_at=?, completed_at=?, canceled_at=?, archived_at=? WHERE id=?`)
-      .run(next.title, next.description, next.stateId, next.priority, next.assigneeId, next.projectId, next.cycleId, next.parentId, next.estimate, next.dueDate, next.sortOrder, JSON.stringify(next.labelIds), now, next.completedAt, next.canceledAt, next.archivedAt, issueId);
+    this.db.prepare(`UPDATE issues SET title=?, description=?, state_id=?, priority=?, assignee_id=?, project_id=?, cycle_id=?, parent_id=?, location_id=?, estimate=?, due_date=?, sort_order=?, labels=?, updated_at=?, completed_at=?, canceled_at=?, archived_at=? WHERE id=?`)
+      .run(next.title, next.description, next.stateId, next.priority, next.assigneeId, next.projectId, next.cycleId, next.parentId, next.locationId, next.estimate, next.dueDate, next.sortOrder, JSON.stringify(next.labelIds), now, next.completedAt, next.canceledAt, next.archivedAt, issueId);
 
     // activity diffs
     const acts: Array<[ActivityType, Record<string, unknown>]> = [];
@@ -313,11 +370,13 @@ export class Store {
     if (patch.priority !== undefined && patch.priority !== before.priority) acts.push(['priorityChanged', { from: before.priority, to: next.priority }]);
     if (patch.assigneeId !== undefined && patch.assigneeId !== before.assigneeId) {
       acts.push([next.assigneeId ? 'assigned' : 'unassigned', { to: next.assigneeId, from: before.assigneeId }]);
+      this.setAgentNudge(issueId, null); // a fresh assignment deserves a fresh "here's what I need"
       if (next.assigneeId) this.notifyAssign(issueId, next.assigneeId, actorId);
     }
     if (patch.projectId !== undefined && patch.projectId !== before.projectId) acts.push(['projected', { to: next.projectId }]);
     if (patch.parentId !== undefined && patch.parentId !== before.parentId) acts.push(['parented', { to: next.parentId, from: before.parentId }]);
     if (patch.cycleId !== undefined && patch.cycleId !== before.cycleId) acts.push(['cycleChanged', { to: next.cycleId, from: before.cycleId }]);
+    if (next.locationId !== before.locationId) acts.push(['locationChanged', { to: next.locationId, from: before.locationId }]);
     if (patch.dueDate !== undefined && patch.dueDate !== before.dueDate) acts.push(['dueChanged', { to: next.dueDate }]);
     if (patch.estimate !== undefined && patch.estimate !== before.estimate) acts.push(['estimateChanged', { to: next.estimate }]);
     if (patch.labelIds !== undefined) {
@@ -432,27 +491,28 @@ export class Store {
   }
 
   // ---------- projects ----------
-  createProject(input: { name: string; teamId?: string | null; description?: string; icon?: string; color?: string; status?: Project['status']; leadId?: string | null; targetDate?: string | null; startDate?: string | null; priority?: Priority; memberIds?: string[]; directory?: string }): Project {
+  createProject(input: { name: string; teamId?: string | null; description?: string; icon?: string; color?: string; status?: Project['status']; leadId?: string | null; targetDate?: string | null; startDate?: string | null; priority?: Priority; memberIds?: string[]; locationIds?: string[] }): Project {
     const now = ts();
     const p: Project = {
       id: id('p'), teamId: input.teamId ?? null, name: input.name, description: input.description ?? '',
       icon: input.icon ?? '🧊', color: input.color ?? '#5e6ad2', status: input.status ?? 'planned', health: 'onTrack',
-      priority: input.priority ?? 0, directory: normalizeDir(input.directory),
+      priority: input.priority ?? 0, locationIds: [],
       startDate: input.startDate ?? null, targetDate: input.targetDate ?? null, leadId: input.leadId ?? null,
       memberIds: input.memberIds ?? [], position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM projects').get() as { p: number }).p,
       createdAt: now, updatedAt: now, completedAt: input.status === 'completed' ? now : null,
     };
-    this.db.prepare('INSERT INTO projects (id, team_id, name, description, icon, color, status, health, priority, directory, start_date, target_date, lead_id, members, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(p.id, p.teamId, p.name, p.description, p.icon, p.color, p.status, p.health, p.priority, p.directory, p.startDate, p.targetDate, p.leadId, JSON.stringify(p.memberIds), p.position, now, now);
+    this.db.prepare('INSERT INTO projects (id, team_id, name, description, icon, color, status, health, priority, start_date, target_date, lead_id, members, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(p.id, p.teamId, p.name, p.description, p.icon, p.color, p.status, p.health, p.priority, p.startDate, p.targetDate, p.leadId, JSON.stringify(p.memberIds), p.position, now, now);
     this.logActivity({ projectId: p.id, type: 'projectCreated', data: {} });
+    if (input.locationIds?.length) { this.setProjectLocations(p.id, input.locationIds); p.locationIds = this.projectLocationMap().get(p.id) ?? []; }
     return p;
   }
-  updateProject(projectId: string, patch: Partial<Pick<Project, 'name' | 'description' | 'icon' | 'color' | 'status' | 'health' | 'priority' | 'directory' | 'startDate' | 'targetDate' | 'leadId' | 'memberIds' | 'position' | 'completedAt'>>): void {
+  updateProject(projectId: string, patch: Partial<Pick<Project, 'name' | 'description' | 'icon' | 'color' | 'status' | 'health' | 'priority' | 'startDate' | 'targetDate' | 'leadId' | 'memberIds' | 'position' | 'completedAt'>>): void {
     const cur = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as unknown as Project | undefined;
     if (!cur) return;
     const sets: string[] = []; const vals: (string | number | null)[] = [];
     const col: Record<string, string> = { startDate: 'start_date', targetDate: 'target_date', leadId: 'lead_id', memberIds: 'members', completedAt: 'completed_at' };
-    for (const [k, v] of sqlPairs(patch, ['name', 'description', 'icon', 'color', 'status', 'health', 'priority', 'directory', 'startDate', 'targetDate', 'leadId', 'memberIds', 'position', 'completedAt'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'memberIds' ? JSON.stringify(v) : k === 'directory' ? normalizeDir(v as string) : v as string | number | null); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'description', 'icon', 'color', 'status', 'health', 'priority', 'startDate', 'targetDate', 'leadId', 'memberIds', 'position', 'completedAt'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'memberIds' ? JSON.stringify(v) : v as string | number | null); }
     sets.push('updated_at = ?'); vals.push(ts(), projectId);
     this.db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
     this.logActivity({ projectId, type: 'projectUpdated', data: { fields: Object.keys(patch) } });
@@ -585,7 +645,7 @@ export class Store {
       id: p.id as string, teamId: (p.team_id as string | null) ?? null, name: p.name as string,
       description: p.description as string, icon: p.icon as string, color: p.color as string,
       status: p.status as Project['status'], health: p.health as Project['health'],
-      priority: (p.priority as number ?? 0) as Priority, directory: (p.directory as string | null) ?? '', startDate: (p.start_date as string | null) ?? null,
+      priority: (p.priority as number ?? 0) as Priority, locationIds: this.projectLocationMap().get(p.id as string) ?? [], startDate: (p.start_date as string | null) ?? null,
       targetDate: (p.target_date as string | null) ?? null, leadId: (p.lead_id as string | null) ?? null,
       memberIds: JSON.parse((p.members as string) ?? '[]'), position: p.position as number,
       createdAt: p.created_at as string, updatedAt: p.updated_at as string, completedAt: (p.completed_at as string | null) ?? null,
@@ -620,9 +680,11 @@ export class Store {
       if (ws.createdAt) setMeta(this.db, 'workspaceCreatedAt', ws.createdAt);
       // coding-tools settings ride along; the background runner is left off so a restore never starts runs by itself
       if (ws.handoffPromptTemplate && ws.handoffPromptTemplate !== DEFAULT_PROMPT_TEMPLATE) setMeta(this.db, 'handoffPromptTemplate', ws.handoffPromptTemplate);
-      if (ws.agentCwd) setMeta(this.db, 'agentCwd', normalizeDir(ws.agentCwd));
       if (ws.terminalApp) setMeta(this.db, 'terminalApp', ws.terminalApp === 'iTerm' ? 'iTerm' : 'Terminal');
-      if (Array.isArray(ws.recentDirectories)) setMeta(this.db, 'recentDirectories', JSON.stringify(ws.recentDirectories.map(normalizeDir).filter(Boolean).slice(0, 8)));
+      // exports from before locations carried a default directory and recent picks — hand them to the migration below
+      const legacy = ws as { agentCwd?: string; recentDirectories?: string[] };
+      if (legacy.agentCwd) setMeta(this.db, 'agentCwd', normalizeDir(legacy.agentCwd));
+      if (Array.isArray(legacy.recentDirectories)) setMeta(this.db, 'recentDirectories', JSON.stringify(legacy.recentDirectories.map(normalizeDir).filter(Boolean)));
     }
     const insert = (table: string, cols: string[], row: Record<string, unknown>) => {
       this.db.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map(c => row[c] as string | number | null));
@@ -636,13 +698,15 @@ export class Store {
     for (const l of arr<Record<string, unknown>>(data.labels)) insert('labels', ['id', 'team_id', 'name', 'color', 'description'], { ...l, team_id: l.teamId });
     for (const t of arr<Record<string, unknown>>(data.templates)) insert('issue_templates', ['id', 'team_id', 'name', 'title', 'description', 'position', 'created_at'], { ...t, team_id: t.teamId, title: t.title ?? '', description: t.description ?? '', position: t.position ?? 0, created_at: t.createdAt ?? ts() });
     for (const i of arr<Record<string, unknown>>(data.issues)) insert('issues',
-      ['id', 'team_id', 'number', 'title', 'description', 'state_id', 'priority', 'assignee_id', 'project_id', 'cycle_id', 'parent_id', 'estimate', 'due_date', 'sort_order', 'labels', 'created_at', 'updated_at', 'archived_at', 'completed_at', 'canceled_at', 'deleted_at'],
-      { ...i, team_id: i.teamId, state_id: i.stateId, assignee_id: i.assigneeId, project_id: i.projectId, cycle_id: i.cycleId, parent_id: i.parentId, due_date: i.dueDate, sort_order: i.sortOrder, labels: JSON.stringify(i.labelIds ?? []), created_at: i.createdAt, updated_at: i.updatedAt, archived_at: i.archivedAt, completed_at: i.completedAt, canceled_at: i.canceledAt, deleted_at: i.deletedAt });
+      ['id', 'team_id', 'number', 'title', 'description', 'state_id', 'priority', 'assignee_id', 'project_id', 'cycle_id', 'parent_id', 'location_id', 'estimate', 'due_date', 'sort_order', 'labels', 'created_at', 'updated_at', 'archived_at', 'completed_at', 'canceled_at', 'deleted_at'],
+      { ...i, team_id: i.teamId, state_id: i.stateId, assignee_id: i.assigneeId, project_id: i.projectId, cycle_id: i.cycleId, parent_id: i.parentId, location_id: i.locationId ?? null, due_date: i.dueDate, sort_order: i.sortOrder, labels: JSON.stringify(i.labelIds ?? []), created_at: i.createdAt, updated_at: i.updatedAt, archived_at: i.archivedAt, completed_at: i.completedAt, canceled_at: i.canceledAt, deleted_at: i.deletedAt });
     for (const c of arr<Record<string, unknown>>(data.comments)) insert('comments', ['id', 'issue_id', 'user_id', 'body', 'created_at', 'edited_at', 'reactions', 'resolved_at'], { ...c, issue_id: c.issueId, user_id: c.userId, created_at: c.createdAt, edited_at: c.editedAt, reactions: JSON.stringify(c.reactions ?? {}), resolved_at: c.resolvedAt });
     for (const r of arr<Record<string, unknown>>(data.relations)) insert('relations', ['id', 'issue_id', 'related_id', 'type'], { ...r, issue_id: r.issueId, related_id: r.relatedIssueId });
     for (const p of arr<Record<string, unknown>>(data.projects)) insert('projects',
       ['id', 'team_id', 'name', 'description', 'icon', 'color', 'status', 'health', 'priority', 'directory', 'start_date', 'target_date', 'lead_id', 'members', 'position', 'created_at', 'updated_at', 'completed_at'],
-      { ...p, team_id: p.teamId, status: p.status ?? 'planned', health: p.health ?? 'onTrack', priority: p.priority ?? 0, directory: p.directory ?? '', start_date: p.startDate, target_date: p.targetDate, lead_id: p.leadId, members: JSON.stringify(p.memberIds ?? []), position: p.position ?? 0, created_at: p.createdAt ?? ts(), updated_at: p.updatedAt ?? ts(), completed_at: p.completedAt });
+      { ...p, team_id: p.teamId, status: p.status ?? 'planned', health: p.health ?? 'onTrack', priority: p.priority ?? 0, directory: normalizeDir(p.directory as string | undefined), start_date: p.startDate, target_date: p.targetDate, lead_id: p.leadId, members: JSON.stringify(p.memberIds ?? []), position: p.position ?? 0, created_at: p.createdAt ?? ts(), updated_at: p.updatedAt ?? ts(), completed_at: p.completedAt });
+    for (const l of arr<Record<string, unknown>>(data.locations)) insert('locations', ['id', 'name', 'path', 'created_at'], { ...l, path: normalizeDir(l.path as string), created_at: l.createdAt ?? ts() });
+    for (const p of arr<{ id: string; locationIds?: string[] }>(data.projects)) (p.locationIds ?? []).forEach((lid, n) => insert('project_locations', ['project_id', 'location_id', 'position'], { project_id: p.id, location_id: lid, position: n }));
     for (const u of arr<Record<string, unknown>>(data.projectUpdates)) insert('project_updates', ['id', 'project_id', 'user_id', 'body', 'health', 'created_at'], { ...u, project_id: u.projectId, user_id: u.userId, created_at: u.createdAt });
     for (const m of arr<Record<string, unknown>>(data.milestones)) insert('milestones', ['id', 'project_id', 'name', 'target_date', 'status', 'position', 'created_at'], { ...m, project_id: m.projectId, target_date: m.targetDate, position: m.position ?? 0, created_at: m.createdAt ?? ts() });
     for (const cy of arr<Record<string, unknown>>(data.cycles)) insert('cycles', ['id', 'team_id', 'number', 'name', 'starts_at', 'ends_at', 'completed_at'], { ...cy, team_id: cy.teamId, starts_at: cy.startsAt, ends_at: cy.endsAt, completed_at: cy.completedAt });
@@ -650,9 +714,11 @@ export class Store {
     for (const f of arr<Record<string, unknown>>(data.favorites)) insert('favorites', ['id', 'type', 'ref_id', 'position'], { ...f, ref_id: f.refId, position: f.position ?? 0 });
     for (const n of arr<Record<string, unknown>>(data.notifications)) insert('notifications', ['id', 'type', 'actor_id', 'issue_id', 'project_id', 'body', 'read_at', 'created_at'], { ...n, actor_id: n.actorId, issue_id: n.issueId, project_id: n.projectId, read_at: n.readAt, created_at: n.createdAt });
     for (const a of arr<Record<string, unknown>>(data.activity)) insert('activity', ['id', 'issue_id', 'project_id', 'user_id', 'type', 'data', 'created_at'], { ...a, issue_id: a.issueId, project_id: a.projectId, user_id: a.userId, data: JSON.stringify(a.data ?? {}), created_at: a.createdAt });
+    // a pre-locations export: its project directories and default become locations, as on upgrade
+    migrateDirectoriesToLocations(this.db);
   }
   wipe(): void {
-    for (const t of ['activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
+    for (const t of ['activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
   }

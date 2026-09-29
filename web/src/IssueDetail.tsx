@@ -4,7 +4,7 @@ import { useApp, useHelpers, relTime, shortDate } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
-import { IssueToolbar, OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
+import { IssueToolbar, IssueLocationRow, OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { Markdown } from './Markdown.js';
 import {
   StateIcon, PriorityIcon, Avatar, StatusMenu, PriorityMenu, AssigneeMenu, LabelsMenu, ProjectMenu,
@@ -61,6 +61,9 @@ function useActivityText() {
         : <><b>{who}</b> removed the estimate · <span className="rel-time">{relTime(a.createdAt)}</span></>;
       case 'related':
         return <><b>{who}</b> related this issue to <b>{issueRef(a.data.relatedId)}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>;
+      case 'locationChanged': return a.data.to
+        ? <><b>{who}</b> set the location to <b>{snap.locations.find(l => l.id === a.data.to)?.name ?? 'a removed location'}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>
+        : <><b>{who}</b> removed the location · <span className="rel-time">{relTime(a.createdAt)}</span></>;
       case 'commented': return <><b>{who}</b> commented · <span className="rel-time">{relTime(a.createdAt)}</span></>;
       case 'archived': return <><b>{who}</b> archived the issue · <span className="rel-time">{relTime(a.createdAt)}</span></>;
       case 'restored': return <><b>{who}</b> restored the issue · <span className="rel-time">{relTime(a.createdAt)}</span></>;
@@ -343,6 +346,7 @@ export function PropertiesRail(props: { issue: Issue }) {
             </button>
           )}
         </CycleMenu>
+        <IssueLocationRow issue={issue} />
         <DueDateMenu issue={issue}>
           {({ open }) => (
             <button className={`prop-line ${issue.dueDate ? '' : 'dim'}`} onClick={open}>
