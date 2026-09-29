@@ -1,6 +1,6 @@
 // "Open in Claude Code": starts an interactive Claude Code session for an issue in a macOS terminal window.
 // The server runs on the user's own machine, so it writes a small .command launcher (prompt in a
-// sibling file, so nothing has to survive shell quoting) and hands it to Terminal/iTerm via `open -a`.
+// sibling file, so nothing has to survive shell quoting) and hands it to the chosen terminal via `open -a`.
 // No AppleScript automation permission is needed for that; the folder picker uses `choose folder`.
 
 import { execFile, execFileSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizeDir, type Store } from '../core/store.js';
-import { issueKey } from '../core/types.js';
+import { issueKey, TERMINAL_APPS, type TerminalApp } from '../core/types.js';
 
 export const CLI_BIN = resolve(fileURLToPath(import.meta.url), '../../../bin/baseline.js');
 
@@ -48,6 +48,22 @@ export function interactivePrompt(store: Store, issueId: string, key: string): s
 
 ---
 Baseline CLI: \`node ${CLI_BIN}\` (BASELINE_DB and BASELINE_AS are set, so writes go to this workspace and are attributed to you). Use it — or the /baseline skill if you have it — to read the issue (\`issue show ${key} --json\`) and to post your progress on ${key} yourself.`;
+}
+
+/** Terminal, iTerm, Ghostty and Warp open a .command like a document; these take it as the program to run */
+const RUNS_AS_PROGRAM: Partial<Record<TerminalApp, string[]>> = { kitty: [], Alacritty: ['-e'], WezTerm: ['start', '--'] };
+
+function openArgs(app: TerminalApp, script: string): string[] {
+  const pre = RUNS_AS_PROGRAM[app];
+  return pre ? ['-na', app, '--args', ...pre, script] : ['-a', app, script];
+}
+
+const APP_DIRS = ['/Applications', '/Applications/Utilities', '/System/Applications/Utilities', join(homedir(), 'Applications')];
+
+/** the supported terminals present on this Mac — none off macOS */
+export function installedTerminals(): TerminalApp[] {
+  if (process.platform !== 'darwin') return [];
+  return TERMINAL_APPS.filter(app => APP_DIRS.some(dir => existsSync(join(dir, `${app}.app`))));
 }
 
 export interface LaunchResult { key: string; directory: string; location: { id: string; name: string }; pinned: boolean; scriptPath: string }
@@ -91,11 +107,12 @@ export function openInClaudeCode(store: Store, dbPath: string, issueId: string, 
   ].join('\n'), { mode: 0o700 });
 
   // test hook: a command that receives the launcher path instead of a terminal opening it
+  const { terminalApp } = store.getAgentConfig();
   const [cmd, args] = process.env.BASELINE_OPEN_CMD
     ? ['sh', ['-c', `${process.env.BASELINE_OPEN_CMD} "$1"`, 'sh', scriptPath]]
-    : ['open', ['-a', store.getAgentConfig().terminalApp, scriptPath]];
+    : ['open', openArgs(terminalApp, scriptPath)];
   try { execFileSync(cmd, args, { stdio: 'ignore' }); } catch (err) {
-    throw new LaunchError('launch-failed', `Could not open ${store.getAgentConfig().terminalApp}: ${(err as Error).message}`);
+    throw new LaunchError('launch-failed', `Could not open ${terminalApp}: ${(err as Error).message}`);
   }
   return { key, directory, location: { id: location.id, name: location.name }, pinned, scriptPath };
 }

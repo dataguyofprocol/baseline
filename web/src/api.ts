@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp } from '../../src/core/types.js';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -36,6 +36,7 @@ export const api = {
     const res = await fetch('/api/directories/pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, multiple }) });
     return res.json().catch(() => ({ directory: null, directories: [], error: `Server error (${res.status})` })) as Promise<{ directory: string | null; directories: string[]; error?: string }>;
   },
+  installedTerminals: () => req<{ installed: TerminalApp[] }>('GET', '/api/terminals'),
   checkDirectory: (directory: string) => req<{ exists: boolean }>('POST', '/api/directories/check', { directory }),
   createLocation: async (path: string, name?: string) => {
     const res = await fetch('/api/locations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, name }) });

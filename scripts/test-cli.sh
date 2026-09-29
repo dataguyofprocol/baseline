@@ -348,13 +348,13 @@ check_json "removing a location clears it from issues" "$WORK/l7.json" "d.locati
 checkon "$ADB" "handoff brief points at the baseline skill" "/baseline skill" issue handoff "$KI"
 
 echo "=== export / import ==="
-b agent config --terminal iTerm >/dev/null
+b agent config --terminal ghostty >/dev/null
 b location add "$WORK" --name workdir >/dev/null
 b export --out "$WORK/export.json"
 check_json "export has issues" "$WORK/export.json" "d.issues.length>5&&d.teams.length>=2&&Array.isArray(d.projects)"
 DB2=$(newdb 2)
 checkon "$DB2" "import summary" "Imported:" import "$WORK/export.json"
-checkon "$DB2" "import keeps the terminal choice" "terminal: iTerm" agent config
+checkon "$DB2" "import keeps the terminal choice" "terminal: Ghostty" agent config
 checkon "$DB2" "import keeps locations" "workdir" location list
 node -e '
 const f = process.argv[1]; const d = JSON.parse(require("fs").readFileSync(f, "utf8"));

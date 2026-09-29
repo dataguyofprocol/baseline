@@ -3,7 +3,7 @@ import { serve as nodeServe, type ServerType } from '@hono/node-server';
 import { openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
-import { isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
+import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
 import type { Priority, Snapshot, WorkflowStateType, RelationType } from '../core/types.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -150,6 +150,7 @@ export function createApp(dbPath: string) {
       throw err;
     }
   });
+  app.get('/api/terminals', (c) => c.json({ installed: installedTerminals() }));
   app.post('/api/directories/check', async (c) => {
     const b = await c.req.json() as { directory?: string };
     return c.json({ exists: isDirectory(normalizeDir(b.directory)) });

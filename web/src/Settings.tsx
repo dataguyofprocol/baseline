@@ -9,7 +9,7 @@ import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar } fro
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
-import type { WorkflowStateType, Priority } from '../../src/core/types.js';
+import { TERMINAL_APPS, type WorkflowStateType, type Priority, type TerminalApp } from '../../src/core/types.js';
 
 const NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
   { sec: 'Workspace settings', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Labels', 'labels'], ['Templates', 'templates'], ['Coding tools', 'handoff'], ['Appearance', 'appearance'], ['Import & export', 'data'], ['Keyboard shortcuts', 'shortcuts']] },
@@ -608,20 +608,22 @@ function HandoffSettings() {
 function ClaudeCodeSettings() {
   const ws = useApp(s => s.snap)!.workspace;
   const toast = useApp(s => s.toast);
-  const save = async (patch: { terminalApp?: 'Terminal' | 'iTerm' }, title: string) => {
-    await api.updateWorkspace(patch);
+  // null until the server says which terminals this Mac has; none found (off macOS) lists them all
+  const [installed, setInstalled] = useState<TerminalApp[] | null>(null);
+  useEffect(() => { void api.installedTerminals().then(r => setInstalled(r.installed)).catch(() => setInstalled([])); }, []);
+  const choices = !installed?.length ? [...TERMINAL_APPS] : installed.includes(ws.terminalApp) ? installed : [ws.terminalApp, ...installed];
+  const save = async (terminalApp: TerminalApp) => {
+    await api.updateWorkspace({ terminalApp });
     await useApp.getState().bootstrap();
-    toast({ title });
+    toast({ title: `Sessions open in ${terminalApp}` });
   };
   return (
     <div className="card settings-block">
       <div className="field-row">
-        <div><div className="field-label">Open sessions in</div><div className="field-help">The macOS app that runs interactive <code>claude</code> sessions.</div></div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {(['Terminal', 'iTerm'] as const).map(t => (
-            <button key={t} className={`seg seg-fill ${ws.terminalApp === t ? 'selected' : ''}`} onClick={() => void save({ terminalApp: t }, `Sessions open in ${t}`)}>{t}</button>
-          ))}
-        </div>
+        <div><div className="field-label">Open sessions in</div><div className="field-help">The macOS terminal app that runs interactive <code>claude</code> sessions.</div></div>
+        <select className="text-input" style={{ width: 170 }} value={ws.terminalApp} onChange={e => void save(e.target.value as TerminalApp)}>
+          {choices.map(t => <option key={t} value={t}>{t}{installed?.length && !installed.includes(t) ? ' (not installed)' : ''}</option>)}
+        </select>
       </div>
     </div>
   );

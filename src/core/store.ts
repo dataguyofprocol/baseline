@@ -10,6 +10,7 @@ import type {
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType,
 } from './types.js';
+import { toTerminalApp } from './types.js';
 
 interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; }
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
@@ -202,11 +203,11 @@ export class Store {
   getAgentConfig(): { agentUserId: string | null; terminalApp: TerminalApp } {
     return {
       agentUserId: this.claudeCodeUser()?.id ?? null,
-      terminalApp: getMeta(this.db, 'terminalApp') === 'iTerm' ? 'iTerm' : 'Terminal',
+      terminalApp: toTerminalApp(getMeta(this.db, 'terminalApp')),
     };
   }
   setAgentConfig(patch: { terminalApp?: TerminalApp }): void {
-    if (patch.terminalApp !== undefined) setMeta(this.db, 'terminalApp', patch.terminalApp === 'iTerm' ? 'iTerm' : 'Terminal');
+    if (patch.terminalApp !== undefined) setMeta(this.db, 'terminalApp', toTerminalApp(patch.terminalApp));
   }
   /** the one location an issue's agent works in — never a guess: unset means "ask" */
   locationFor(issue: Pick<Issue, 'locationId'>): Location | undefined {
@@ -656,7 +657,7 @@ export class Store {
       if (ws.createdAt) setMeta(this.db, 'workspaceCreatedAt', ws.createdAt);
       // coding-tools settings ride along
       if (ws.handoffPromptTemplate && ws.handoffPromptTemplate !== DEFAULT_PROMPT_TEMPLATE) setMeta(this.db, 'handoffPromptTemplate', ws.handoffPromptTemplate);
-      if (ws.terminalApp) setMeta(this.db, 'terminalApp', ws.terminalApp === 'iTerm' ? 'iTerm' : 'Terminal');
+      if (ws.terminalApp) setMeta(this.db, 'terminalApp', toTerminalApp(ws.terminalApp));
       // exports from before locations carried a default directory and recent picks — hand them to the migration below
       const legacy = ws as { agentCwd?: string; recentDirectories?: string[] };
       if (legacy.agentCwd) setMeta(this.db, 'agentCwd', normalizeDir(legacy.agentCwd));

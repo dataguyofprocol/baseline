@@ -48,7 +48,7 @@ issue create "Title" -t CORE -s "In Progress" -p high -a Ada -l Bug -j "Project"
 issue list -t CORE -s Todo -a me -j Project -p high -L Bug -q text [--archived] [--json]
 issue show CORE-3 [--json]     # description, sub-issues, relations, comments, activity
 issue handoff CORE-3 [--copy|--json]   # ready-to-paste agent prompt + suggested branch name
-issue open CORE-3 [--location <name|path>]   # interactive Claude Code session in a new Terminal window (macOS), in the issue's location
+issue open CORE-3 [--location <name|path>]   # interactive Claude Code session in a new terminal window (macOS), in the issue's location
 issue update CORE-3 -s Done -p urgent -a Jun --title "New" -d "md" --labels Bug,Perf --parent none --estimate none --due none --project none
 issue archive CORE-3 · issue unarchive CORE-3 · issue restore CORE-3 · issue delete CORE-3 [--purge]
 issue bulk CORE-3 CORE-4 -s Done -a Ada --add-labels Bug [--delete] [--archive]
@@ -68,7 +68,7 @@ team list · user list · user add "Codex" --agent · label list [-t CORE] · se
 label create "Bug" -t CORE -c "#eb5757" · label update … · label delete …
 location list · location add ~/code/api [-n api] [-j "Project"] · location rename api backend · location remove backend
 issue update CORE-3 --location api     # every task works in exactly one location ("none" clears); sub-issues inherit the parent's; a project's locations are only suggestions
-agent config [--terminal Terminal|iTerm]   # where `issue open` sessions launch
+agent config [--terminal Terminal|iTerm|Ghostty|Warp|kitty|Alacritty|WezTerm]   # where `issue open` sessions launch
 export [--out file] · import <file>    # full workspace backup / restore
 seed [--reset]
 ```

@@ -42,7 +42,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Properties rail: Status, Priority, Assignee, Labels, Project, Cycle, Due date (calendar popover with Today/Tomorrow/Next week), Estimate (0/1/2/3/5/8/13/21)
 - ✅ Activity feed: created/renamed/description/status/priority/assignee/label/project/parent/cycle/due/estimate/related events with relative times; comment composer (⌘⏎)
 - ✅ Comments: reactions (👍👎❤️🎉🚀😄 with counts + picker), edit/delete own, (edited) marker
-- ✅ Agent hand-off: Linear-style issue toolbar (copy URL ⌘⇧, · copy ID ⌘. · copy branch ⌘⇧. · copy as prompt ⌘⌥P) with a caret menu: **Open in Claude Code ▸** (the issue's location, its project's locations, other locations, or "Choose a folder…" via the native folder picker — picking one makes it the issue's location) launches an interactive `claude` session in Terminal or iTerm; also in row context menus and the palette
+- ✅ Agent hand-off: Linear-style issue toolbar (copy URL ⌘⇧, · copy ID ⌘. · copy branch ⌘⇧. · copy as prompt ⌘⌥P) with a caret menu: **Open in Claude Code ▸** (the issue's location, its project's locations, other locations, or "Choose a folder…" via the native folder picker — picking one makes it the issue's location) launches an interactive `claude` session in your terminal (Terminal, iTerm, Ghostty, Warp, kitty, Alacritty or WezTerm); also in row context menus and the palette
 - ✅ Locations: a workspace list of directories (usually git repos) linked many-to-many to projects; every issue works in exactly one (Location property; every open issue without one shows "Needs a location"); sub-issues inherit the parent's location; a project's locations are suggestions in the picker, never defaults; add several at once (⌘-click in the folder picker)
 - ✅ Hand-off is always explicit (Copy as prompt, Open in Claude Code): nothing picks up assigned issues on its own
 - ✅ Sub-issues: list rows nest under their parent (elbow + indent), show "› parent" when apart, and parents show a closed/total progress ring; issue page shows "Sub-issue of ◐ KEY title  ◌ n/m"; inline sub-issue composer inherits the parent's priority, assignee, cycle and project, and Enter creates and keeps it open for the next one
@@ -73,7 +73,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Members: list, add (human or agent identity), "set as me" (current user switch)
 - ✅ Labels: create with color, rename/recolor inline, delete (issue counts shown)
 - ✅ Templates: per-team issue templates (name, optional title, markdown description) offered in the create modal
-- ✅ Coding tools: locations (add, rename, see projects/issues using each, missing-path warning, remove), terminal app, prompt template editor with live preview
+- ✅ Coding tools: locations (add, rename, see projects/issues using each, missing-path warning, remove), terminal app dropdown (installed terminals only), prompt template editor with live preview
 - ✅ Appearance: dark/light
 - ✅ Import & export: export JSON, import JSON (full restore), reset sample workspace
 

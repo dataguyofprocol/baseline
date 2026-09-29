@@ -7,7 +7,7 @@ import { createApp, serve } from '../server/index.js';
 import { isDirectory, LaunchError, openInClaudeCode } from '../server/launch.js';
 import { resolveDbPath } from '../core/db.js';
 import { seedWorkspace } from '../core/seed.js';
-import { issueKey, PRIORITY_SHORT, PRIORITY_LABELS } from '../core/types.js';
+import { issueKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS } from '../core/types.js';
 import type { Priority, RelationType, Snapshot, Team, User, WorkflowState, Label, Project, Issue, Location } from '../core/types.js';
 
 const program = new Command();
@@ -924,11 +924,12 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof stor
 // ---------- coding tools ----------
 const agent = program.command('agent').description('Coding-tool settings for handing issues to Claude Code (`issue open`, `issue handoff`)');
 withDb(agent.command('config')).description('Show or change where `issue open` sessions launch')
-  .option('--terminal <app>', 'Terminal|iTerm')
+  .option('--terminal <app>', TERMINAL_APPS.join('|'))
   .action((opts: { db?: string; terminal?: string }) => {
     const store = storeFor(opts.db);
-    if (opts.terminal && !['Terminal', 'iTerm'].includes(opts.terminal)) fail(`Invalid terminal "${opts.terminal}" — use Terminal|iTerm`);
-    store.setAgentConfig({ terminalApp: opts.terminal as 'Terminal' | 'iTerm' | undefined });
+    const terminalApp = opts.terminal ? TERMINAL_APPS.find(t => t.toLowerCase() === opts.terminal!.toLowerCase()) : undefined;
+    if (opts.terminal && !terminalApp) fail(`Invalid terminal "${opts.terminal}" — use ${TERMINAL_APPS.join('|')}`);
+    store.setAgentConfig({ terminalApp });
     const c = store.getAgentConfig();
     console.log(`terminal: ${c.terminalApp}\nlocations: ${store.listLocations().length}`);
     process.exit(0);

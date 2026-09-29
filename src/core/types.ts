@@ -255,7 +255,12 @@ export interface Workspace {
   homeDir?: string;
 }
 
-export type TerminalApp = 'Terminal' | 'iTerm';
+/** macOS terminals interactive sessions can open in, by app name (`open -a <name>`) */
+export const TERMINAL_APPS = ['Terminal', 'iTerm', 'Ghostty', 'Warp', 'kitty', 'Alacritty', 'WezTerm'] as const;
+export type TerminalApp = typeof TERMINAL_APPS[number];
+export function toTerminalApp(v: unknown): TerminalApp {
+  return TERMINAL_APPS.includes(v as TerminalApp) ? v as TerminalApp : 'Terminal';
+}
 
 /** Full client snapshot — small scale, so the web app boots from one payload. */
 export interface Snapshot {

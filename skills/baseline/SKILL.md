@@ -58,7 +58,7 @@ baseline search "query"                     # issues + projects by substring
 baseline issue list [-t CORE] [-s Todo] [-a me] [-j Project] [-p high] [-L Bug] [-q text] [--archived] [--json] [--limit N]
 baseline issue show CORE-3 [--json]         # description, sub-issues, relations, comments, activity
 baseline issue handoff CORE-3 [--copy|--json]   # ready-to-paste agent prompt + suggested branch name
-baseline issue open CORE-3 [--location <name>]  # human-facing: opens an interactive Claude Code session in Terminal (macOS)
+baseline issue open CORE-3 [--location <name>]  # human-facing: opens an interactive Claude Code session in a terminal window (macOS)
 
 # create / update issues
 baseline issue create "Title" -t CORE -s "In Progress" -p high -a "Ada Osei" \
@@ -141,7 +141,7 @@ BASELINE_DB=/tmp/scratch.db baseline import /tmp/ws.json
 
 ## Handoff loop (picking up an issue handed to you)
 
-A human hands you an issue one of two ways: copies its brief into your prompt (web toolbar, or `baseline issue handoff KEY --copy`), or opens it with **Open in Claude Code** (a Terminal session started in the issue's location, with `BASELINE_DB`/`BASELINE_AS` already set, so your CLI writes post as "Claude Code"). Nothing is ever picked up automatically — assigning an issue to an agent user is just a label. The brief names the issue key and a suggested branch. Your side of the loop:
+A human hands you an issue one of two ways: copies its brief into your prompt (web toolbar, or `baseline issue handoff KEY --copy`), or opens it with **Open in Claude Code** (a terminal session started in the issue's location, with `BASELINE_DB`/`BASELINE_AS` already set, so your CLI writes post as "Claude Code"). Nothing is ever picked up automatically — assigning an issue to an agent user is just a label. The brief names the issue key and a suggested branch. Your side of the loop:
 
 ```bash
 baseline issue show CORE-3 --json          # full context: description, comments, blockers
@@ -162,7 +162,7 @@ baseline issue update CORE-3 -s Done       # only when truly finished; otherwise
 - Attribute your writes to your agent identity: add `--as "Codex"` to write commands (`issue create|update|bulk|archive|relate|comment`, `project note`) so activity, comments and notifications land under that user instead of the human's. Agent identities are marked `agent` in `user list`.
 - `BASELINE_AS=<name or user id>` does the same for every command without the flag (an explicit `--as` still wins) — export it once per agent session.
 - Locations: every task works in exactly one **location** (a registered directory, usually a git repo). There is no default directory — an issue without a location is never run anywhere by guess. Sub-issues start in their parent's location; nothing else is defaulted — a project's linked locations are only suggestions in the picker, so every other issue needs one chosen (the UI shows "Needs a location"). Set one with `issue update KEY --location <name>`.
-- Where sessions open: `baseline agent config --terminal Terminal|iTerm`. Session briefs live in `~/.baseline/sessions/` (owner-only, pruned after a week).
+- Where sessions open: `baseline agent config --terminal Terminal|iTerm|Ghostty|Warp|kitty|Alacritty|WezTerm`. Session briefs live in `~/.baseline/sessions/` (owner-only, pruned after a week).
 - Template overrides live in the web app under Settings ▸ Coding tools; `issue handoff --json` always reflects the current template.
 
 ## Conventions the store enforces (why your updates look the way they do)
