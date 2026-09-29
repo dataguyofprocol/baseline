@@ -50,6 +50,11 @@ export function Menu(props: {
       // move its J/K cursor or open the row under it
       if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setIndex(i => (i + 1) % Math.max(els.length, 1)); }
       if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setIndex(i => (i - 1 + els.length) % Math.max(els.length, 1)); }
+      // a digit cap in an item's right slot (priority 0–4, status 1–n) is a real shortcut
+      if (/^[0-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !(e.target as HTMLElement)?.closest?.('input, textarea')) {
+        const hit = els.find(el => el.querySelector('.mi-right .kbd')?.textContent === e.key);
+        if (hit) { e.preventDefault(); e.stopPropagation(); hit.click(); return; }
+      }
       const pick = els[Math.min(index, els.length - 1)];
       if (e.key === 'Enter' && pick && !(e.target as HTMLElement)?.closest?.('.menu-input')) {
         e.preventDefault(); e.stopPropagation(); pick.click();

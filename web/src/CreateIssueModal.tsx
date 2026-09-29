@@ -4,7 +4,7 @@ import { api } from './api.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconClose, IconPlus, IconExpand, IconAttach, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck } from './icons.js';
+import { IconClose, IconPlus, IconExpand, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck } from './icons.js';
 import type { Priority, Team } from '../../src/core/types.js';
 
 const SUGGESTIONS: Array<[RegExp, string]> = [
@@ -118,6 +118,8 @@ export function CreateIssueModal() {
   const states = snap ? snap.states.filter(s => s.teamId === team?.id) : [];
   const current = states.find(s => s.id === statusId) ?? states[0];
   const selectedLabels = snap?.labels.filter(l => labelIds.includes(l.id)) ?? [];
+  const assignee = assigneeId ? snap?.users.find(u => u.id === assigneeId) : undefined;
+  const project = projectId ? snap?.projects.find(p => p.id === projectId) : undefined;
   const teamLabels = snap?.labels.filter(l => l.teamId === team?.id) ?? [];
   const suggestion = title.trim()
     ? SUGGESTIONS.find(([re, name]) =>
@@ -226,11 +228,18 @@ export function CreateIssueModal() {
     <Modal onClose={closeCreate} className={`modal modal-create ${expanded ? 'expanded' : ''}`}>
       <div className="cm-root" onKeyDown={onModalKeyDown}>
       <div className="cm-header">
-        <button className="cm-team" onClick={teamMenu.open} title="Switch team">
-          <span className="cm-team-mark" style={{ background: team.color }}>{team.key.slice(0, 1)}</span>
-          <span>{team.name}</span>
-          <IconChevronDown size={12} style={{ color: 'var(--text-dim)' }} />
-        </button>
+        {snap.teams.length > 1 ? (
+          <button className="cm-team" onClick={teamMenu.open} title="Switch team">
+            <span className="cm-team-mark" style={{ background: team.color }}>{team.key.slice(0, 1)}</span>
+            <span>{team.name}</span>
+            <IconChevronDown size={12} style={{ color: 'var(--text-dim)' }} />
+          </button>
+        ) : (
+          <span className="cm-team static">
+            <span className="cm-team-mark" style={{ background: team.color }}>{team.key.slice(0, 1)}</span>
+            <span>{team.name}</span>
+          </span>
+        )}
         <span className="crumb-sep">›</span>
         {parent ? (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
@@ -250,7 +259,7 @@ export function CreateIssueModal() {
           <button className="icon-btn" title={expanded ? 'Contract' : 'Expand'} onClick={() => setExpanded(v => !v)}>
             <IconExpand size={14} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 140ms var(--ease)' }} />
           </button>
-          <button className="icon-btn" onClick={closeCreate}><IconClose size={14} /></button>
+          <button className="icon-btn" title="Close (Esc)" onClick={closeCreate}><IconClose size={14} /></button>
         </span>
       </div>
 
@@ -294,38 +303,45 @@ export function CreateIssueModal() {
       )}
 
       <div className="cm-pills">
-        <button className="prop-chip" onClick={statusMenu.open}>
+        <button className="prop-chip set" onClick={statusMenu.open}>
           {current && <StateIcon type={current.type} color={current.color} size={13} />}
-          {current?.name ?? 'Status'}
+          <span className="chip-text">{current?.name ?? 'Status'}</span>
         </button>
-        <button className="prop-chip" onClick={priorityMenu.open}>
+        <button className={`prop-chip${priority ? ' set' : ''}`} onClick={priorityMenu.open}>
           <PriorityIcon priority={priority} size={13} />
-          {priority === 0 ? 'Priority' : ['', 'Urgent', 'High', 'Medium', 'Low'][priority]}
+          <span className="chip-text">{priority === 0 ? 'Priority' : ['', 'Urgent', 'High', 'Medium', 'Low'][priority]}</span>
         </button>
-        <button className="prop-chip" onClick={assigneeMenu.open}>
-          {assigneeId
-            ? <Avatar user={snap.users.find(u => u.id === assigneeId)} size={16} />
+        <button className={`prop-chip${assignee ? ' set' : ''}`} onClick={assigneeMenu.open}>
+          {assignee
+            ? <Avatar user={assignee} size={16} />
             : <IconUser size={13} style={{ color: 'var(--text-dim)', margin: '0 1px' }} />}
-          {assigneeId ? snap.users.find(u => u.id === assigneeId)?.name.split(' ')[0] : 'Assignee'}
+          <span className="chip-text">{assignee ? (assignee.kind === 'agent' ? assignee.name : assignee.name.split(' ')[0]) : 'Assignee'}</span>
         </button>
-        <button className="prop-chip" onClick={projectMenu.open}>
-          <IconBox size={13} style={{ color: 'var(--text-dim)' }} />
-          {projectId ? snap.projects.find(p => p.id === projectId)?.name : 'Project'}
+        <button className={`prop-chip${project ? ' set' : ''}`} onClick={projectMenu.open}>
+          {project
+            ? <span className="proj-icon" style={{ width: 14, height: 14, fontSize: 11 }}>{project.icon}</span>
+            : <IconBox size={13} style={{ color: 'var(--text-dim)' }} />}
+          <span className="chip-text">{project?.name ?? 'Project'}</span>
         </button>
-        <button className="prop-chip" onClick={e => { setMorePhase('estimate'); moreMenu.open(e); }}>
+        <button className={`prop-chip${estimate != null ? ' set' : ''}`} onClick={e => { setMorePhase('estimate'); moreMenu.open(e); }}>
           <IconEstimate size={13} style={{ color: 'var(--text-dim)' }} />
-          {estimate != null ? `${estimate} pt${estimate !== 1 ? 's' : ''}` : 'Estimate'}
+          <span className="chip-text">{estimate != null ? `${estimate} pt${estimate !== 1 ? 's' : ''}` : 'Estimate'}</span>
         </button>
-        <button className="prop-chip" onClick={e => { setNewLabelName(''); labelsMenu.open(e); }}>
-          <IconTag size={13} style={{ color: 'var(--text-dim)' }} />
-          {selectedLabels.length ? selectedLabels.map(l => l.name).join(', ') : 'Labels'}
+        <button className={`prop-chip${selectedLabels.length ? ' set' : ''}`} onClick={e => { setNewLabelName(''); labelsMenu.open(e); }}>
+          {selectedLabels.length
+            ? <span className="cm-label-dots">{selectedLabels.slice(0, 3).map(l => <span key={l.id} className="label-dot" style={{ background: l.color }} />)}</span>
+            : <IconTag size={13} style={{ color: 'var(--text-dim)' }} />}
+          <span className="chip-text">
+            {selectedLabels.length === 0 ? 'Labels' : selectedLabels.length === 1 ? selectedLabels[0].name : `${selectedLabels.length} labels`}
+          </span>
         </button>
         {dueDate && (
-          <button className="prop-chip" onClick={e => { setMorePhase('due'); moreMenu.open(e); }}>
-            <IconCalendar size={13} style={{ color: 'var(--text-dim)' }} /> {shortDate(dueDate)}
+          <button className="prop-chip set" onClick={e => { setMorePhase('due'); moreMenu.open(e); }}>
+            <IconCalendar size={13} style={{ color: 'var(--text-dim)' }} />
+            <span className="chip-text">{shortDate(dueDate)}</span>
           </button>
         )}
-        <button className="prop-chip" style={{ padding: '0 8px' }} onClick={e => { setMorePhase('root'); moreMenu.open(e); }} title="More properties">
+        <button className="prop-chip cm-more-chip" onClick={e => { setMorePhase('root'); moreMenu.open(e); }} title="More properties">
           <IconMore size={13} />
         </button>
         {/* the title reads like a known label: offer it in place — a dashed chip
@@ -346,17 +362,16 @@ export function CreateIssueModal() {
       </div>
 
       <div className="cm-footer">
-        <button className="icon-btn" title="Attach file"><IconAttach size={15} /></button>
         {/* always laid out, only shown once there's something to save — no reflow */}
-        <button className="cm-link" style={{ visibility: title.trim() ? 'visible' : 'hidden', marginLeft: 6 }} onClick={saveDraft}>Save draft</button>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-secondary)' }}>
-            <button className={`toggle ${createMore ? 'on' : ''}`} onClick={() => setCreateMore(v => !v)} aria-label="Create more" />
+        <button className="cm-link" style={{ visibility: title.trim() ? 'visible' : 'hidden' }} onClick={saveDraft}>Save draft</button>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button className="cm-more" role="switch" aria-checked={createMore} onClick={() => setCreateMore(v => !v)}>
+            <span className={`toggle ${createMore ? 'on' : ''}`} />
             Create more
-          </span>
-          <button className="btn primary" onClick={create} disabled={!title.trim()}>
+          </button>
+          <button className="btn primary" onClick={create} disabled={!title.trim()} title={title.trim() ? undefined : 'Add a title first'}>
             {state.parentId ? 'Create sub-issue' : 'Create issue'}
-            <span className="btn-kbd kbd">⌘↵</span>
+            <span className="btn-keys"><span className="kbd">⌘</span><span className="kbd">↵</span></span>
           </button>
         </div>
       </div>
@@ -376,7 +391,7 @@ export function CreateIssueModal() {
       )}
       {statusMenu.anchor && (
         <Menu anchor={statusMenu.anchor} onClose={statusMenu.close}>
-          <div className="menu-header"><span>Change status…</span><span className="kbd">S</span></div>
+          <div className="menu-header"><span>Change status…</span></div>
           {snap.states.filter(s => s.teamId === team.id).map((s, i) => (
             <MenuItem key={s.id} icon={<StateIcon type={s.type} color={s.color} />} label={s.name} selected={s.id === current?.id}
               right={<span className="kbd">{i + 1}</span>} onClick={() => { setStatusId(s.id); statusMenu.close(); }} />
@@ -385,7 +400,7 @@ export function CreateIssueModal() {
       )}
       {priorityMenu.anchor && (
         <Menu anchor={priorityMenu.anchor} onClose={priorityMenu.close}>
-          <div className="menu-header"><span>Set priority to…</span><span className="kbd">P</span></div>
+          <div className="menu-header"><span>Set priority to…</span></div>
           {([[0, 'No priority'], [1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low']] as Array<[Priority, string]>).map(([v, label], i) => (
             <MenuItem key={v} icon={<PriorityIcon priority={v} size={14} />} label={label} selected={priority === v}
               right={<span className="kbd">{i}</span>} onClick={() => { setPriority(v); priorityMenu.close(); }} />
@@ -395,17 +410,32 @@ export function CreateIssueModal() {
       {assigneeMenu.anchor && (
         <Menu anchor={assigneeMenu.anchor} onClose={assigneeMenu.close}>
           <div className="menu-header"><span>Assign to…</span></div>
-          <MenuItem icon={<IconUser size={14} />} label="No assignee" selected={!assigneeId}
-            onClick={() => { setAssigneeId(null); assigneeMenu.close(); }} />
-          <MenuSep />
-          {snap.users.map(u => (
+          {snap.users.filter(u => u.kind !== 'agent').map(u => (
             <MenuItem key={u.id} icon={<Avatar user={u} size={18} />} label={u.name} selected={u.id === assigneeId} onClick={() => { setAssigneeId(u.id); assigneeMenu.close(); }} />
           ))}
+          {snap.users.some(u => u.kind === 'agent') && (
+            <>
+              <MenuSep />
+              <div className="menu-header"><span>Agents</span></div>
+              {snap.users.filter(u => u.kind === 'agent').map(u => (
+                <MenuItem
+                  key={u.id} icon={<Avatar user={u} size={18} />}
+                  label={snap.workspace.agentRunner === 'claude' && u.id === snap.workspace.agentUserId
+                    ? <>{u.name}<span className="mi-hint">auto-runs</span></>
+                    : u.name}
+                  selected={u.id === assigneeId} onClick={() => { setAssigneeId(u.id); assigneeMenu.close(); }}
+                />
+              ))}
+            </>
+          )}
+          <MenuSep />
+          <MenuItem icon={<IconUser size={14} />} label="No assignee" selected={!assigneeId}
+            onClick={() => { setAssigneeId(null); assigneeMenu.close(); }} />
         </Menu>
       )}
       {labelsMenu.anchor && (
         <Menu anchor={labelsMenu.anchor} onClose={labelsMenu.close} width={244}>
-          <div className="menu-header"><span>Add labels…</span><span className="kbd">L</span></div>
+          <div className="menu-header"><span>Add labels…</span></div>
           {/* create-on-the-fly row: dot cycles the color, Enter or Add creates + applies */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 8px 8px' }} onClick={e => e.stopPropagation()}>
             <button

@@ -56,6 +56,7 @@
   --scrollbar: rgba(255, 255, 255, 0.12);
   --status-backlog: #95a2b3;
   --status-todo: #8a8f98;
+  --status-todo-ink: #e2e2e2;
   --status-started: #f2c94c;
   --status-completed: #5e6ad2;
   --status-canceled: #7d8084;
@@ -104,6 +105,7 @@
   --scrollbar: rgba(9, 9, 10, 0.16);
   --status-backlog: #95a2b3;
   --status-todo: #8a8f98;
+  --status-todo-ink: #8a8f98;
   --status-started: #dcb67a;
   --status-completed: #5e6ad2;
   --status-canceled: #7d8084;
@@ -483,6 +485,9 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   background: var(--bg-pill); color: var(--text-primary); border: 1px solid var(--border);
 }
 .btn:hover { background: var(--bg-hover); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn:disabled:hover { background: var(--bg-pill); }
+.btn.primary:disabled:hover { background: var(--action-bg); }
 /* Paper is the primary action — one per surface. Indigo stops being a button
    colour and stays a signal. */
 .btn.primary {
@@ -494,6 +499,10 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .btn.secondary { background: transparent; border-color: var(--border-strong); color: var(--text-secondary); border-radius: 7px; }
 .btn.secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
 .btn .btn-kbd { margin-left: 2px; opacity: 0.7; }
+/* a chord as separate caps (⌘ ↵), same as tooltips and the palette footer —
+   one cap holding two glyphs reads as a smudge */
+.btn .btn-keys { display: inline-flex; gap: 3px; margin-left: 4px; }
+.btn .btn-keys .kbd { min-width: 18px; height: 18px; padding: 0 3px; font-size: 11.5px; font-family: -apple-system, system-ui, sans-serif; }
 /* keyboard hint on the paper button: graphite on paper — the ground already
    carries enough contrast, so the chip loses its fill */
 .btn.primary .kbd {
@@ -593,6 +602,20 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   background: var(--bg-pill); border: 1px solid transparent;
 }
 .cm-pills .prop-chip:hover { background: var(--bg-active); color: var(--text-primary); }
+/* chosen values read as content; empty chips stay prompts */
+.cm-pills .prop-chip.set { color: var(--text-primary); }
+.cm-pills .prop-chip { max-width: 220px; }
+.cm-pills .prop-chip > svg, .cm-pills .prop-chip > .avatar, .cm-pills .prop-chip > .proj-icon { flex: none; }
+.cm-pills .chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-pills .cm-more-chip { padding: 0 8px; }
+.cm-label-dots { display: inline-flex; flex: none; }
+.cm-label-dots .label-dot + .label-dot { margin-left: -2px; box-shadow: 0 0 0 1.5px var(--bg-pill); }
+.cm-more {
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; border-radius: 6px;
+  font-size: 12.5px; color: var(--text-secondary); transition: color 110ms ease;
+}
+.cm-more:hover { color: var(--text-primary); }
+.cm-more[aria-checked='true'] { color: var(--text-primary); }
 .cm-footer { display: flex; align-items: center; padding: 10px 14px 10px 12px; border-top: 1px solid var(--hairline); }
 .cm-footer .btn.primary { height: 32px; padding: 0 14px; }
 /* suggested label: a dashed ghost at the end of the chip row */
@@ -1254,6 +1277,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 /* create-modal team switcher */
 .cm-team { border-radius: 4px; padding: 2px 4px; color: var(--text-primary); }
 .cm-team:hover { background: var(--bg-hover); }
+.cm-team.static:hover { background: none; }
 
 /* hover-reveal helpers on settings rows */
 .prop-row.group { border-radius: 6px; padding: 0 4px; margin: 0 -4px; }

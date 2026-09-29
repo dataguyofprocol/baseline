@@ -11,7 +11,9 @@ import {
 import { STATUS_ORDER } from './store.js';
 
 export function StateIcon({ type, color, size = 14, morph }: { type: string; color?: string; size?: number; morph?: boolean }) {
-  const style = color ? { color } : undefined;
+  // the seeded Todo grey is near-white — tuned for dark; theme it so it
+  // doesn't vanish on a light ground
+  const style = color ? { color: color.toLowerCase() === '#e2e2e2' ? 'var(--status-todo-ink)' : color } : undefined;
   if (type === 'backlog') return <StatusBacklog size={size} style={style} />;
   if (type === 'unstarted') return <StatusTodo size={size} style={style} />;
   if (type === 'started') return <StatusStarted size={size} style={style} />;
