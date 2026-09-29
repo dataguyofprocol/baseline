@@ -43,11 +43,11 @@ function claudeBin(): string {
   try { return execFileSync('sh', ['-c', 'command -v claude'], { encoding: 'utf8' }).trim() || 'claude'; } catch { return 'claude'; }
 }
 
-export function interactivePrompt(store: Store, issueId: string, key: string): string {
+export function interactivePrompt(store: Store, issueId: string): string {
   return `${store.handoffFor(issueId)!.prompt}
 
 ---
-Baseline CLI: \`node ${CLI_BIN}\` (BASELINE_DB and BASELINE_AS are set, so writes go to this workspace and are attributed to you). Use it — or the /baseline skill if you have it — to read the issue (\`issue show ${key} --json\`) and to post your progress on ${key} yourself.`;
+The baseline CLI in this session is \`node ${CLI_BIN}\` — run the commands above with it. BASELINE_DB and BASELINE_AS are set, so it writes to this workspace and posts as Claude Code.`;
 }
 
 /** Terminal, iTerm, Ghostty and Warp open a .command like a document; these take it as the program to run */
@@ -95,7 +95,7 @@ export function openInClaudeCode(store: Store, dbPath: string, issueId: string, 
   const promptPath = join(SESSIONS_DIR, `${base}.md`);
   const scriptPath = join(SESSIONS_DIR, `${base}.command`);
   // the brief can hold private issue text: owner-only, like the launcher
-  writeFileSync(promptPath, interactivePrompt(store, issue.id, key), { mode: 0o600 });
+  writeFileSync(promptPath, interactivePrompt(store, issue.id), { mode: 0o600 });
   writeFileSync(scriptPath, [
     '#!/bin/sh',
     `cd ${sq(directory)} || exit 1`,

@@ -4,12 +4,12 @@
 import { issueKey, PRIORITY_SHORT } from './types.js';
 import type { Handoff, Issue, Label, Priority, Project, Team, WorkflowState } from './types.js';
 
-export const DEFAULT_PROMPT_TEMPLATE = `Implement Baseline issue {{key}}: {{title}}
+export const DEFAULT_PROMPT_TEMPLATE = `Work on Baseline issue {{key}}: {{title}}
 
 {{description}}
 
 Issue: {{url}}
-Branch: {{branch}} (create from main).
+Branch: {{branch}} (if this changes code, create it from the repo's default branch).
 
 Track the work on {{key}} with the baseline CLI (or the /baseline skill, if you have it):
 - Start: set the state to In Progress (\`issue update {{key}} -s "In Progress"\`) and read the full context with \`issue show {{key}} --json\` (comments, sub-issues, blockers).
@@ -82,7 +82,8 @@ export function branchName(key: string, title: string): string {
 }
 
 export function renderHandoff(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => vars[name] ?? '');
+  // an empty variable (often the description) shouldn't leave a hole in the prompt
+  return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => vars[name] ?? '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export interface HandoffContext {
