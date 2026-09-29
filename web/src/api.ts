@@ -47,7 +47,6 @@ export const api = {
   },
   deleteLocation: (id: string) => req<{ ok: true }>('DELETE', `/api/locations/${id}`),
   setProjectLocations: (projectId: string, locationIds: string[]) => req<{ ok: true }>('PATCH', `/api/projects/${projectId}`, { locationIds }),
-  cleanWorktrees: (all = false) => req<{ removed: string[]; kept: Array<{ path: string; reason: string }> }>('POST', '/api/agent/clean', { all }),
   createTemplate: (b: { teamId: string; name: string; title?: string; description?: string }) => req<{ template: IssueTemplate }>('POST', '/api/issue-templates', b),
   updateTemplate: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/issue-templates/${id}`, patch),
   deleteTemplate: (id: string) => req<{ ok: true }>('DELETE', `/api/issue-templates/${id}`),

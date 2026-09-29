@@ -5,7 +5,7 @@ import { getMeta, migrateDirectoriesToLocations, setMeta } from './db.js';
 import { id, nowIso, midSort } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import type {
-  ActivityItem, ActivityType, AgentRunner, TerminalApp, Comment, Location, Cycle, Favorite, Handoff,
+  ActivityItem, ActivityType, TerminalApp, Comment, Location, Cycle, Favorite, Handoff,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType,
@@ -17,7 +17,7 @@ interface TemplateRow { id: string; team_id: string; name: string; title: string
 function ts(): string { return nowIso(); }
 
 /** '' stays '' (unset); `~/x` expands; anything else resolves to an absolute path, so the
- *  runner's existence check and the launcher's `cd` see the same directory */
+ *  existence checks and the launcher's `cd` see the same directory */
 export function normalizeDir(dir: string | null | undefined): string {
   const d = String(dir ?? '').trim();
   if (!d) return '';
@@ -49,7 +49,7 @@ export class Store {
     const projectLocs = this.projectLocationMap();
     const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human' }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
-    const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig(), agentRunningIssueId: null };
+    const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig() };
     const currentUser = users.find(u => u.id === (getMeta(this.db, 'currentUser') ?? '')) ?? users[0];
     return {
       workspace, users, currentUser: currentUser!,
@@ -198,18 +198,15 @@ export class Store {
     else setMeta(this.db, 'handoffPromptTemplate', template);
   }
 
-  // ---------- integrated agent ----------
-  getAgentConfig(): { agentRunner: AgentRunner; agentUserId: string | null; terminalApp: TerminalApp } {
-    const r = getMeta(this.db, 'agentRunner');
+  // ---------- coding tools ----------
+  getAgentConfig(): { agentUserId: string | null; terminalApp: TerminalApp } {
     return {
-      agentRunner: r === 'claude' ? r : 'none', agentUserId: this.claudeCodeUser()?.id ?? null,
+      agentUserId: this.claudeCodeUser()?.id ?? null,
       terminalApp: getMeta(this.db, 'terminalApp') === 'iTerm' ? 'iTerm' : 'Terminal',
     };
   }
-  setAgentConfig(patch: { agentRunner?: AgentRunner; terminalApp?: TerminalApp }): void {
-    if (patch.agentRunner !== undefined) setMeta(this.db, 'agentRunner', patch.agentRunner === 'claude' ? 'claude' : 'none');
+  setAgentConfig(patch: { terminalApp?: TerminalApp }): void {
     if (patch.terminalApp !== undefined) setMeta(this.db, 'terminalApp', patch.terminalApp === 'iTerm' ? 'iTerm' : 'Terminal');
-    if (patch.agentRunner === 'claude') this.ensureClaudeCodeUser();
   }
   /** the one location an issue's agent works in — never a guess: unset means "ask" */
   locationFor(issue: Pick<Issue, 'locationId'>): Location | undefined {
@@ -273,7 +270,7 @@ export class Store {
     return parent?.locationId ?? null;
   }
   claudeCodeUserId(): string { return this.ensureClaudeCodeUser(); }
-  /** the dedicated assignee the runner owns — other agent users (e.g. "Agent") stay copy-prompt only */
+  /** the "Claude Code" identity: interactive sessions write through the CLI as this user */
   private claudeCodeUser(): { id: string } | undefined {
     const byId = getMeta(this.db, 'agentUserId');
     return (byId ? this.db.prepare('SELECT id FROM users WHERE id = ?').get(byId) as { id: string } | undefined : undefined)
@@ -283,25 +280,6 @@ export class Store {
     const uid = this.claudeCodeUser()?.id ?? this.createUser('Claude Code', 'claude-code@local', false, 'agent').id;
     setMeta(this.db, 'agentUserId', uid);
     return uid;
-  }
-  /** why a queued issue can't start (one comment per reason, so the runner never spams a thread) */
-  agentNudges(): Record<string, string> {
-    try { return JSON.parse(getMeta(this.db, 'agentNudges') ?? '{}') as Record<string, string>; } catch { return {}; }
-  }
-  setAgentNudge(issueId: string, reason: string | null): void {
-    const all = this.agentNudges();
-    if (reason) all[issueId] = reason; else delete all[issueId];
-    setMeta(this.db, 'agentNudges', JSON.stringify(all));
-  }
-  /** not-yet-started issues assigned to the Claude Code user, oldest first — the integrated agent's queue */
-  agentQueue(): Issue[] {
-    const uid = this.claudeCodeUser()?.id;
-    if (!uid) return [];
-    const rows = this.db.prepare(`SELECT i.* FROM issues i
-      JOIN states s ON s.id = i.state_id AND s.type IN ('backlog', 'unstarted')
-      WHERE i.assignee_id = ? AND i.archived_at IS NULL AND i.deleted_at IS NULL
-      ORDER BY i.updated_at`).all(uid) as unknown as IssueRow[];
-    return rows.map(r => this.mapIssue(r));
   }
   /** first state of a type by position — e.g. the team's "In Progress" for 'started' */
   stateOfType(teamId: string, type: WorkflowStateType): string | undefined {
@@ -369,7 +347,6 @@ export class Store {
     if (patch.priority !== undefined && patch.priority !== before.priority) acts.push(['priorityChanged', { from: before.priority, to: next.priority }]);
     if (patch.assigneeId !== undefined && patch.assigneeId !== before.assigneeId) {
       acts.push([next.assigneeId ? 'assigned' : 'unassigned', { to: next.assigneeId, from: before.assigneeId }]);
-      this.setAgentNudge(issueId, null); // a fresh assignment deserves a fresh "here's what I need"
       if (next.assigneeId) this.notifyAssign(issueId, next.assigneeId, actorId);
     }
     if (patch.projectId !== undefined && patch.projectId !== before.projectId) acts.push(['projected', { to: next.projectId }]);
@@ -677,7 +654,7 @@ export class Store {
       if (ws.id) setMeta(this.db, 'workspaceId', ws.id);
       if (ws.name) setMeta(this.db, 'workspaceName', ws.name);
       if (ws.createdAt) setMeta(this.db, 'workspaceCreatedAt', ws.createdAt);
-      // coding-tools settings ride along; the background runner is left off so a restore never starts runs by itself
+      // coding-tools settings ride along
       if (ws.handoffPromptTemplate && ws.handoffPromptTemplate !== DEFAULT_PROMPT_TEMPLATE) setMeta(this.db, 'handoffPromptTemplate', ws.handoffPromptTemplate);
       if (ws.terminalApp) setMeta(this.db, 'terminalApp', ws.terminalApp === 'iTerm' ? 'iTerm' : 'Terminal');
       // exports from before locations carried a default directory and recent picks — hand them to the migration below

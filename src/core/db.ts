@@ -219,6 +219,8 @@ function migrate(db: DatabaseSync): void {
   if (!columns('projects').includes('directory')) db.exec("ALTER TABLE projects ADD COLUMN directory TEXT NOT NULL DEFAULT ''");
   if (!columns('issues').includes('location_id')) db.exec('ALTER TABLE issues ADD COLUMN location_id TEXT');
   migrateDirectoriesToLocations(db);
+  // the background runner was removed — its switch and bookkeeping go with it
+  db.prepare("DELETE FROM meta WHERE key IN ('agentRunner', 'agentNudges')").run();
   if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
 
   // initiatives were removed from the model — drop leftover tables from pre-existing databases

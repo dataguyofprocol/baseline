@@ -569,7 +569,6 @@ function HandoffSettings() {
       </div>
       <LocationsSettings />
       <ClaudeCodeSettings />
-      <AgentRunnerSettings />
       <h2 className="settings-h2">Prompt template</h2>
       <div className="field-help" style={{ marginBottom: 10 }}>
         The same brief is used by the toolbar, <code>baseline issue handoff</code>, the palette and both Claude Code launchers.
@@ -623,40 +622,6 @@ function ClaudeCodeSettings() {
             <button key={t} className={`seg seg-fill ${ws.terminalApp === t ? 'selected' : ''}`} onClick={() => void save({ terminalApp: t }, `Sessions open in ${t}`)}>{t}</button>
           ))}
         </div>
-      </div>
-    </div>
-  );
-}
-
-/* integrated agent: issues assigned to Claude Code run headlessly, one at a time */
-function AgentRunnerSettings() {
-  const ws = useApp(s => s.snap)!.workspace;
-  const toast = useApp(s => s.toast);
-  const on = ws.agentRunner === 'claude';
-  const save = async (agentRunner: 'none' | 'claude') => {
-    await api.updateWorkspace({ agentRunner });
-    await useApp.getState().bootstrap();
-    toast({ title: agentRunner === 'claude' ? 'Background runs on' : 'Background runs off' });
-  };
-  return (
-    <div className="card settings-block">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ flex: 1 }}>
-          <div className="field-label">Run in the background</div>
-          <div className="field-help">
-            Issues assigned to <b>Claude Code</b> are picked up within 30s, one at a time, via <code>claude -p</code> (edits, git and the baseline CLI only).
-            Each run gets its own git worktree of the issue's location under <code>~/.baseline/agent-runs</code>, on the issue's branch — your checkout is never touched.
-            An issue without a git-repo location isn't started; it gets one comment saying what it needs. Other agents like “Agent” are never run.
-          </div>
-        </div>
-        <button className={'btn' + (on ? '' : ' primary')} onClick={() => void save(on ? 'none' : 'claude')}>{on ? 'Turn off' : 'Turn on'}</button>
-      </div>
-      <div className="field-row" style={{ marginTop: 10, paddingBottom: 0, borderBottom: 0 }}>
-        <div><div className="field-label">Finished worktrees</div><div className="field-help">Remove run worktrees whose issue is done or canceled. Branches are kept, and a worktree with uncommitted changes is never removed.</div></div>
-        <button className="btn" onClick={async () => {
-          const r = await api.cleanWorktrees();
-          toast({ title: r.removed.length ? `Removed ${r.removed.length} worktree${r.removed.length === 1 ? '' : 's'}` : 'Nothing to clean up', line: r.kept.length ? `${r.kept.length} kept (open issue or uncommitted changes)` : undefined });
-        }}>Clean up</button>
       </div>
     </div>
   );

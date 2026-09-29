@@ -44,7 +44,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Comments: reactions (👍👎❤️🎉🚀😄 with counts + picker), edit/delete own, (edited) marker
 - ✅ Agent hand-off: Linear-style issue toolbar (copy URL ⌘⇧, · copy ID ⌘. · copy branch ⌘⇧. · copy as prompt ⌘⌥P) with a caret menu: **Open in Claude Code ▸** (the issue's location, its project's locations, other locations, or "Choose a folder…" via the native folder picker — picking one makes it the issue's location) launches an interactive `claude` session in Terminal or iTerm; also in row context menus and the palette
 - ✅ Locations: a workspace list of directories (usually git repos) linked many-to-many to projects; every issue works in exactly one (Location property; every open issue without one shows "Needs a location"); sub-issues inherit the parent's location; a project's locations are suggestions in the picker, never defaults; add several at once (⌘-click in the folder picker)
-- ✅ Background runs are isolated: a git worktree per issue under ~/.baseline/agent-runs on the brief's branch (your checkout is never touched); non-git or missing locations get one explanatory comment instead of a run; `agent clean` / Settings removes finished worktrees
+- ✅ Hand-off is always explicit (Copy as prompt, Open in Claude Code): nothing picks up assigned issues on its own
 - ✅ Sub-issues: list rows nest under their parent (elbow + indent), show "› parent" when apart, and parents show a closed/total progress ring; issue page shows "Sub-issue of ◐ KEY title  ◌ n/m"; inline sub-issue composer inherits the parent's priority, assignee, cycle and project, and Enter creates and keeps it open for the next one
 
 ## 5. Board view
@@ -73,7 +73,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Members: list, add (human or agent identity), "set as me" (current user switch)
 - ✅ Labels: create with color, rename/recolor inline, delete (issue counts shown)
 - ✅ Templates: per-team issue templates (name, optional title, markdown description) offered in the create modal
-- ✅ Coding tools: locations (add, rename, see projects/issues using each, missing-path warning, remove), terminal app, background runner toggle + worktree cleanup, prompt template editor with live preview
+- ✅ Coding tools: locations (add, rename, see projects/issues using each, missing-path warning, remove), terminal app, prompt template editor with live preview
 - ✅ Appearance: dark/light
 - ✅ Import & export: export JSON, import JSON (full restore), reset sample workspace
 

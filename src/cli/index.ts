@@ -4,8 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createApp, serve } from '../server/index.js';
-import { cleanWorktrees, isDirectory, runNextAgentIssue } from '../server/agentRunner.js';
-import { LaunchError, openInClaudeCode } from '../server/launch.js';
+import { isDirectory, LaunchError, openInClaudeCode } from '../server/launch.js';
 import { resolveDbPath } from '../core/db.js';
 import { seedWorkspace } from '../core/seed.js';
 import { issueKey, PRIORITY_SHORT, PRIORITY_LABELS } from '../core/types.js';
@@ -922,38 +921,16 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof stor
   return { ...projectJson(p, snap, store), issues, updates, milestones };
 }
 
-// ---------- integrated agent (Claude Code) ----------
-const agent = program.command('agent').description('Integrated agent: runs issues assigned to the "Claude Code" user through Claude Code');
-withDb(agent.command('config')).description('Show or change the integrated agent setup')
-  .option('--claude', 'turn the integrated agent on (Claude Code)')
-  .option('--off', 'turn it off (copy-prompt only)')
-  .option('--terminal <app>', 'Terminal|iTerm — where `issue open` sessions launch')
-  .option('--cwd <dir>', '(removed — agents now work in each issue\'s location; see `location --help`)')
-  .action((opts: { db?: string; claude?: boolean; off?: boolean; cwd?: string; terminal?: string }) => {
+// ---------- coding tools ----------
+const agent = program.command('agent').description('Coding-tool settings for handing issues to Claude Code (`issue open`, `issue handoff`)');
+withDb(agent.command('config')).description('Show or change where `issue open` sessions launch')
+  .option('--terminal <app>', 'Terminal|iTerm')
+  .action((opts: { db?: string; terminal?: string }) => {
     const store = storeFor(opts.db);
-    if (opts.cwd !== undefined) fail('There is no default directory any more: each issue has a location. Register one with `location add <path>`, link it with `project update <name> --add-location <name>`, and set it on issues with `issue update KEY --location <name>`.');
     if (opts.terminal && !['Terminal', 'iTerm'].includes(opts.terminal)) fail(`Invalid terminal "${opts.terminal}" — use Terminal|iTerm`);
-    store.setAgentConfig({ agentRunner: opts.claude ? 'claude' : opts.off ? 'none' : undefined, terminalApp: opts.terminal as 'Terminal' | 'iTerm' | undefined });
+    store.setAgentConfig({ terminalApp: opts.terminal as 'Terminal' | 'iTerm' | undefined });
     const c = store.getAgentConfig();
-    console.log(`runner: ${c.agentRunner === 'claude' ? 'Claude Code' : 'off'}\nterminal: ${c.terminalApp}\nlocations: ${store.listLocations().length}`);
-    process.exit(0);
-  });
-withDb(agent.command('run')).description('Run the next queued agent issue now and wait for it (the server does this every 30s)')
-  .action(async (opts: { db?: string }) => {
-    const path = resolveDbPath(opts.db);
-    const r = await runNextAgentIssue(storeFor(path), path);
-    if (!r) console.log('nothing to run (agent off, or no Todo/Backlog issue assigned to Claude Code with a git-repo location)');
-    else console.log(`${r.ok ? 'finished' : 'failed'} ${r.key} — log: ${r.logPath}`);
-    process.exit(r && !r.ok ? 1 : 0);
-  });
-
-withDb(agent.command('clean')).description("Remove background-run worktrees (~/.baseline/agent-runs) whose issue is closed; dirty ones are kept")
-  .option('--all', 'also remove worktrees of open issues (still never a dirty one)', false)
-  .action((opts: { db?: string; all?: boolean }) => {
-    const r = cleanWorktrees(storeFor(opts.db), { all: opts.all });
-    for (const p of r.removed) console.log(`removed ${p}`);
-    for (const k of r.kept) console.log(`kept    ${k.path} — ${k.reason}`);
-    if (!r.removed.length && !r.kept.length) console.log('no run worktrees');
+    console.log(`terminal: ${c.terminalApp}\nlocations: ${store.listLocations().length}`);
     process.exit(0);
   });
 

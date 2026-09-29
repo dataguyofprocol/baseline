@@ -174,7 +174,7 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
           <div className="menu-header"><span>Agents</span></div>
           {snap.users.filter(u => u.kind === 'agent').map(u => (
             <MenuItem key={u.id} icon={<Avatar user={u} size={18} />}
-              label={snap.workspace.agentRunner === 'claude' && u.id === snap.workspace.agentUserId ? <>{u.name}<span className="mi-hint">auto-runs</span></> : u.name}
+              label={u.name}
               selected={u.id === assigneeId} onClick={() => setAssigneeId(u.id)} />
           ))}
           <MenuSep />

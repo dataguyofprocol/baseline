@@ -3,8 +3,7 @@ import { serve as nodeServe, type ServerType } from '@hono/node-server';
 import { openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
-import { agentRunningIssueId, cleanWorktrees, isDirectory, startAgentRunner } from './agentRunner.js';
-import { LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
+import { isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
 import type { Priority, Snapshot, WorkflowStateType, RelationType } from '../core/types.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -61,7 +60,6 @@ export function createApp(dbPath: string) {
   // ---------- bootstrap ----------
   app.get('/api/bootstrap', (c) => {
     const snap = store.snapshot();
-    snap.workspace.agentRunningIssueId = agentRunningIssueId();
     snap.workspace.homeDir = homedir();
     return c.json(snap);
   });
@@ -170,10 +168,6 @@ export function createApp(dbPath: string) {
     return c.json({ ok: true });
   });
   app.delete('/api/locations/:id', (c) => { store.deleteLocation(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/agent/clean', async (c) => {
-    const b = await c.req.json().catch(() => ({})) as { all?: boolean };
-    return c.json(cleanWorktrees(store, { all: !!b.all }));
-  });
 
   // ---------- comments ----------
   app.post('/api/issues/:id/comments', async (c) => {
@@ -344,7 +338,7 @@ export function createApp(dbPath: string) {
     if (b.name) store.setWorkspaceName(b.name);
     if (b.currentUserId) store.setCurrentUser(b.currentUserId);
     if ('handoffPromptTemplate' in b) store.setHandoffTemplate(b.handoffPromptTemplate ?? null);
-    if ('agentRunner' in b || 'terminalApp' in b) store.setAgentConfig({ agentRunner: b.agentRunner, terminalApp: b.terminalApp });
+    if ('terminalApp' in b) store.setAgentConfig({ terminalApp: b.terminalApp });
     return c.json({ ok: true });
   });
 
@@ -388,8 +382,7 @@ export function createApp(dbPath: string) {
 export function serve(opts: ServeOptions = {}): { server: ServerType; port: number } {
   const dbPath = resolveDbPath(opts.dbPath);
   const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7770);
-  const { app, store } = createApp(dbPath);
-  startAgentRunner(store, dbPath);
+  const { app } = createApp(dbPath);
   // loopback by default: IPv4 and IPv6 each get a listener, since `localhost` may resolve to either
   const server = nodeServe({ fetch: app.fetch, port, hostname: LISTEN_HOST || '127.0.0.1' });
   if (!LISTEN_HOST) {

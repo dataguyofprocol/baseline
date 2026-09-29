@@ -247,19 +247,14 @@ export interface Workspace {
   createdAt: string;
   /** resolved handoff prompt template (meta value or code default) */
   handoffPromptTemplate: string;
-  /** runs issues assigned to an agent user through Claude Code ('none' = copy-prompt only) */
-  agentRunner: AgentRunner;
   /** macOS app that interactive Claude Code sessions open in */
   terminalApp: TerminalApp;
-  /** the "Claude Code" agent user whose assigned issues the runner picks up */
+  /** the "Claude Code" agent user — interactive sessions post under it */
   agentUserId: string | null;
-  /** issue the integrated agent is working on right now (server memory, null when idle) */
-  agentRunningIssueId: string | null;
   /** the server's home directory, so the web app can show paths as ~/… (server memory) */
   homeDir?: string;
 }
 
-export type AgentRunner = 'none' | 'claude';
 export type TerminalApp = 'Terminal' | 'iTerm';
 
 /** Full client snapshot — small scale, so the web app boots from one payload. */

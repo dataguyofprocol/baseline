@@ -749,7 +749,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 }
 .desc-placeholder { color: var(--text-dim); font-size: 14px; padding: 4px 0; cursor: text; }
 .issue-toolbar { display: flex; align-items: center; gap: 6px; }
-.issue-toolbar .agent-running { color: var(--text-secondary); font-size: 12px; margin-right: 4px; }
 /* hand-off controls: round, hairline-bordered buttons; the prompt + caret pair shares one pill */
 .tb-btn {
   display: flex; align-items: center; justify-content: center;

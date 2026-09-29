@@ -4,12 +4,18 @@
 // No AppleScript automation permission is needed for that; the folder picker uses `choose folder`.
 
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { normalizeDir, type Store } from '../core/store.js';
 import { issueKey } from '../core/types.js';
-import { CLI_BIN, isDirectory } from './agentRunner.js';
+
+export const CLI_BIN = resolve(fileURLToPath(import.meta.url), '../../../bin/baseline.js');
+
+export function isDirectory(p: string): boolean {
+  try { return !!p && existsSync(p) && statSync(p).isDirectory(); } catch { return false; }
+}
 
 const SESSIONS_DIR = process.env.BASELINE_SESSIONS_DIR ?? join(homedir(), '.baseline', 'sessions');
 

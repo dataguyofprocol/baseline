@@ -68,7 +68,7 @@ team list · user list · user add "Codex" --agent · label list [-t CORE] · se
 label create "Bug" -t CORE -c "#eb5757" · label update … · label delete …
 location list · location add ~/code/api [-n api] [-j "Project"] · location rename api backend · location remove backend
 issue update CORE-3 --location api     # every task works in exactly one location ("none" clears); sub-issues inherit the parent's; a project's locations are only suggestions
-agent config [--claude|--off] [--terminal Terminal|iTerm] · agent run · agent clean [--all]   # background runs use a worktree per issue in ~/.baseline/agent-runs
+agent config [--terminal Terminal|iTerm]   # where `issue open` sessions launch
 export [--out file] · import <file>    # full workspace backup / restore
 seed [--reset]
 ```

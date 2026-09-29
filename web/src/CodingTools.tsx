@@ -144,7 +144,6 @@ export function OpenInClaudeItems(props: { issue: Issue; actions: HandoffActions
 }
 
 export function IssueToolbar(props: { issue: Issue }) {
-  const snap = useApp(s => s.snap)!;
   const actions = useHandoffActions(props.issue);
   useHandoffShortcuts(actions);
   const menu = useMenu();
@@ -152,9 +151,6 @@ export function IssueToolbar(props: { issue: Issue }) {
   const pinned = useApp(s => s.snap?.locations.find(l => l.id === props.issue.locationId));
   return (
     <div className="issue-toolbar">
-      {snap.workspace.agentRunningIssueId === props.issue.id && (
-        <span className="agent-running" title="Claude Code is working on this issue">Agent running…</span>
-      )}
       <button className="tb-btn" title="Copy issue URL (⌘⇧,)" onClick={() => void actions.copyUrl()}><IconLink size={15} /></button>
       <button className="tb-btn" title="Copy issue ID (⌘.)" onClick={() => void actions.copyId()}><IconCopyId size={15} /></button>
       <button className="tb-btn" title="Copy git branch name (⌘⇧.)" onClick={() => void actions.copyBranch()}><IconBranch size={15} /></button>
@@ -220,12 +216,11 @@ export function IssueLocationRow(props: { issue: Issue }) {
   // every open task should say where it happens — not just the ones handed to Claude Code
   const stateType = snap.states.find(s => s.id === props.issue.stateId)?.type;
   const needs = !loc && stateType !== 'completed' && stateType !== 'canceled';
-  const forAgent = props.issue.assigneeId != null && props.issue.assigneeId === snap.workspace.agentUserId;
   const c = locationChoices(props.issue);
   return (
     <>
       <button className={`prop-line ${loc ? '' : needs ? 'warn' : 'dim'}`} onClick={menu.open}
-        title={loc ? tildify(loc.path, snap.workspace.homeDir) : forAgent ? 'Claude Code needs a location before it can start' : 'The local folder this task happens in'}>
+        title={loc ? tildify(loc.path, snap.workspace.homeDir) : 'The local folder this task happens in — Open in Claude Code starts there'}>
         <IconFolder size={14} />
         <span className="prop-line-label">{loc ? loc.name : needs ? 'Needs a location' : 'No location'}</span>
       </button>
