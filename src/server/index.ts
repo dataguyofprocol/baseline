@@ -4,7 +4,7 @@ import { openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
 import { agentRunningIssueId, cleanWorktrees, isDirectory, startAgentRunner } from './agentRunner.js';
-import { LaunchError, openInClaudeCode, pickDirectory } from './launch.js';
+import { LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
 import type { Priority, Snapshot, WorkflowStateType, RelationType } from '../core/types.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -74,7 +74,7 @@ export function createApp(dbPath: string) {
       priority: b.priority, assigneeId: b.assigneeId ?? null, projectId: b.projectId ?? null,
       parentId: b.parentId ?? null, cycleId: b.cycleId ?? null, labelIds: b.labelIds,
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null,
-      // omitted = inherit (parent, else the project's only location); null = explicitly none
+      // omitted = a sub-issue inherits its parent's (nothing else is defaulted); null = explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
     });
     return c.json({ issue }, 201);
@@ -143,9 +143,10 @@ export function createApp(dbPath: string) {
 
   // ---------- coding directories ----------
   app.post('/api/directories/pick', async (c) => {
-    const b = await c.req.json().catch(() => ({})) as { prompt?: string };
+    const b = await c.req.json().catch(() => ({})) as { prompt?: string; multiple?: boolean };
     try {
-      return c.json({ directory: await pickDirectory(b.prompt) });
+      const directories = await pickDirectories(b.prompt, !!b.multiple);
+      return c.json({ directories, directory: directories[0] ?? null });
     } catch (err) {
       if (err instanceof LaunchError) return c.json({ error: err.message, code: err.code }, 400);
       throw err;

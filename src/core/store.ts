@@ -266,12 +266,11 @@ export class Store {
     [...new Set(locationIds)].filter(l => known.has(l)).forEach((lid, n) =>
       this.db.prepare('INSERT INTO project_locations (project_id, location_id, position) VALUES (?, ?, ?)').run(projectId, lid, n));
   }
-  /** where a new issue starts: its parent's location, else its project's when the project has exactly one */
-  defaultLocationFor(input: { parentId?: string | null; projectId?: string | null }): string | null {
+  /** where a new issue starts: a sub-issue where its parent happens; anything else has no location
+   *  until someone picks one — a project's locations are suggestions, never defaults */
+  defaultLocationFor(input: { parentId?: string | null }): string | null {
     const parent = input.parentId ? this.getIssue(input.parentId) : undefined;
-    if (parent?.locationId) return parent.locationId;
-    const locs = input.projectId ? this.projectLocationMap().get(input.projectId) ?? [] : [];
-    return locs.length === 1 ? locs[0]! : null;
+    return parent?.locationId ?? null;
   }
   claudeCodeUserId(): string { return this.ensureClaudeCodeUser(); }
   /** the dedicated assignee the runner owns — other agent users (e.g. "Agent") stay copy-prompt only */

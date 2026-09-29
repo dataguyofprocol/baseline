@@ -94,13 +94,23 @@ export function openInClaudeCode(store: Store, dbPath: string, issueId: string, 
   return { key, directory, location: { id: location.id, name: location.name }, pinned, scriptPath };
 }
 
-/** native folder picker; resolves null when the user cancels */
-export function pickDirectory(prompt = 'Choose a directory for Claude Code'): Promise<string | null> {
+/** native folder picker (⌘-click picks several when `multiple`); resolves [] when the user cancels */
+export function pickDirectories(prompt = 'Choose a folder', multiple = false): Promise<string[]> {
   if (process.platform !== 'darwin') return Promise.reject(new LaunchError('unsupported', 'The folder picker is only available on macOS — type the path instead'));
+  const script = [
+    'activate',
+    `set picked to (choose folder with prompt ${JSON.stringify(prompt)}${multiple ? ' with multiple selections allowed' : ''})`,
+    'if class of picked is not list then set picked to {picked}',
+    'set out to ""',
+    'repeat with f in picked',
+    'set out to out & POSIX path of f & linefeed',
+    'end repeat',
+    'return out',
+  ];
   return new Promise((done, fail) => {
-    execFile('osascript', ['-e', 'activate', '-e', `POSIX path of (choose folder with prompt ${JSON.stringify(prompt)})`], { timeout: 10 * 60_000 }, (err, stdout, stderr) => {
-      if (err) return /-128|User canceled/i.test(stderr) ? done(null) : fail(new LaunchError('launch-failed', stderr.trim() || err.message));
-      done(stdout.trim().replace(/(.)\/+$/, '$1'));
+    execFile('osascript', script.flatMap(line => ['-e', line]), { timeout: 10 * 60_000 }, (err, stdout, stderr) => {
+      if (err) return /-128|User canceled/i.test(stderr) ? done([]) : fail(new LaunchError('launch-failed', stderr.trim() || err.message));
+      done(stdout.split('\n').map(p => p.trim().replace(/(.)\/+$/, '$1')).filter(Boolean));
     });
   });
 }

@@ -296,7 +296,7 @@ withAs(withDb(issue.command('create <title>'))).description('Create an issue')
   .option('--parent <key>', 'parent issue key (sub-issue)')
   .option('--estimate <n>', 'estimate (points)')
   .option('--due <date>', 'due date (YYYY-MM-DD)')
-  .option('--location <name|path>', `where agents work on it ("none" for no location; default: the parent's, else the project's only location)`)
+  .option('--location <name|path>', `where agents work on it ("none" for no location; a sub-issue defaults to its parent's, nothing else is defaulted)`)
   .option('--json', 'print the created issue as JSON', false)
   .action(async (title: string, opts: Record<string, string | boolean | undefined>) => {
     const store = storeFor(opts.db as string | undefined);

@@ -32,9 +32,9 @@ export const api = {
     const res = await fetch(`/api/issues/${id}/open-claude`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
     return res.json().catch(() => ({ error: `Server error (${res.status})`, code: 'server' })) as Promise<{ key: string; directory: string; location: { id: string; name: string }; pinned: boolean; error?: undefined } | { error: string; code: string }>;
   },
-  pickDirectory: async (prompt?: string) => {
-    const res = await fetch('/api/directories/pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
-    return res.json().catch(() => ({ directory: null, error: `Server error (${res.status})` })) as Promise<{ directory: string | null; error?: string }>;
+  pickDirectory: async (prompt?: string, multiple = false) => {
+    const res = await fetch('/api/directories/pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, multiple }) });
+    return res.json().catch(() => ({ directory: null, directories: [], error: `Server error (${res.status})` })) as Promise<{ directory: string | null; directories: string[]; error?: string }>;
   },
   checkDirectory: (directory: string) => req<{ exists: boolean }>('POST', '/api/directories/check', { directory }),
   createLocation: async (path: string, name?: string) => {

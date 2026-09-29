@@ -26,15 +26,21 @@ export function locationChoices(issue: Issue): { pinned?: Location; project: Loc
   return { pinned, project: projectLocs, projectName: project?.name, others };
 }
 
-/** folder picker → registered location (idempotent by path) */
-export async function pickLocation(prompt: string): Promise<Location | null> {
+/** folder picker → registered locations (idempotent by path); `multiple` lets you ⌘-click several */
+export async function pickLocations(prompt: string, multiple = false): Promise<Location[]> {
   const { toast } = useApp.getState();
-  const r = await api.pickDirectory(prompt);
-  if (r.error) { toast({ title: 'Could not open the folder picker', line: r.error }); return null; }
-  if (!r.directory) return null;
-  const c = await api.createLocation(r.directory);
-  if (c.error !== undefined) { toast({ title: 'Could not add the location', line: c.error }); return null; }
-  return c.location;
+  const r = await api.pickDirectory(prompt, multiple);
+  if (r.error) { toast({ title: 'Could not open the folder picker', line: r.error }); return []; }
+  const out: Location[] = [];
+  for (const dir of r.directories ?? []) {
+    const c = await api.createLocation(dir);
+    if (c.error !== undefined) toast({ title: 'Could not add the location', line: c.error });
+    else out.push(c.location);
+  }
+  return out;
+}
+export async function pickLocation(prompt: string): Promise<Location | null> {
+  return (await pickLocations(prompt))[0] ?? null;
 }
 
 /** plain function so the palette can use it too; components go through useHandoffActions */
@@ -211,14 +217,17 @@ export function IssueLocationRow(props: { issue: Issue }) {
   const navigate = useNavigate();
   const actions = useHandoffActions(props.issue);
   const loc = snap.locations.find(l => l.id === props.issue.locationId);
+  // every open task should say where it happens — not just the ones handed to Claude Code
+  const stateType = snap.states.find(s => s.id === props.issue.stateId)?.type;
+  const needs = !loc && stateType !== 'completed' && stateType !== 'canceled';
   const forAgent = props.issue.assigneeId != null && props.issue.assigneeId === snap.workspace.agentUserId;
   const c = locationChoices(props.issue);
   return (
     <>
-      <button className={`prop-line ${loc ? '' : forAgent ? 'warn' : 'dim'}`} onClick={menu.open}
-        title={loc ? tildify(loc.path, snap.workspace.homeDir) : forAgent ? 'Claude Code needs a location before it can start' : 'Where coding agents work on this issue'}>
+      <button className={`prop-line ${loc ? '' : needs ? 'warn' : 'dim'}`} onClick={menu.open}
+        title={loc ? tildify(loc.path, snap.workspace.homeDir) : forAgent ? 'Claude Code needs a location before it can start' : 'The local folder this task happens in'}>
         <IconFolder size={14} />
-        <span className="prop-line-label">{loc ? loc.name : forAgent ? 'Needs a location' : 'Set location'}</span>
+        <span className="prop-line-label">{loc ? loc.name : needs ? 'Needs a location' : 'No location'}</span>
       </button>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={260}>
@@ -252,8 +261,10 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
   const save = async (next: string[]) => { ids.current = next; await api.setProjectLocations(project.id, next); await useApp.getState().bootstrap(); };
   const toggle = (id: string) => void save(ids.current.includes(id) ? ids.current.filter(x => x !== id) : [...ids.current, id]);
   const add = async () => {
-    const loc = await pickLocation(`Add a location to ${project.name}`);
-    if (loc) { await save([...ids.current.filter(x => x !== loc.id), loc.id]); toast({ title: `${loc.name} added to ${project.name}` }); }
+    const locs = await pickLocations(`Add folders to ${project.name} (⌘-click to pick several)`, true);
+    if (!locs.length) return;
+    await save([...ids.current.filter(x => !locs.some(l => l.id === x)), ...locs.map(l => l.id)]);
+    toast({ title: locs.length === 1 ? `${locs[0]!.name} added to ${project.name}` : `${locs.length} locations added to ${project.name}`, line: locs.length > 1 ? locs.map(l => l.name).join(', ') : undefined });
   };
   return (
     <>
@@ -276,7 +287,10 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
             </button>
           ))}
           {snap.locations.length > 0 && <MenuSep />}
-          <MenuItem icon={<IconPlus size={14} />} label="Add a folder…" onClick={() => void add()} />
+          {/* a raw row: the menu stays open, so the new folders show up ticked and you can keep going */}
+          <button className="menu-item" onClick={() => void add()}>
+            <span className="mi-icon"><IconPlus size={14} /></span><span className="mi-label">Add folders…</span>
+          </button>
           <MenuItem icon={<IconTools size={14} />} label="Manage locations…" onClick={() => navigate('/settings/handoff')} />
         </Menu>
       )}
@@ -297,8 +311,12 @@ export function LocationsSettings() {
     return () => { live = false; };
   }, [snap.locations]);
   const add = async (path?: string) => {
-    const loc = path ? await api.createLocation(path).then(r => r.error !== undefined ? (toast({ title: 'Could not add the location', line: r.error }), null) : r.location) : await pickLocation('Add a location');
-    if (loc) { await useApp.getState().bootstrap(); toast({ title: `Added ${loc.name}`, line: tildify(loc.path, home) }); }
+    const locs = path
+      ? await api.createLocation(path).then(r => r.error !== undefined ? (toast({ title: 'Could not add the location', line: r.error }), []) : [r.location])
+      : await pickLocations('Add locations (⌘-click to pick several)', true);
+    if (!locs.length) return;
+    await useApp.getState().bootstrap();
+    toast({ title: locs.length === 1 ? `Added ${locs[0]!.name}` : `Added ${locs.length} locations`, line: locs.length === 1 ? tildify(locs[0]!.path, home) : locs.map(l => l.name).join(', ') });
   };
   return (
     <div className="card settings-block">
@@ -307,7 +325,7 @@ export function LocationsSettings() {
           <div className="field-label">Locations</div>
           <div className="field-help">Folders coding agents work in — usually git repos. Link them to projects on the project page; each issue picks one.</div>
         </div>
-        <button className="btn" onClick={() => void add()}><IconPlus size={12} /> Add folder…</button>
+        <button className="btn" onClick={() => void add()}><IconPlus size={12} /> Add folders…</button>
       </div>
       {snap.locations.length === 0 && <div className="field-help" style={{ padding: '10px 0 2px' }}>No locations yet.</div>}
       {snap.locations.map(l => {

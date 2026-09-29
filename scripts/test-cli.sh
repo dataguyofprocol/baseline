@@ -352,9 +352,12 @@ checkon "$ADB" "one location can serve several projects" "Updated project" proje
 checkon "$ADB" "location list shows its projects" "Agent Handoff, Mobile Companion" location list
 checkon "$ADB" "project show lists locations" "locations: proj-repo ($PREPO)" project show "Agent Handoff"
 checkon "$ADB" "adding a second location" "Updated project" project update "Mobile Companion" --add-location agent-repo
-KI=$(ab issue create "inherits the project's only location" -t CORE -j "Agent Handoff" --json | keyof)
+KD=$(ab issue create "project has one location" -t CORE -j "Agent Handoff" --json | keyof)
+ab issue show "$KD" --json > "$WORK/l0.json"
+check_json "a project's locations are suggestions, never defaults" "$WORK/l0.json" "d.location===null"
+KI=$(ab issue create "explicit location" -t CORE -j "Agent Handoff" --location proj-repo --json | keyof)
 ab issue show "$KI" --json > "$WORK/l1.json"
-check_json "new issue takes its project's only location" "$WORK/l1.json" "d.location&&d.location.name==='proj-repo'"
+check_json "issue create --location sets it" "$WORK/l1.json" "d.location&&d.location.name==='proj-repo'"
 KS=$(ab issue create "sub-task" -t CORE --parent "$KI" --json | keyof)
 ab issue show "$KS" --json > "$WORK/l2.json"
 check_json "sub-issue inherits its parent's location" "$WORK/l2.json" "d.location&&d.location.name==='proj-repo'"

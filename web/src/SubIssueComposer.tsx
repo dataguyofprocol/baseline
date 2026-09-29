@@ -29,8 +29,8 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [cycleId, setCycleId] = useState<string | null>(parent.cycleId);
   const [projectId, setProjectId] = useState<string | null>(parent.projectId);
-  // one location per task: until you pick one, a sub-task takes the server's default
-  // (the parent's location, else its project's only one) — shown here, never sent
+  // one location per task: until you pick one, a sub-task starts where its parent happens
+  // (the server's default — shown here, never sent)
   const [pickedLocation, setPickedLocation] = useState<{ id: string | null } | null>(null);
   const setLocationId = (id: string | null) => setPickedLocation({ id });
   const [dueDate, setDueDate] = useState<string | null>(null);
@@ -57,8 +57,7 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
   const cycle = snap.cycles.find(c => c.id === cycleId);
   const teamCycles = snap.cycles.filter(c => c.teamId === team.id && !c.completedAt).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const project = snap.projects.find(p => p.id === projectId);
-  const projectLocs = project?.locationIds ?? [];
-  const locationId = pickedLocation ? pickedLocation.id : (parent.locationId ?? (projectLocs.length === 1 ? projectLocs[0]! : null));
+  const locationId = pickedLocation ? pickedLocation.id : parent.locationId;
   const loc = snap.locations.find(l => l.id === locationId);
   const locOrder = [...(project?.locationIds ?? []).map(id => snap.locations.find(l => l.id === id)).filter((l): l is NonNullable<typeof l> => !!l),
     ...snap.locations.filter(l => !(project?.locationIds ?? []).includes(l.id))];
