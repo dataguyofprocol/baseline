@@ -1,9 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { homedir } from 'node:os';
+import { resolve as resolvePath } from 'node:path';
 import { getMeta, setMeta } from './db.js';
 import { id, nowIso, midSort } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import type {
-  ActivityItem, ActivityType, AgentRunner, Comment, Cycle, Favorite, Handoff,
+  ActivityItem, ActivityType, AgentRunner, TerminalApp, Comment, Cycle, Favorite, Handoff,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType,
@@ -13,6 +15,15 @@ interface IssueRow { id: string; team_id: string; number: number; title: string;
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
+
+/** '' stays '' (unset); `~/x` expands; anything else resolves to an absolute path, so the
+ *  runner's existence check and the launcher's `cd` see the same directory */
+export function normalizeDir(dir: string | null | undefined): string {
+  const d = String(dir ?? '').trim();
+  if (!d) return '';
+  const expanded = d === '~' ? homedir() : d.startsWith('~/') ? homedir() + d.slice(1) : d;
+  return resolvePath(expanded).replace(/(.)\/+$/, '$1');
+}
 
 /** PATCH bodies reach the store raw from the server, so only whitelisted keys may build SQL */
 function sqlPairs<T extends object>(patch: T, allowed: Array<keyof T>): Array<[string, unknown]> {
@@ -48,7 +59,7 @@ export class Store {
       issues: rows<IssueRow>('SELECT * FROM issues WHERE archived_at IS NULL AND deleted_at IS NULL').map(this.mapIssue),
       comments: rows<{ id: string; issue_id: string; user_id: string; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null }>('SELECT * FROM comments ORDER BY created_at').map(c => ({ id: c.id, issueId: c.issue_id, userId: c.user_id, body: c.body, createdAt: c.created_at, editedAt: c.edited_at, reactions: JSON.parse(c.reactions), resolvedAt: c.resolved_at })),
       relations: rows<{ id: string; issue_id: string; related_id: string; type: string }>('SELECT * FROM relations').map(r => ({ id: r.id, issueId: r.issue_id, relatedIssueId: r.related_id, type: r.type as RelationType })),
-      projects: rows<{ id: string; team_id: string | null; name: string; description: string; icon: string; color: string; status: Project['status']; health: Project['health']; priority: number; start_date: string | null; target_date: string | null; lead_id: string | null; members: string; position: number; created_at: string; updated_at: string; completed_at: string | null }>('SELECT * FROM projects ORDER BY position, created_at').map(p => ({ id: p.id, teamId: p.team_id, name: p.name, description: p.description, icon: p.icon, color: p.color, status: p.status, health: p.health, priority: p.priority as Priority, startDate: p.start_date, targetDate: p.target_date, leadId: p.lead_id, memberIds: JSON.parse(p.members), position: p.position, createdAt: p.created_at, updatedAt: p.updated_at, completedAt: p.completed_at })),
+      projects: rows<{ id: string; team_id: string | null; name: string; description: string; icon: string; color: string; status: Project['status']; health: Project['health']; priority: number; directory: string | null; start_date: string | null; target_date: string | null; lead_id: string | null; members: string; position: number; created_at: string; updated_at: string; completed_at: string | null }>('SELECT * FROM projects ORDER BY position, created_at').map(p => ({ id: p.id, teamId: p.team_id, name: p.name, description: p.description, icon: p.icon, color: p.color, status: p.status, health: p.health, priority: p.priority as Priority, directory: p.directory ?? '', startDate: p.start_date, targetDate: p.target_date, leadId: p.lead_id, memberIds: JSON.parse(p.members), position: p.position, createdAt: p.created_at, updatedAt: p.updated_at, completedAt: p.completed_at })),
       milestones: rows<{ id: string; project_id: string; name: string; target_date: string | null; status: Milestone['status']; position: number; created_at: string }>('SELECT * FROM milestones ORDER BY position, created_at').map(m => ({ id: m.id, projectId: m.project_id, name: m.name, targetDate: m.target_date, status: m.status, position: m.position, createdAt: m.created_at })),
       projectUpdates: rows<{ id: string; project_id: string; user_id: string; body: string; health: ProjectUpdate['health']; created_at: string }>('SELECT * FROM project_updates ORDER BY created_at DESC').map(u => ({ id: u.id, projectId: u.project_id, userId: u.user_id, body: u.body, health: u.health, createdAt: u.created_at })),
       cycles: rows<{ id: string; team_id: string; number: number; name: string; starts_at: string; ends_at: string; completed_at: string | null }>('SELECT * FROM cycles ORDER BY number').map(c => ({ id: c.id, teamId: c.team_id, number: c.number, name: c.name, startsAt: c.starts_at, endsAt: c.ends_at, completedAt: c.completed_at })),
@@ -186,15 +197,38 @@ export class Store {
   }
 
   // ---------- integrated agent ----------
-  getAgentConfig(): { agentRunner: AgentRunner; agentCwd: string; agentUserId: string | null } {
+  getAgentConfig(): { agentRunner: AgentRunner; agentCwd: string; agentUserId: string | null; recentDirectories: string[]; terminalApp: TerminalApp } {
     const r = getMeta(this.db, 'agentRunner');
-    return { agentRunner: r === 'claude' ? r : 'none', agentCwd: getMeta(this.db, 'agentCwd') ?? '', agentUserId: this.claudeCodeUser()?.id ?? null };
+    return {
+      agentRunner: r === 'claude' ? r : 'none', agentCwd: getMeta(this.db, 'agentCwd') ?? '', agentUserId: this.claudeCodeUser()?.id ?? null,
+      recentDirectories: this.recentDirectories(), terminalApp: getMeta(this.db, 'terminalApp') === 'iTerm' ? 'iTerm' : 'Terminal',
+    };
   }
-  setAgentConfig(patch: { agentRunner?: AgentRunner; agentCwd?: string }): void {
+  setAgentConfig(patch: { agentRunner?: AgentRunner; agentCwd?: string; terminalApp?: TerminalApp }): void {
     if (patch.agentRunner !== undefined) setMeta(this.db, 'agentRunner', patch.agentRunner === 'claude' ? 'claude' : 'none');
-    if (patch.agentCwd !== undefined) setMeta(this.db, 'agentCwd', patch.agentCwd.trim());
+    if (patch.agentCwd !== undefined) setMeta(this.db, 'agentCwd', normalizeDir(patch.agentCwd));
+    if (patch.terminalApp !== undefined) setMeta(this.db, 'terminalApp', patch.terminalApp === 'iTerm' ? 'iTerm' : 'Terminal');
     if (patch.agentRunner === 'claude') this.ensureClaudeCodeUser();
   }
+  /** where agents work on an issue: its project's directory, else the workspace default ('' = none set) */
+  agentDirFor(issue: Pick<Issue, 'projectId'>): string {
+    const dir = issue.projectId
+      ? (this.db.prepare('SELECT directory FROM projects WHERE id = ?').get(issue.projectId) as { directory: string } | undefined)?.directory
+      : undefined;
+    return dir || (getMeta(this.db, 'agentCwd') ?? '');
+  }
+  private recentDirectories(): string[] {
+    try { return JSON.parse(getMeta(this.db, 'recentDirectories') ?? '[]') as string[]; } catch { return []; }
+  }
+  /** most recent first, capped — feeds the "Open in Claude Code" submenu */
+  rememberDirectory(dir: string): void {
+    const next = [dir, ...this.recentDirectories().filter(d => d !== dir)].slice(0, 8);
+    setMeta(this.db, 'recentDirectories', JSON.stringify(next));
+  }
+  forgetDirectory(dir: string): void {
+    setMeta(this.db, 'recentDirectories', JSON.stringify(this.recentDirectories().filter(d => d !== dir)));
+  }
+  claudeCodeUserId(): string { return this.ensureClaudeCodeUser(); }
   /** the dedicated assignee the runner owns — other agent users (e.g. "Agent") stay copy-prompt only */
   private claudeCodeUser(): { id: string } | undefined {
     const byId = getMeta(this.db, 'agentUserId');
@@ -206,15 +240,15 @@ export class Store {
     setMeta(this.db, 'agentUserId', uid);
     return uid;
   }
-  /** oldest not-yet-started issue assigned to the Claude Code user — the integrated agent's queue */
-  nextAgentIssue(): Issue | undefined {
+  /** not-yet-started issues assigned to the Claude Code user, oldest first — the integrated agent's queue */
+  agentQueue(): Issue[] {
     const uid = this.claudeCodeUser()?.id;
-    if (!uid) return undefined;
-    const row = this.db.prepare(`SELECT i.* FROM issues i
+    if (!uid) return [];
+    const rows = this.db.prepare(`SELECT i.* FROM issues i
       JOIN states s ON s.id = i.state_id AND s.type IN ('backlog', 'unstarted')
       WHERE i.assignee_id = ? AND i.archived_at IS NULL AND i.deleted_at IS NULL
-      ORDER BY i.updated_at LIMIT 1`).get(uid) as IssueRow | undefined;
-    return row ? this.mapIssue(row) : undefined;
+      ORDER BY i.updated_at`).all(uid) as unknown as IssueRow[];
+    return rows.map(r => this.mapIssue(r));
   }
   /** first state of a type by position — e.g. the team's "In Progress" for 'started' */
   stateOfType(teamId: string, type: WorkflowStateType): string | undefined {
@@ -398,27 +432,27 @@ export class Store {
   }
 
   // ---------- projects ----------
-  createProject(input: { name: string; teamId?: string | null; description?: string; icon?: string; color?: string; status?: Project['status']; leadId?: string | null; targetDate?: string | null; startDate?: string | null; priority?: Priority; memberIds?: string[] }): Project {
+  createProject(input: { name: string; teamId?: string | null; description?: string; icon?: string; color?: string; status?: Project['status']; leadId?: string | null; targetDate?: string | null; startDate?: string | null; priority?: Priority; memberIds?: string[]; directory?: string }): Project {
     const now = ts();
     const p: Project = {
       id: id('p'), teamId: input.teamId ?? null, name: input.name, description: input.description ?? '',
       icon: input.icon ?? '🧊', color: input.color ?? '#5e6ad2', status: input.status ?? 'planned', health: 'onTrack',
-      priority: input.priority ?? 0,
+      priority: input.priority ?? 0, directory: normalizeDir(input.directory),
       startDate: input.startDate ?? null, targetDate: input.targetDate ?? null, leadId: input.leadId ?? null,
       memberIds: input.memberIds ?? [], position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM projects').get() as { p: number }).p,
       createdAt: now, updatedAt: now, completedAt: input.status === 'completed' ? now : null,
     };
-    this.db.prepare('INSERT INTO projects (id, team_id, name, description, icon, color, status, health, priority, start_date, target_date, lead_id, members, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(p.id, p.teamId, p.name, p.description, p.icon, p.color, p.status, p.health, p.priority, p.startDate, p.targetDate, p.leadId, JSON.stringify(p.memberIds), p.position, now, now);
+    this.db.prepare('INSERT INTO projects (id, team_id, name, description, icon, color, status, health, priority, directory, start_date, target_date, lead_id, members, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(p.id, p.teamId, p.name, p.description, p.icon, p.color, p.status, p.health, p.priority, p.directory, p.startDate, p.targetDate, p.leadId, JSON.stringify(p.memberIds), p.position, now, now);
     this.logActivity({ projectId: p.id, type: 'projectCreated', data: {} });
     return p;
   }
-  updateProject(projectId: string, patch: Partial<Pick<Project, 'name' | 'description' | 'icon' | 'color' | 'status' | 'health' | 'priority' | 'startDate' | 'targetDate' | 'leadId' | 'memberIds' | 'position' | 'completedAt'>>): void {
+  updateProject(projectId: string, patch: Partial<Pick<Project, 'name' | 'description' | 'icon' | 'color' | 'status' | 'health' | 'priority' | 'directory' | 'startDate' | 'targetDate' | 'leadId' | 'memberIds' | 'position' | 'completedAt'>>): void {
     const cur = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as unknown as Project | undefined;
     if (!cur) return;
     const sets: string[] = []; const vals: (string | number | null)[] = [];
     const col: Record<string, string> = { startDate: 'start_date', targetDate: 'target_date', leadId: 'lead_id', memberIds: 'members', completedAt: 'completed_at' };
-    for (const [k, v] of sqlPairs(patch, ['name', 'description', 'icon', 'color', 'status', 'health', 'priority', 'startDate', 'targetDate', 'leadId', 'memberIds', 'position', 'completedAt'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'memberIds' ? JSON.stringify(v) : v as string | number | null); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'description', 'icon', 'color', 'status', 'health', 'priority', 'directory', 'startDate', 'targetDate', 'leadId', 'memberIds', 'position', 'completedAt'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'memberIds' ? JSON.stringify(v) : k === 'directory' ? normalizeDir(v as string) : v as string | number | null); }
     sets.push('updated_at = ?'); vals.push(ts(), projectId);
     this.db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
     this.logActivity({ projectId, type: 'projectUpdated', data: { fields: Object.keys(patch) } });
@@ -551,7 +585,7 @@ export class Store {
       id: p.id as string, teamId: (p.team_id as string | null) ?? null, name: p.name as string,
       description: p.description as string, icon: p.icon as string, color: p.color as string,
       status: p.status as Project['status'], health: p.health as Project['health'],
-      priority: (p.priority as number ?? 0) as Priority, startDate: (p.start_date as string | null) ?? null,
+      priority: (p.priority as number ?? 0) as Priority, directory: (p.directory as string | null) ?? '', startDate: (p.start_date as string | null) ?? null,
       targetDate: (p.target_date as string | null) ?? null, leadId: (p.lead_id as string | null) ?? null,
       memberIds: JSON.parse((p.members as string) ?? '[]'), position: p.position as number,
       createdAt: p.created_at as string, updatedAt: p.updated_at as string, completedAt: (p.completed_at as string | null) ?? null,
@@ -579,16 +613,22 @@ export class Store {
     const data = JSON.parse(json) as Record<string, unknown>;
     const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : []);
     this.wipe();
-    const ws = data.workspace as { id?: string; name?: string; createdAt?: string } | undefined;
+    const ws = data.workspace as Partial<Snapshot['workspace']> | undefined;
     if (ws) {
       if (ws.id) setMeta(this.db, 'workspaceId', ws.id);
       if (ws.name) setMeta(this.db, 'workspaceName', ws.name);
       if (ws.createdAt) setMeta(this.db, 'workspaceCreatedAt', ws.createdAt);
+      // coding-tools settings ride along; the background runner is left off so a restore never starts runs by itself
+      if (ws.handoffPromptTemplate && ws.handoffPromptTemplate !== DEFAULT_PROMPT_TEMPLATE) setMeta(this.db, 'handoffPromptTemplate', ws.handoffPromptTemplate);
+      if (ws.agentCwd) setMeta(this.db, 'agentCwd', normalizeDir(ws.agentCwd));
+      if (ws.terminalApp) setMeta(this.db, 'terminalApp', ws.terminalApp === 'iTerm' ? 'iTerm' : 'Terminal');
+      if (Array.isArray(ws.recentDirectories)) setMeta(this.db, 'recentDirectories', JSON.stringify(ws.recentDirectories.map(normalizeDir).filter(Boolean).slice(0, 8)));
     }
     const insert = (table: string, cols: string[], row: Record<string, unknown>) => {
       this.db.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map(c => row[c] as string | number | null));
     };
     for (const u of arr<Record<string, unknown>>(data.users)) insert('users', ['id', 'name', 'email', 'initials', 'color', 'admin', 'kind'], { ...u, admin: u.admin ? 1 : 0, kind: u.kind ?? 'human' });
+    if (ws?.agentUserId && arr<{ id: string }>(data.users).some(u => u.id === ws.agentUserId)) setMeta(this.db, 'agentUserId', ws.agentUserId);
     const cu = data.currentUser as { id?: string } | undefined;
     if (cu?.id) setMeta(this.db, 'currentUser', cu.id);
     for (const t of arr<Record<string, unknown>>(data.teams)) insert('teams', ['id', 'key', 'name', 'icon', 'color', 'description', 'position'], t);
@@ -601,8 +641,8 @@ export class Store {
     for (const c of arr<Record<string, unknown>>(data.comments)) insert('comments', ['id', 'issue_id', 'user_id', 'body', 'created_at', 'edited_at', 'reactions', 'resolved_at'], { ...c, issue_id: c.issueId, user_id: c.userId, created_at: c.createdAt, edited_at: c.editedAt, reactions: JSON.stringify(c.reactions ?? {}), resolved_at: c.resolvedAt });
     for (const r of arr<Record<string, unknown>>(data.relations)) insert('relations', ['id', 'issue_id', 'related_id', 'type'], { ...r, issue_id: r.issueId, related_id: r.relatedIssueId });
     for (const p of arr<Record<string, unknown>>(data.projects)) insert('projects',
-      ['id', 'team_id', 'name', 'description', 'icon', 'color', 'status', 'health', 'priority', 'start_date', 'target_date', 'lead_id', 'members', 'position', 'created_at', 'updated_at', 'completed_at'],
-      { ...p, team_id: p.teamId, status: p.status ?? 'planned', health: p.health ?? 'onTrack', priority: p.priority ?? 0, start_date: p.startDate, target_date: p.targetDate, lead_id: p.leadId, members: JSON.stringify(p.memberIds ?? []), position: p.position ?? 0, created_at: p.createdAt ?? ts(), updated_at: p.updatedAt ?? ts(), completed_at: p.completedAt });
+      ['id', 'team_id', 'name', 'description', 'icon', 'color', 'status', 'health', 'priority', 'directory', 'start_date', 'target_date', 'lead_id', 'members', 'position', 'created_at', 'updated_at', 'completed_at'],
+      { ...p, team_id: p.teamId, status: p.status ?? 'planned', health: p.health ?? 'onTrack', priority: p.priority ?? 0, directory: p.directory ?? '', start_date: p.startDate, target_date: p.targetDate, lead_id: p.leadId, members: JSON.stringify(p.memberIds ?? []), position: p.position ?? 0, created_at: p.createdAt ?? ts(), updated_at: p.updatedAt ?? ts(), completed_at: p.completedAt });
     for (const u of arr<Record<string, unknown>>(data.projectUpdates)) insert('project_updates', ['id', 'project_id', 'user_id', 'body', 'health', 'created_at'], { ...u, project_id: u.projectId, user_id: u.userId, created_at: u.createdAt });
     for (const m of arr<Record<string, unknown>>(data.milestones)) insert('milestones', ['id', 'project_id', 'name', 'target_date', 'status', 'position', 'created_at'], { ...m, project_id: m.projectId, target_date: m.targetDate, position: m.position ?? 0, created_at: m.createdAt ?? ts() });
     for (const cy of arr<Record<string, unknown>>(data.cycles)) insert('cycles', ['id', 'team_id', 'number', 'name', 'starts_at', 'ends_at', 'completed_at'], { ...cy, team_id: cy.teamId, starts_at: cy.startsAt, ends_at: cy.endsAt, completed_at: cy.completedAt });

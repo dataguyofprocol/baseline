@@ -1,12 +1,14 @@
-import { Hono } from 'hono';
+import { Hono, type Context, type Next } from 'hono';
 import { serve as nodeServe, type ServerType } from '@hono/node-server';
 import { openDb, resolveDbPath } from '../core/db.js';
-import { Store } from '../core/store.js';
+import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
-import { agentRunningIssueId, startAgentRunner } from './agentRunner.js';
+import { agentRunningIssueId, isDirectory, startAgentRunner } from './agentRunner.js';
+import { LaunchError, openInClaudeCode, pickDirectory } from './launch.js';
 import type { Priority, Snapshot, WorkflowStateType, RelationType } from '../core/types.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { exec } from 'node:child_process';
 
@@ -18,6 +20,18 @@ export interface ServeOptions {
 }
 
 const WEB_DIST = resolve(fileURLToPath(import.meta.url), '../../../web/dist');
+
+/** BASELINE_HOST opens the server beyond this machine (e.g. 0.0.0.0); unset = loopback only */
+const LISTEN_HOST = process.env.BASELINE_HOST?.trim() || '';
+const isLoopback = (h: string) => h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1';
+const LAN_OPEN = !!LISTEN_HOST && !isLoopback(LISTEN_HOST);
+// the node adapter builds the request URL from the Host header, so this is the Host the client sent
+const hostOf = (c: Context) => { try { return new URL(c.req.url).hostname; } catch { return ''; } };
+const originHostOf = (c: Context): string | null => {
+  const origin = c.req.header('origin');
+  if (!origin) return null;
+  try { return new URL(origin).hostname; } catch { return '?'; }
+};
 
 export function createApp(dbPath: string) {
   const db = openDb(dbPath);
@@ -32,10 +46,23 @@ export function createApp(dbPath: string) {
 
   const app = new Hono();
 
+  // The tracker is this machine's own: a Host that isn't loopback means a LAN client or a
+  // DNS-rebinding page, and a write whose Origin is another site is a cross-site request.
+  app.use('/api/*', async (c, next) => {
+    const host = hostOf(c);
+    if (!LAN_OPEN && !isLoopback(host)) return c.json({ error: 'Baseline only accepts requests from this machine (set BASELINE_HOST to change that)', code: 'forbidden' }, 403);
+    const originHost = originHostOf(c);
+    if (c.req.method !== 'GET' && c.req.method !== 'HEAD' && originHost !== null && !isLoopback(originHost) && originHost !== host.replace(/^\[|\]$/g, '')) {
+      return c.json({ error: 'Cross-site requests are not allowed', code: 'forbidden' }, 403);
+    }
+    await next();
+  });
+
   // ---------- bootstrap ----------
   app.get('/api/bootstrap', (c) => {
     const snap = store.snapshot();
     snap.workspace.agentRunningIssueId = agentRunningIssueId();
+    snap.workspace.homeDir = homedir();
     return c.json(snap);
   });
 
@@ -88,6 +115,48 @@ export function createApp(dbPath: string) {
   app.get('/api/issues/:id/handoff', (c) => {
     const handoff = store.handoffFor(c.req.param('id'));
     return handoff ? c.json({ handoff }) : c.json({ error: 'not found' }, 404);
+  });
+  // these routes start local processes (a terminal, a folder picker): only this machine's own
+  // pages may call them — a Host other than localhost means LAN or DNS rebinding, a foreign
+  // Origin means another site, and a non-JSON body means a CORS-free "simple" form post
+  // (these stay loopback-only even when BASELINE_HOST opens the rest to the LAN)
+  const localOnly = async (c: Context, next: Next) => {
+    const originHost = originHostOf(c);
+    if (!isLoopback(hostOf(c)) || (originHost !== null && !isLoopback(originHost)) || !(c.req.header('content-type') ?? '').includes('application/json')) {
+      return c.json({ error: 'Launching Claude Code is only allowed from this machine', code: 'forbidden' }, 403);
+    }
+    await next();
+  };
+  app.use('/api/issues/:id/open-claude', localOnly);
+  app.use('/api/directories/*', localOnly);
+  app.post('/api/issues/:id/open-claude', async (c) => {
+    const b = await c.req.json().catch(() => ({})) as { directory?: string; saveToProject?: boolean };
+    try {
+      return c.json(openInClaudeCode(store, dbPath, c.req.param('id'), b));
+    } catch (err) {
+      if (err instanceof LaunchError) return c.json({ error: err.message, code: err.code }, err.code === 'not-found' ? 404 : 400);
+      throw err;
+    }
+  });
+
+  // ---------- coding directories ----------
+  app.post('/api/directories/pick', async (c) => {
+    const b = await c.req.json().catch(() => ({})) as { prompt?: string };
+    try {
+      return c.json({ directory: await pickDirectory(b.prompt) });
+    } catch (err) {
+      if (err instanceof LaunchError) return c.json({ error: err.message, code: err.code }, 400);
+      throw err;
+    }
+  });
+  app.post('/api/directories/check', async (c) => {
+    const b = await c.req.json() as { directory?: string };
+    return c.json({ exists: isDirectory(normalizeDir(b.directory)) });
+  });
+  app.delete('/api/directories/recent', async (c) => {
+    const b = await c.req.json() as { directory?: string };
+    if (b.directory) store.forgetDirectory(b.directory);
+    return c.json({ ok: true });
   });
 
   // ---------- comments ----------
@@ -258,7 +327,7 @@ export function createApp(dbPath: string) {
     if (b.name) store.setWorkspaceName(b.name);
     if (b.currentUserId) store.setCurrentUser(b.currentUserId);
     if ('handoffPromptTemplate' in b) store.setHandoffTemplate(b.handoffPromptTemplate ?? null);
-    if ('agentRunner' in b || 'agentCwd' in b) store.setAgentConfig({ agentRunner: b.agentRunner, agentCwd: b.agentCwd });
+    if ('agentRunner' in b || 'agentCwd' in b || 'terminalApp' in b) store.setAgentConfig({ agentRunner: b.agentRunner, agentCwd: b.agentCwd, terminalApp: b.terminalApp });
     return c.json({ ok: true });
   });
 
@@ -304,7 +373,12 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
   const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7770);
   const { app, store } = createApp(dbPath);
   startAgentRunner(store, dbPath);
-  const server = nodeServe({ fetch: app.fetch, port });
+  // loopback by default: IPv4 and IPv6 each get a listener, since `localhost` may resolve to either
+  const server = nodeServe({ fetch: app.fetch, port, hostname: LISTEN_HOST || '127.0.0.1' });
+  if (!LISTEN_HOST) {
+    const v6 = nodeServe({ fetch: app.fetch, port, hostname: '::1' });
+    v6.on('error', () => { /* no IPv6 loopback on this machine — IPv4 alone is fine */ });
+  }
   server.once('listening', () => {
     const url = `http://localhost:${port}`;
     console.log(`[baseline] serving on ${url}  (db: ${dbPath})`);

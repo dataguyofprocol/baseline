@@ -9,62 +9,66 @@ import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { useApp, STATUS_ORDER, copyText, shortDate } from './store.js';
 import { api } from './api.js';
-import { StateIcon, PriorityIcon, Avatar, Donut } from './pickers.js';
-import { IconPlus, IconMore, IconCopy, IconFocus } from './icons.js';
+import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
+import { IconPlus, IconMore, IconCopy, IconFocus, IconCycle, IconEstimate, IconCalendar, IconChevronRight, IconCaret } from './icons.js';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
-import { groupsFor, issuesOfGroup, orderIssues } from './IssueViews.js';
+import { groupsFor, issuesOfGroup, orderIssues, subIssueProgress, SubIssueProgress } from './IssueViews.js';
 import { useLanding } from './motion.js';
 import type { Issue, GroupBy, Priority } from '../../src/core/types.js';
 
-/* card internals — shared by the sortable card and the drag overlay.
-   Title first (it is what you scan a board for), avatar beside it, and one
-   footer line for everything else — each fact appears only when it has a value,
-   so a bare issue is a two-line card, not a box of empty slots. */
+/* card internals — shared by the sortable card and the drag overlay. Linear's layout:
+   the key (and parent, for a sub-issue) with the avatar, then status + title, then a row
+   of small bordered chips for whatever is set, then when it was created. A chip that would
+   only repeat the column's own grouping is left out. */
 function CardBody(props: { issue: Issue; groupBy: GroupBy; becameDone?: boolean }) {
   const snap = useApp(s => s.snap)!;
-  const team = snap.teams.find(t => t.id === props.issue.teamId);
-  const state = snap.states.find(s => s.id === props.issue.stateId);
-  const assignee = snap.users.find(u => u.id === props.issue.assigneeId);
-  const labels = snap.labels.filter(l => props.issue.labelIds.includes(l.id));
-  const children = snap.issues.filter(i => i.parentId === props.issue.id && !i.archivedAt && !i.deletedAt);
-  const childDone = children.filter(c => {
-    const t = snap.states.find(s => s.id === c.stateId)?.type;
-    return t === 'completed' || t === 'canceled';
-  }).length;
+  const issue = props.issue;
+  const team = snap.teams.find(t => t.id === issue.teamId);
+  const state = snap.states.find(s => s.id === issue.stateId);
+  const assignee = snap.users.find(u => u.id === issue.assigneeId);
+  const labels = snap.labels.filter(l => issue.labelIds.includes(l.id));
+  const project = snap.projects.find(p => p.id === issue.projectId);
+  const cycle = snap.cycles.find(c => c.id === issue.cycleId);
+  const parent = issue.parentId ? snap.issues.find(i => i.id === issue.parentId) : undefined;
+  const progress = subIssueProgress(issue.id, snap);
   const closed = state?.type === 'completed' || state?.type === 'canceled';
-  const due = props.issue.dueDate?.slice(0, 10);
+  const due = issue.dueDate?.slice(0, 10);
   const overdue = !!due && !closed && due < new Date().toISOString().slice(0, 10);
+  const g = props.groupBy;
+  const chips = [
+    issue.priority > 0 && g !== 'priority' && (
+      <span key="p" className="bc-chip icon" title={['', 'Urgent', 'High', 'Medium', 'Low'][issue.priority]}><PriorityIcon priority={issue.priority} size={12} /></span>
+    ),
+    cycle && g !== 'cycle' && (
+      <span key="c" className="bc-chip" title={cycle.name || `Cycle ${cycle.number}`}><IconCycle size={12} />{cycle.number}</span>
+    ),
+    project && g !== 'project' && (
+      <span key="j" className="bc-chip" title={project.name}><span className="bc-proj">{project.icon}</span><span className="bc-chip-text">{project.name}</span></span>
+    ),
+    progress && <span key="s" className="bc-chip"><SubIssueProgress done={progress.done} total={progress.total} size={12} /></span>,
+    ...(g !== 'label' ? labels.slice(0, 2) : []).map(l => (
+      <span key={l.id} className="bc-chip" title={l.name}><span className="label-dot" style={{ background: l.color }} /><span className="bc-chip-text">{l.name}</span></span>
+    )),
+    g !== 'label' && labels.length > 2 && <span key="lm" className="bc-chip" title={labels.slice(2).map(l => l.name).join(', ')}>+{labels.length - 2}</span>,
+    issue.estimate != null && <span key="e" className="bc-chip" title={`${issue.estimate} points`}><IconEstimate size={12} />{issue.estimate}</span>,
+    due && (
+      <span key="d" className={`bc-chip${overdue ? ' overdue' : ''}`} title={overdue ? `Overdue — was due ${shortDate(due)}` : `Due ${shortDate(due)}`}><IconCalendar size={12} />{shortDate(due)}</span>
+    ),
+  ].filter(Boolean);
   return (
     <>
-      <div className="bc-head">
-        {/* the column already says where it lives — only repeat the state on non-status boards */}
-        {props.groupBy !== 'status' && state && <StateIcon type={state.type} color={state.color} size={13} morph={props.becameDone} />}
-        <span className="bc-title">{props.issue.title}</span>
-        {assignee && <span className="bc-avatar" data-no-drag><Avatar user={assignee} size={18} /></span>}
-      </div>
-      <div className="bc-foot">
-        {props.issue.priority > 0 && props.groupBy !== 'priority' && <PriorityIcon priority={props.issue.priority} size={12} />}
-        <span className="bc-key">{team?.key}-{props.issue.number}</span>
-        {labels.length > 0 && (
-          <span className="bc-label" title={labels.map(l => l.name).join(', ')}>
-            {labels.slice(0, 3).map(l => <span key={l.id} className="label-dot" style={{ background: l.color }} />)}
-            <span className="bc-label-name">{labels[0].name}</span>
-            {labels.length > 1 && <span className="bc-more">+{labels.length - 1}</span>}
-          </span>
-        )}
+      <div className="bc-top">
+        <span className="bc-key">{team?.key}-{issue.number}</span>
+        {parent && <span className="bc-parent" title={`Sub-issue of ${parent.title}`}><IconChevronRight size={10} />{parent.title}</span>}
         <span className="bc-fill" />
-        {children.length > 0 && (
-          <span className="bc-sub" title={`${childDone} of ${children.length} sub-issues done`}>
-            <Donut percent={(childDone / children.length) * 100} size={12} />
-            {childDone}/{children.length}
-          </span>
-        )}
-        {due && (
-          <span className={`bc-due${overdue ? ' overdue' : ''}`} title={overdue ? `Overdue — was due ${shortDate(due)}` : `Due ${shortDate(due)}`}>
-            {shortDate(due)}
-          </span>
-        )}
+        {assignee && g !== 'assignee' && <span className="bc-avatar" data-no-drag><Avatar user={assignee} size={18} /></span>}
       </div>
+      <div className="bc-head">
+        {state && <StateIcon type={state.type} color={state.color} size={14} morph={props.becameDone} />}
+        <span className="bc-title">{issue.title}</span>
+      </div>
+      {chips.length > 0 && <div className="bc-chips">{chips}</div>}
+      <div className="bc-created">Created {shortDate(issue.createdAt)}</div>
     </>
   );
 }
@@ -168,13 +172,18 @@ export function Board(props: {
 
   const field = FIELD_FOR[groupBy];
 
-  // collapsed columns fold to a rail (still a drop target). Keyed by grouping +
-  // label so the choice follows a status name across teams; Canceled starts folded.
+  // Hidden columns move to a side panel (still drop targets), like Linear. Keyed by grouping +
+  // label so the choice follows a status name across teams. Unless you've shown or hidden a
+  // column yourself, empty columns and Canceled start hidden.
   const [folded, setFolded] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem('baseline:boardFolded') ?? '{}'); } catch { return {}; }
   });
   const foldKey = (label: string) => `${groupBy}:${label}`;
-  const isFolded = (col: { label: string; stateType?: string }) => folded[foldKey(col.label)] ?? col.stateType === 'canceled';
+  const isFolded = (col: { id: string; label: string; stateType?: string }) =>
+    folded[foldKey(col.label)] ?? (col.stateType === 'canceled' || (byColumn.get(col.id) ?? []).length === 0);
+  const [panelOpen, setPanelOpen] = useState(() => { try { return localStorage.getItem('baseline:hiddenColsOpen') !== '0'; } catch { return true; } });
+  const togglePanel = () => setPanelOpen(o => { try { localStorage.setItem('baseline:hiddenColsOpen', o ? '0' : '1'); } catch { /* ignore */ } return !o; });
+  const hiddenCols = columns.filter(c => isFolded(c));
   const setFold = (label: string, v: boolean) => setFolded(f => {
     const next = { ...f, [foldKey(label)]: v };
     try { localStorage.setItem('baseline:boardFolded', JSON.stringify(next)); } catch { /* ignore */ }
@@ -271,7 +280,7 @@ export function Board(props: {
       onDragCancel={() => setActive(null)}
     >
       <div className="board">
-        {columns.map(col => (
+        {columns.filter(col => !isFolded(col)).map(col => (
           <BoardColumn
             key={col.id}
             id={col.id}
@@ -282,10 +291,21 @@ export function Board(props: {
             groupBy={groupBy}
             teamId={props.teamId}
             onFocus={props.onFocusColumn}
-            folded={isFolded(col)}
-            onFold={v => setFold(col.label, v)}
+            onHide={() => setFold(col.label, true)}
           />
         ))}
+        {hiddenCols.length > 0 && (
+          <div className={`board-hidden${panelOpen ? ' open' : ''}`}>
+            <button className="bh-head" onClick={togglePanel} aria-expanded={panelOpen}>
+              <IconCaret size={12} className="nav-caret" /> Hidden columns
+              {!panelOpen && <span className="count">{hiddenCols.length}</span>}
+            </button>
+            {panelOpen && hiddenCols.map(col => (
+              <HiddenColumn key={col.id} id={col.id} label={col.label} icon={col.icon} count={(byColumn.get(col.id) ?? []).length}
+                onShow={() => setFold(col.label, false)} />
+            ))}
+          </div>
+        )}
       </div>
       <DragOverlay dropAnimation={{
         duration: 200, easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
@@ -321,8 +341,7 @@ function BoardColumn(props: {
   groupBy: GroupBy;
   teamId?: string;
   onFocus?: (stateIds: string[]) => void;
-  folded: boolean;
-  onFold: (folded: boolean) => void;
+  onHide: () => void;
 }) {
   const snap = useApp(s => s.snap)!;
   const openCreate = useApp(s => s.openCreate);
@@ -334,18 +353,6 @@ function BoardColumn(props: {
   const createTeamId = props.teamId ?? snap.states.find(s => s.id === props.id)?.teamId;
   const canCreate = props.groupBy === 'status';
   const addIssue = () => openCreate({ teamId: createTeamId, stateId: props.id });
-
-  if (props.folded) {
-    return (
-      <div ref={setNodeRef} className={`board-col folded${isOver ? ' drop-active' : ''}`}>
-        <button className="board-rail" title={`Expand ${props.label}`} onClick={() => props.onFold(false)}>
-          {props.icon}
-          <span className="count">{props.issues.length}</span>
-          <span className="rail-label">{props.label}</span>
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div className={`board-col${isOver ? ' drop-active' : ''}`}>
@@ -386,7 +393,7 @@ function BoardColumn(props: {
               <MenuSep />
             </>
           )}
-          <MenuItem label="Collapse column" onClick={() => props.onFold(true)} />
+          <MenuItem label="Hide column" onClick={props.onHide} />
           <MenuItem icon={<IconCopy size={14} />} label="Copy as markdown" onClick={async () => {
             const lines = props.issues.map(i => {
               const t = snap.teams.find(x => x.id === i.teamId);
@@ -397,5 +404,17 @@ function BoardColumn(props: {
         </Menu>
       )}
     </div>
+  );
+}
+
+/* a row in the Hidden columns panel: shows its count, takes drops, and a click brings the column back */
+function HiddenColumn(props: { id: string; label: string; icon: React.ReactNode; count: number; onShow: () => void }) {
+  const { setNodeRef, isOver } = useDroppable({ id: props.id });
+  return (
+    <button ref={setNodeRef} className={`bh-row${isOver ? ' drop-active' : ''}`} onClick={props.onShow} title={`Show ${props.label}`}>
+      {props.icon}
+      <span className="bh-label">{props.label}</span>
+      <span className="count">{props.count}</span>
+    </button>
   );
 }

@@ -58,6 +58,7 @@ baseline search "query"                     # issues + projects by substring
 baseline issue list [-t CORE] [-s Todo] [-a me] [-j Project] [-p high] [-L Bug] [-q text] [--archived] [--json] [--limit N]
 baseline issue show CORE-3 [--json]         # description, sub-issues, relations, comments, activity
 baseline issue handoff CORE-3 [--copy|--json]   # ready-to-paste agent prompt + suggested branch name
+baseline issue open CORE-3 [--dir <path>]       # human-facing: opens an interactive Claude Code session in Terminal (macOS)
 
 # create / update issues
 baseline issue create "Title" -t CORE -s "In Progress" -p high -a "Ada Osei" \
@@ -85,6 +86,7 @@ baseline project create "Name" -d "desc" -l "Jun Watanabe" -t CORE --start 2026-
 baseline project list [--json]
 baseline project show "Name" [--json]         # status, health, progress %, issues, updates, milestones
 baseline project update "Name" --status started --health atRisk -p low --target none   # planned|started|completed|paused, onTrack|atRisk|offTrack
+baseline project update "Name" --dir ~/code/repo    # checkout agents work in for this project's issues ("none" clears)
 baseline project note "Name" "Weekly update: shipped X, Y at risk" --health onTrack
 baseline project milestone-add "Name" "Beta cut" --target 2026-09-30
 baseline project milestone-update "Name" "Beta cut" --status inProgress   # planned|inProgress|done
@@ -136,7 +138,7 @@ BASELINE_DB=/tmp/scratch.db baseline import /tmp/ws.json
 
 ## Handoff loop (picking up an issue handed to you)
 
-A human picks an issue, copies its brief (web button, or `baseline issue handoff KEY --copy`), and pastes it into your prompt. The brief names the issue key and a suggested branch. Your side of the loop:
+A human hands you an issue one of three ways: copies its brief into your prompt (web toolbar, or `baseline issue handoff KEY --copy`), opens it with **Open in Claude Code** (a Terminal session started in the project's directory, with `BASELINE_DB`/`BASELINE_AS` already set), or assigns it to the "Claude Code" user for a background run. The brief names the issue key and a suggested branch. Your side of the loop:
 
 ```bash
 baseline issue show CORE-3 --json          # full context: description, comments, blockers
@@ -147,11 +149,18 @@ baseline issue comment CORE-3 "Shipped X; Y still open because Z"   # progress n
 baseline issue update CORE-3 -s Done       # only when truly finished; otherwise leave the state and say what remains
 ```
 
-- Report back even on partial work — the comment is the deliverable the human reads.
+- Report back even on partial work — the comment is the deliverable the human reads. Shape it to the work:
+  - **Code:** branch, commit or PR link, files changed, how you verified it (tests/commands run).
+  - **Docs / write-ups:** absolute path of each file you created (or the artifact link) plus a 2–3 line summary.
+  - **Bug / investigation:** root cause, evidence (`file:line`, log lines), then the fix or next step.
+  - **Research / decision:** the recommendation, options weighed, links to sources.
+  - Absolute paths for local files; backticks around paths, branches and commands; keep it short.
+- If the work splits into separate pieces, create sub-issues (`issue create "…" -t CORE --parent KEY`) instead of one long comment.
 - Attribute your writes to your agent identity: add `--as "Codex"` to write commands (`issue create|update|bulk|archive|relate|comment`, `project note`) so activity, comments and notifications land under that user instead of the human's. Agent identities are marked `agent` in `user list`.
 - `BASELINE_AS=<name or user id>` does the same for every command without the flag (an explicit `--as` still wins) — export it once per agent session.
-- Integrated agent: `baseline agent config --claude --cwd <repo>` makes the running server pick up issues assigned to the "Claude Code" agent user (created on first enable; other agents like "Agent" are never auto-run) every 30s and run them through `claude -p` (edits, git and this CLI only), one at a time; the result is posted as a comment with branch + changed files, then the issue moves to Done (or back to the human on failure). `baseline agent run` runs the next one now; `--off` disables. Logs: `~/.baseline/runs/`.
-- Template overrides live in the web app under Settings ▸ Handoff; `issue handoff --json` always reflects the current template.
+- Directories: each project can name the checkout agents work in (`project update "Name" --dir <path>`, or Settings ▸ Coding tools); `agent config --cwd <path>` is the default for issues whose project has none. Both Open in Claude Code and background runs start there.
+- Integrated agent: `baseline agent config --claude` makes the running server pick up issues assigned to the "Claude Code" agent user (created on first enable; other agents like "Agent" are never auto-run) every 30s and run them through `claude -p` (edits, git and this CLI only), one at a time, in the issue's directory; an issue whose directory is missing is skipped, not blocking the queue. In a background run, end with the report as your final message instead of commenting — the result is posted as a comment with branch + changed files, then the issue moves to Done (or back to the human on failure). `baseline agent run` runs the next one now; `--off` disables. Logs: `~/.baseline/runs/`.
+- Template overrides live in the web app under Settings ▸ Coding tools; `issue handoff --json` always reflects the current template.
 
 ## Conventions the store enforces (why your updates look the way they do)
 

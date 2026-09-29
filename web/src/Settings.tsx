@@ -7,11 +7,12 @@ import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
 import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar } from './icons.js';
 import { dateLabel } from './Views.js';
+import { DirectoryField, tildify } from './CodingTools.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
 import type { WorkflowStateType, Priority } from '../../src/core/types.js';
 
 const NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
-  { sec: 'Workspace settings', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Labels', 'labels'], ['Templates', 'templates'], ['Handoff', 'handoff'], ['Appearance', 'appearance'], ['Import & export', 'data'], ['Keyboard shortcuts', 'shortcuts']] },
+  { sec: 'Workspace settings', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Labels', 'labels'], ['Templates', 'templates'], ['Coding tools', 'handoff'], ['Appearance', 'appearance'], ['Import & export', 'data'], ['Keyboard shortcuts', 'shortcuts']] },
 ];
 
 const STATE_TYPES: Array<[WorkflowStateType, string]> = [
@@ -561,12 +562,18 @@ function HandoffSettings() {
 
   return (
     <div className="settings-card">
-      <h1>Handoff</h1>
-      <div className="field-help" style={{ marginBottom: 12 }}>
-        “Copy as prompt” turns an issue into a ready-to-paste brief for a coding agent CLI. Edit the template below;
-        the same prompt is served to the web app, <code>baseline issue handoff</code> and the palette.
+      <h1>Coding tools</h1>
+      <div className="field-help" style={{ marginBottom: 16 }}>
+        Hand an issue to Claude Code from its toolbar: <b>Copy as prompt</b> puts the brief on your clipboard, and <b>Open in Claude Code</b> starts
+        an interactive session in a terminal window, in the issue's project directory.
       </div>
+      <ClaudeCodeSettings />
+      <ProjectDirectorySettings />
       <AgentRunnerSettings />
+      <h2 className="settings-h2">Prompt template</h2>
+      <div className="field-help" style={{ marginBottom: 10 }}>
+        The same brief is used by the toolbar, <code>baseline issue handoff</code>, the palette and both Claude Code launchers.
+      </div>
       <textarea
         className="text-input"
         style={{ width: '100%', minHeight: 190, fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, lineHeight: 1.55, resize: 'vertical' }}
@@ -598,37 +605,93 @@ function HandoffSettings() {
   );
 }
 
-/* integrated agent: issues assigned to an agent user run through Claude Code, one at a time */
+/* where "Open in Claude Code" launches, and the directory it falls back to */
+function ClaudeCodeSettings() {
+  const ws = useApp(s => s.snap)!.workspace;
+  const toast = useApp(s => s.toast);
+  const save = async (patch: { agentCwd?: string; terminalApp?: 'Terminal' | 'iTerm' }, title: string) => {
+    await api.updateWorkspace(patch);
+    await useApp.getState().bootstrap();
+    toast({ title });
+  };
+  return (
+    <div className="card settings-block">
+      <div className="field-row">
+        <div><div className="field-label">Open sessions in</div><div className="field-help">The macOS app that runs interactive <code>claude</code> sessions.</div></div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {(['Terminal', 'iTerm'] as const).map(t => (
+            <button key={t} className={`seg seg-fill ${ws.terminalApp === t ? 'selected' : ''}`} onClick={() => void save({ terminalApp: t }, `Sessions open in ${t}`)}>{t}</button>
+          ))}
+        </div>
+      </div>
+      <div className="field-row stack">
+        <div><div className="field-label">Default directory</div><div className="field-help">Used for issues whose project has no directory of its own.</div></div>
+        <DirectoryField value={ws.agentCwd} placeholder="/Users/you/code/my-repo" pickPrompt="Choose the default directory for Claude Code"
+          onSave={dir => save({ agentCwd: dir }, dir ? 'Default directory saved' : 'Default directory cleared')} />
+      </div>
+      {(ws.recentDirectories ?? []).length > 0 && (
+        <div className="field-row stack">
+          <div><div className="field-label">Recent directories</div><div className="field-help">Offered under Open in Claude Code.</div></div>
+          <div className="recent-dirs">
+            {ws.recentDirectories.map(d => (
+              <div key={d} className="recent-dir">
+                <code>{tildify(d, ws.homeDir)}</code>
+                <button className="icon-btn" title="Remove from recents" onClick={async () => { await api.forgetDirectory(d); await useApp.getState().bootstrap(); }}><IconClose size={12} /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* one checkout per project: agents working on a project's issues start there */
+function ProjectDirectorySettings() {
+  const snap = useApp(s => s.snap)!;
+  const toast = useApp(s => s.toast);
+  if (snap.projects.length === 0) return null;
+  return (
+    <div className="card settings-block">
+      <div className="field-label">Project directories</div>
+      <div className="field-help" style={{ marginBottom: 6 }}>Claude Code works in a project's directory for all of its issues — both interactive sessions and background runs.</div>
+      {snap.projects.map(p => (
+        <div key={p.id} className="project-dir-row">
+          <span className="project-dir-name"><span className="fav-emoji">{p.icon}</span>{p.name}</span>
+          <DirectoryField value={p.directory} placeholder={snap.workspace.agentCwd ? `Default — ${tildify(snap.workspace.agentCwd, snap.workspace.homeDir)}` : 'Not set'}
+            pickPrompt={`Choose the directory for ${p.name}`}
+            onSave={async dir => { await api.updateProject(p.id, { directory: dir }); await useApp.getState().bootstrap(); toast({ title: dir ? `${p.name} directory saved` : `${p.name} directory cleared` }); }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* integrated agent: issues assigned to Claude Code run headlessly, one at a time */
 function AgentRunnerSettings() {
   const ws = useApp(s => s.snap)!.workspace;
   const toast = useApp(s => s.toast);
-  const [cwd, setCwd] = useState(ws.agentCwd);
   const on = ws.agentRunner === 'claude';
-
-  const save = async (patch: { agentRunner?: 'none' | 'claude'; agentCwd?: string }) => {
-    await api.updateWorkspace(patch);
+  const save = async (agentRunner: 'none' | 'claude') => {
+    await api.updateWorkspace({ agentRunner });
     await useApp.getState().bootstrap();
-    toast({ title: 'Integrated agent saved' });
+    toast({ title: agentRunner === 'claude' ? 'Background runs on' : 'Background runs off' });
   };
-
   return (
-    <div className="card" style={{ padding: '12px 14px', marginBottom: 16 }}>
+    <div className="card settings-block">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 500 }}>Run with Claude Code</div>
+          <div className="field-label">Run in the background</div>
           <div className="field-help">
-            Issues assigned to <b>Claude Code</b> are picked up within 30s, one at a time, via <code>claude -p</code> (edits, git and the baseline CLI only). Other agents like “Agent” stay copy-prompt only.
-            The result is posted as a comment with the branch and changed files; the issue moves to Done, or back to you if the run fails.
+            Issues assigned to <b>Claude Code</b> are picked up within 30s, one at a time, via <code>claude -p</code> (edits, git and the baseline CLI only), in the issue's project directory.
+            The result is posted as a comment with the branch and changed files; the issue moves to Done, or back to you if the run fails. Other agents like “Agent” are never run.
           </div>
         </div>
-        <button className={'btn' + (on ? '' : ' primary')} onClick={() => void save({ agentRunner: on ? 'none' : 'claude' })}>{on ? 'Turn off' : 'Turn on'}</button>
+        <button className={'btn' + (on ? '' : ' primary')} onClick={() => void save(on ? 'none' : 'claude')}>{on ? 'Turn off' : 'Turn on'}</button>
       </div>
-      <div style={{ display: 'flex', gap: 6, marginTop: 10, alignItems: 'center' }}>
-        <input className="text-input" style={{ flex: 1, fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5 }}
-          placeholder="Working directory, e.g. /Users/you/code/my-repo" value={cwd} onChange={e => setCwd(e.target.value)} spellCheck={false} />
-        <button className="btn" disabled={cwd.trim() === ws.agentCwd} onClick={() => void save({ agentCwd: cwd })}>Save</button>
-      </div>
-      {on && !ws.agentCwd && <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 6 }}>Set a working directory — nothing runs until it exists.</div>}
+      {on && !ws.agentCwd && !useApp.getState().snap!.projects.some(p => p.directory) && (
+        <div className="dir-field-warn" style={{ marginTop: 6 }}>Set a default or project directory — nothing runs until one exists.</div>
+      )}
     </div>
   );
 }

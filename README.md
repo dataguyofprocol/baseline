@@ -26,6 +26,7 @@ Dev commands here (`npm run dev`, `dev:server`, `start`, `serve`, `cli`, `seed`)
 sandbox DB and port 7327 so they can't touch real data — including `seed --reset`. Bare
 `node dist/server/index.js` and `node bin/baseline.js` default to the real DB on
 port 7770. Override anything with `BASELINE_DB`, `BASELINE_PORT`, or `BASELINE_URL`.
+The server only listens on this machine (127.0.0.1 and ::1) and rejects requests addressed to any other host or sent cross-site from another origin; set `BASELINE_HOST=0.0.0.0` to open it to your network (launching Claude Code stays local-only either way).
 
 **Production data:** the work DB was wiped of all seed/demo data on 2026-08-29 — the workspace
 starts empty (create your team in Settings) and only real work lives there now. The app auto-seeds
@@ -47,6 +48,7 @@ issue create "Title" -t CORE -s "In Progress" -p high -a Ada -l Bug -j "Project"
 issue list -t CORE -s Todo -a me -j Project -p high -L Bug -q text [--archived] [--json]
 issue show CORE-3 [--json]     # description, sub-issues, relations, comments, activity
 issue handoff CORE-3 [--copy|--json]   # ready-to-paste agent prompt + suggested branch name
+issue open CORE-3 [--dir <path>]       # interactive Claude Code session in a new Terminal window (macOS), in the project's directory
 issue update CORE-3 -s Done -p urgent -a Jun --title "New" -d "md" --labels Bug,Perf --parent none --estimate none --due none --project none
 issue archive CORE-3 · issue unarchive CORE-3 · issue restore CORE-3 · issue delete CORE-3 [--purge]
 issue bulk CORE-3 CORE-4 -s Done -a Ada --add-labels Bug [--delete] [--archive]
@@ -57,13 +59,14 @@ issue comments CORE-3 · issue comment CORE-3 "text" · comment edit <id> "text"
 # projects
 project create "Name" -d "desc" -l Jun -t CORE --start 2026-08-01 --target 2026-10-01 -p high
 project list [--json] · project show "Name" [--json]    # progress, issues, updates, milestones
-project update "Name" --status started --health atRisk -n "New" -l Ada -p low --target none
+project update "Name" --status started --health atRisk -n "New" -l Ada -p low --target none --dir ~/code/repo
 project note "Name" "update body" --health onTrack · project delete "Name"
 project milestone-add "Name" "Beta cut" --target 2026-09-30 · milestone-update "Name" "Beta cut" --status done · milestone-delete "Name" "Beta cut"
 
 # discovery & workspace
 team list · user list · user add "Codex" --agent · label list [-t CORE] · search "query"
 label create "Bug" -t CORE -c "#eb5757" · label update … · label delete …
+agent config [--claude|--off] [--cwd <default dir>] [--terminal Terminal|iTerm] · agent run
 export [--out file] · import <file>    # full workspace backup / restore
 seed [--reset]
 ```

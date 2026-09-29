@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, useSelection, copyText } from './store.js';
+import { useApp, useSelection } from './store.js';
 import { api } from './api.js';
+import { handoffActions } from './CodingTools.js';
 import { playExit } from './motion.js';
 import { Modal } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
@@ -9,7 +10,7 @@ import { Avatar, CalendarGrid, ESTIMATE_POINTS, PriorityIcon, StateIcon } from '
 import { scoreItem } from './fuzzy.js';
 import {
   IconSearch, IconPlus, IconSettings, IconInbox, IconBox, IconViews, IconMyIssues,
-  IconCycle, IconTeam, IconMoon, IconSun, IconHome, IconPrompt, IconPanel,
+  IconCycle, IconTeam, IconMoon, IconSun, IconHome, IconHandoff, IconSpark, IconPanel,
   IconArchive, IconBack, IconCalendar, IconCheck, IconClose, IconEstimate, IconTag, IconTrash, IconUser,
 } from './icons.js';
 import type { Issue, Priority } from '../../src/core/types.js';
@@ -364,15 +365,18 @@ export function CommandPalette() {
       const ck = `${t?.key}-${current.number}`;
       actions.unshift({
         id: 'act-copy-prompt',
-        icon: <IconPrompt />,
+        icon: <IconHandoff />,
         label: `Copy as prompt (${ck})`,
         section: 'Actions',
         keywords: 'handoff agent paste cli branch coding',
-        action: async () => {
-          const { handoff } = await api.getHandoff(current!.id);
-          if (await copyText(handoff.prompt)) useApp.getState().toast({ title: `Copied prompt for ${handoff.key}` });
-          else useApp.getState().toast({ title: 'Clipboard unavailable', line: <>{handoff.key} — bring the app tab into focus and retry</> });
-        },
+        action: () => handoffActions(current!).copyPrompt(),
+      }, {
+        id: 'act-open-claude',
+        icon: <IconSpark />,
+        label: `Open in Claude Code (${ck})`,
+        section: 'Actions',
+        keywords: 'handoff agent terminal session directory coding launch',
+        action: () => handoffActions(current!).openInClaude(),
       });
     }
     for (const t of snap.teams) {

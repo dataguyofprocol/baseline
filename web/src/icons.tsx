@@ -133,4 +133,28 @@ export const IconTerminal = (p: P) => <S {...p}><rect x="2.2" y="2.8" width="10.
 /* Agents read as a shell prompt: chevron + caret, no chrome around it. The boxed
    terminal turns to mush under 16px and fights every other outline icon. */
 export const IconAgent = (p: P) => <S {...p}><path d="m4.4 5 2.6 2.5-2.6 2.5" {...stroke} /><path d="M8.6 10.2h2.6" {...stroke} /></S>;
+export const IconHelp = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.6" {...stroke} /><path d="M5.9 5.9a1.7 1.7 0 0 1 3.3.5c0 1.1-1.7 1.4-1.7 2.4" {...stroke} /><circle cx="7.5" cy="10.7" r=".45" fill="currentColor" /></S>;
+export const IconCaret = (p: P) => <S {...p}><path d="M4.6 6.2h5.8L7.5 9.4z" fill="currentColor" /></S>;
+export const IconFolder = (p: P) => <S {...p}><path d="M2.2 4.4c0-.8.6-1.4 1.4-1.4h2.3l1.4 1.5h4.1c.8 0 1.4.6 1.4 1.4v5c0 .8-.6 1.4-1.4 1.4H3.6c-.8 0-1.4-.6-1.4-1.4z" {...stroke} /></S>;
+/* Claude Code's mark: a warm-orange burst of tapered rays with uneven lengths.
+   Drawn here (not a bundled asset) so it scales with the icon set. */
+const SPARK_RAYS = [6.5, 5.3, 6.2, 5.0, 6.6, 5.4, 6.1, 5.1, 6.5, 5.2, 6.3, 5.5].map((len, i) => {
+  const a = ((i * 30 - 90 + (i % 2 ? 4 : 0)) * Math.PI) / 180;
+  const n = a + Math.PI / 2;
+  const w0 = 0.95, w1 = 0.5, r0 = 1.2;
+  const x = (r: number, w: number, sgn: number) => (7.5 + Math.cos(a) * r + Math.cos(n) * w * sgn).toFixed(2);
+  const y = (r: number, w: number, sgn: number) => (7.5 + Math.sin(a) * r + Math.sin(n) * w * sgn).toFixed(2);
+  const tipX = (7.5 + Math.cos(a) * (len + w1)).toFixed(2), tipY = (7.5 + Math.sin(a) * (len + w1)).toFixed(2);
+  // a tapered ray with a rounded tip
+  return `M${x(r0, w0, 1)} ${y(r0, w0, 1)} L${x(len, w1, 1)} ${y(len, w1, 1)} Q${tipX} ${tipY} ${x(len, w1, -1)} ${y(len, w1, -1)} L${x(r0, w0, -1)} ${y(r0, w0, -1)} Z`;
+}).join(' ');
+export const CLAUDE_ORANGE = '#d97757';
+export const IconClaude = (p: P & { color?: string }) => (
+  <S {...p}><path d={SPARK_RAYS} fill={p.color ?? CLAUDE_ORANGE} /><circle cx="7.5" cy="7.5" r="1.9" fill={p.color ?? CLAUDE_ORANGE} /></S>
+);
+export const IconSpark = IconClaude;
+export const IconTools = (p: P) => <S {...p}><rect x="2.2" y="2.2" width="4.4" height="4.4" rx="1.2" {...stroke} /><rect x="8.4" y="2.2" width="4.4" height="4.4" rx="1.2" {...stroke} /><rect x="2.2" y="8.4" width="4.4" height="4.4" rx="1.2" {...stroke} /><path d="M10.6 8.6v4M8.6 10.6h4" {...stroke} /></S>;
+export const IconCopyId = (p: P) => <S {...p}><path d="M4.6 2.4h5.6c1.3 0 2.4 1.1 2.4 2.4v5.6" {...stroke} /><rect x="2.2" y="4.6" width="8.2" height="8.2" rx="1.9" {...stroke} /><path d="M4.7 7.1v3.2M6.5 7.1v3.2h.6a1.6 1.6 0 0 0 0-3.2z" {...stroke} /></S>;
+/* lines of a brief with a pointer: "hand this to an agent" */
+export const IconHandoff = (p: P) => <S {...p}><path d="M2.4 3.8h8M2.4 6.6h5M2.4 9.4h3" {...stroke} /><path d="m8 7.8 5 1.9-2.2.8-.8 2.2z" {...stroke} /></S>;
 export const IconBranch = (p: P) => <S {...p}><circle cx="4.5" cy="3.4" r="1.5" {...stroke} /><circle cx="4.5" cy="11.6" r="1.5" {...stroke} /><circle cx="10.9" cy="5.3" r="1.5" {...stroke} /><path d="M4.5 4.9v5.2" {...stroke} /><path d="M10.9 6.8v.3a4.3 4.3 0 0 1-4.3 4.3h-.4" {...stroke} /></S>;

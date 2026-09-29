@@ -121,6 +121,8 @@ export interface Project {
   health: ProjectHealth;
   /** 0 = no priority, 1 = urgent … 4 = low (same scale as issues) */
   priority: Priority;
+  /** local checkout coding agents work in for this project's issues ('' = workspace default) */
+  directory: string;
   startDate: string | null;
   targetDate: string | null;
   leadId: string | null;
@@ -236,15 +238,22 @@ export interface Workspace {
   handoffPromptTemplate: string;
   /** runs issues assigned to an agent user through Claude Code ('none' = copy-prompt only) */
   agentRunner: AgentRunner;
-  /** directory the integrated agent runs in */
+  /** default directory for agents — used when an issue's project has no directory of its own */
   agentCwd: string;
+  /** directories picked for "Open in Claude Code", most recent first */
+  recentDirectories: string[];
+  /** macOS app that interactive Claude Code sessions open in */
+  terminalApp: TerminalApp;
   /** the "Claude Code" agent user whose assigned issues the runner picks up */
   agentUserId: string | null;
   /** issue the integrated agent is working on right now (server memory, null when idle) */
   agentRunningIssueId: string | null;
+  /** the server's home directory, so the web app can show paths as ~/… (server memory) */
+  homeDir?: string;
 }
 
 export type AgentRunner = 'none' | 'claude';
+export type TerminalApp = 'Terminal' | 'iTerm';
 
 /** Full client snapshot — small scale, so the web app boots from one payload. */
 export interface Snapshot {

@@ -4,6 +4,7 @@ import { useApp, useHelpers, shortDate, relTime, copyText, refresh, useCursor, r
 import { IssueDetail } from './IssueDetail.js';
 import { NewCycleModal } from './Settings.js';
 import { api } from './api.js';
+import { ProjectDirectoryRow } from './CodingTools.js';
 import { TopBar } from './AppShell.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu, RegisterMark } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
@@ -849,6 +850,7 @@ function ProjectRail(props: { project: NonNullable<ReturnType<typeof useApp.getS
             </button>
           )}
         </ProjectDatesMenu>
+        <ProjectDirectoryRow project={project} />
       </div>
       <ProjectProgressCard project={project} prog={props.prog} />
       <div className="rail-card">

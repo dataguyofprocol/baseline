@@ -42,13 +42,16 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Properties rail: Status, Priority, Assignee, Labels, Project, Cycle, Due date (calendar popover with Today/Tomorrow/Next week), Estimate (0/1/2/3/5/8/13/21)
 - ✅ Activity feed: created/renamed/description/status/priority/assignee/label/project/parent/cycle/due/estimate/related events with relative times; comment composer (⌘⏎)
 - ✅ Comments: reactions (👍👎❤️🎉🚀😄 with counts + picker), edit/delete own, (edited) marker
-- ✅ Agent hand-off: "Copy as prompt" header button + menu item return a ready-to-paste brief + suggested branch name (template editable in Settings ▸ Handoff)
+- ✅ Agent hand-off: Linear-style issue toolbar (copy URL ⌘⇧, · copy ID ⌘. · copy branch ⌘⇧. · copy as prompt ⌘⌥P) with a caret menu: **Open in Claude Code ▸** (project / default / recent directories, or "Choose a directory…" via the native folder picker) launches an interactive `claude` session in Terminal or iTerm; also in row context menus and the palette
+- ✅ Per-project directories: agents (interactive and background) work in the issue's project directory, falling back to the workspace default; set from the project rail, Settings ▸ Coding tools, or `project update --dir`; the first directory picked for a project is saved as its directory
+- ✅ Sub-issues: list rows nest under their parent (elbow + indent), show "› parent" when apart, and parents show a closed/total progress ring; issue page shows "Sub-issue of ◐ KEY title  ◌ n/m"; inline sub-issue composer inherits the parent's priority, assignee, cycle and project, and Enter creates and keeps it open for the next one
 
 ## 5. Board view
 - ✅ Columns per group (status/priority/assignee/project/cycle); header icon+name+count+actions; "+" per status column
-- ✅ Cards: key + assignee, title with status icon, priority + labels, created date
+- ✅ Cards (Linear layout): key + "› parent" for sub-issues + assignee; status icon + title; bordered chips for priority, cycle, project, sub-issue progress, labels, estimate, due; created date — chips that repeat the column's grouping are omitted
 - ✅ Drag & drop: reorder within a column (sortOrder midpoint) and across columns (moves the group field)
-- ✅ Empty status groups render inline as empty columns (drag a card onto one to move it there)
+- ✅ Hidden columns panel: empty columns and Canceled (plus any you hide) move to a side panel with counts; rows accept drops and a click brings the column back
+- ✅ Claude Code identity: the integrated agent's avatar is an orange burst mark (also used for Open in Claude Code)
 
 ## 6. Projects
 - ✅ List: name + favorite star, health dot, priority icon, lead, target date, issue count, progress donut + %
@@ -69,7 +72,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Members: list, add (human or agent identity), "set as me" (current user switch)
 - ✅ Labels: create with color, rename/recolor inline, delete (issue counts shown)
 - ✅ Templates: per-team issue templates (name, optional title, markdown description) offered in the create modal
-- ✅ Handoff: copy-as-prompt template editor with live preview
+- ✅ Coding tools: terminal app, default + per-project directories, recent directories, background runner toggle, prompt template editor with live preview
 - ✅ Appearance: dark/light
 - ✅ Import & export: export JSON, import JSON (full restore), reset sample workspace
 

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createApp, serve } from '../server/index.js';
 import { runNextAgentIssue } from '../server/agentRunner.js';
+import { LaunchError, openInClaudeCode } from '../server/launch.js';
 import { resolveDbPath } from '../core/db.js';
 import { seedWorkspace } from '../core/seed.js';
 import { issueKey, PRIORITY_SHORT, PRIORITY_LABELS } from '../core/types.js';
@@ -325,6 +327,23 @@ withDb(issue.command('handoff <key>')).description('Print a ready-to-paste agent
       console.error(`\n— branch: ${h.branchName}\n— url: ${h.url}`);
     }
     if (opts.json) console.log(JSON.stringify(h, null, 2));
+    process.exit(0);
+  });
+
+withDb(issue.command('open <key>')).description('Open an interactive Claude Code session for an issue in a new terminal window (macOS)')
+  .option('--dir <path>', "directory to work in (default: the issue's project directory, else the agent default)")
+  .action((key: string, opts: { db?: string; dir?: string }) => {
+    const path = resolveDbPath(opts.db);
+    const store = storeFor(path);
+    const i = store.getByKey(key);
+    if (!i) fail(`Unknown issue ${key}`);
+    try {
+      const r = openInClaudeCode(store, path, i.id, { directory: opts.dir ? resolvePath(opts.dir) : undefined });
+      console.log(`Opened Claude Code for ${r.key} in ${r.directory}`);
+    } catch (err) {
+      if (err instanceof LaunchError) fail(err.code === 'no-directory' ? `No directory for ${key.toUpperCase()} — pass --dir, or set one with \`project update <name> --dir <path>\` or \`agent config --cwd <path>\`` : err.message);
+      throw err;
+    }
     process.exit(0);
   });
 
@@ -723,6 +742,7 @@ withDb(project.command('show <name>')).description('Show project detail with pro
       console.log(`${p.icon} ${p.name}`);
       console.log(`status: ${p.status}  health: ${p.health}  priority: ${PRIORITY_LABELS[p.priority]}  lead: ${lead}${t ? `  team: ${t}` : ''}`);
       console.log(`start: ${fmtDate(p.startDate)}  target: ${fmtDate(p.targetDate)}`);
+      if (p.directory) console.log(`directory: ${p.directory}`);
       if (p.description) console.log(`\n${p.description}`);
       console.log(`\nprogress: ${prog.percent}% (${prog.done}/${prog.total} issues done)`);
       const issues = snap.issues.filter(i => i.projectId === p.id);
@@ -760,6 +780,7 @@ withDb(project.command('update <name>')).description('Update a project')
   .option('-p, --priority <level>', 'none|urgent|high|medium|low')
   .option('--start <date>', 'start date YYYY-MM-DD ("none" to clear)')
   .option('--target <date>', 'target date YYYY-MM-DD ("none" to clear)')
+  .option('--dir <path>', 'local directory coding agents work in for this project ("none" to clear)')
   .action((name: string, opts: Record<string, string | undefined>) => {
     const store = storeFor(opts.db);
     const snap = store.snapshot();
@@ -778,6 +799,7 @@ withDb(project.command('update <name>')).description('Update a project')
       ...(opts.priority ? { priority: priorityNum(opts.priority)! } : {}),
       ...(opts.start !== undefined ? { startDate: opts.start.toLowerCase() === 'none' ? null : opts.start } : {}),
       ...(opts.target !== undefined ? { targetDate: opts.target.toLowerCase() === 'none' ? null : opts.target } : {}),
+      ...(opts.dir !== undefined ? { directory: opts.dir.toLowerCase() === 'none' ? '' : resolvePath(opts.dir) } : {}),
     });
     console.log(`Updated project ${opts.newName ?? p.name}`);
     process.exit(0);
@@ -880,12 +902,16 @@ const agent = program.command('agent').description('Integrated agent: runs issue
 withDb(agent.command('config')).description('Show or change the integrated agent setup')
   .option('--claude', 'turn the integrated agent on (Claude Code)')
   .option('--off', 'turn it off (copy-prompt only)')
-  .option('--cwd <dir>', 'directory the agent runs in')
-  .action((opts: { db?: string; claude?: boolean; off?: boolean; cwd?: string }) => {
+  .option('--cwd <dir>', "default directory agents work in (a project's own directory wins)")
+  .option('--terminal <app>', 'Terminal|iTerm — where `issue open` sessions launch')
+  .action((opts: { db?: string; claude?: boolean; off?: boolean; cwd?: string; terminal?: string }) => {
     const store = storeFor(opts.db);
-    store.setAgentConfig({ agentRunner: opts.claude ? 'claude' : opts.off ? 'none' : undefined, agentCwd: opts.cwd });
+    if (opts.terminal && !['Terminal', 'iTerm'].includes(opts.terminal)) fail(`Invalid terminal "${opts.terminal}" — use Terminal|iTerm`);
+    store.setAgentConfig({ agentRunner: opts.claude ? 'claude' : opts.off ? 'none' : undefined, agentCwd: opts.cwd !== undefined ? resolvePath(opts.cwd) : undefined, terminalApp: opts.terminal as 'Terminal' | 'iTerm' | undefined });
     const c = store.getAgentConfig();
-    console.log(`runner: ${c.agentRunner === 'claude' ? 'Claude Code' : 'off'}\ncwd:    ${c.agentCwd || '(not set)'}`);
+    const snap = store.snapshot();
+    const projectDirs = snap.projects.filter(p => p.directory).map(p => `  ${p.name}: ${p.directory}`);
+    console.log(`runner: ${c.agentRunner === 'claude' ? 'Claude Code' : 'off'}\ncwd:    ${c.agentCwd || '(not set)'}\nterminal: ${c.terminalApp}${projectDirs.length ? `\nproject directories:\n${projectDirs.join('\n')}` : ''}`);
     process.exit(0);
   });
 withDb(agent.command('run')).description('Run the next queued agent issue now and wait for it (the server does this every 30s)')

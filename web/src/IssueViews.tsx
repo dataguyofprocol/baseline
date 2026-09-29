@@ -1,15 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, visibleList, LIST_GROUP_ORDER, copyText } from './store.js';
+import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, visibleList, LIST_GROUP_ORDER } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, useMenu, MenuInput } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, MenuInput } from './ui.js';
+import { OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { LogoMark } from './Logo.js';
 import { useLanding, playExit, reducedMotion } from './motion.js';
 import {
-  IconChevronDown, IconPlus, IconFilter, IconClose, IconArchive, IconTrash,
-  IconCalendar, IconCycle, IconFocus, IconPrompt,
+  IconChevronDown, IconChevronRight, IconPlus, IconFilter, IconClose, IconArchive, IconTrash,
+  IconCalendar, IconCycle, IconFocus, IconHandoff, IconSpark, IconBranch, IconCopyId,
 } from './icons.js';
 import type { Issue, Priority, ViewFilters, GroupBy, OrderBy } from '../../src/core/types.js';
 
@@ -168,6 +169,68 @@ function shiftSelectRange(id: string) {
   useSelection.getState().setMany([...new Set([...useSelection.getState().ids, ...list.slice(a, b + 1)])]);
 }
 
+/* ================= sub-issues ================= */
+type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
+/* one pass per snapshot builds every parent's tally — rows and cards then just look theirs up.
+   Keyed on the issues array, which every snapshot swap (bootstrap, optimistic move) replaces. */
+const progressIndex = new WeakMap<Snap['issues'], Map<string, { done: number; total: number }>>();
+function progressFor(snap: Snap): Map<string, { done: number; total: number }> {
+  let idx = progressIndex.get(snap.issues);
+  if (idx) return idx;
+  idx = new Map();
+  const closedState = new Set(snap.states.filter(s => s.type === 'completed' || s.type === 'canceled').map(s => s.id));
+  for (const i of snap.issues) {
+    if (!i.parentId || i.archivedAt || i.deletedAt) continue;
+    const t = idx.get(i.parentId) ?? { done: 0, total: 0 };
+    t.total++;
+    if (closedState.has(i.stateId)) t.done++;
+    idx.set(i.parentId, t);
+  }
+  progressIndex.set(snap.issues, idx);
+  return idx;
+}
+
+/** closed / total over an issue's live sub-issues (null when it has none) */
+export function subIssueProgress(issueId: string, snap: Snap): { done: number; total: number } | null {
+  return progressFor(snap).get(issueId) ?? null;
+}
+
+/** a ring that fills with closed sub-issues, beside the count — the parent's row and page both show it */
+export function SubIssueProgress(props: { done: number; total: number; size?: number }) {
+  const size = props.size ?? 13;
+  const r = size / 2 - 1.5;
+  const c = 2 * Math.PI * r;
+  const frac = props.total ? props.done / props.total : 0;
+  return (
+    <span className={`sub-progress${frac === 1 ? ' complete' : ''}`} title={`${props.done} of ${props.total} sub-issues done`}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="currentColor" strokeOpacity="0.28" strokeWidth="1.5" strokeDasharray={frac === 0 ? '1.6 1.6' : undefined} />
+        {frac > 0 && <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--status-completed)" strokeWidth="1.5"
+          strokeDasharray={`${c * frac} ${c}`} strokeLinecap="round" transform={`rotate(-90 ${size / 2} ${size / 2})`} />}
+      </svg>
+      {props.done}/{props.total}
+    </span>
+  );
+}
+
+/** keep a group's order, but slot each sub-issue straight under its parent when both are in the group */
+export function nestSubIssues(list: Issue[]): Array<{ issue: Issue; depth: number }> {
+  const ids = new Set(list.map(i => i.id));
+  const kids = new Map<string, Issue[]>();
+  for (const i of list) if (i.parentId && ids.has(i.parentId)) kids.set(i.parentId, [...(kids.get(i.parentId) ?? []), i]);
+  const out: Array<{ issue: Issue; depth: number }> = [];
+  const seen = new Set<string>();
+  const visit = (i: Issue, depth: number) => {
+    if (seen.has(i.id)) return;
+    seen.add(i.id);
+    out.push({ issue: i, depth });
+    for (const k of kids.get(i.id) ?? []) visit(k, Math.min(depth + 1, 3));
+  };
+  for (const i of list) if (!(i.parentId && ids.has(i.parentId))) visit(i, 0);
+  for (const i of list) visit(i, 0); // a parent cycle in bad data still renders every row once
+  return out;
+}
+
 /* ================= issue row ================= */
 export interface RowDisplay { id: boolean; status: boolean; assignee: boolean; priority: boolean; labels: boolean; project: boolean; due: boolean }
 
@@ -177,6 +240,8 @@ export function IssueRow(props: {
   selected?: boolean;
   cursor?: boolean;
   nested?: boolean;
+  /** 1+ = rendered under its parent's row, so the parent breadcrumb is redundant */
+  depth?: number;
   onOpen?: () => void;
 }) {
   const snap = useApp(s => s.snap)!;
@@ -191,6 +256,10 @@ export function IssueRow(props: {
   const labels = snap.labels.filter(l => props.issue.labelIds.includes(l.id));
   const project = snap.projects.find(p => p.id === props.issue.projectId);
   const key = `${team?.key ?? 'ISS'}-${props.issue.number}`;
+  const parent = props.issue.parentId ? snap.issues.find(i => i.id === props.issue.parentId) : undefined;
+  const parentKey = parent ? `${snap.teams.find(t => t.id === parent.teamId)?.key}-${parent.number}` : '';
+  const progress = subIssueProgress(props.issue.id, snap);
+  const depth = props.depth ?? 0;
 
   // optimistic landing: a status change or a fresh create lands the row with
   // the enter + flash, and a move into completed morphs the status icon
@@ -204,7 +273,8 @@ export function IssueRow(props: {
   return (
     <div
       data-issue-row={props.issue.id}
-      className={`issue-row ${props.selected ? 'selected' : ''} ${props.cursor ? 'cursor' : ''} ${props.nested ? 'nested' : ''} ${justMoved ? 'just-moved' : ''} ${checksOn ? 'checks-on' : ''}`}
+      className={`issue-row ${props.selected ? 'selected' : ''} ${props.cursor ? 'cursor' : ''} ${props.nested ? 'nested' : ''} ${depth ? 'child' : ''} ${justMoved ? 'just-moved' : ''} ${checksOn ? 'checks-on' : ''}`}
+      style={depth ? { '--depth': depth } as React.CSSProperties : undefined}
       onClick={open}
       onContextMenu={(e) => issueMenu.open(e)}
       onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); navigate(`/issue/${key}`); } }}
@@ -220,8 +290,16 @@ export function IssueRow(props: {
       {display.priority && <PriorityIcon priority={props.issue.priority} size={14} />}
       {display.id && <span className="issue-key">{key}</span>}
       {display.status && state && <StateIcon type={state.type} color={state.color} size={14} morph={becameDone} />}
-      <span className="row-title">{props.issue.title}</span>
+      <span className="row-title-wrap">
+        <span className="row-title">{props.issue.title}</span>
+        {parent && depth === 0 && (
+          <span className="row-parent" title={`Sub-issue of ${parentKey} ${parent.title}`}>
+            <IconChevronRight size={10} />{parent.title}
+          </span>
+        )}
+      </span>
       <span className="row-meta">
+        {progress && <SubIssueProgress done={progress.done} total={progress.total} />}
         {display.due && props.issue.dueDate && (
           <span className={`due-chip ${props.issue.dueDate.slice(0, 10) < new Date().toISOString().slice(0, 10) ? 'overdue' : ''}`}>
             <IconCalendar size={11} /> {shortDate(props.issue.dueDate)}
@@ -256,6 +334,7 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
   const team = snap.teams.find(t => t.id === props.issue.teamId);
   const key = `${team?.key}-${props.issue.number}`;
 
+  const handoff = useHandoffActions(props.issue);
   const openQuick = (kind: 'status' | 'priority' | 'assignee' | 'labels') => {
     props.onClose();
     setQuickMenu({ issueId: props.issue.id, kind, anchor: props.anchor });
@@ -268,23 +347,12 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
       <MenuItem label="Assign to…" right={<span className="kbd">A</span>} onClick={() => openQuick('assignee')} />
       <MenuItem label="Set labels…" right={<span className="kbd">L</span>} onClick={() => openQuick('labels')} />
       <MenuSep />
-      <MenuItem icon={<IconPrompt size={14} />} label="Copy as prompt" onClick={async () => {
-        const { handoff } = await api.getHandoff(props.issue.id);
-        if (await copyText(handoff.prompt)) toast({ title: `Copied prompt for ${key}`, line: <>branch: <b>{handoff.branchName}</b></> });
-        else toast({ title: 'Clipboard unavailable', line: <>{key} — bring the app tab into focus and retry</> });
-      }} />
-      <MenuItem label="Copy branch name" onClick={async () => {
-        const { handoff } = await api.getHandoff(props.issue.id);
-        if (await copyText(handoff.branchName)) toast({ title: `Copied branch ${handoff.branchName}` });
-        else toast({ title: 'Clipboard unavailable', line: <>branch: <b>{handoff.branchName}</b></> });
-      }} />
-      <MenuItem
-        label="Copy issue ID"
-        onClick={async () => {
-          if (await copyText(key)) toast({ title: 'Copied issue ID' });
-          else toast({ title: 'Clipboard unavailable', line: <>{key}</> });
-        }}
-      />
+      <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<><span className="kbd">⌘</span><span className="kbd">⌥</span><span className="kbd">P</span></>} onClick={() => void handoff.copyPrompt()} />
+      <MenuSub icon={<IconSpark size={14} />} label="Open in Claude Code">
+        <OpenInClaudeItems issue={props.issue} actions={handoff} />
+      </MenuSub>
+      <MenuItem icon={<IconBranch size={14} />} label="Copy branch name" onClick={() => void handoff.copyBranch()} />
+      <MenuItem icon={<IconCopyId size={14} />} label="Copy issue ID" onClick={() => void handoff.copyId()} />
       <MenuItem label="Duplicate issue" onClick={async () => {
         const { issue } = await api.createIssue({
           teamId: props.issue.teamId, title: props.issue.title, description: props.issue.description,
@@ -597,7 +665,7 @@ export function SelectionBar() {
 type RenderItem =
   | { kind: 'header'; spec: GroupSpec; count: number }
   | { kind: 'subheader'; groupId: string; spec: GroupSpec; count: number; parent: string }
-  | { kind: 'row'; issue: Issue; nested: boolean };
+  | { kind: 'row'; issue: Issue; nested: boolean; depth?: number };
 
 export function GroupedList(props: {
   issues: Issue[];
@@ -651,8 +719,11 @@ export function GroupedList(props: {
           const covered = subGroups.some(sg => sg.issues.includes(i));
           if (!covered) { renderItems.push({ kind: 'row', issue: i, nested: true }); flatIssues.push(i); }
         }
-      } else {
+      } else if (props.opts.orderBy === 'manual') {
+        // manual order is the user's own arrangement — don't regroup it under parents
         for (const i of g.issues) { renderItems.push({ kind: 'row', issue: i, nested: false }); flatIssues.push(i); }
+      } else {
+        for (const { issue: i, depth } of nestSubIssues(g.issues)) { renderItems.push({ kind: 'row', issue: i, nested: false, depth }); flatIssues.push(i); }
       }
     }
     return { render: renderItems, flat: flatIssues };
@@ -754,6 +825,7 @@ export function GroupedList(props: {
             selected={selection.includes(item.issue.id)}
             cursor={flatIndex === cursorIndex}
             nested={item.nested}
+            depth={item.depth}
           />
         );
       })}

@@ -1,5 +1,5 @@
 // Integrated agent: picks up issues assigned to the "Claude Code" user and runs them through Claude Code
-// headlessly (`claude -p`), one at a time. The result lands on the issue as a comment by that
+// headlessly (`claude -p`), one at a time, in the issue's project directory (or the workspace default). The result lands on the issue as a comment by that
 // agent — summary, branch, changed files — and the state moves.
 // No tables of its own: the claim is the state flip to "started", config lives in meta.
 // Permissions stay scoped: acceptEdits plus an explicit tool allowlist (file tools, git, the
@@ -14,7 +14,7 @@ import type { Store } from '../core/store.js';
 import type { Issue } from '../core/types.js';
 import { issueKey } from '../core/types.js';
 
-const CLI_BIN = resolve(fileURLToPath(import.meta.url), '../../../bin/baseline.js');
+export const CLI_BIN = resolve(fileURLToPath(import.meta.url), '../../../bin/baseline.js');
 const RUNS_DIR = process.env.BASELINE_RUNS_DIR ?? join(homedir(), '.baseline', 'runs');
 const TIMEOUT_MS = Number(process.env.BASELINE_AGENT_TIMEOUT_MS ?? 45 * 60_000);
 const POLL_MS = Number(process.env.BASELINE_AGENT_POLL_MS ?? 30_000);
@@ -26,18 +26,28 @@ let running: string | null = null;
 /** issue id the integrated agent is working on, for the web's "Agent running…" hint */
 export function agentRunningIssueId(): string | null { return running; }
 
+export function isDirectory(p: string): boolean {
+  try { return !!p && existsSync(p) && statSync(p).isDirectory(); } catch { return false; }
+}
+
 /** Claim and run the next queued issue. Resolves undefined when there is nothing to do
- *  (runner off, no working directory, empty queue, or a run already in flight). */
+ *  (runner off, empty queue, no queued issue with a working directory, or a run already in flight).
+ *  An issue whose directory is missing is skipped rather than blocking the ones behind it. */
 export async function runNextAgentIssue(store: Store, dbPath: string): Promise<RunResult | undefined> {
   if (running) return undefined;
-  const { agentRunner, agentCwd } = store.getAgentConfig();
+  const { agentRunner } = store.getAgentConfig();
   const fake = process.env.BASELINE_AGENT_CMD; // test hook: a shell command standing in for claude
   if (agentRunner === 'none' && !fake) return undefined;
-  if (!agentCwd || !existsSync(agentCwd) || !statSync(agentCwd).isDirectory()) return undefined;
-  const issue = store.nextAgentIssue();
-  if (!issue) return undefined;
-  const started = store.stateOfType(issue.teamId, 'started');
-  if (!started) return undefined;
+  let issue: Issue | undefined;
+  let agentCwd = '';
+  let started: string | undefined;
+  for (const candidate of store.agentQueue()) {
+    const dir = store.agentDirFor(candidate);
+    // no directory, or no In Progress-type state to claim with: skip it, don't stall the queue
+    const claim = store.stateOfType(candidate.teamId, 'started');
+    if (isDirectory(dir) && claim) { issue = candidate; agentCwd = dir; started = claim; break; }
+  }
+  if (!issue || !started) return undefined;
 
   const agentId = issue.assigneeId!;
   const key = issueKey(issue, store.snapshot().teams);
@@ -105,7 +115,7 @@ function buildPrompt(store: Store, issueId: string, key: string): string {
 
 ---
 Baseline CLI: \`node ${CLI_BIN}\` (BASELINE_DB and BASELINE_AS are set, so writes go to this workspace and are attributed to you).
-When you finish, end with a short summary of what you did, the branch, and any files or artifacts you produced — Baseline posts your final message on ${key} automatically.`;
+This is a background run: skip the final comment and the Done state change above. End with that comment as your final message instead; Baseline posts it on ${key} and moves the state for you.`;
 }
 
 /** stream-json ends with a `{"type":"result","result":…}` line; anything else is taken as plain text */

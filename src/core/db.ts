@@ -123,6 +123,7 @@ function migrate(db: DatabaseSync): void {
       status TEXT NOT NULL DEFAULT 'planned',
       health TEXT NOT NULL DEFAULT 'onTrack',
       priority INTEGER NOT NULL DEFAULT 0,
+      directory TEXT NOT NULL DEFAULT '',
       start_date TEXT,
       target_date TEXT,
       lead_id TEXT,
@@ -203,6 +204,7 @@ function migrate(db: DatabaseSync): void {
   const columns = (t: string): string[] => (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map(c => c.name);
   if (!columns('issues').includes('deleted_at')) db.exec('ALTER TABLE issues ADD COLUMN deleted_at TEXT');
   if (!columns('projects').includes('priority')) db.exec("ALTER TABLE projects ADD COLUMN priority INTEGER NOT NULL DEFAULT 0");
+  if (!columns('projects').includes('directory')) db.exec("ALTER TABLE projects ADD COLUMN directory TEXT NOT NULL DEFAULT ''");
   if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
 
   // initiatives were removed from the model — drop leftover tables from pre-existing databases

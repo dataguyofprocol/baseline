@@ -337,14 +337,46 @@ check_json "killed run reads as stopped, handed back" "$WORK/a4.json" "d.state==
 checkon "$ADB" "queue empty after hand-back" "nothing to run" agent run
 ab issue show "$K0" --json > "$WORK/a0.json"
 check_json "issues assigned to Agent are never auto-run" "$WORK/a0.json" "d.state==='Todo'&&d.assignee==='Agent'&&d.comments.length===0"
+echo "=== project directories + Open in Claude Code ==="
+PREPO="$WORK/project-repo"; mkdir -p "$PREPO"
+checkon "$ADB" "project update --dir" "Updated project" project update "Agent Handoff" --dir "$PREPO"
+checkon "$ADB" "project show lists the directory" "directory: $PREPO" project show "Agent Handoff"
+checkon "$ADB" "agent config lists project directories" "Agent Handoff: $PREPO" agent config
+checkon "$ADB" "project update --dir none clears it" "Updated project" project update "Mobile Companion" --dir none
+ab project update "Mobile Companion" --dir "$WORK/missing-dir" >/dev/null
+KM=$(ab issue create "project dir missing" -t CORE -s Todo -a "Claude Code" -j "Mobile Companion" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))")
+KP=$(ab issue create "runs in project dir" -t CORE -s Todo -a "Claude Code" -j "Agent Handoff" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))")
+BASELINE_AGENT_CMD='pwd' checkon "$ADB" "runner skips an issue whose directory is missing" "finished $KP" agent run
+ab issue show "$KP" --json > "$WORK/ap.json"
+check_json "background run works in the project's directory" "$WORK/ap.json" "d.comments.some(c=>c.author==='Claude Code'&&c.body.includes('project-repo'))"
+ab issue show "$KM" --json > "$WORK/am.json"
+check_json "skipped issue stays queued" "$WORK/am.json" "d.state==='Todo'&&d.assignee==='Claude Code'"
+export BASELINE_SESSIONS_DIR="$WORK/sessions" BASELINE_OPEN_CMD="true"
+KO=$(ab issue create "open me" -t CORE -j "Agent Handoff" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))")
+checkon "$ADB" "issue open uses the project directory" "in $PREPO" issue open "$KO"
+if grep -q "cd '$PREPO'" "$WORK"/sessions/"$KO"-*.command && grep -q "BASELINE_AS=" "$WORK"/sessions/"$KO"-*.command; then PASS=$((PASS+1)); else echo "FAIL  launcher cds into the directory with BASELINE_AS"; FAILED_NAMES+=("launcher script"); FAIL=$((FAIL+1)); fi
+if [[ "$(stat -f %Lp "$WORK"/sessions/"$KO"-*.md 2>/dev/null | head -1 || stat -c %a "$WORK"/sessions/"$KO"-*.md | head -1)" == "600" ]]; then PASS=$((PASS+1)); else echo "FAIL  session brief is owner-only"; FAILED_NAMES+=("session brief perms"); FAIL=$((FAIL+1)); fi
+if grep -q "issue show $KO --json" "$WORK"/sessions/"$KO"-*.md; then PASS=$((PASS+1)); else echo "FAIL  launcher prompt carries the brief"; FAILED_NAMES+=("launcher prompt"); FAIL=$((FAIL+1)); fi
+checkon "$ADB" "issue open --dir overrides" "in $REPO" issue open "$KO" --dir "$REPO"
+ODB=$(newdb open)
+KN=$(BASELINE_DB="$ODB" $BIN issue create "no dir anywhere" -t CORE --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))")
+OUT=$(BASELINE_DB="$ODB" $BIN issue open "$KN" 2>&1)
+if [[ "$OUT" == *"No directory for $KN"* ]]; then PASS=$((PASS+1)); else echo "FAIL  issue open without a directory explains itself"; FAILED_NAMES+=("issue open no dir"); FAIL=$((FAIL+1)); fi
+unset BASELINE_SESSIONS_DIR BASELINE_OPEN_CMD
+checkon "$ADB" "handoff brief points at the baseline skill" "/baseline skill" issue handoff "$KO"
+
 checkon "$ADB" "agent config off" "runner: off" agent config --off
 unset BASELINE_RUNS_DIR
 
 echo "=== export / import ==="
+b agent config --cwd "$WORK" --terminal iTerm >/dev/null
 b export --out "$WORK/export.json"
 check_json "export has issues" "$WORK/export.json" "d.issues.length>5&&d.teams.length>=2&&Array.isArray(d.projects)"
 DB2=$(newdb 2)
 checkon "$DB2" "import summary" "Imported:" import "$WORK/export.json"
+checkon "$DB2" "import keeps the terminal choice" "terminal: iTerm" agent config
+checkon "$DB2" "import keeps the default directory" "cwd:    $WORK" agent config
+checkon "$DB2" "import leaves the background runner off" "runner: off" agent config
 BASELINE_DB="$DB2" $BIN issue list -q "renamed issue" --json > "$J"
 check_json "imported issue round-trips" "$J" "d.length===1&&d[0].key==='$KEY'&&d[0].title==='renamed issue'"
 BASELINE_DB="$DB2" $BIN project list --json > "$WORK/p3.json"
@@ -377,6 +409,22 @@ check_rc "move both anchors"         1 issue move "$A" --before "$B" --after "$A
 echo "=== json purity (stderr not polluted into stdout) ==="
 b issue list --json > "$WORK/purity.json" 2>/dev/null
 check_json "issue list --json parses cleanly" "$WORK/purity.json" "Array.isArray(d)"
+
+echo "=== server accepts only this machine ==="
+node --input-type=module -e '
+const { createApp } = await import("./dist/server/index.js");
+const { app } = createApp(process.argv[1]);
+const r = async (path, init) => (await app.request(path, init)).status;
+const bad = [];
+if (await r("http://localhost/api/bootstrap") !== 200) bad.push("localhost GET");
+if (await r("http://192.168.1.9:7770/api/bootstrap") !== 403) bad.push("LAN host GET");
+if (await r("http://evil.example/api/bootstrap") !== 403) bad.push("rebinding host GET");
+if (await r("http://localhost/api/workspace", { method: "PATCH", headers: { "Content-Type": "application/json", Origin: "https://evil.example" }, body: "{}" }) !== 403) bad.push("cross-site write");
+if (await r("http://localhost/api/workspace", { method: "PATCH", headers: { "Content-Type": "application/json", Origin: "http://localhost:5183" }, body: "{}" }) !== 200) bad.push("same-machine write");
+if (await r("http://localhost/api/directories/pick", { method: "POST", headers: { "Content-Type": "text/plain" }, body: "{}" }) !== 403) bad.push("text/plain launch");
+if (bad.length) { console.error("wrong status: " + bad.join(", ")); process.exit(1); }
+' "$WORK/guard.db" > "$WORK/guard-out.txt" 2>&1
+if [[ $? -eq 0 ]]; then PASS=$((PASS+1)); else echo "FAIL  host/origin guard — $(cat "$WORK/guard-out.txt" | tail -2)"; FAILED_NAMES+=("host/origin guard"); FAIL=$((FAIL+1)); fi
 
 echo "=== store createProject status/memberIds (web API fields) ==="
 node -e '

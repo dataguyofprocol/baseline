@@ -27,6 +27,17 @@ export const api = {
   bulkIssues: (b: { ids: string[]; patch?: Record<string, unknown>; delete?: boolean; archive?: boolean }) => req<{ ok: true; count: number }>('POST', '/api/issues/bulk', b),
   moveIssue: (id: string, beforeId: string | null, afterId: string | null) => req<{ ok: true }>('POST', `/api/issues/${id}/move`, { beforeId, afterId }),
   getHandoff: (id: string) => req<{ handoff: Handoff }>('GET', `/api/issues/${id}/handoff`),
+  /** errors come back as values — the caller reacts to `code` (e.g. no-directory → open the picker) */
+  openClaude: async (id: string, b: { directory?: string; saveToProject?: boolean }) => {
+    const res = await fetch(`/api/issues/${id}/open-claude`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+    return res.json().catch(() => ({ error: `Server error (${res.status})`, code: 'server' })) as Promise<{ key: string; directory: string; savedToProject: boolean; error?: undefined } | { error: string; code: string }>;
+  },
+  pickDirectory: async (prompt?: string) => {
+    const res = await fetch('/api/directories/pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
+    return res.json().catch(() => ({ directory: null, error: `Server error (${res.status})` })) as Promise<{ directory: string | null; error?: string }>;
+  },
+  checkDirectory: (directory: string) => req<{ exists: boolean }>('POST', '/api/directories/check', { directory }),
+  forgetDirectory: (directory: string) => req<{ ok: true }>('DELETE', '/api/directories/recent', { directory }),
   createTemplate: (b: { teamId: string; name: string; title?: string; description?: string }) => req<{ template: IssueTemplate }>('POST', '/api/issue-templates', b),
   updateTemplate: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/issue-templates/${id}`, patch),
   deleteTemplate: (id: string) => req<{ ok: true }>('DELETE', `/api/issue-templates/${id}`),

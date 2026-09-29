@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useApp } from './store.js';
-import { IconClose, IconCheck } from './icons.js';
+import { IconClose, IconCheck, IconChevronRight } from './icons.js';
 import { reducedMotion } from './motion.js';
 
 /* ---------------- dropdown menu ---------------- */
@@ -131,6 +131,38 @@ export function MenuItem(props: {
           {props.selected && <IconCheck size={13} />}
         </span>
       </button>
+    </>
+  );
+}
+
+/* A menu row that opens a flyout beside the menu on hover or click. The flyout
+   portals to body (the parent menu scrolls, so it would clip an absolute child)
+   and flips to the left when there's no room on the right. Its MenuItems close
+   the whole menu through the shared context. */
+export function MenuSub(props: { icon?: React.ReactNode; label: React.ReactNode; right?: React.ReactNode; width?: number; children: React.ReactNode }) {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const show = () => { clearTimeout(timer.current); if (btn.current) setRect(btn.current.getBoundingClientRect()); };
+  const hideSoon = () => { clearTimeout(timer.current); timer.current = setTimeout(() => setRect(null), 180); };
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const w = props.width ?? 240;
+  const left = rect ? (rect.right + 6 + w > window.innerWidth - 12 ? rect.left - w - 6 : rect.right + 6) : 0;
+  return (
+    <>
+      <button ref={btn} className={`menu-item${rect ? ' sub-open' : ''}`} onPointerEnter={show} onPointerLeave={hideSoon}
+        onClick={(e) => { e.stopPropagation(); if (rect) setRect(null); else show(); }}>
+        {props.icon && <span className="mi-icon">{props.icon}</span>}
+        <span className="mi-label">{props.label}</span>
+        <span className="mi-right">{props.right}<IconChevronRight size={12} /></span>
+      </button>
+      {rect && createPortal(
+        <div className="menu submenu" style={{ left, top: Math.min(rect.top - 6, window.innerHeight - 320), width: w }}
+          onPointerEnter={show} onPointerLeave={hideSoon}>
+          {props.children}
+        </div>,
+        document.body,
+      )}
     </>
   );
 }

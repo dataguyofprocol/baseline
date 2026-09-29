@@ -1,22 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, useHelpers, relTime, shortDate, copyText } from './store.js';
+import { useApp, useHelpers, relTime, shortDate } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
+import { IssueToolbar, OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { Markdown } from './Markdown.js';
 import {
   StateIcon, PriorityIcon, Avatar, StatusMenu, PriorityMenu, AssigneeMenu, LabelsMenu, ProjectMenu,
   DueDateMenu, EstimateMenu, CycleMenu, IssuePickerMenu, AddRelationMenu,
 } from './pickers.js';
 import { SubIssueSpine } from './AvatarStack.js';
+import { SubIssueComposer } from './SubIssueComposer.js';
+import { SubIssueProgress, subIssueProgress } from './IssueViews.js';
 import { Logo } from './Logo.js';
 import { useLanding, playExit } from './motion.js';
 import {
-  IconLink, IconAttach, IconArrowUp, IconPlus, IconClose,
-  IconArchive, IconRestore, IconTrash, IconEdit, IconSubIssue, IconDuplicate,
-  IconEstimate, IconCycle, IconCalendar, IconBox, IconPrompt, IconCopy,
-  IconAgent, IconBranch,
+  IconAttach, IconArrowUp, IconPlus, IconClose,
+  IconArchive, IconRestore, IconTrash, IconEdit, IconDuplicate,
+  IconEstimate, IconCycle, IconCalendar, IconBox,
+  IconBranch, IconHandoff, IconSpark, IconCopyId,
 } from './icons.js';
 import type { Issue } from '../../src/core/types.js';
 
@@ -147,10 +150,11 @@ function CommentItem(props: { comment: { id: string; userId: string; body: strin
 /* ---------------- sub-issues ---------------- */
 function SubIssuesSection(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
-  const openCreate = useApp(s => s.openCreate);
   const navigate = useNavigate();
   const toast = useApp(s => s.toast);
-  const children = snap.issues.filter(i => i.parentId === props.issue.id)
+  const [composing, setComposing] = useState(false);
+  useEffect(() => { setComposing(false); }, [props.issue.id]);
+  const children = snap.issues.filter(i => i.parentId === props.issue.id && !i.archivedAt && !i.deletedAt)
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const childKey = (ch: Issue) => {
     const t = snap.teams.find(t => t.id === ch.teamId);
@@ -165,11 +169,11 @@ function SubIssuesSection(props: { issue: Issue }) {
     <div style={{ marginTop: 14 }}>
       {children.length > 0 && (
         <div className="card" style={{ padding: '4px 10px', marginBottom: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', color: 'var(--text-secondary)', fontSize: 12 }}>
-            <IconSubIssue size={13} /> Sub-issues
+          <div className="subissues-head">
+            <span className="subissues-title">Sub-issues</span>
+            <SubIssueProgress done={done} total={children.length} />
             <span style={{ flex: 1 }} />
-            <span>{done}/{children.length} done</span>
-            <span className="progress-track" style={{ width: 80 }}><span className="progress-fill" style={{ width: `${children.length ? (done / children.length) * 100 : 0}%` }} /></span>
+            <button className="icon-btn" title="Add sub-issue" onClick={() => setComposing(true)}><IconPlus size={13} /></button>
           </div>
           {/* the nodes punch the spine they sit on — no opaque dot on a continuous rule */}
           <div style={{ display: 'flex', gap: 4 }}>
@@ -200,10 +204,10 @@ function SubIssuesSection(props: { issue: Issue }) {
           </div>
         </div>
       )}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="prop-chip" style={{ color: 'var(--text-dim)' }}
-          onClick={() => openCreate({ teamId: props.issue.teamId, parentId: props.issue.id, projectId: props.issue.projectId, cycleId: props.issue.cycleId })}>
-          <IconPlus size={13} /> Add sub-issue
+      {composing && <SubIssueComposer parent={props.issue} onClose={() => setComposing(false)} />}
+      <div style={{ display: composing ? 'none' : 'flex', gap: 8 }}>
+        <button className="prop-chip" style={{ color: 'var(--text-dim)' }} onClick={() => setComposing(true)}>
+          <IconPlus size={13} /> Add sub-issues
         </button>
         <IssuePickerMenu
           title="Attach existing issue…"
@@ -218,6 +222,28 @@ function SubIssuesSection(props: { issue: Issue }) {
           {({ open }) => <button className="prop-chip" style={{ color: 'var(--text-dim)' }} onClick={open}>Attach existing…</button>}
         </IssuePickerMenu>
       </div>
+    </div>
+  );
+}
+
+/* "Sub-issue of ◐ KEY title  ◌ 1/3" under the title — the parent, its state, and how far along its siblings are */
+function ParentLine(props: { issue: Issue }) {
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  const parent = props.issue.parentId ? snap.issues.find(i => i.id === props.issue.parentId) : undefined;
+  if (!parent) return null;
+  const key = `${snap.teams.find(t => t.id === parent.teamId)?.key}-${parent.number}`;
+  const st = snap.states.find(s => s.id === parent.stateId);
+  const progress = subIssueProgress(parent.id, snap);
+  return (
+    <div className="parent-line">
+      <span className="parent-line-label">Sub-issue of</span>
+      <button className="parent-line-link" onClick={() => navigate(`/issue/${key}`)} title={`Go to ${key}`}>
+        {st && <StateIcon type={st.type} color={st.color} size={13} />}
+        <span className="issue-key">{key}</span>
+        <span className="parent-line-title">{parent.title}</span>
+      </button>
+      {progress && <span className="parent-line-progress"><SubIssueProgress done={progress.done} total={progress.total} /></span>}
     </div>
   );
 }
@@ -270,11 +296,8 @@ export function PropertiesRail(props: { issue: Issue }) {
   const labels = snap.labels.filter(l => issue.labelIds.includes(l.id));
   const project = snap.projects.find(p => p.id === issue.projectId);
   const cycle = snap.cycles.find(c => c.id === issue.cycleId);
-  const parent = issue.parentId ? snap.issues.find(i => i.id === issue.parentId) : undefined;
-  const parentTeam = parent ? snap.teams.find(t => t.id === parent.teamId) : undefined;
   // the rail's own status line morphs when the issue lands on completed
   const { becameDone } = useLanding(issue, state?.type);
-  const navigate = useNavigate();
 
   return (
     <aside className="props-rail">
@@ -304,12 +327,6 @@ export function PropertiesRail(props: { issue: Issue }) {
             </button>
           )}
         </AssigneeMenu>
-        {parent && (
-          <button className="prop-line" onClick={() => navigate(`/issue/${parentTeam?.key}-${parent.number}`)} title={parent.title}>
-            <span className="issue-key" style={{ width: 52 }}>{parentTeam?.key}-{parent.number}</span>
-            <span className="prop-line-label">{parent.title}</span>
-          </button>
-        )}
         <EstimateMenu issue={issue}>
           {({ open }) => (
             <button className={`prop-line ${issue.estimate == null ? 'dim' : ''}`} onClick={open}>
@@ -436,24 +453,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
       actions: [{ label: 'Undo', onClick: async () => { await api.unarchiveIssue(issue.id); await useApp.getState().bootstrap(); } }],
     });
   };
-  const copyPrompt = async () => {
-    const { handoff } = await api.getHandoff(issue.id);
-    if (await copyText(handoff.prompt)) toast({ title: `Copied prompt for ${handoff.key}`, line: <>branch: <b>{handoff.branchName}</b></> });
-    else toast({ title: 'Clipboard unavailable', line: <>{handoff.key} — bring the app tab into focus and retry</> });
-  };
-  const copyBranch = async () => {
-    const { handoff } = await api.getHandoff(issue.id);
-    if (await copyText(handoff.branchName)) toast({ title: `Copied branch ${handoff.branchName}` });
-    else toast({ title: 'Clipboard unavailable', line: <>branch: <b>{handoff.branchName}</b></> });
-  };
-  const copyUrl = async () => {
-    if (await copyText(location.origin + '/#/issue/' + key)) toast({ title: 'Copied issue URL' });
-    else toast({ title: 'Clipboard unavailable' });
-  };
-  const copyId = async () => {
-    if (await copyText(key)) toast({ title: 'Copied issue ID' });
-    else toast({ title: 'Clipboard unavailable' });
-  };
+  const handoff = useHandoffActions(issue);
 
   return (
     <div className="issue-page">
@@ -476,9 +476,12 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
           favoriteRef={{ type: 'issue', refId: issue.id }}
           more={
             <>
-              <MenuItem icon={<IconPrompt size={14} />} label="Copy as prompt" onClick={copyPrompt} />
-              <MenuItem icon={<IconCopy size={14} />} label="Copy branch name" onClick={copyBranch} />
-              <MenuItem label="Copy issue ID" onClick={copyId} />
+              <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" onClick={() => void handoff.copyPrompt()} />
+              <MenuSub icon={<IconSpark size={14} />} label="Open in Claude Code">
+                <OpenInClaudeItems issue={issue} actions={handoff} />
+              </MenuSub>
+              <MenuItem icon={<IconBranch size={14} />} label="Copy branch name" onClick={() => void handoff.copyBranch()} />
+              <MenuItem icon={<IconCopyId size={14} />} label="Copy issue ID" onClick={() => void handoff.copyId()} />
               <MenuItem icon={<IconDuplicate size={14} />} label="Duplicate issue" onClick={async () => {
                 const { issue: dup } = await api.createIssue({
                   teamId: issue.teamId, title: issue.title, description: issue.description,
@@ -504,18 +507,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                 }} />
             </>
           }
-          right={
-            <div className="issue-toolbar">
-              {snap.workspace.agentRunningIssueId === issue.id && (
-                <span title="Claude Code is working on this issue" style={{ color: 'var(--text-secondary)', fontSize: 12, marginRight: 6 }}>Agent running…</span>
-              )}
-              {/* copy-as-prompt is the core workflow — brand-colored terminal glyph, first position */}
-              <button className="icon-btn prompt-btn" title="Copy agent prompt" onClick={copyPrompt}><IconAgent size={15} /></button>
-              <button className="icon-btn" title="Copy branch name" onClick={copyBranch}><IconBranch size={15} /></button>
-              <button className="icon-btn" title="Copy issue URL" onClick={copyUrl}><IconLink size={15} /></button>
-              <button className="icon-btn" title="Copy issue ID" onClick={copyId}><IconCopy size={15} /></button>
-            </div>
-          }
+          right={<IssueToolbar issue={issue} />}
         />
         <div className="issue-body">
         <div className="issue-main">
@@ -529,6 +521,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
               onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
               spellCheck={false}
             />
+            <ParentLine issue={issue} />
             {descEditing ? (
               <div className="comment-box" style={{ padding: 0 }}>
                 <textarea
