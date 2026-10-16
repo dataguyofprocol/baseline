@@ -16,6 +16,8 @@ import { create } from 'zustand';
 import { useApp } from './store.js';
 import { api } from './api.js';
 import { Avatar, StateIcon } from './pickers.js';
+import { sanitize } from './Markdown.js';
+import { mentionToken, uniquelyNamed } from '../../src/core/mentions.js';
 
 /* Descriptions and comments are stored as Markdown (agents read and write them through the
    CLI), and edited as rich text, like Linear: headings, lists, checklists, code, quotes,
@@ -37,15 +39,45 @@ export function markdownToHtml(md: string): string {
     box.remove();
     li.parentElement?.setAttribute('data-type', 'taskList');
   });
-  html = doc.body.innerHTML;
-  // @Full Name of a member → mention chip (longest names first)
+  const chip = (id: string, label: string) => {
+    const span = doc.createElement('span');
+    span.setAttribute('data-type', 'mention');
+    span.setAttribute('data-id', id);
+    span.setAttribute('data-label', label);
+    span.textContent = `@${label}`;
+    return span;
+  };
+  // @[Name](user:id) parses as "@" + a link to user:id → mention chip (with the person's current name)
+  doc.querySelectorAll('a[href^="user:"]').forEach(a => {
+    const prev = a.previousSibling;
+    if (!(prev instanceof Text) || !prev.data.endsWith('@')) return;
+    prev.data = prev.data.slice(0, -1);
+    const id = a.getAttribute('href')!.slice(5);
+    a.replaceWith(chip(id, snap?.users.find(u => u.id === id)?.name ?? a.textContent ?? id));
+  });
+  // a plain @Full Name (CLI-written, or from before ids) → chip, if only one member has that name
   if (snap) {
-    for (const u of [...snap.users].sort((a, b) => b.name.length - a.name.length)) {
-      html = html.replace(new RegExp(`(^|[\\s>(])@${escapeRe(u.name)}(?![\\w])`, 'g'),
-        (_m, pre) => `${pre}<span data-type="mention" data-id="${u.id}" data-label="${u.name}">@${u.name}</span>`);
+    const people = uniquelyNamed(snap.users).sort((a, b) => b.name.length - a.name.length);
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    const texts: Text[] = [];
+    while (walker.nextNode()) texts.push(walker.currentNode as Text);
+    for (const t of texts) {
+      if (t.parentElement?.closest('code, pre, a, [data-type="mention"]')) continue;
+      for (const u of people) {
+        const m = new RegExp(`(^|[\\s(])@${escapeRe(u.name)}(?![\\w])`, 'i').exec(t.data);
+        if (!m) continue;
+        const at = m.index + m[1]!.length;
+        const after = t.splitText(at);
+        after.data = after.data.slice(u.name.length + 1);
+        t.after(chip(u.id, u.name));
+        texts.push(after);
+        break;
+      }
     }
   }
-  return html;
+  html = doc.body.innerHTML;
+  // the editor's schema drops what it doesn't know, but loaded HTML is someone else's input — clean it first
+  return sanitize(html);
 }
 
 /* ---------- editor HTML → markdown ---------- */
@@ -64,7 +96,13 @@ turndown.addRule('taskList', {
 });
 turndown.addRule('mention', {
   filter: (n: HTMLElement) => n.nodeName === 'SPAN' && n.getAttribute('data-type') === 'mention',
-  replacement: (_c, node) => `@${(node as HTMLElement).getAttribute('data-label') ?? (node as HTMLElement).textContent?.replace(/^@/, '')}`,
+  // stored with the id so it stays unambiguous: @[Ada Osei](user:u_123)
+  replacement: (_c, node) => {
+    const el = node as HTMLElement;
+    const label = el.getAttribute('data-label') ?? el.textContent?.replace(/^@/, '') ?? '';
+    const id = el.getAttribute('data-id');
+    return id ? mentionToken(label, id) : `@${label}`;
+  },
 });
 
 export function htmlToMarkdown(html: string): string {
@@ -119,7 +157,7 @@ const mentionItems = ({ query }: { query: string }): SuggestItem[] => {
   const snap = useApp.getState().snap;
   if (!snap) return [];
   const q = query.toLowerCase();
-  const people: SuggestItem[] = snap.users.filter(u => u.name.toLowerCase().includes(q)).slice(0, 6).map(u => ({
+  const people: SuggestItem[] = snap.users.filter(u => u.status !== 'suspended' && u.name.toLowerCase().includes(q)).slice(0, 6).map(u => ({
     id: `u:${u.id}`, label: u.name, hint: u.kind === 'agent' ? 'agent' : undefined, icon: <Avatar user={u} size={16} />,
     run: (editor, range) => editor.chain().focus().insertContentAt(range, [{ type: 'mention', attrs: { id: u.id, label: u.name } }, { type: 'text', text: ' ' }]).run(),
   }));

@@ -181,6 +181,7 @@ Claude Code hand-off has to keep working once the server is remote.
 - **New tables:**
   - `github_installations`
   - `github_repos` (`full_name`, `default_branch`, `installation_id`). These link to Phase 2's repos by `owner/repo`.
+  - `pull_requests` and `issue_prs` already exist from the single-user git integration on main (`src/core/git.ts`). Webhooks feed its `ingestPullRequest` / `ingestPush` instead of `gh` polling.
 - **Personal connection** (Linear: Settings → Connected accounts): each person links their GitHub login. PR activity is then attributed to them, and they get notified about reviews.
 
 ### Webhooks

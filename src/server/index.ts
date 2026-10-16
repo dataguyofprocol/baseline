@@ -38,6 +38,22 @@ const originHostOf = (c: Context): string | null => {
   try { return new URL(origin).hostname; } catch { return '?'; }
 };
 
+/** Headers for an uploaded file. Uploads carry whatever type the uploader claimed, so only media a
+ *  browser can't run as a page is shown inline; anything else (HTML, SVG, scripts, unknown types)
+ *  downloads instead of rendering on this origin. */
+const INLINE_TYPES = /^(image\/(png|jpe?g|gif|webp|avif|bmp)|video\/(mp4|webm|quicktime)|audio\/(mpeg|mp4|ogg|wav|webm)|application\/pdf)$/i;
+export function uploadHeaders(mime: string, name: string): Record<string, string> {
+  const inline = INLINE_TYPES.test(mime);
+  return {
+    'Content-Type': inline ? mime : 'application/octet-stream',
+    'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+    'X-Content-Type-Options': 'nosniff',
+    // even if something did render, it can't run script or reach this origin
+    'Content-Security-Policy': "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+    'Cache-Control': 'private, max-age=31536000, immutable',
+  };
+}
+
 export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv(), mailer: Mailer = mailerFromEnv()) {
   const db = openDb(dbPath);
   const store = new Store(db);
@@ -183,7 +199,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (!a || a.kind !== 'file') return c.json({ error: 'not found' }, 404);
     const file = join(attachmentsDir, a.id, basename(decodeURIComponent(c.req.param('name'))));
     if (!existsSync(file)) return c.json({ error: 'not found' }, 404);
-    return c.body(readFileSync(file), 200, { 'Content-Type': a.mime || 'application/octet-stream', 'Cache-Control': 'private, max-age=31536000, immutable' });
+    return c.body(readFileSync(file), 200, uploadHeaders(a.mime || 'application/octet-stream', basename(file)));
   });
   app.patch('/api/attachments/:id', async (c) => {
     const b = await c.req.json();
@@ -478,12 +494,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const view = store.createView(b.name, b.filters ?? {}, b);
     return c.json({ view }, 201);
   });
+  // someone else's personal view doesn't exist as far as you're concerned
   app.patch('/api/views/:id', async (c) => {
     const b = await c.req.json();
-    store.updateView(c.req.param('id'), b);
-    return c.json({ ok: true });
+    return store.updateView(c.req.param('id'), b) ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
   });
-  app.delete('/api/views/:id', (c) => { store.deleteView(c.req.param('id')); return c.json({ ok: true }); });
+  app.delete('/api/views/:id', (c) => store.deleteView(c.req.param('id')) ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404));
   app.post('/api/favorites/toggle', async (c) => {
     const b = await c.req.json();
     store.toggleFavorite(b.type, b.refId);
@@ -559,8 +575,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (!dir.startsWith('emoji_')) return c.json({ error: 'not found' }, 404);
     const file = join(attachmentsDir, dir, basename(decodeURIComponent(c.req.param('name'))));
     if (!existsSync(file)) return c.json({ error: 'not found' }, 404);
-    const mime = existsSync(join(attachmentsDir, dir, '.mime')) ? readFileSync(join(attachmentsDir, dir, '.mime'), 'utf8') : 'image/png';
-    return c.body(readFileSync(file), 200, { 'Content-Type': mime, 'Cache-Control': 'private, max-age=31536000, immutable' });
+    const mime = existsSync(join(attachmentsDir, dir, '.mime')) ? readFileSync(join(attachmentsDir, dir, '.mime'), 'utf8').trim() : 'image/png';
+    return c.body(readFileSync(file), 200, uploadHeaders(mime, basename(file)));
   });
   app.delete('/api/emojis/:id', (c) => { store.deleteEmoji(c.req.param('id')); return c.json({ ok: true }); });
 

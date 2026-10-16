@@ -272,6 +272,39 @@ function migrate(db: DatabaseSync): void {
     `);
   }
 
+  // per-person state: favorites, inbox rows and preferences belong to someone, and a saved view is
+  // either shared with the workspace or its owner's alone. Everything from before belonged to the
+  // workspace's own user — it stays theirs, and existing views stay shared.
+  const own = (db.prepare("SELECT value FROM meta WHERE key = 'currentUser'").get() as { value: string } | undefined)?.value ?? null;
+  if (!columns('favorites').includes('user_id')) {
+    db.exec('ALTER TABLE favorites ADD COLUMN user_id TEXT');
+    db.prepare('UPDATE favorites SET user_id = ?').run(own);
+  }
+  if (!columns('notifications').includes('user_id')) {
+    db.exec('ALTER TABLE notifications ADD COLUMN user_id TEXT');
+    db.prepare('UPDATE notifications SET user_id = ?').run(own);
+  }
+  if (!columns('views').includes('owner_id')) {
+    db.exec('ALTER TABLE views ADD COLUMN owner_id TEXT');
+    db.exec('ALTER TABLE views ADD COLUMN shared INTEGER NOT NULL DEFAULT 1');
+    db.prepare('UPDATE views SET owner_id = ?').run(own);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
+  `);
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'user_preferences'").get()) {
+    db.exec(`
+      CREATE TABLE user_preferences (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        json TEXT NOT NULL
+      );
+    `);
+    const old = db.prepare("SELECT value FROM meta WHERE key = 'preferences'").get() as { value: string } | undefined;
+    if (old && own && db.prepare('SELECT 1 FROM users WHERE id = ?').get(own)) db.prepare('INSERT INTO user_preferences (user_id, json) VALUES (?, ?)').run(own, old.value);
+    db.prepare("DELETE FROM meta WHERE key = 'preferences'").run();
+  }
+
   // threads, milestones on issues, creators, snoozed notifications, team automation
   if (!columns('comments').includes('parent_id')) db.exec('ALTER TABLE comments ADD COLUMN parent_id TEXT');
   if (!columns('issues').includes('snoozed_until')) db.exec('ALTER TABLE issues ADD COLUMN snoozed_until TEXT');

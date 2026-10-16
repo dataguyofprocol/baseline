@@ -5,6 +5,7 @@ import { getMeta, migrateDirectoriesToLocations, setMeta, ensureDefaults } from 
 import { id, nowIso, midSort } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import { actingUser } from './actor.js';
+import { mentionedIds, plainMentions } from './mentions.js';
 import type {
   ActivityItem, ActivityType, Attachment, RecurringIssue, ProjectTemplate, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, EstimateScale,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
@@ -83,7 +84,8 @@ export class Store {
 
   // ---------- snapshot ----------
   snapshot(): Snapshot {
-    const rows = <T>(sql: string): T[] => this.db.prepare(sql).all() as unknown as T[];
+    const rows = <T>(sql: string, ...params: string[]): T[] => this.db.prepare(sql).all(...params) as unknown as T[];
+    const me = this.actor();
     const projectLocs = this.projectLocationMap();
     const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string; avatar_url: string | null; status: string | null; created_at: string | null; last_seen_at: string | null }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human', avatarUrl: u.avatar_url ?? '', status: u.status === 'suspended' ? 'suspended' as const : 'active' as const, createdAt: u.created_at, lastSeenAt: u.last_seen_at }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
@@ -120,9 +122,9 @@ export class Store {
       milestones: rows<{ id: string; project_id: string; name: string; target_date: string | null; status: Milestone['status']; position: number; created_at: string }>('SELECT * FROM milestones ORDER BY position, created_at').map(m => ({ id: m.id, projectId: m.project_id, name: m.name, targetDate: m.target_date, status: m.status, position: m.position, createdAt: m.created_at })),
       projectUpdates: rows<{ id: string; project_id: string; user_id: string; body: string; health: ProjectUpdate['health']; created_at: string }>('SELECT * FROM project_updates ORDER BY created_at DESC').map(u => ({ id: u.id, projectId: u.project_id, userId: u.user_id, body: u.body, health: u.health, createdAt: u.created_at })),
       cycles: rows<{ id: string; team_id: string; number: number; name: string; starts_at: string; ends_at: string; completed_at: string | null }>('SELECT * FROM cycles ORDER BY number').map(c => ({ id: c.id, teamId: c.team_id, number: c.number, name: c.name, startsAt: c.starts_at, endsAt: c.ends_at, completedAt: c.completed_at })),
-      views: rows<{ id: string; team_id: string | null; name: string; icon: string; filters: string; group_by: string; order_by: string; layout: string; position: number; kind: string; project_options: string | null }>('SELECT * FROM views ORDER BY position').map(v => ({ id: v.id, teamId: v.team_id, name: v.name, icon: v.icon, filters: JSON.parse(v.filters), groupBy: v.group_by as GroupBy, orderBy: v.order_by as OrderBy, layout: v.layout as 'list' | 'board', position: v.position, kind: (v.kind === 'projects' ? 'projects' : 'issues') as SavedView['kind'], projectOptions: v.project_options ? JSON.parse(v.project_options) : null })),
-      favorites: rows<{ id: string; type: Favorite['type']; ref_id: string; position: number }>('SELECT * FROM favorites ORDER BY position').map(f => ({ id: f.id, type: f.type, refId: f.ref_id, position: f.position })),
-      notifications: rows<{ id: string; type: Notification['type']; actor_id: string | null; issue_id: string | null; project_id: string | null; body: string; read_at: string | null; snoozed_until: string | null; created_at: string }>('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 500').map(n => ({ id: n.id, type: n.type, actorId: n.actor_id, issueId: n.issue_id, projectId: n.project_id, body: n.body, readAt: n.read_at, snoozedUntil: n.snoozed_until ?? null, createdAt: n.created_at })),
+      views: rows<{ id: string; team_id: string | null; name: string; icon: string; filters: string; group_by: string; order_by: string; layout: string; position: number; kind: string; project_options: string | null; owner_id: string | null; shared: number }>('SELECT * FROM views WHERE shared = 1 OR owner_id = ? ORDER BY position', me).map(v => ({ ownerId: v.owner_id, shared: !!v.shared, id: v.id, teamId: v.team_id, name: v.name, icon: v.icon, filters: JSON.parse(v.filters), groupBy: v.group_by as GroupBy, orderBy: v.order_by as OrderBy, layout: v.layout as 'list' | 'board', position: v.position, kind: (v.kind === 'projects' ? 'projects' : 'issues') as SavedView['kind'], projectOptions: v.project_options ? JSON.parse(v.project_options) : null })),
+      favorites: rows<{ id: string; type: Favorite['type']; ref_id: string; position: number }>('SELECT * FROM favorites WHERE user_id = ? ORDER BY position', me).map(f => ({ id: f.id, type: f.type, refId: f.ref_id, position: f.position })),
+      notifications: rows<{ id: string; type: Notification['type']; actor_id: string | null; issue_id: string | null; project_id: string | null; body: string; read_at: string | null; snoozed_until: string | null; created_at: string }>('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 500', me).map(n => ({ id: n.id, type: n.type, actorId: n.actor_id, issueId: n.issue_id, projectId: n.project_id, body: n.body, readAt: n.read_at, snoozedUntil: n.snoozed_until ?? null, createdAt: n.created_at })),
       activity: rows<{ id: string; issue_id: string | null; project_id: string | null; user_id: string; type: ActivityType; data: string; created_at: string }>('SELECT * FROM activity ORDER BY created_at DESC LIMIT 2000').map(a => ({ id: a.id, issueId: a.issue_id, projectId: a.project_id, userId: a.user_id, type: a.type, data: JSON.parse(a.data), createdAt: a.created_at })),
     };
   }
@@ -611,7 +613,7 @@ export class Store {
       // a mention outranks a reply, which outranks the plain comment notification — never raise two
       const threadAuthors = threadId ? (this.db.prepare('SELECT DISTINCT user_id FROM comments WHERE id = ? OR parent_id = ?').all(threadId, threadId) as Array<{ user_id: string }>).map(r => r.user_id) : [];
       if (mentioned.includes(me)) this.notifyMention(issueId, me, userId, body);
-      else if (threadAuthors.includes(me)) { if (this.getPreferences().notify.comments) this.notify('issueReplied', { actorId: userId, issueId, body: body.slice(0, 140), createdAt: now }); }
+      else if (threadAuthors.includes(me)) { if (this.getPreferences(me).notify.comments) this.notify('issueReplied', { actorId: userId, issueId, body: body.slice(0, 140), createdAt: now }); }
       else this.notifySubscribed(issueId, 'issueCommented', userId, body.slice(0, 140), 'comments');
     }
     return c;
@@ -931,31 +933,49 @@ export class Store {
   }
 
   // ---------- views ----------
-  createView(name: string, filters: ViewFilters, opts: { teamId?: string | null; icon?: string; groupBy?: GroupBy; orderBy?: OrderBy; layout?: 'list' | 'board'; kind?: SavedView['kind']; projectOptions?: Record<string, unknown> | null }): SavedView {
+  createView(name: string, filters: ViewFilters, opts: { teamId?: string | null; icon?: string; groupBy?: GroupBy; orderBy?: OrderBy; layout?: 'list' | 'board'; kind?: SavedView['kind']; projectOptions?: Record<string, unknown> | null; shared?: boolean }): SavedView {
     const v: SavedView = {
+      ownerId: this.actor() || null, shared: opts.shared !== false,
       id: id('v'), teamId: opts.teamId ?? null, name, icon: opts.icon ?? '', filters,
       groupBy: opts.groupBy ?? 'status', orderBy: opts.orderBy ?? 'priority', layout: opts.layout ?? 'list',
       position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM views').get() as { p: number }).p,
       kind: opts.kind === 'projects' ? 'projects' : 'issues', projectOptions: opts.projectOptions ?? null,
     };
-    this.db.prepare('INSERT INTO views (id, team_id, name, icon, filters, group_by, order_by, layout, position, created_at, kind, project_options) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(v.id, v.teamId, v.name, v.icon, JSON.stringify(v.filters), v.groupBy, v.orderBy, v.layout, v.position, ts(), v.kind, v.projectOptions ? JSON.stringify(v.projectOptions) : null);
+    this.db.prepare('INSERT INTO views (id, team_id, name, icon, filters, group_by, order_by, layout, position, created_at, kind, project_options, owner_id, shared) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(v.id, v.teamId, v.name, v.icon, JSON.stringify(v.filters), v.groupBy, v.orderBy, v.layout, v.position, ts(), v.kind, v.projectOptions ? JSON.stringify(v.projectOptions) : null, v.ownerId, v.shared ? 1 : 0);
     return v;
   }
-  updateView(viewId: string, patch: Partial<Pick<SavedView, 'name' | 'icon' | 'filters' | 'groupBy' | 'orderBy' | 'layout' | 'position' | 'projectOptions'>>): void {
+  /** a view you can see: shared with the workspace, or yours */
+  private visibleView(viewId: string): { owner_id: string | null; shared: number } | undefined {
+    return this.db.prepare('SELECT owner_id, shared FROM views WHERE id = ? AND (shared = 1 OR owner_id = ?)').get(viewId, this.actor()) as { owner_id: string | null; shared: number } | undefined;
+  }
+  /** anyone may edit a shared view; only its owner decides whether it's shared */
+  updateView(viewId: string, patch: Partial<Pick<SavedView, 'name' | 'icon' | 'filters' | 'groupBy' | 'orderBy' | 'layout' | 'position' | 'projectOptions' | 'shared'>>): boolean {
+    const view = this.visibleView(viewId);
+    if (!view) return false;
     const col: Record<string, string> = { groupBy: 'group_by', orderBy: 'order_by', projectOptions: 'project_options' };
     const sets: string[] = []; const vals: (string | number | null)[] = [];
     for (const [k, v] of sqlPairs(patch, ['name', 'icon', 'filters', 'groupBy', 'orderBy', 'layout', 'position', 'projectOptions'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'filters' || k === 'projectOptions' ? (v == null ? null : JSON.stringify(v)) : v as string | number | null); }
+    if (typeof patch.shared === 'boolean' && view.owner_id === this.actor()) { sets.push('shared = ?'); vals.push(patch.shared ? 1 : 0); }
+    if (!sets.length) return true;
     vals.push(viewId);
     this.db.prepare(`UPDATE views SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    return true;
   }
-  deleteView(viewId: string): void { this.db.prepare('DELETE FROM views WHERE id = ?').run(viewId); }
+  deleteView(viewId: string): boolean {
+    if (!this.visibleView(viewId)) return false;
+    this.db.prepare('DELETE FROM views WHERE id = ?').run(viewId);
+    this.db.prepare("DELETE FROM favorites WHERE type = 'view' AND ref_id = ?").run(viewId);
+    return true;
+  }
 
   // ---------- favorites ----------
+  /** star or unstar for whoever is acting — everyone keeps their own favorites */
   toggleFavorite(type: Favorite['type'], refId: string): void {
-    const existing = this.db.prepare('SELECT id FROM favorites WHERE type = ? AND ref_id = ?').get(type, refId) as { id: string } | undefined;
+    const me = this.actor();
+    const existing = this.db.prepare('SELECT id FROM favorites WHERE type = ? AND ref_id = ? AND user_id = ?').get(type, refId, me) as { id: string } | undefined;
     if (existing) this.db.prepare('DELETE FROM favorites WHERE id = ?').run(existing.id);
-    else this.db.prepare('INSERT INTO favorites (id, type, ref_id, position) VALUES (?, ?, ?, ?)').run(id('f'), type, refId, (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM favorites').get() as { p: number }).p);
+    else this.db.prepare('INSERT INTO favorites (id, type, ref_id, position, user_id) VALUES (?, ?, ?, ?, ?)').run(id('f'), type, refId, (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM favorites WHERE user_id = ?').get(me) as { p: number }).p, me);
   }
 
   // ---------- notifications ----------
@@ -968,58 +988,57 @@ export class Store {
       this.notify('issueAssignedToYou', { actorId: actorId ?? this.actor(), issueId, body: 'You were assigned this issue' });
     }
   }
-  /** single insert point for every notification the store raises */
-  notify(type: NotificationType, o: { actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string }): void {
-    this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, project_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id('n'), type, o.actorId ?? null, o.issueId ?? null, o.projectId ?? null, o.body ?? '', o.createdAt ?? ts());
+  /** single insert point for every notification the store raises; `userId` is whose inbox it lands in */
+  notify(type: NotificationType, o: { userId?: string; actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string }): void {
+    this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, project_id, body, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id('n'), type, o.actorId ?? null, o.issueId ?? null, o.projectId ?? null, plainMentions(o.body ?? ''), o.createdAt ?? ts(), o.userId ?? this.inboxOwner());
   }
-  /** @Name mentions resolved against the member list — longest name first so
-      "@Ada Osei" doesn't match a member called "Ada" and stop there */
+  /** who a text mentions: `@[Name](user:id)` tokens, plus plain "@Name" when the name is unambiguous */
   private mentions(body: string): string[] {
-    const users = this.db.prepare('SELECT id, name FROM users').all() as unknown as Array<{ id: string; name: string }>;
-    const hit: string[] = [];
-    for (const u of [...users].sort((a, b) => b.name.length - a.name.length)) {
-      if (new RegExp(`@${u.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(body)) hit.push(u.id);
-    }
-    return hit;
+    return mentionedIds(body, this.db.prepare('SELECT id, name FROM users').all() as unknown as Array<{ id: string; name: string }>);
   }
   /** notifications are this install's person's: raise one when they follow the issue and
    *  someone else acted, if their preferences want that kind */
   private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, pref: keyof Preferences['notify']): void {
     const me = this.inboxOwner();
-    if (!me || (actorId ?? this.actor()) === me || !this.isSubscribed(issueId, me) || !this.getPreferences().notify[pref]) return;
+    if (!me || (actorId ?? this.actor()) === me || !this.isSubscribed(issueId, me) || !this.getPreferences(me).notify[pref]) return;
     this.notify(type, { actorId: actorId ?? this.actor(), issueId, body });
   }
   private notifyMention(issueId: string, userId: string, actorId: string | undefined, body: string): void {
     const me = this.inboxOwner();
-    if (userId !== me || (actorId ?? this.actor()) === me || !this.getPreferences().notify.mentions) return;
+    if (userId !== me || (actorId ?? this.actor()) === me || !this.getPreferences(me).notify.mentions) return;
     this.notify('issueMentioned', { actorId: actorId ?? this.actor(), issueId, body: body.slice(0, 140) });
   }
   listNotifications(): Notification[] { return this.snapshot().notifications; }
-  markNotificationRead(notificationId: string, read = true): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE id = ?').run(read ? ts() : null, notificationId); }
-  markAllNotificationsRead(): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL').run(ts()); }
-  deleteNotification(notificationId: string): void { this.db.prepare('DELETE FROM notifications WHERE id = ?').run(notificationId); }
-  deleteReadNotifications(): void { this.db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL').run(); }
-  /** "Remind me": a notification that stays hidden until `at` */
+  // everyone reads, snoozes and clears only their own inbox
+  markNotificationRead(notificationId: string, read = true): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ?').run(read ? ts() : null, notificationId, this.actor()); }
+  markAllNotificationsRead(): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND user_id = ?').run(ts(), this.actor()); }
+  deleteNotification(notificationId: string): void { this.db.prepare('DELETE FROM notifications WHERE id = ? AND user_id = ?').run(notificationId, this.actor()); }
+  deleteReadNotifications(): void { this.db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL AND user_id = ?').run(this.actor()); }
+  /** "Remind me": a notification in your own inbox that stays hidden until `at` */
   remindIssue(issueId: string, at: string): void {
-    this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, body, snoozed_until, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)')
-      .run(id('n'), 'issueReminder', issueId, 'Reminder', at, at);
+    this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, body, snoozed_until, created_at, user_id) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)')
+      .run(id('n'), 'issueReminder', issueId, 'Reminder', at, at, this.actor());
   }
   /** null wakes it now; a snoozed notification comes back unread */
   snoozeNotification(notificationId: string, until: string | null): void {
-    this.db.prepare('UPDATE notifications SET snoozed_until = ?, read_at = NULL WHERE id = ?').run(until, notificationId);
+    this.db.prepare('UPDATE notifications SET snoozed_until = ?, read_at = NULL WHERE id = ? AND user_id = ?').run(until, notificationId, this.actor());
   }
 
   // ---------- preferences ----------
-  getPreferences(): Preferences {
+  /** someone's own preferences (the acting person's by default) over the defaults */
+  getPreferences(userId = this.actor()): Preferences {
     try {
-      const raw = JSON.parse(getMeta(this.db, 'preferences') ?? '{}') as Partial<Preferences>;
+      const row = this.db.prepare('SELECT json FROM user_preferences WHERE user_id = ?').get(userId) as { json: string } | undefined;
+      const raw = JSON.parse(row?.json ?? '{}') as Partial<Preferences>;
       return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } } };
     } catch { return DEFAULT_PREFERENCES; }
   }
-  setPreferences(patch: Partial<Preferences>): void {
-    const cur = this.getPreferences();
-    setMeta(this.db, 'preferences', JSON.stringify({ ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } } }));
+  setPreferences(patch: Partial<Preferences>, userId = this.actor()): void {
+    if (!userId) return;
+    const cur = this.getPreferences(userId);
+    const next = { ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } } };
+    this.db.prepare('INSERT INTO user_preferences (user_id, json) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET json = excluded.json').run(userId, JSON.stringify(next));
   }
 
   getFeatures(): WorkspaceFeatures {
@@ -1321,10 +1340,11 @@ export class Store {
     for (const u of arr<Record<string, unknown>>(data.projectUpdates)) insert('project_updates', ['id', 'project_id', 'user_id', 'body', 'health', 'created_at'], { ...u, project_id: u.projectId, user_id: u.userId, created_at: u.createdAt });
     for (const m of arr<Record<string, unknown>>(data.milestones)) insert('milestones', ['id', 'project_id', 'name', 'target_date', 'status', 'position', 'created_at'], { ...m, project_id: m.projectId, target_date: m.targetDate, position: m.position ?? 0, created_at: m.createdAt ?? ts() });
     for (const cy of arr<Record<string, unknown>>(data.cycles)) insert('cycles', ['id', 'team_id', 'number', 'name', 'starts_at', 'ends_at', 'completed_at'], { ...cy, team_id: cy.teamId, starts_at: cy.startsAt, ends_at: cy.endsAt, completed_at: cy.completedAt });
-    for (const v of arr<Record<string, unknown>>(data.views)) insert('views', ['id', 'team_id', 'name', 'icon', 'filters', 'group_by', 'order_by', 'layout', 'position', 'created_at', 'kind', 'project_options'], { ...v, team_id: v.teamId, icon: v.icon ?? '', filters: JSON.stringify(v.filters ?? {}), kind: v.kind === 'projects' ? 'projects' : 'issues', project_options: v.projectOptions ? JSON.stringify(v.projectOptions) : null, group_by: v.groupBy ?? 'status', order_by: v.orderBy ?? 'priority', layout: v.layout ?? 'list', position: v.position ?? 0, created_at: ts() });
-    for (const f of arr<Record<string, unknown>>(data.favorites)) insert('favorites', ['id', 'type', 'ref_id', 'position'], { ...f, ref_id: f.refId, position: f.position ?? 0 });
-    for (const n of arr<Record<string, unknown>>(data.notifications)) insert('notifications', ['id', 'type', 'actor_id', 'issue_id', 'project_id', 'body', 'read_at', 'snoozed_until', 'created_at'], { ...n, actor_id: n.actorId, issue_id: n.issueId, project_id: n.projectId, read_at: n.readAt, snoozed_until: n.snoozedUntil ?? null, created_at: n.createdAt });
-    if (ws && (ws as { preferences?: Preferences }).preferences) setMeta(this.db, 'preferences', JSON.stringify((ws as { preferences?: Preferences }).preferences));
+    const ownId = cu?.id ?? null;
+    for (const v of arr<Record<string, unknown>>(data.views)) insert('views', ['id', 'team_id', 'name', 'icon', 'filters', 'group_by', 'order_by', 'layout', 'position', 'created_at', 'kind', 'project_options', 'owner_id', 'shared'], { ...v, owner_id: v.ownerId ?? ownId, shared: v.shared === false ? 0 : 1, team_id: v.teamId, icon: v.icon ?? '', filters: JSON.stringify(v.filters ?? {}), kind: v.kind === 'projects' ? 'projects' : 'issues', project_options: v.projectOptions ? JSON.stringify(v.projectOptions) : null, group_by: v.groupBy ?? 'status', order_by: v.orderBy ?? 'priority', layout: v.layout ?? 'list', position: v.position ?? 0, created_at: ts() });
+    for (const f of arr<Record<string, unknown>>(data.favorites)) insert('favorites', ['id', 'type', 'ref_id', 'position', 'user_id'], { ...f, ref_id: f.refId, position: f.position ?? 0, user_id: ownId });
+    for (const n of arr<Record<string, unknown>>(data.notifications)) insert('notifications', ['id', 'type', 'actor_id', 'issue_id', 'project_id', 'body', 'read_at', 'snoozed_until', 'created_at', 'user_id'], { ...n, user_id: ownId, actor_id: n.actorId, issue_id: n.issueId, project_id: n.projectId, read_at: n.readAt, snoozed_until: n.snoozedUntil ?? null, created_at: n.createdAt });
+    if (ownId && ws && (ws as { preferences?: Preferences }).preferences) this.setPreferences((ws as { preferences?: Preferences }).preferences!, ownId);
     for (const a of arr<Record<string, unknown>>(data.activity)) insert('activity', ['id', 'issue_id', 'project_id', 'user_id', 'type', 'data', 'created_at'], { ...a, issue_id: a.issueId, project_id: a.projectId, user_id: a.userId, data: JSON.stringify(a.data ?? {}), created_at: a.createdAt });
     for (const l of arr<Record<string, unknown>>(data.projectLabels)) insert('project_labels', ['id', 'name', 'color', 'description', 'parent_id', 'is_group', 'created_at'], { ...l, description: l.description ?? '', parent_id: l.parentId ?? null, is_group: l.isGroup ? 1 : 0, created_at: l.createdAt ?? ts() });
     // the export's statuses replace the defaults wipe() put back
@@ -1345,7 +1365,7 @@ export class Store {
     migrateDirectoriesToLocations(this.db);
   }
   wipe(): void {
-    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'users', 'meta']) {
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
     ensureDefaults(this.db);

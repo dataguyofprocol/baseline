@@ -6,6 +6,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { actingUser } from '../core/actor.js';
 import type { Accounts, GoogleIdentity } from '../core/accounts.js';
 import type { Store } from '../core/store.js';
+import { clientIp, limiter } from './ratelimit.js';
 
 export type AuthConfig =
   | { mode: 'local' }
@@ -38,6 +39,11 @@ export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accou
   const redirectUri = new URL('/auth/google/callback', cfg.publicUrl).toString();
   const home = (query = '') => new URL(`/${query}`, cfg.publicUrl).toString();
 
+  // per address: starting or finishing a sign-in, and looking up invite links (codes are random,
+  // but there's no reason to let anyone try them by the thousand)
+  const signInLimit = limiter(30, 10 * 60_000);
+  const inviteLookupLimit = limiter(60, 10 * 60_000);
+
   const setSession = (c: Context, token: string, expiresAt: string) =>
     setCookie(c, SESSION_COOKIE, token, { path: '/', httpOnly: true, secure, sameSite: 'Lax', expires: new Date(expiresAt) });
 
@@ -59,6 +65,7 @@ export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accou
   // what an invite link shows before sign-in: whose workspace, who sent it, and to which address
   // (masked — the code is in an email, but links get forwarded)
   app.get('/auth/invite/:code', (c) => {
+    if (!inviteLookupLimit.take(clientIp(c))) return c.json({ state: 'unknown', error: 'Too many requests — try again in a few minutes' }, 429);
     const inv = accounts.inviteByCode(c.req.param('code'));
     if (!inv) return c.json({ state: 'unknown' }, 404);
     const inviter = inv.invited_by ? store.snapshot().users.find(u => u.id === inv.invited_by) : undefined;
@@ -68,6 +75,7 @@ export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accou
   });
 
   app.get('/auth/google', (c) => {
+    if (!signInLimit.take(clientIp(c))) return c.redirect(home('?auth_error=rate-limited'));
     const next = c.req.query('next') ?? '/';
     const invite = c.req.query('invite') ?? '';
     const state = random(), verifier = random(), nonce = random();
@@ -85,6 +93,7 @@ export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accou
 
   app.get('/auth/google/callback', async (c) => {
     const fail = (reason: string) => { deleteCookie(c, OAUTH_COOKIE, { path: '/auth' }); return c.redirect(home(`?auth_error=${reason}`)); };
+    if (!signInLimit.take(clientIp(c))) return fail('rate-limited');
     let saved: { state: string; verifier: string; nonce: string; next: string; invite?: string };
     try { saved = JSON.parse(Buffer.from(getCookie(c, OAUTH_COOKIE) ?? '', 'base64url').toString()); } catch { return fail('expired'); }
     if (c.req.query('error')) return fail('cancelled');
@@ -111,7 +120,7 @@ export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accou
     const result = accounts.signInWithGoogle(identity, { ownerEmail: cfg.ownerEmail, inviteCode: saved.invite || undefined });
     if ('error' in result) return fail(result.error);
     if (result.joined === 'invite' && result.invitedBy) hooks.onInviteAccepted?.(result.userId, result.invitedBy);
-    const session = accounts.createSession(result.userId, { userAgent: c.req.header('user-agent'), ip: c.req.header('x-forwarded-for')?.split(',')[0]?.trim() });
+    const session = accounts.createSession(result.userId, { userAgent: c.req.header('user-agent'), ip: clientIp(c) });
     setSession(c, session.token, session.expiresAt);
     deleteCookie(c, OAUTH_COOKIE, { path: '/auth' });
     // only same-site paths: an absolute or protocol-relative `next` would make this an open redirect

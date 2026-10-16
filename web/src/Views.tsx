@@ -437,6 +437,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
                 )}
                 {!team && v.teamId && <span className="view-team">{snap.teams.find(t => t.id === v.teamId)?.key}</span>}
                 {faved && <IconStar size={12} filled style={{ color: 'var(--brand)', flex: 'none' }} />}
+                {!v.shared && <span className="plabel-chip" title="Only you can see this view">Personal</span>}
                 </span>
                 <span className="view-chips">
                   {chips.length === 0
@@ -454,6 +455,16 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
       {rowMenu.anchor && menuView && (
         <Menu anchor={rowMenu.anchor} onClose={() => { rowMenu.close(); setMenuView(null); }}>
           <MenuItem icon={<IconStar size={14} />} label="Toggle favorite" onClick={async () => { await api.toggleFavorite('view', menuView); await useApp.getState().bootstrap(); }} />
+          {(() => {
+            // only whoever saved a view decides who sees it (and only where there's more than one person)
+            const v = snap.views.find(x => x.id === menuView);
+            if (!v || snap.workspace.auth !== 'google' || v.ownerId !== snap.currentUser.id) return null;
+            return <MenuItem label={v.shared ? 'Make personal' : 'Share with workspace'} onClick={async () => {
+              await api.updateView(v.id, { shared: !v.shared });
+              await useApp.getState().bootstrap();
+              toast({ title: v.shared ? 'Only you can see this view now' : 'Everyone in the workspace can see this view' });
+            }} />;
+          })()}
           <MenuItem label="Rename" onClick={() => {
             const v = snap.views.find(x => x.id === menuView);
             setRenameValue(v?.name ?? '');

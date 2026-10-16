@@ -8,6 +8,7 @@ const REASONS: Record<string, string> = {
   suspended: 'This account has been suspended. Ask an admin if that’s a mistake.',
   'invite-mismatch': 'This invite was sent to a different address. Sign in with the Google account it was sent to.',
   'invite-expired': 'This invite has expired or was revoked. Ask for a new one.',
+  'rate-limited': 'Too many sign-in attempts from here. Wait a few minutes and try again.',
   cancelled: 'Sign-in was cancelled.',
   expired: 'That sign-in took too long. Try again.',
   google: 'Google didn’t complete the sign-in. Try again.',

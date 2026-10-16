@@ -4,11 +4,15 @@ import { AccountError, isEmail, normalizeEmail, type Accounts, type InviteRow } 
 import type { Store } from '../core/store.js';
 import type { Invite, InviteResult } from '../core/types.js';
 import { inviteEmail, type Mailer } from './mail.js';
+import { limiter } from './ratelimit.js';
 
 const MAX_INVITES = 50;
 
 export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; mailer: Mailer; publicUrl: URL | null }): void {
   const { store, accounts, mailer } = o;
+  // invites send email in the workspace's name: at most 100 addresses (or resends) per person per hour
+  const inviteLimit = limiter(100, 60 * 60_000);
+  const tooMany = (c: Context) => c.json({ error: 'You\'ve sent a lot of invites — try again in an hour', code: 'rate-limited' }, 429);
   const forbid = (c: Context, error: string) => c.json({ error, code: 'forbidden' }, 403);
   const me = () => store.actor();
   const knownTeams = (ids: unknown): string[] =>
@@ -47,6 +51,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     const emails = [...new Set(raw)];
     if (!emails.length) return c.json({ error: 'Add at least one email address' }, 400);
     if (emails.length > MAX_INVITES) return c.json({ error: `Invite at most ${MAX_INVITES} people at a time` }, 400);
+    if (!inviteLimit.take(me(), emails.length)) return tooMany(c);
     const teamIds = knownTeams(b.teamIds);
     const results: InviteResult[] = [];
     for (const email of emails) {
@@ -59,6 +64,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
   });
   app.post('/api/invites/:id/resend', async (c) => {
     if (!accounts.canInvite(me())) return forbid(c, 'You can\'t invite people to this workspace');
+    if (!inviteLimit.take(me())) return tooMany(c);
     const row = accounts.renewInvite(c.req.param('id'));
     if (!row || row.accepted_at || row.revoked_at) return c.json({ error: 'That invite is no longer open' }, 404);
     return c.json({ invite: toInvite(row), ...await sendInvite(row) });

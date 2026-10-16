@@ -50,8 +50,11 @@ const cookiesFrom = (res: Response): Record<string, string> => {
 };
 
 /** run the whole browser dance: /auth/google → (Google) → /auth/google/callback; returns the final redirect and cookies */
-async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boolean; next?: string; invite?: string } = {}) {
-  const start = await req(`/auth/google?next=${encodeURIComponent(opts.next ?? '/#/inbox')}${opts.invite ? `&invite=${opts.invite}` : ''}`);
+// each sign-in comes from its own address, so the sign-in rate limit only bites where a test means it to
+let ipSeq = 0;
+async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boolean; next?: string; invite?: string; ip?: string } = {}) {
+  const ip = opts.ip ?? `10.0.${Math.floor(++ipSeq / 250)}.${ipSeq % 250}`;
+  const start = await req(`/auth/google?next=${encodeURIComponent(opts.next ?? '/#/inbox')}${opts.invite ? `&invite=${opts.invite}` : ''}`, { headers: { 'x-forwarded-for': ip } });
   const google = new URL(start.headers.get('location')!);
   const oauthCookie = cookiesFrom(start)['baseline_oauth']!;
   nextIdentity = {
@@ -59,7 +62,7 @@ async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boo
     nonce: google.searchParams.get('nonce'), email_verified: true, ...claims,
   };
   const state = opts.tamperState ? 'forged' : google.searchParams.get('state');
-  const res = await req(`/auth/google/callback?code=abc&state=${state}`, { cookie: `baseline_oauth=${oauthCookie}` });
+  const res = await req(`/auth/google/callback?code=abc&state=${state}`, { cookie: `baseline_oauth=${oauthCookie}`, headers: { 'x-forwarded-for': ip } });
   const session = cookiesFrom(res)['__Host-baseline_session'];
   return { location: res.headers.get('location') ?? '', session, google };
 }
@@ -163,8 +166,79 @@ check('subscribing subscribes yourself, not the userId sent', store.isSubscribed
     && (await req('/api/locations', { ...json({ path: '/etc' }), cookie: ownerCookie })).status === 403);
 }
 
-// ---- invites ----
+// ---- per-person state ----
 const patch = (path: string, body: unknown, cookie: string) => req(path, { ...json(body), method: 'PATCH', cookie });
+type Boot = { favorites: Array<{ refId: string }>; views: Array<{ id: string; shared: boolean }>; notifications: Array<{ type: string; body: string; readAt: string | null; issueId: string | null }>; workspace: { preferences: { homeView: string } } };
+const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { cookie })).json() as Boot;
+{
+  await req('/api/favorites/toggle', { ...json({ type: 'issue', refId: issue.id }), cookie: ownerCookie });
+  check('a favorite is yours alone', (await bootOf(ownerCookie)).favorites.some(f => f.refId === issue.id) && !(await bootOf(adaCookie)).favorites.length);
+
+  const personal = (await (await req('/api/views', { ...json({ name: 'Mine', filters: {}, shared: false }), cookie: adaCookie })).json() as { view: { id: string } }).view;
+  const shared = (await (await req('/api/views', { ...json({ name: 'Ours', filters: {} }), cookie: adaCookie })).json() as { view: { id: string } }).view;
+  const ownerViews = (await bootOf(ownerCookie)).views.map(v => v.id);
+  check('a personal view is hidden from others; a shared one isn\'t', !ownerViews.includes(personal.id) && ownerViews.includes(shared.id));
+  check('…and others can\'t edit or delete it', (await patch(`/api/views/${personal.id}`, { name: 'x' }, ownerCookie)).status === 404
+    && (await req(`/api/views/${personal.id}`, { method: 'DELETE', cookie: ownerCookie, headers: { origin: ORIGIN } })).status === 404);
+  await patch(`/api/views/${shared.id}`, { shared: false }, ownerCookie);
+  check('only a view\'s owner can make it personal', (await bootOf(ownerCookie)).views.some(v => v.id === shared.id && v.shared));
+  await patch(`/api/views/${personal.id}`, { shared: true }, adaCookie);
+  check('…and its owner can share it', (await bootOf(ownerCookie)).views.some(v => v.id === personal.id));
+
+  await patch('/api/preferences', { homeView: 'my-issues' }, adaCookie);
+  check('preferences are per person', (await bootOf(adaCookie)).workspace.preferences.homeView === 'my-issues' && (await bootOf(ownerCookie)).workspace.preferences.homeView !== 'my-issues');
+
+  await req(`/api/issues/${issue.id}/remind`, { ...json({ at: new Date(Date.now() - 1000).toISOString() }), cookie: adaCookie });
+  const adaInbox = (await bootOf(adaCookie)).notifications;
+  check('a reminder lands in the inbox of whoever set it', adaInbox.some(n => n.type === 'issueReminder') && !(await bootOf(ownerCookie)).notifications.some(n => n.type === 'issueReminder'));
+  await req('/api/notifications/read-all', { ...json({}), cookie: ownerCookie });
+  check('marking all read only touches your own inbox', (await bootOf(adaCookie)).notifications.some(n => n.type === 'issueReminder' && !n.readAt));
+  const reminder = adaInbox.find(n => n.type === 'issueReminder')!;
+  const nid = (db.prepare("SELECT id FROM notifications WHERE type = 'issueReminder'").get() as { id: string }).id;
+  await req(`/api/notifications/${nid}`, { method: 'DELETE', cookie: ownerCookie, headers: { origin: ORIGIN } });
+  check('nobody can delete someone else\'s notification', !!reminder && !!db.prepare('SELECT 1 FROM notifications WHERE id = ?').get(nid));
+
+  // ---- mentions ----
+  const ownerId = boot.currentUser.id;
+  const subscribed = (uid: string) => store.isSubscribed(issue.id, uid);
+  store.unsubscribe(issue.id, ownerId);
+  db.prepare("DELETE FROM notifications WHERE type = 'issueMentioned'").run();
+  await req(`/api/issues/${issue.id}/comments`, { ...json({ body: `ping @[Owner Person](user:${ownerId}) please` }), cookie: adaCookie });
+  const mention = (await bootOf(ownerCookie)).notifications.find(n => n.type === 'issueMentioned');
+  check('an id mention subscribes and notifies that person', subscribed(ownerId) && !!mention);
+  check('…and the inbox line reads as a plain name', mention?.body === 'ping @Owner Person please', mention?.body);
+  const samA = store.createUser('Sam Lee', 'sam.a@example.com'), samB = store.createUser('Sam Lee', 'sam.b@example.com');
+  await req(`/api/issues/${issue.id}/comments`, { ...json({ body: 'hey @Sam Lee' }), cookie: adaCookie });
+  check('a plain name two people share mentions nobody', !subscribed(samA.id) && !subscribed(samB.id));
+  await req(`/api/issues/${issue.id}/comments`, { ...json({ body: `hey @[Sam Lee](user:${samB.id})` }), cookie: adaCookie });
+  check('…while an id mention picks exactly one of them', !subscribed(samA.id) && subscribed(samB.id));
+  const solo = store.createUser('Priya Nair', 'priya@example.com'), priyaShort = store.createUser('Priya', 'p2@example.com');
+  await req(`/api/issues/${issue.id}/comments`, { ...json({ body: 'cc @Priya Nair' }), cookie: adaCookie });
+  check('a plain unique name still works (CLI-written text), longest name first', subscribed(solo.id) && !subscribed(priyaShort.id));
+  const handoff = await (await req(`/api/issues/${issue.id}/handoff`, { cookie: adaCookie })).json() as { handoff: { prompt: string } };
+  check('hand-off prompts carry the readable form', !handoff.handoff.prompt.includes('](user:'));
+
+  // ---- uploaded files ----
+  const up = async (name: string, type: string, body: string) => (await (await req(`/api/issues/${issue.id}/files?name=${name}`, { method: 'POST', body, headers: { 'content-type': type, origin: ORIGIN }, cookie: adaCookie })).json() as { attachment: { url: string } }).attachment.url;
+  const html = await req(await up('evil.html', 'text/html', '<script>alert(1)</script>'), { cookie: adaCookie });
+  check('an uploaded HTML file downloads instead of rendering', html.headers.get('content-type') === 'application/octet-stream' && html.headers.get('content-disposition')!.startsWith('attachment'));
+  check('…with nosniff and a sandboxing CSP', html.headers.get('x-content-type-options') === 'nosniff' && /sandbox/.test(html.headers.get('content-security-policy') ?? ''));
+  const svg = await req(await up('x.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'), { cookie: adaCookie });
+  check('an SVG (which can carry script) downloads too', svg.headers.get('content-disposition')!.startsWith('attachment'));
+  const png = await req(await up('a.png', 'image/png', 'png-bytes'), { cookie: adaCookie });
+  check('a PNG shows inline', png.headers.get('content-type') === 'image/png' && png.headers.get('content-disposition')!.startsWith('inline'));
+}
+
+// ---- rate limits ----
+{
+  let last = '';
+  for (let i = 0; i < 31; i++) last = (await req('/auth/google?next=/', { headers: { 'x-forwarded-for': '203.0.113.9' } })).headers.get('location') ?? '';
+  check('the 31st sign-in attempt from one address in 10 minutes is turned back', last.endsWith('?auth_error=rate-limited'), last);
+  const other = (await req('/auth/google?next=/', { headers: { 'x-forwarded-for': '203.0.113.10' } })).headers.get('location') ?? '';
+  check('…without affecting other addresses', other.startsWith('https://accounts.google.com/'));
+}
+
+// ---- invites ----
 type Result = { email: string; status: string; emailed?: string; invite?: { id: string; link: string; teamIds: string[] } };
 {
   const r = await req('/api/invites', { ...json({ emails: 'ben@example.com, cara@example.com\nnot-an-email, ada@example.com, BEN@example.com', teamIds: [team.team.id, 'nope'] }), cookie: ownerCookie });

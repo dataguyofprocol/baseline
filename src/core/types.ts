@@ -396,6 +396,10 @@ export interface SavedView {
   kind: 'issues' | 'projects';
   /** the projects page options (filters, grouping, ordering, layout, properties) for project views */
   projectOptions: Record<string, unknown> | null;
+  /** who saved it */
+  ownerId: string | null;
+  /** false: only its owner sees it (a personal view) */
+  shared: boolean;
 }
 
 export interface ViewFilters {

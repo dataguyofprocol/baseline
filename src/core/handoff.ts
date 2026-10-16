@@ -3,6 +3,7 @@
 
 import { issueKey, PRIORITY_SHORT } from './types.js';
 import type { Handoff, Issue, Label, Priority, Project, Team, WorkflowState } from './types.js';
+import { plainMentions } from './mentions.js';
 
 export const DEFAULT_PROMPT_TEMPLATE = `Work on Baseline issue {{key}}: {{title}}
 
@@ -113,7 +114,8 @@ export function buildHandoff(
   const vars: Record<string, string> = {
     key,
     title: issue.title,
-    description: issue.description,
+    // mention tokens read back as "@Name" — the agent needs the person, not their id
+    description: plainMentions(issue.description),
     branch,
     url: `${base}/#/issue/${key}`,
     team: team?.name ?? '',

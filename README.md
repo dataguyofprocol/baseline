@@ -53,6 +53,12 @@ How hosted mode differs:
 - **Sessions** last 30 days, renewed as long as you keep using them.
 - **Admin-only:** roles, suspension, security settings, workspace settings, import and export.
 - **Teams:** anyone can join or leave any team from the Teams page. "Your teams" in the sidebar lists the teams you're on.
+- **Per person:** favorites, preferences and your inbox (read, snoozed, reminders). A saved view is shared with the workspace unless its owner makes it personal (the view's menu on the Views page).
+- **Mentions** are stored as `@[Ada Osei](user:u_…)`, so two people with the same name can't be confused. A plain `@Ada Osei`, for example one an agent writes through the CLI, still counts if only one member has that name.
+- **Hardening:**
+  - Comments and descriptions are sanitized before display.
+  - Uploads other than images, video, audio and PDF download instead of rendering.
+  - Sign-in, invite links and invite sending are rate-limited per address or person. The limits read the client address from `X-Forwarded-For` only when the connection comes from a proxy on the same machine (Caddy).
 - **Not available on a hosted server:** opening Claude Code and adding locations, which act on the machine they run on.
 
 `npm run test:auth` covers sign-in, invites, domains and roles.

@@ -1,13 +1,21 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { useApp } from './store.js';
+import { uniquelyNamed } from '../../src/core/mentions.js';
 
 marked.setOptions({ gfm: true, breaks: true });
 
 /* Rendered markdown: links open in a new tab, issue keys (CORE-12) become links to the
-   issue, and @Full Name of a member becomes a mention chip — the same text an agent
-   writes through the CLI reads as references here. */
+   issue, and mentions — `@[Name](user:id)` from the editor, or a plain @Full Name that only
+   one member has — become chips. Everything is sanitized last: comments and descriptions are
+   other people's input. */
+
+/** what rendered markdown may contain (DOMPurify's safe HTML, plus link targets) */
+export function sanitize(html: string): string {
+  return DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel'], FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select'] });
+}
 export function Markdown({ text }: { text: string }) {
   const snap = useApp(s => s.snap);
   const navigate = useNavigate();
@@ -15,16 +23,29 @@ export function Markdown({ text }: { text: string }) {
     if (!text?.trim()) return null;
     const raw = marked.parse(text) as string;
     const doc = new DOMParser().parseFromString(`<body>${raw}</body>`, 'text/html');
+    // @[Name](user:id) parses as "@" + a link to user:id — turn it into a chip with the person's current name
+    doc.querySelectorAll('a[href^="user:"]').forEach(a => {
+      const prev = a.previousSibling;
+      if (!(prev instanceof Text) || !prev.data.endsWith('@')) return;
+      prev.data = prev.data.slice(0, -1);
+      const uid = a.getAttribute('href')!.slice(5);
+      const span = doc.createElement('span');
+      span.className = 'mention';
+      span.dataset.userId = uid;
+      span.textContent = `@${snap?.users.find(u => u.id === uid)?.name ?? a.textContent}`;
+      a.replaceWith(span);
+    });
     doc.querySelectorAll('a').forEach(a => { if (!a.getAttribute('href')?.startsWith('#')) { a.target = '_blank'; a.rel = 'noreferrer'; } });
     if (snap) {
       const keys = new Set(snap.issues.map(i => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`));
-      const names = [...snap.users].sort((a, b) => b.name.length - a.name.length).map(u => u.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      // plain "@Name" is only a mention when nobody else shares the name
+      const names = uniquelyNamed(snap.users).sort((a, b) => b.name.length - a.name.length).map(u => u.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
       const re = new RegExp(`\\b([A-Z][A-Z0-9]{0,9}-\\d+)\\b${names.length ? `|@(${names.join('|')})(?![\\w])` : ''}`, 'g');
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
       const texts: Text[] = [];
       while (walker.nextNode()) texts.push(walker.currentNode as Text);
       for (const t of texts) {
-        if (t.parentElement?.closest('code, pre, a')) continue;
+        if (t.parentElement?.closest('code, pre, a, .mention')) continue;
         const value = t.nodeValue ?? '';
         re.lastIndex = 0;
         if (!re.test(value)) continue;
@@ -75,7 +96,7 @@ export function Markdown({ text }: { text: string }) {
         t.replaceWith(frag);
       }
     }
-    return doc.body.innerHTML;
+    return sanitize(doc.body.innerHTML);
   }, [text, snap]);
   if (!html) return null;
   return (
