@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/server/index.js';
 import type { MailMessage } from '../src/server/mail.js';
+import { DatabaseSync } from 'node:sqlite';
 
 const ORIGIN = 'https://baseline.example.com';
 const CLIENT_ID = 'test-client.apps.googleusercontent.com';
@@ -17,7 +18,8 @@ const work = mkdtempSync(join(tmpdir(), 'baseline-auth-test-'));
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));
 // email goes to this list instead of an SMTP server
 const sent: MailMessage[] = [];
-const { app, store, db } = createApp(join(work, 'hosted.db'), {
+const dbFile = join(work, 'hosted.db');
+const { app, store, db, changes } = createApp(dbFile, {
   mode: 'google', publicUrl: new URL(ORIGIN), clientId: CLIENT_ID, clientSecret: 'secret', ownerEmail: OWNER,
 }, { configured: true, send: async (m) => { sent.push(m); } });
 
@@ -227,6 +229,47 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   check('an SVG (which can carry script) downloads too', svg.headers.get('content-disposition')!.startsWith('attachment'));
   const png = await req(await up('a.png', 'image/png', 'png-bytes'), { cookie: adaCookie });
   check('a PNG shows inline', png.headers.get('content-type') === 'image/png' && png.headers.get('content-disposition')!.startsWith('inline'));
+}
+
+// ---- live updates ----
+{
+  check('the event stream needs a session', (await req('/api/events')).status === 401);
+  const res = await req('/api/events', { cookie: ownerCookie });
+  check('it is a server-sent event stream', (res.headers.get('content-type') ?? '').startsWith('text/event-stream'));
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffered = '';
+  /** the next `version` event's number, or null if none arrives within a second */
+  const nextVersion = async (): Promise<number | null> => {
+    const deadline = Date.now() + 1000;
+    while (Date.now() < deadline) {
+      const m = /event: version\ndata: (\{[^\n]*\})\n\n/.exec(buffered);
+      if (m) { buffered = buffered.slice(m.index + m[0].length); return (JSON.parse(m[1]!) as { v: number }).v; }
+      const chunk = await Promise.race([reader.read(), new Promise<null>(r => setTimeout(() => r(null), deadline - Date.now()))]);
+      if (!chunk || chunk.done) break;
+      buffered += decoder.decode(chunk.value, { stream: true });
+    }
+    return null;
+  };
+  const first = await nextVersion();
+  check('…which opens with the current version', first === changes.current, `${first} vs ${changes.current}`);
+  await req('/api/issues', { ...json({ teamId: team.team.id, title: 'Live one' }), cookie: adaCookie });
+  const second = await nextVersion();
+  check('a write through the API announces a new version straight away', second !== null && second > first!);
+  // the CLI and agents write to the file from another process: another connection stands in for them
+  const other = new DatabaseSync(dbFile);
+  other.prepare("UPDATE issues SET title = 'Changed from the CLI' WHERE title = 'Live one'").run();
+  other.close();
+  check('a write from another process is noticed', changes.check());
+  const third = await nextVersion();
+  check('…and announced', third !== null && third > second!);
+  check('nothing changed, nothing announced', !changes.check() && (await nextVersion()) === null);
+  await reader.cancel();
+  await new Promise(r => setTimeout(r, 10));
+  check('a closed stream stops listening', changes.subscribers === 0, String(changes.subscribers));
+  const t0 = new Date();
+  db.prepare("INSERT INTO notifications (id, type, body, created_at, user_id, snoozed_until) VALUES ('n_wake', 'issueReminder', 'x', ?, ?, ?)").run(t0.toISOString(), boot.currentUser.id, new Date(t0.getTime() + 30_000).toISOString());
+  check('the clock sees a reminder coming due', store.wokeBetween(t0, new Date(t0.getTime() + 60_000)) && !store.wokeBetween(new Date(t0.getTime() + 60_000), new Date(t0.getTime() + 120_000)));
 }
 
 // ---- rate limits ----

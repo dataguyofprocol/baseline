@@ -6,6 +6,8 @@ import { seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
 import { authConfigFromEnv, mountAuth, type AuthConfig } from './auth.js';
 import { mountMembers } from './members.js';
+import { ChangeFeed, startScheduler } from './live.js';
+import { streamSSE } from 'hono/streaming';
 import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
 import { Accounts } from '../core/accounts.js';
 import { setMeta } from '../core/db.js';
@@ -58,6 +60,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const db = openDb(dbPath);
   const store = new Store(db);
   const accounts = new Accounts(db, store);
+  const changes = new ChangeFeed(db);
   const hosted = auth.mode === 'google';
 
   // first run: a laptop gets the sample workspace to play with; a hosted one starts empty —
@@ -94,6 +97,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     await next();
   });
 
+  // a write tells open tabs at once, rather than at the feed's next look
+  app.use('/api/*', async (c, next) => {
+    await next();
+    if (c.req.method !== 'GET' && c.req.method !== 'HEAD') changes.check();
+  });
+
   // workspace-wide settings, people and whole-workspace data are admins' (everyone is, in local mode)
   const adminOnly = async (c: Context, next: Next) => {
     if (hosted && !accounts.isAdmin(store.actor())) return c.json({ error: 'Only admins can do that', code: 'forbidden' }, 403);
@@ -105,13 +114,28 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- bootstrap ----------
   app.get('/api/bootstrap', (c) => {
-    store.tick();
     const snap = store.snapshot();
     snap.workspace.auth = auth.mode;
     // the home directory only means something when the server is this machine
     if (!hosted) snap.workspace.homeDir = homedir();
     return c.json(snap);
   });
+
+  // ---------- live updates ----------
+  // Server-sent events: the current version on connect, every new one after, and a comment every
+  // 25s so proxies keep the connection open. Only a number travels — each tab then fetches its own
+  // snapshot, so nobody learns anything here they couldn't already see.
+  app.get('/api/events', (c) => streamSSE(c, async (stream) => {
+    let open = true;
+    const off = changes.subscribe(v => { if (open) void stream.writeSSE({ event: 'version', data: JSON.stringify({ v }) }).catch(() => { open = false; }); });
+    stream.onAbort(() => { open = false; off(); });
+    await stream.writeSSE({ event: 'version', data: JSON.stringify({ v: changes.current }) });
+    while (open) {
+      await stream.sleep(25_000);
+      if (open) await stream.write(': ping\n\n').catch(() => { open = false; });
+    }
+    off();
+  }));
 
   // ---------- issues ----------
   app.post('/api/issues', async (c) => {
@@ -652,14 +676,17 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.body(readFileSync(join(WEB_DIST, 'index.html')), 200, { 'Content-Type': 'text/html' });
   });
 
-  return { app, store, db, accounts };
+  return { app, store, db, accounts, changes };
 }
 
 export function serve(opts: ServeOptions = {}): { server: ServerType; port: number } {
   const dbPath = resolveDbPath(opts.dbPath);
   const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7770);
   const auth = authConfigFromEnv();
-  const { app } = createApp(dbPath, auth);
+  const { app, store, changes } = createApp(dbPath, auth);
+  // only the server watches the clock and the file: the CLI uses createApp too, and must exit
+  changes.start();
+  startScheduler(store, changes);
   // loopback by default: IPv4 and IPv6 each get a listener, since `localhost` may resolve to either
   const server = nodeServe({ fetch: app.fetch, port, hostname: LISTEN_HOST || '127.0.0.1' });
   if (!LISTEN_HOST) {

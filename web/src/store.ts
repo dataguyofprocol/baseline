@@ -81,6 +81,7 @@ export const useApp = create<AppState>((set, get) => ({
     try {
       const snap = await api.bootstrap();
       set({ snap, loaded: true, signedOut: false });
+      connectLive();
     } catch (err) {
       // a 401 already flipped signedOut (see the listener below); anything else is a real failure
       if (!(err instanceof ApiError && err.status === 401)) throw err;
@@ -225,19 +226,48 @@ export async function refresh() {
   await useApp.getState().bootstrap();
 }
 
-// Agents write through the CLI straight to SQLite, so the server never tells us — poll while
-// the tab is visible (and on focus) and only swap the snapshot when something actually moved.
+// Live updates. The server announces a new version whenever anything changes — a teammate, an
+// agent writing through the CLI, the workspace's own clock — and the tab refetches its snapshot,
+// swapping it in only when something it shows actually moved. A hidden tab waits until it's seen.
 let lastSnapJson = '';
-async function pollSnapshot() {
-  if (!useApp.getState().loaded || useApp.getState().signedOut || document.visibilityState !== 'visible') return;
+let fetching = false;
+let fetchAgain = false;
+let announced: number | null = null;
+let applied: number | null = null;
+async function refreshSnapshot() {
+  if (!useApp.getState().loaded || useApp.getState().signedOut) return;
+  if (fetching) { fetchAgain = true; return; }
+  fetching = true;
   try {
     const snap = await api.bootstrap();
     const json = JSON.stringify(snap);
     if (json !== lastSnapJson) useApp.setState({ snap });
     lastSnapJson = json;
-  } catch { /* server restarting — next tick retries */ }
+  } catch { /* server restarting — the next announcement retries */ }
+  finally {
+    fetching = false;
+    if (fetchAgain) { fetchAgain = false; void refreshSnapshot(); }
+  }
 }
-setInterval(() => void pollSnapshot(), 5000);
+function catchUp() {
+  if (document.visibilityState !== 'visible' || announced === applied) return;
+  applied = announced;
+  void refreshSnapshot();
+}
+let live: EventSource | null = null;
+function connectLive() {
+  if (live) return;
+  live = new EventSource('/api/events');
+  live.addEventListener('version', e => { announced = (JSON.parse((e as MessageEvent).data) as { v: number }).v; catchUp(); });
+  live.onerror = () => {
+    // a dropped connection reconnects by itself; a refused one (CLOSED — e.g. the session ended)
+    // doesn't: ask the API, which shows the sign-in screen on 401, and try again in a while
+    if (live?.readyState !== EventSource.CLOSED) return;
+    live = null;
+    void api.bootstrap().catch(() => {});
+    setTimeout(() => { if (!useApp.getState().signedOut) connectLive(); }, 5000);
+  };
+}
+document.addEventListener('visibilitychange', catchUp);
 // any API call that comes back 401 (an expired or revoked session) drops to the sign-in screen
-window.addEventListener('baseline:signed-out', () => useApp.setState({ signedOut: true }));
-window.addEventListener('focus', () => void pollSnapshot());
+window.addEventListener('baseline:signed-out', () => { useApp.setState({ signedOut: true }); live?.close(); live = null; });

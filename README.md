@@ -28,6 +28,8 @@ sandbox DB and port 7327 so they can't touch real data — including `seed --res
 port 7770. Override anything with `BASELINE_DB`, `BASELINE_PORT`, or `BASELINE_URL`.
 The server only listens on this machine (127.0.0.1 and ::1) and rejects requests addressed to any other host or sent cross-site from another origin; set `BASELINE_HOST=0.0.0.0` to open it to your network (launching Claude Code stays local-only either way).
 
+**Live updates.** Open tabs keep a server-sent-events connection to `/api/events`. When the database changes, the server announces a new version and each tab refetches its own snapshot. That covers changes from the app, from teammates, and from agents writing through the CLI: the server watches SQLite's `data_version`. Cycles, recurring issues and update reminders run on a one-minute server timer, and only while the server is running.
+
 **Hosted mode (a team server).** Setting `GOOGLE_CLIENT_ID` switches the server to Google sign-in. That mode
 also needs `GOOGLE_CLIENT_SECRET` and `BASELINE_PUBLIC_URL`; the server refuses to start with only some of them.
 

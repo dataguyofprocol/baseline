@@ -870,6 +870,13 @@ export class Store {
     }
   }
   /** periodic upkeep run before each snapshot: cycle cadence and rollover, recurring issues */
+  /** did anything snoozed (an inbox row, a "Remind me", an issue in triage) come due in (from, to]? */
+  wokeBetween(from: Date, to: Date): boolean {
+    const [a, b] = [from.toISOString(), to.toISOString()];
+    return !!this.db.prepare('SELECT 1 FROM notifications WHERE snoozed_until > ? AND snoozed_until <= ? LIMIT 1').get(a, b)
+      || !!this.db.prepare('SELECT 1 FROM issues WHERE snoozed_until > ? AND snoozed_until <= ? LIMIT 1').get(a, b);
+  }
+
   tick(now = new Date()): void {
     for (const t of this.db.prepare('SELECT id FROM teams WHERE auto_cycles = 1').all() as Array<{ id: string }>) this.scheduleCycles(t.id, now);
     this.completeEndedCycles(now);
