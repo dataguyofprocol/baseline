@@ -158,3 +158,51 @@ export const IconCopyId = (p: P) => <S {...p}><path d="M4.6 2.4h5.6c1.3 0 2.4 1.
 /* lines of a brief with a pointer: "hand this to an agent" */
 export const IconHandoff = (p: P) => <S {...p}><path d="M2.4 3.8h8M2.4 6.6h5M2.4 9.4h3" {...stroke} /><path d="m8 7.8 5 1.9-2.2.8-.8 2.2z" {...stroke} /></S>;
 export const IconBranch = (p: P) => <S {...p}><circle cx="4.5" cy="3.4" r="1.5" {...stroke} /><circle cx="4.5" cy="11.6" r="1.5" {...stroke} /><circle cx="10.9" cy="5.3" r="1.5" {...stroke} /><path d="M4.5 4.9v5.2" {...stroke} /><path d="M10.9 6.8v.3a4.3 4.3 0 0 1-4.3 4.3h-.4" {...stroke} /></S>;
+
+/* ---------- added for triage, milestones, threads, snooze, attachments ---------- */
+export const StatusTriage = (p: P) => (
+  <S {...p}>
+    <circle cx="7.5" cy="7.5" r="5.4" {...stroke} />
+    <path d="M4.9 7.5h5.2M8.4 5.8l1.7 1.7-1.7 1.7M6.6 5.8 4.9 7.5l1.7 1.7" {...stroke} strokeWidth={1.2} />
+  </S>
+);
+export const IconMilestone = (p: P) => (
+  <S {...p}><path d="M7.5 1.9 13.1 7.5 7.5 13.1 1.9 7.5Z" {...stroke} /><path d="M7.5 5.2 9.8 7.5 7.5 9.8 5.2 7.5Z" fill="currentColor" stroke="none" /></S>
+);
+export const IconBellOff = (p: P) => (
+  <S {...p}><path d="M5 11.2h7.2l-1.1-1.6V6.6M3.9 6.4A3.6 3.6 0 0 1 9.6 3.6M6.3 13a1.4 1.4 0 0 0 2.4 0M2 2l11 11" {...stroke} /></S>
+);
+export const IconReply = (p: P) => (
+  <S {...p}><path d="M6 3.5 2.5 7 6 10.5M2.8 7h5.7a4 4 0 0 1 4 4v1" {...stroke} /></S>
+);
+export const IconClock = (p: P) => (
+  <S {...p}><circle cx="7.5" cy="7.5" r="5.6" {...stroke} /><path d="M7.5 4.3v3.4l2.2 1.4" {...stroke} /></S>
+);
+export const IconFile = (p: P) => (
+  <S {...p}><path d="M8.6 1.9H4.2a1 1 0 0 0-1 1v9.2a1 1 0 0 0 1 1h6.6a1 1 0 0 0 1-1V5.1Z" {...stroke} /><path d="M8.5 2v3.2h3.2" {...stroke} /></S>
+);
+export const IconTimeline = (p: P) => (
+  <S {...p}><path d="M2 3.5h6M4.5 7.5h7M7 11.5h6" {...stroke} strokeWidth={2} /></S>
+);
+export const IconBoard = (p: P) => (
+  <S {...p}><rect x="1.9" y="2.4" width="3.2" height="10.2" rx="0.8" {...stroke} /><rect x="5.9" y="2.4" width="3.2" height="7" rx="0.8" {...stroke} /><rect x="9.9" y="2.4" width="3.2" height="8.6" rx="0.8" {...stroke} /></S>
+);
+export const IconList = (p: P) => (
+  <S {...p}><path d="M2.4 4h10.2M2.4 7.5h10.2M2.4 11h10.2" {...stroke} /></S>
+);
+export const IconChevronUp = (p: P) => (
+  <S {...p}><path d="M4 9.2 7.5 5.8 11 9.2" {...stroke} /></S>
+);
+export const IconResolve = (p: P) => (
+  <S {...p}><circle cx="7.5" cy="7.5" r="5.6" {...stroke} /><path d="M5 7.6 6.8 9.3 10 5.9" {...stroke} /></S>
+);
+export const IconExternal = (p: P) => (
+  <S {...p}><path d="M8.5 2.5h4v4M12.3 2.7 7 8M11 9v2.6a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1H6" {...stroke} /></S>
+);
+export const IconTriage = (p: P) => (
+  <S {...p}><path d="M2.3 5h8.4M8.6 2.9 10.7 5 8.6 7.1M12.7 10H4.3M6.4 7.9 4.3 10l2.1 2.1" {...stroke} /></S>
+);
+export const IconPulse = (p: P) => <S {...p}><path d="M1.8 7.6h2.6l1.6-4 2.6 7.6 1.7-3.6h3" {...stroke} /></S>;
+export const IconCustomers = (p: P) => <S {...p}><rect x="2.4" y="3.4" width="10.2" height="8.6" rx="1.6" {...stroke} /><path d="M5 3.4V2.4h5v1M2.4 7.2h10.2" {...stroke} /></S>;
+export const IconDrafts = (p: P) => <S {...p}><path d="M3 2.6h6.4l2.6 2.6v7.2H3z" {...stroke} /><path d="M5.2 7h4.6M5.2 9.4h3" {...stroke} /></S>;
+export const IconMembers = (p: P) => <S {...p}><circle cx="5.6" cy="5.4" r="2" {...stroke} /><path d="M2 12c.5-2 2-3 3.6-3s3.1 1 3.6 3" {...stroke} /><path d="M9.8 3.6a1.8 1.8 0 1 1 0 3.6M11 9.2c1 .4 1.7 1.3 2 2.6" {...stroke} /></S>;

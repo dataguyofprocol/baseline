@@ -5,9 +5,12 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, RegisterMark, ConfirmButton } from './ui.js';
 import { Logo } from './Logo.js';
 import { teamDisplayIcon } from './pickers.js';
+import { AnimatePresence } from 'framer-motion';
+import { CustomizeSidebar, sidebarVisibility, useDrafts } from './Workspace.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues, IconCycle, IconTeam, IconHelp, IconCaret,
   IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
+  IconTriage, IconArchive, IconTrash, IconLink, IconPlus, IconPulse, IconCustomers, IconDrafts, IconMembers, IconHome,
 } from './icons.js';
 
 /** Panel-with-a-left-rail glyph: the standard "toggle the nav" affordance. */
@@ -43,10 +46,35 @@ export function Sidebar() {
   const navigate = useNavigate();
   const loc = useLocation();
   const [sections, toggleSection] = useSectionState();
+  const teamMenu = useMenu();
+  const [teamMenuFor, setTeamMenuFor] = useState<string | null>(null);
+  const [customizing, setCustomizing] = useState(false);
+  const drafts = useDrafts();
   if (!snap) return null;
-  const unread = snap.notifications.filter(n => !n.readAt).length;
+  const triageState = (teamId: string) => snap.states.find(s => s.teamId === teamId && s.type === 'triage');
+  const triageCount = (teamId: string) => { const st = triageState(teamId); return st ? snap.issues.filter(i => i.stateId === st.id).length : 0; };
+  const menuTeam = snap.teams.find(t => t.id === teamMenuFor);
+  const nowIso = new Date().toISOString();
+  const unread = snap.notifications.filter(n => !n.readAt && (!n.snoozedUntil || n.snoozedUntil <= nowIso)).length;
   const me = snap.currentUser;
   const isOpen = (id: string, fallback = true) => sections[id] ?? fallback;
+  // Customize sidebar: each item always shows, shows only with a badge, or moves to More
+  const f = snap.workspace.features;
+  const ALL = [
+    { key: 'inbox', to: '/inbox', icon: <IconInbox />, label: 'Inbox', badge: unread, section: 'personal' },
+    { key: 'my-issues', to: '/my-issues', icon: <IconMyIssues />, label: 'My issues', badge: 0, section: 'personal' },
+    { key: 'drafts', to: '/drafts', icon: <IconDrafts />, label: 'Drafts', badge: drafts.length, section: 'personal' },
+    { key: 'projects', to: '/projects', icon: <IconBox />, label: 'Projects', badge: 0, section: 'workspace' },
+    { key: 'views', to: '/views', icon: <IconViews />, label: 'Views', badge: 0, section: 'workspace' },
+    ...(f.pulseEnabled ? [{ key: 'pulse', to: '/pulse', icon: <IconPulse />, label: 'Pulse', badge: 0, section: 'workspace' }] : []),
+    ...(f.customerRequestsEnabled ? [{ key: 'customers', to: '/customers', icon: <IconCustomers />, label: 'Customers', badge: 0, section: 'workspace' }] : []),
+    { key: 'teams', to: '/teams', icon: <IconTeam />, label: 'Teams', badge: 0, section: 'workspace' },
+    { key: 'members', to: '/members', icon: <IconMembers />, label: 'Members', badge: 0, section: 'workspace' },
+  ];
+  const shown = (i: (typeof ALL)[number]) => { const v = sidebarVisibility(snap, i.key); return v === 'show' || (v === 'badged' && i.badge > 0); };
+  const personal = ALL.filter(i => i.section === 'personal' && shown(i));
+  const workspaceItems = ALL.filter(i => i.section === 'workspace' && shown(i));
+  const hiddenItems = ALL.filter(i => i.section === 'workspace' && !shown(i));
   const locTeam = /^\/team\/([^/]+)/.exec(loc.pathname)?.[1];
 
   const favorites = snap.favorites
@@ -69,6 +97,11 @@ export function Sidebar() {
           }
         }
         return null;
+      }
+      if (f.type === 'cycle') {
+        const c = snap.cycles.find(x => x.id === f.refId);
+        const t = c ? snap.teams.find(x => x.id === c.teamId) : undefined;
+        return c && t ? { id: f.id, label: c.name || `Cycle ${c.number}`, icon: <IconCycle size={14} />, to: `/team/${t.key}/cycles/${c.id}` } : null;
       }
       if (f.type === 'issue') {
         const i = snap.issues.find(x => x.id === f.refId);
@@ -93,8 +126,8 @@ export function Sidebar() {
             <IconChevronDown size={12} style={{ color: 'var(--text-dim)' }} />
           </button>
           <div className="ws-actions">
-            <button className="icon-btn ws-collapse" title="Collapse sidebar (⌘B)" onClick={toggleSidebar}><IconSidebar size={15} /></button>
-            <button className="icon-btn" title="Search (⌘K)" onClick={() => useApp.getState().setPalette(true)}><IconSearch size={15} /></button>
+            <button className="icon-btn ws-collapse" title="Collapse sidebar ([)" onClick={toggleSidebar}><IconSidebar size={15} /></button>
+            <button className="icon-btn" title="Search (/)" onClick={() => navigate('/search')}><IconSearch size={15} /></button>
             <button className="ws-new" title="New issue (C)" onClick={() => useApp.getState().openCreate()}><IconNew size={14} /></button>
           </div>
         </div>
@@ -108,29 +141,26 @@ export function Sidebar() {
           </Menu>
         )}
 
-        <Nav to="/inbox" icon={<IconInbox />} label="Inbox" badge={unread} />
-        <Nav to="/my-issues" icon={<IconMyIssues />} label="My issues" />
+        {personal.map(i => <Nav key={i.key} to={i.to} icon={i.icon} label={i.label} badge={i.badge} />)}
 
         <SectionHeader label="Workspace" open={isOpen('workspace')} onToggle={() => toggleSection('workspace')} />
         {isOpen('workspace') && (
           <div className="nav-group">
-            <Nav to="/projects" icon={<IconBox />} label="Projects" />
-            <Nav to="/views" icon={<IconViews />} label="Views" />
+            {workspaceItems.map(i => <Nav key={i.key} to={i.to} icon={i.icon} label={i.label} badge={i.badge} />)}
             <button className="nav-item" onClick={moreMenu.open}>
               <IconMore /><span className="nav-label"><span className="nav-text">More</span></span>
             </button>
             {moreMenu.anchor && (
               <Menu anchor={moreMenu.anchor} onClose={moreMenu.close} width={220}>
-                <MenuItem icon={<IconTeam size={14} />} label="Members" onClick={() => navigate('/settings/members')} />
-                <MenuItem label="Labels" onClick={() => navigate('/settings/labels')} />
-                <MenuItem label="Issue templates" onClick={() => navigate('/settings/templates')} />
-                <MenuItem label="Coding tools" onClick={() => navigate('/settings/handoff')} />
+                {hiddenItems.map(i => <MenuItem key={i.key} icon={i.icon} label={i.label} onClick={() => navigate(i.to)} />)}
+                <MenuItem icon={<IconTrash size={14} />} label="Trash" onClick={() => navigate('/trash')} />
                 <MenuSep />
-                <MenuItem label="Import & export" onClick={() => navigate('/settings/data')} />
+                <MenuItem icon={<IconSettings size={14} />} label="Customize sidebar" onClick={() => setCustomizing(true)} />
               </Menu>
             )}
           </div>
         )}
+        <AnimatePresence>{customizing && <CustomizeSidebar key="cs" onClose={() => setCustomizing(false)} />}</AnimatePresence>
 
         {favorites.length > 0 && (
           <>
@@ -143,7 +173,8 @@ export function Sidebar() {
           </>
         )}
 
-        <SectionHeader label="Your teams" open={isOpen('teams')} onToggle={() => toggleSection('teams')} />
+        <SectionHeader label="Your teams" open={isOpen('teams')} onToggle={() => toggleSection('teams')}
+          action={<button className="icon-btn nav-section-add" title="Create a team" onClick={() => navigate('/settings/new-team')}><IconPlus size={13} /></button>} />
         {isOpen('teams') && (
           <div className="nav-group">
             {snap.teams.map(t => {
@@ -152,16 +183,31 @@ export function Sidebar() {
               const hasCycles = snap.cycles.some(c => c.teamId === t.id);
               return (
                 <div key={t.id}>
-                  <button className={`nav-item nav-team${open ? ' open' : ''}`} onClick={() => toggleSection(`team:${t.id}`, fallback)} aria-expanded={open}>
-                    {teamDisplayIcon(t)}
-                    <span className="nav-label"><span className="nav-text">{t.name}</span></span>
-                    <IconCaret size={13} className="nav-caret" />
-                  </button>
+                  <div className="nav-team-row">
+                    <button className={`nav-item nav-team${open ? ' open' : ''}`} onClick={() => toggleSection(`team:${t.id}`, fallback)} aria-expanded={open}>
+                      {teamDisplayIcon(t)}
+                      <span className="nav-label"><span className="nav-text">{t.name}</span></span>
+                      <IconCaret size={13} className="nav-caret" />
+                    </button>
+                    <button className="icon-btn nav-team-more" title="Team options" onClick={e => { setTeamMenuFor(t.id); teamMenu.open(e); }}><IconMore size={13} /></button>
+                  </div>
                   {open && (
                     <div className="nav-sub">
+                      <Nav to={`/team/${t.key}/overview`} icon={<IconHome />} label="Home" isActive={l => l.pathname.startsWith(`/team/${t.key}/overview`)} />
+                      {t.triageEnabled && <Nav to={`/team/${t.key}/triage`} icon={<IconTriage />} label="Triage" badge={triageCount(t.id)} />}
                       <Nav to={`/team/${t.key}/all`} icon={<IconIssues />} label="Issues"
-                        isActive={l => l.pathname.startsWith(`/team/${t.key}/`) && !l.pathname.endsWith('/cycles')} />
-                      {hasCycles && <Nav to={`/team/${t.key}/cycles`} icon={<IconCycle />} label="Cycles" />}
+                        isActive={l => /^\/team\/[^/]+\/(all|active|backlog)$/.test(l.pathname) && l.pathname.startsWith(`/team/${t.key}/`)} />
+                      {(hasCycles || t.autoCycles) && <>
+                        <Nav to={`/team/${t.key}/cycles`} icon={<IconCycle />} label="Cycles" end />
+                        <div className="nav-subsub">
+                          <Nav to={`/team/${t.key}/cycles/current`} icon={null} label="Current" title="Current cycle (G then V)"
+                            isActive={l => { const now = new Date().toISOString(); const cur = snap.cycles.find(c => c.teamId === t.id && c.startsAt <= now && c.endsAt >= now); return !!cur && l.pathname === `/team/${t.key}/cycles/${cur.id}`; }} />
+                          <Nav to={`/team/${t.key}/cycles/upcoming`} icon={null} label="Upcoming"
+                            isActive={l => { const now = new Date().toISOString(); const up = snap.cycles.filter(c => c.teamId === t.id && c.startsAt > now).sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0]; return !!up && l.pathname === `/team/${t.key}/cycles/${up.id}`; }} />
+                        </div>
+                      </>}
+                      <Nav to={`/team/${t.key}/projects`} icon={<IconBox />} label="Projects" />
+                      <Nav to={`/team/${t.key}/views`} icon={<IconViews />} label="Views" />
                     </div>
                   )}
                 </div>
@@ -170,6 +216,19 @@ export function Sidebar() {
           </div>
         )}
       </div>
+
+      {teamMenu.anchor && menuTeam && (
+        <Menu anchor={teamMenu.anchor} onClose={teamMenu.close} width={220}>
+          <MenuItem icon={<IconTeam size={14} />} label="Team overview" onClick={() => navigate(`/team/${menuTeam.key}/overview`)} />
+          <MenuItem icon={<IconIssues size={14} />} label="Issues" onClick={() => navigate(`/team/${menuTeam.key}/all`)} />
+          <MenuItem icon={<IconCycle size={14} />} label="Cycles" onClick={() => navigate(`/team/${menuTeam.key}/cycles`)} />
+          <MenuItem icon={<IconTriage size={14} />} label="Triage" onClick={() => navigate(`/team/${menuTeam.key}/triage`)} />
+          <MenuItem icon={<IconArchive size={14} />} label="Archive" onClick={() => navigate(`/team/${menuTeam.key}/archive`)} />
+          <MenuSep />
+          <MenuItem icon={<IconSettings size={14} />} label="Team settings" onClick={() => navigate(`/settings/team/${menuTeam.key}`)} />
+          <MenuItem icon={<IconLink size={14} />} label="Copy link to team" onClick={async () => { await navigator.clipboard.writeText(`${location.origin}/#/team/${menuTeam.key}/all`).catch(() => {}); useApp.getState().toast({ title: 'Copied link' }); }} />
+        </Menu>
+      )}
 
       <div className="sidebar-footer">
         <button className="footer-help" title="Keyboard shortcuts (?)" onClick={() => useApp.getState().setShortcuts(true)}>
@@ -192,17 +251,19 @@ export function Sidebar() {
 }
 
 /* Linear's section header: the label, then a small caret that turns when the section folds */
-function SectionHeader(props: { label: string; open: boolean; onToggle: () => void }) {
-  return (
+function SectionHeader(props: { label: string; open: boolean; onToggle: () => void; action?: React.ReactNode }) {
+  const btn = (
     <button className={`nav-section${props.open ? ' open' : ''}`} onClick={props.onToggle} aria-expanded={props.open}>
       <span>{props.label}</span>
       <IconCaret size={12} className="nav-caret" />
     </button>
   );
+  return props.action ? <div className="nav-section-row">{btn}{props.action}</div> : btn;
 }
 
 function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: number; end?: boolean; title?: string; isActive?: (loc: { pathname: string }) => boolean }) {
   const loc = useLocation();
+  const badgeStyle = useApp(s => s.snap?.workspace.preferences.sidebar.badgeStyle ?? 'count');
   const active = props.isActive ? props.isActive(loc) : undefined;
   return (
     <NavLink
@@ -221,7 +282,7 @@ function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: 
               {(active ?? isActive) && <RegisterMark group="nav" />}
             </span>
           </span>
-          {props.badge ? <span className="nav-count">{props.badge}</span> : null}
+          {props.badge ? (badgeStyle === 'dot' ? <span className="nav-dot" aria-label={`${props.badge} unread`} /> : badgeStyle === 'none' ? null : <span className="nav-count">{props.badge}</span>) : null}
         </>
       )}
     </NavLink>

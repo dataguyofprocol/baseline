@@ -5,8 +5,8 @@ import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
 import type { Priority, Snapshot, WorkflowStateType, RelationType } from '../core/types.js';
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join, resolve, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { exec } from 'node:child_process';
@@ -59,6 +59,7 @@ export function createApp(dbPath: string) {
 
   // ---------- bootstrap ----------
   app.get('/api/bootstrap', (c) => {
+    store.tick();
     const snap = store.snapshot();
     snap.workspace.homeDir = homedir();
     return c.json(snap);
@@ -71,7 +72,7 @@ export function createApp(dbPath: string) {
       teamId: b.teamId, title: b.title, description: b.description, stateId: b.stateId,
       priority: b.priority, assigneeId: b.assigneeId ?? null, projectId: b.projectId ?? null,
       parentId: b.parentId ?? null, cycleId: b.cycleId ?? null, labelIds: b.labelIds,
-      dueDate: b.dueDate ?? null, estimate: b.estimate ?? null,
+      dueDate: b.dueDate ?? null, estimate: b.estimate ?? null, milestoneId: b.milestoneId ?? null,
       // omitted = a sub-issue inherits its parent's (nothing else is defaulted); null = explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
     });
@@ -83,12 +84,86 @@ export function createApp(dbPath: string) {
     if (!issue) return c.json({ error: 'not found' }, 404);
     return c.json({ issue });
   });
+  // archive & trash (registered before /api/issues/:id so the words don't read as ids)
+  app.get('/api/issues/archived', (c) => c.json({ issues: store.listArchived(c.req.query('teamId') || undefined) }));
+  app.get('/api/issues/deleted', (c) => c.json({ issues: store.listDeleted(c.req.query('teamId') || undefined) }));
   app.get('/api/issues/:id', (c) => {
     const issue = store.getIssue(c.req.param('id'));
     return issue ? c.json({ issue }) : c.json({ error: 'not found' }, 404);
   });
   app.delete('/api/issues/:id', (c) => { store.deleteIssue(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/issues/:id/restore', (c) => { store.restoreIssue(c.req.param('id')); return c.json({ ok: true }); });
+  app.delete('/api/issues/:id/purge', (c) => {
+    const issueId = c.req.param('id');
+    for (const a of store.snapshot().attachments.filter(x => x.issueId === issueId && x.kind === 'file')) rmSync(join(attachmentsDir, a.id), { recursive: true, force: true });
+    store.purgeIssue(issueId);
+    return c.json({ ok: true });
+  });
+  app.post('/api/issues/:id/convert-project', (c) => {
+    const r = store.convertIssueToProject(c.req.param('id'));
+    return r ? c.json(r) : c.json({ error: 'not found' }, 404);
+  });
+  app.post('/api/issues/:id/team', async (c) => {
+    const b = await c.req.json();
+    const issue = store.moveIssueToTeam(c.req.param('id'), b.teamId);
+    return issue ? c.json({ issue }) : c.json({ error: 'not found' }, 404);
+  });
+  app.post('/api/issues/:id/snooze', async (c) => {
+    const b = await c.req.json().catch(() => ({}));
+    store.snoozeIssue(c.req.param('id'), b.until ?? null);
+    return c.json({ ok: true });
+  });
+  app.post('/api/issues/:id/remind', async (c) => {
+    const b = await c.req.json();
+    if (!b.at) return c.json({ error: 'at is required' }, 400);
+    store.remindIssue(c.req.param('id'), String(b.at));
+    return c.json({ ok: true });
+  });
+  app.post('/api/issues/:id/subscribe', async (c) => {
+    const b = await c.req.json().catch(() => ({}));
+    const uid = b.userId ?? store.workspaceMeta().currentUser;
+    if (b.subscribed === false) store.unsubscribe(c.req.param('id'), uid);
+    else store.subscribe(c.req.param('id'), uid);
+    return c.json({ ok: true });
+  });
+
+  // ---------- attachments ----------
+  const attachmentsDir = join(dirname(dbPath), 'attachments');
+  app.post('/api/issues/:id/attachments', async (c) => {
+    const b = await c.req.json();
+    if (!b.url) return c.json({ error: 'url is required' }, 400);
+    const attachment = store.addAttachment({ issueId: c.req.param('id'), kind: 'link', url: String(b.url), title: b.title });
+    return c.json({ attachment }, 201);
+  });
+  // raw upload: the body is the file, ?name= its filename (images pasted into the editor land here)
+  app.post('/api/issues/:id/files', async (c) => {
+    const name = basename(c.req.query('name') || 'file').replace(/[^\w.\- ]+/g, '_').slice(0, 120) || 'file';
+    const buf = Buffer.from(await c.req.arrayBuffer());
+    if (buf.length > 25 * 1024 * 1024) return c.json({ error: 'Files are limited to 25 MB' }, 413);
+    const attId = `att_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    mkdirSync(join(attachmentsDir, attId), { recursive: true });
+    writeFileSync(join(attachmentsDir, attId, name), buf);
+    const attachment = store.addAttachment({ id: attId, issueId: c.req.param('id'), kind: 'file', url: `/api/attachments/${attId}/${encodeURIComponent(name)}`, title: name, mime: c.req.header('content-type') ?? 'application/octet-stream', size: buf.length });
+    return c.json({ attachment }, 201);
+  });
+  app.get('/api/attachments/:id/:name', (c) => {
+    const a = store.getAttachment(c.req.param('id'));
+    if (!a || a.kind !== 'file') return c.json({ error: 'not found' }, 404);
+    const file = join(attachmentsDir, a.id, basename(decodeURIComponent(c.req.param('name'))));
+    if (!existsSync(file)) return c.json({ error: 'not found' }, 404);
+    return c.body(readFileSync(file), 200, { 'Content-Type': a.mime || 'application/octet-stream', 'Cache-Control': 'private, max-age=31536000, immutable' });
+  });
+  app.patch('/api/attachments/:id', async (c) => {
+    const b = await c.req.json();
+    if (b.title) store.updateAttachment(c.req.param('id'), String(b.title));
+    return c.json({ ok: true });
+  });
+  app.delete('/api/attachments/:id', (c) => {
+    const a = store.getAttachment(c.req.param('id'));
+    if (a?.kind === 'file') rmSync(join(attachmentsDir, a.id), { recursive: true, force: true });
+    store.deleteAttachment(c.req.param('id'));
+    return c.json({ ok: true });
+  });
   app.post('/api/issues/:id/archive', (c) => {
     const issue = store.updateIssue(c.req.param('id'), { archivedAt: new Date().toISOString() });
     return issue ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
@@ -173,12 +248,13 @@ export function createApp(dbPath: string) {
   // ---------- comments ----------
   app.post('/api/issues/:id/comments', async (c) => {
     const b = await c.req.json();
-    const comment = store.addComment(c.req.param('id'), b.userId ?? store.workspaceMeta().currentUser, b.body);
+    const comment = store.addComment(c.req.param('id'), b.userId ?? store.workspaceMeta().currentUser, b.body, b.parentId ?? null);
     return c.json({ comment }, 201);
   });
   app.patch('/api/comments/:id', async (c) => {
     const b = await c.req.json();
     if (b.reaction) { store.toggleReaction(c.req.param('id'), b.reaction, b.userId ?? store.workspaceMeta().currentUser); return c.json({ ok: true }); }
+    if ('resolved' in b) { store.resolveComment(c.req.param('id'), !!b.resolved); return c.json({ ok: true }); }
     store.updateComment(c.req.param('id'), b.body);
     return c.json({ ok: true });
   });
@@ -210,6 +286,13 @@ export function createApp(dbPath: string) {
     const update = store.addProjectUpdate(c.req.param('id'), b.userId ?? store.workspaceMeta().currentUser, b.body, b.health);
     return c.json({ update }, 201);
   });
+  app.post('/api/projects/:id/links', async (c) => {
+    const b = await c.req.json();
+    if (!b.url) return c.json({ error: 'url is required' }, 400);
+    store.addProjectLink(c.req.param('id'), String(b.url), b.title);
+    return c.json({ ok: true }, 201);
+  });
+  app.delete('/api/project-links/:id', (c) => { store.deleteProjectLink(c.req.param('id')); return c.json({ ok: true }); });
   app.get('/api/projects/:id/progress', (c) => c.json(store.projectProgress(c.req.param('id'))));
 
   // ---------- teams / states / labels ----------
@@ -249,6 +332,48 @@ export function createApp(dbPath: string) {
     return c.json({ ok: true });
   });
   app.delete('/api/labels/:id', (c) => { store.deleteLabel(c.req.param('id')); return c.json({ ok: true }); });
+
+  // ---------- documents & team links ----------
+  app.post('/api/docs', async (c) => c.json({ doc: store.createDoc(await c.req.json()) }, 201));
+  app.patch('/api/docs/:id', async (c) => { store.updateDoc(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/docs/:id', (c) => { store.deleteDoc(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/teams/:id/links', async (c) => {
+    const b = await c.req.json();
+    if (!b.url) return c.json({ error: 'url is required' }, 400);
+    store.addTeamLink(c.req.param('id'), String(b.url), b.title);
+    return c.json({ ok: true }, 201);
+  });
+  app.delete('/api/team-links/:id', (c) => { store.deleteTeamLink(c.req.param('id')); return c.json({ ok: true }); });
+
+  // ---------- project templates & dependencies ----------
+  app.post('/api/project-templates', async (c) => {
+    const b = await c.req.json();
+    if (!b.name) return c.json({ error: 'name is required' }, 400);
+    return c.json({ template: store.createProjectTemplate(b) }, 201);
+  });
+  app.patch('/api/project-templates/:id', async (c) => { store.updateProjectTemplate(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/project-templates/:id', (c) => { store.deleteProjectTemplate(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/projects/:id/apply-template', async (c) => {
+    const b = await c.req.json();
+    store.applyProjectTemplate(c.req.param('id'), b.templateId);
+    return c.json({ ok: true });
+  });
+  app.post('/api/projects/:id/dependencies', async (c) => {
+    const b = await c.req.json();
+    if (b.blocks) store.addProjectDependency(c.req.param('id'), b.blocks);
+    if (b.blockedBy) store.addProjectDependency(b.blockedBy, c.req.param('id'));
+    return c.json({ ok: true }, 201);
+  });
+  app.delete('/api/project-dependencies/:id', (c) => { store.removeProjectDependency(c.req.param('id')); return c.json({ ok: true }); });
+
+  // ---------- recurring issues ----------
+  app.post('/api/recurring', async (c) => {
+    const b = await c.req.json();
+    if (!b.teamId || !b.title || !b.cadence) return c.json({ error: 'teamId, title and cadence are required' }, 400);
+    return c.json({ recurring: store.createRecurring(b) }, 201);
+  });
+  app.patch('/api/recurring/:id', async (c) => { store.updateRecurring(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/recurring/:id', (c) => { store.deleteRecurring(c.req.param('id')); return c.json({ ok: true }); });
 
   // ---------- issue templates ----------
   app.get('/api/issue-templates', (c) => c.json({ templates: store.snapshot().templates }));
@@ -329,6 +454,94 @@ export function createApp(dbPath: string) {
     return c.json({ ok: true });
   });
   app.post('/api/notifications/read-all', (c) => { store.markAllNotificationsRead(); return c.json({ ok: true }); });
+  app.post('/api/notifications/delete-read', (c) => { store.deleteReadNotifications(); return c.json({ ok: true }); });
+  app.delete('/api/notifications/:id', (c) => { store.deleteNotification(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/notifications/:id/snooze', async (c) => {
+    const b = await c.req.json().catch(() => ({}));
+    store.snoozeNotification(c.req.param('id'), b.until ?? null);
+    return c.json({ ok: true });
+  });
+
+  // ---------- preferences ----------
+  app.patch('/api/preferences', async (c) => {
+    store.setPreferences(await c.req.json());
+    return c.json({ ok: true });
+  });
+  app.patch('/api/features', async (c) => { store.setFeatures(await c.req.json()); return c.json({ ok: true }); });
+
+  // ---------- project labels, statuses, subscriptions ----------
+  app.post('/api/project-labels', async (c) => {
+    const b = await c.req.json();
+    if (!b.name) return c.json({ error: 'name is required' }, 400);
+    return c.json({ label: store.createProjectLabel(b) }, 201);
+  });
+  app.patch('/api/project-labels/:id', async (c) => { store.updateProjectLabel(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/project-labels/:id', (c) => { store.deleteProjectLabel(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/project-statuses', async (c) => {
+    const b = await c.req.json();
+    if (!b.name || !b.type) return c.json({ error: 'name and type are required' }, 400);
+    return c.json({ status: store.createProjectStatus(b) }, 201);
+  });
+  app.patch('/api/project-statuses/:id', async (c) => { store.updateProjectStatus(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/project-statuses/:id', (c) => store.deleteProjectStatus(c.req.param('id')) ? c.json({ ok: true }) : c.json({ error: 'A category keeps at least one status' }, 400));
+  app.put('/api/projects/:id/subscription', async (c) => {
+    store.setProjectSubscription(c.req.param('id'), store.workspaceMeta().currentUser, await c.req.json());
+    return c.json({ ok: true });
+  });
+
+  // ---------- document templates, emojis ----------
+  app.post('/api/doc-templates', async (c) => {
+    const b = await c.req.json();
+    if (!b.name) return c.json({ error: 'name is required' }, 400);
+    return c.json({ template: store.createDocTemplate(b) }, 201);
+  });
+  app.patch('/api/doc-templates/:id', async (c) => { store.updateDocTemplate(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/doc-templates/:id', (c) => { store.deleteDocTemplate(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/emojis', async (c) => {
+    const name = String(c.req.query('name') ?? '');
+    const file = basename(c.req.query('file') || 'emoji.png').replace(/[^\w.\-]+/g, '_').slice(0, 80) || 'emoji.png';
+    const buf = Buffer.from(await c.req.arrayBuffer());
+    if (!buf.length) return c.json({ error: 'Pick an image' }, 400);
+    if (buf.length > 1024 * 1024) return c.json({ error: 'Emoji images are limited to 1 MB' }, 413);
+    const dirId = `emoji_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    mkdirSync(join(attachmentsDir, dirId), { recursive: true });
+    writeFileSync(join(attachmentsDir, dirId, file), buf);
+    writeFileSync(join(attachmentsDir, dirId, '.mime'), c.req.header('content-type') ?? 'image/png');
+    try { return c.json({ emoji: store.addEmoji(name, `/api/emoji-files/${dirId}/${encodeURIComponent(file)}`) }, 201); }
+    catch (err) { return c.json({ error: (err as Error).message }, 400); }
+  });
+  app.get('/api/emoji-files/:dir/:name', (c) => {
+    const dir = basename(c.req.param('dir'));
+    if (!dir.startsWith('emoji_')) return c.json({ error: 'not found' }, 404);
+    const file = join(attachmentsDir, dir, basename(decodeURIComponent(c.req.param('name'))));
+    if (!existsSync(file)) return c.json({ error: 'not found' }, 404);
+    const mime = existsSync(join(attachmentsDir, dir, '.mime')) ? readFileSync(join(attachmentsDir, dir, '.mime'), 'utf8') : 'image/png';
+    return c.body(readFileSync(file), 200, { 'Content-Type': mime, 'Cache-Control': 'private, max-age=31536000, immutable' });
+  });
+  app.delete('/api/emojis/:id', (c) => { store.deleteEmoji(c.req.param('id')); return c.json({ ok: true }); });
+
+  // ---------- customers ----------
+  app.post('/api/customers', async (c) => {
+    const b = await c.req.json();
+    if (!b.name) return c.json({ error: 'name is required' }, 400);
+    return c.json({ customer: store.createCustomer(b) }, 201);
+  });
+  app.patch('/api/customers/:id', async (c) => { store.updateCustomer(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/customers/:id', (c) => { store.deleteCustomer(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/customer-attrs/:kind{status|tier}', async (c) => {
+    const b = await c.req.json();
+    if (!b.name) return c.json({ error: 'name is required' }, 400);
+    return c.json(store.createCustomerAttr(c.req.param('kind') as 'status' | 'tier', b.name, b.color), 201);
+  });
+  app.patch('/api/customer-attrs/:kind{status|tier}/:id', async (c) => { store.updateCustomerAttr(c.req.param('kind') as 'status' | 'tier', c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/customer-attrs/:kind{status|tier}/:id', (c) => { store.deleteCustomerAttr(c.req.param('kind') as 'status' | 'tier', c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/customer-requests', async (c) => {
+    const b = await c.req.json();
+    if (!b.customerId || (!b.issueId && !b.projectId)) return c.json({ error: 'customerId and an issueId or projectId are required' }, 400);
+    return c.json({ request: store.addCustomerRequest(b) }, 201);
+  });
+  app.patch('/api/customer-requests/:id', async (c) => { store.updateCustomerRequest(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/customer-requests/:id', (c) => { store.deleteCustomerRequest(c.req.param('id')); return c.json({ ok: true }); });
 
   // ---------- search ----------
   app.get('/api/search', (c) => c.json(store.search(c.req.query('q') ?? '')));

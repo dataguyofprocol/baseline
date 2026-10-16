@@ -223,6 +223,189 @@ function migrate(db: DatabaseSync): void {
   db.prepare("DELETE FROM meta WHERE key IN ('agentRunner', 'agentNudges')").run();
   if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
 
+  // threads, milestones on issues, creators, snoozed notifications, team automation
+  if (!columns('comments').includes('parent_id')) db.exec('ALTER TABLE comments ADD COLUMN parent_id TEXT');
+  if (!columns('issues').includes('snoozed_until')) db.exec('ALTER TABLE issues ADD COLUMN snoozed_until TEXT');
+  if (!columns('issues').includes('milestone_id')) db.exec('ALTER TABLE issues ADD COLUMN milestone_id TEXT');
+  if (!columns('issues').includes('creator_id')) {
+    db.exec('ALTER TABLE issues ADD COLUMN creator_id TEXT');
+    // issues made before creators were tracked: the "created" activity names who made them
+    db.exec("UPDATE issues SET creator_id = (SELECT user_id FROM activity a WHERE a.issue_id = issues.id AND a.type = 'created' ORDER BY created_at LIMIT 1)");
+  }
+  if (!columns('views').includes('kind')) db.exec("ALTER TABLE views ADD COLUMN kind TEXT NOT NULL DEFAULT 'issues'");
+  if (!columns('views').includes('project_options')) db.exec('ALTER TABLE views ADD COLUMN project_options TEXT');
+  if (!columns('projects').includes('summary')) db.exec("ALTER TABLE projects ADD COLUMN summary TEXT NOT NULL DEFAULT ''");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_links (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      url TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      icon TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      team_id TEXT REFERENCES teams(id) ON DELETE CASCADE,
+      creator_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS team_links (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      url TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS project_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      icon TEXT NOT NULL DEFAULT '🧊',
+      summary TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'planned',
+      priority INTEGER NOT NULL DEFAULT 0,
+      milestones TEXT NOT NULL DEFAULT '[]',
+      issues TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS project_relations (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      related_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      type TEXT NOT NULL DEFAULT 'blocks'
+    );
+    CREATE TABLE IF NOT EXISTS recurring_issues (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      priority INTEGER NOT NULL DEFAULT 0,
+      assignee_id TEXT,
+      labels TEXT NOT NULL DEFAULT '[]',
+      project_id TEXT,
+      cadence TEXT NOT NULL DEFAULT 'weekly',
+      next_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+  if (!columns('notifications').includes('snoozed_until')) db.exec('ALTER TABLE notifications ADD COLUMN snoozed_until TEXT');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_labels (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT '#8a8f98',
+      description TEXT NOT NULL DEFAULT '',
+      parent_id TEXT,
+      is_group INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS project_statuses (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      name TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT '#8a8f98',
+      description TEXT NOT NULL DEFAULT '',
+      position REAL NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS project_subscriptions (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      issue_added INTEGER NOT NULL DEFAULT 0,
+      issue_closed INTEGER NOT NULL DEFAULT 0,
+      comments INTEGER NOT NULL DEFAULT 1,
+      updates INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (project_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS doc_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS emojis (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      url TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS customers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      domains TEXT NOT NULL DEFAULT '[]',
+      status_id TEXT,
+      tier_id TEXT,
+      revenue REAL,
+      size INTEGER,
+      owner_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS customer_statuses (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#8a8f98', position REAL NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS customer_tiers (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#8a8f98', position REAL NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS customer_requests (
+      id TEXT PRIMARY KEY,
+      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      issue_id TEXT,
+      project_id TEXT,
+      body TEXT NOT NULL DEFAULT '',
+      important INTEGER NOT NULL DEFAULT 0,
+      creator_id TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+  const projCols = columns('projects');
+  if (!projCols.includes('labels')) db.exec("ALTER TABLE projects ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
+  if (!projCols.includes('status_id')) db.exec('ALTER TABLE projects ADD COLUMN status_id TEXT');
+  if (!projCols.includes('update_cadence')) db.exec('ALTER TABLE projects ADD COLUMN update_cadence TEXT');
+  ensureDefaults(db);
+  const teamCols = columns('teams');
+  for (const [col, def] of [
+    ['triage_enabled', 'INTEGER NOT NULL DEFAULT 0'], ['auto_cycles', 'INTEGER NOT NULL DEFAULT 0'],
+    ['cycle_duration', 'INTEGER NOT NULL DEFAULT 2'], ['cycle_cooldown', 'INTEGER NOT NULL DEFAULT 0'],
+    ['cycle_upcoming', 'INTEGER NOT NULL DEFAULT 2'], ['cycle_rollover', 'INTEGER NOT NULL DEFAULT 1'],
+    ['estimate_scale', "TEXT NOT NULL DEFAULT 'fibonacci'"],
+  ] as const) if (!teamCols.includes(col)) db.exec(`ALTER TABLE teams ADD COLUMN ${col} ${def}`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY,
+      issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'link',
+      url TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      mime TEXT NOT NULL DEFAULT '',
+      size INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_attachments_issue ON attachments(issue_id);
+  `);
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'subscriptions'").get()) {
+    db.exec(`
+      CREATE TABLE subscriptions (
+        issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL,
+        PRIMARY KEY (issue_id, user_id)
+      );
+    `);
+    // everyone who already had a hand in an issue follows it: creator, assignee, commenters
+    db.exec(`
+      INSERT OR IGNORE INTO subscriptions (issue_id, user_id) SELECT id, creator_id FROM issues WHERE creator_id IS NOT NULL;
+      INSERT OR IGNORE INTO subscriptions (issue_id, user_id) SELECT id, assignee_id FROM issues WHERE assignee_id IS NOT NULL;
+      INSERT OR IGNORE INTO subscriptions (issue_id, user_id) SELECT DISTINCT issue_id, user_id FROM comments;
+    `);
+  }
+
   // initiatives were removed from the model — drop leftover tables from pre-existing databases
   db.exec('DROP TABLE IF EXISTS initiative_updates');
   db.exec('DROP TABLE IF EXISTS initiatives');
@@ -264,6 +447,20 @@ export function migrateDirectoriesToLocations(db: DatabaseSync): void {
   db.prepare("DELETE FROM meta WHERE key IN ('agentCwd', 'recentDirectories')").run();
   // only mark workspaces that exist — a brand-new database is seeded after this runs
   if (getMeta(db, 'workspaceId')) setMeta(db, 'locationsMigrated', '1');
+}
+
+/** rows every workspace starts with: one project status per category (Linear's defaults) and customer statuses */
+export function ensureDefaults(db: DatabaseSync): void {
+  // one named status per category to start with — Linear's defaults
+  if (!(db.prepare('SELECT COUNT(*) n FROM project_statuses').get() as { n: number }).n) {
+    const defs: Array<[string, string, string]> = [['backlog', 'Backlog', '#bec2c8'], ['planned', 'Planned', '#8a8f98'], ['started', 'In Progress', '#f2c94c'], ['paused', 'Paused', '#f2994a'], ['completed', 'Completed', '#5e6ad2'], ['canceled', 'Canceled', '#95a2b3']];
+    defs.forEach(([type, name, color], i) => db.prepare('INSERT INTO project_statuses (id, type, name, color, description, position) VALUES (?, ?, ?, ?, ?, ?)').run(id('ps'), type, name, color, '', i));
+  }
+  if (!(db.prepare('SELECT COUNT(*) n FROM customer_statuses').get() as { n: number }).n) {
+    ([['Active', '#4cb782'], ['Prospect', '#5e6ad2'], ['Churned', '#eb5757'], ['Lost', '#8a8f98']] as const).forEach(([name, color], i) => db.prepare('INSERT INTO customer_statuses (id, name, color, position) VALUES (?, ?, ?, ?)').run(id('cs'), name, color, i));
+  }
+  // projects from before named statuses sit on their category's first status
+  db.exec('UPDATE projects SET status_id = (SELECT id FROM project_statuses ps WHERE ps.type = projects.status ORDER BY position LIMIT 1) WHERE status_id IS NULL');
 }
 
 export function getMeta(db: DatabaseSync, key: string): string | null {

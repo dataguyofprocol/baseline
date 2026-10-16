@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import { api } from './api.js';
 import { revealTheme } from './motion.js';
 import type { Snapshot, Issue, Priority } from '../../src/core/types.js';
+import type { PropKind } from './propertyMenus.js';
 
 export interface Toast {
   id: number;
@@ -23,10 +24,13 @@ interface AppState {
   paletteOpen: boolean;
   /** left nav collapsed (⌘B / the nav toggle); persisted across reloads */
   sidebarCollapsed: boolean;
-  createModal: { open: boolean; teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string };
+  createModal: { open: boolean; teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated };
   shortcutsOpen: boolean;
   /** hovered/focused row quick-action menu, e.g. pressing S or P on a row */
-  quickMenu: { issueId: string; kind: 'status' | 'priority' | 'assignee' | 'labels'; anchor: DOMRect } | null;
+  quickMenu: { issueIds: string[]; kind: PropKind; anchor: DOMRect } | null;
+  /** the issue showing in the peek panel (Space on a row) */
+  peekIssueId: string | null;
+  setPeek: (id: string | null) => void;
   bootstrap: () => Promise<void>;
   setTheme: (t: ThemePref) => void;
   toast: (t: Omit<Toast, 'id'>) => void;
@@ -34,11 +38,14 @@ interface AppState {
   setPalette: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
-  openCreate: (opts?: { teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string }) => void;
+  openCreate: (opts?: { teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated }) => void;
   closeCreate: () => void;
   setShortcuts: (open: boolean) => void;
   setQuickMenu: (m: AppState['quickMenu']) => void;
 }
+
+/** "Create related": the new issue becomes this issue's parent, or blocks / is blocked by it */
+export interface CreateRelated { issueId: string; kind: 'parent' | 'blocks' | 'blocked_by' | 'related' }
 
 /** theme preference; 'system' tracks the browser's prefers-color-scheme */
 export type ThemePref = 'system' | 'dark' | 'light';
@@ -64,6 +71,8 @@ export const useApp = create<AppState>((set, get) => ({
   createModal: { open: false },
   shortcutsOpen: false,
   quickMenu: null,
+  peekIssueId: null,
+  setPeek: (id) => set({ peekIssueId: id }),
 
   bootstrap: async () => {
     const snap = await api.bootstrap();

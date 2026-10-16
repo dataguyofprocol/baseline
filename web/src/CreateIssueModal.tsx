@@ -4,8 +4,10 @@ import { api } from './api.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconClose, IconPlus, IconExpand, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck } from './icons.js';
-import type { Priority, Team } from '../../src/core/types.js';
+import { IconClose, IconPlus, IconExpand, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck, IconCycle, IconMilestone, IconAttach } from './icons.js';
+import { ESTIMATE_SCALES, type Priority, type Team } from '../../src/core/types.js';
+import type { Editor } from '@tiptap/react';
+import { RichEditor, htmlToMarkdown } from './RichEditor.js';
 
 const SUGGESTIONS: Array<[RegExp, string]> = [
   [/\b(bug|crash|error|broken|fix|fails?|regression)\b/i, 'Bug'],
@@ -49,6 +51,10 @@ export function CreateIssueModal() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [estimate, setEstimate] = useState<number | null>(null);
+  const [cycleId, setCycleId] = useState<string | null>(null);
+  const [milestoneId, setMilestoneId] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [createMore, setCreateMore] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -59,7 +65,7 @@ export function CreateIssueModal() {
   const [appliedTemplateId, setAppliedTemplateId] = useState<string | undefined>(undefined);
 
   const titleRef = useRef<HTMLInputElement>(null);
-  const descRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<Editor | null>(null);
   const teamMenu = useMenu();
   const statusMenu = useMenu();
   const priorityMenu = useMenu();
@@ -68,6 +74,8 @@ export function CreateIssueModal() {
   const projectMenu = useMenu();
   const moreMenu = useMenu();
   const templateMenu = useMenu();
+  const cycleMenu = useMenu();
+  const milestoneMenu = useMenu();
 
   useEffect(() => {
     if (state.open && snap) {
@@ -81,6 +89,9 @@ export function CreateIssueModal() {
       setProjectId(state.projectId ?? null);
       setDueDate(null);
       setEstimate(null);
+      setCycleId(state.cycleId ?? null);
+      setMilestoneId(null);
+      setFiles([]);
       setCreateMore(false);
       setMoreOpen(false);
       setExpanded(false);
@@ -104,15 +115,9 @@ export function CreateIssueModal() {
     }
   }, [state.open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // content-height modal: description starts ~3 lines and grows with input,
-  // capped at 40vh (in expanded mode the textarea stretches via CSS instead)
-  useEffect(() => {
-    const el = descRef.current;
-    if (!el || !state.open) return;
-    if (expanded) { el.style.height = ''; return; }
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.4))}px`;
-  }, [description, expanded, state.open]);
+  // the editor remounts when the modal resets (new issue, discarded draft, create-more)
+  const [editorKey, setEditorKey] = useState(0);
+  useEffect(() => { if (state.open) setEditorKey(k => k + 1); }, [state.open, state.parentId, state.cycleId]);
 
   const team: Team | undefined = snap ? (teamId ? snap.teams.find(t => t.id === teamId) : snap.teams[0]) : undefined;
   const states = snap ? snap.states.filter(s => s.teamId === team?.id) : [];
@@ -121,6 +126,13 @@ export function CreateIssueModal() {
   const assignee = assigneeId ? snap?.users.find(u => u.id === assigneeId) : undefined;
   const project = projectId ? snap?.projects.find(p => p.id === projectId) : undefined;
   const teamLabels = snap?.labels.filter(l => l.teamId === team?.id) ?? [];
+  const nowIso = new Date().toISOString();
+  // the cycles an issue can still go into: the current one and those ahead
+  const openCycles = (snap?.cycles ?? []).filter(c => c.teamId === team?.id && !c.completedAt && c.endsAt >= nowIso).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  const cycle = cycleId ? snap?.cycles.find(c => c.id === cycleId) : undefined;
+  const cycleName = (c: { name?: string | null; number: number }) => c.name || `Cycle ${c.number}`;
+  const milestones = project ? (snap?.milestones ?? []).filter(m => m.projectId === project.id).sort((a, b) => a.position - b.position) : [];
+  const milestone = milestones.find(m => m.id === milestoneId);
   const suggestion = title.trim()
     ? SUGGESTIONS.find(([re, name]) =>
         re.test(title)
@@ -136,6 +148,7 @@ export function CreateIssueModal() {
     const tpl = templates.find(t => t.id === tplId);
     if (!tpl) return;
     setDescription(tpl.description);
+    setEditorKey(k => k + 1);
     if (tpl.title && !title.trim()) setTitle(tpl.title);
   };
 
@@ -161,14 +174,16 @@ export function CreateIssueModal() {
       labelIds, projectId, dueDate, estimate, savedAt: new Date().toISOString(),
     };
     try { localStorage.setItem(draftKey(team.id), JSON.stringify(d)); } catch { /* ignore */ }
+    window.dispatchEvent(new Event('baseline:drafts'));
     closeCreate();
     toast({ title: 'Draft saved', line: <>{d.title}</> });
   };
   const discardDraft = () => {
-    if (team) { try { localStorage.removeItem(draftKey(team.id)); } catch { /* ignore */ } }
+    if (team) { try { localStorage.removeItem(draftKey(team.id)); } catch { /* ignore */ } window.dispatchEvent(new Event('baseline:drafts')); }
     setDraft(null);
     setTitle('');
     setDescription('');
+    setEditorKey(k => k + 1);
     setPriority(0);
     setLabelIds([]);
     setDueDate(null);
@@ -176,17 +191,43 @@ export function CreateIssueModal() {
     setTimeout(() => titleRef.current?.focus(), 30);
   };
 
+  // after a pill menu closes focus falls back to the page, outside the modal — ⌘↵ still creates
+  const createRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!state.open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.('.cm-root') || document.querySelector('.menu:not(.closing)')) return;
+      e.preventDefault();
+      createRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [state.open]);
+
   if (!snap || !team) return null;
 
-  const create = async () => {
+  const create = async (descOverride?: string) => {
     if (!title.trim() || !current) return;
+    // the editor's own content is the truth — its onChange is debounced
+    const desc = descOverride ?? (editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : description);
     const { issue } = await api.createIssue({
-      teamId: team.id, title: title.trim(), description,
+      teamId: team.id, title: title.trim(), description: desc,
       stateId: current.id, priority, assigneeId, labelIds, projectId,
-      parentId: state.parentId ?? null, cycleId: state.cycleId ?? null,
+      parentId: state.parentId ?? null, cycleId, milestoneId: project && milestoneId ? milestoneId : null,
       dueDate, estimate,
     });
+    // files picked with the paperclip upload once the issue exists
+    for (const f of files) await api.uploadFile(issue.id, f).catch(err => useApp.getState().toast({ title: 'Upload failed', line: <>{f.name}: {String((err as Error).message)}</> }));
     try { localStorage.removeItem(draftKey(team.id)); } catch { /* ignore */ }
+    window.dispatchEvent(new Event('baseline:drafts'));
+    // "Create related": wire the new issue to the one it was created from
+    const rel = state.related;
+    if (rel) {
+      if (rel.kind === 'parent') await api.updateIssue(rel.issueId, { parentId: issue.id });
+      else await api.addRelation(issue.id, rel.issueId, rel.kind);
+    }
     await refresh();
     const key = `${team.key}-${issue.number}`;
     const toastBody = {
@@ -194,7 +235,7 @@ export function CreateIssueModal() {
       line: <><StateIcon type={current.type} color={current.color} size={12} /> {key} — {issue.title}</>,
     };
     if (createMore) {
-      openCreate({ teamId: team.id, projectId, parentId: state.parentId, cycleId: state.cycleId });
+      openCreate({ teamId: team.id, projectId, parentId: state.parentId, cycleId: cycleId ?? undefined });
       useApp.getState().toast(toastBody);
     } else {
       closeCreate();
@@ -202,10 +243,12 @@ export function CreateIssueModal() {
     }
   };
 
+  createRef.current = () => { if (title.trim() && current) void create(); };
   const switchTeam = (t: Team) => {
     setTeamId(t.id);
     setStatusId(snap.states.find(s => s.teamId === t.id && s.type === 'unstarted')?.id ?? snap.states.find(s => s.teamId === t.id)?.id);
     setLabelIds(prev => prev.filter(lid => snap.labels.find(l => l.id === lid)?.teamId === t.id));
+    setCycleId(null);
     setAppliedTemplateId(undefined);
   };
 
@@ -218,7 +261,9 @@ export function CreateIssueModal() {
       if (title.trim() && current) void create();
     } else if (e.key === 'Enter' && !e.shiftKey && e.target === titleRef.current) {
       e.preventDefault();
-      descRef.current?.focus();
+      // the editor remounts on reset, so reach it through the DOM rather than a stale ref
+      const pm = document.querySelector<HTMLElement>('.cm-desc .ProseMirror');
+      if (pm) { pm.focus(); editorRef.current?.commands.focus('end'); }
     }
   };
 
@@ -241,7 +286,11 @@ export function CreateIssueModal() {
           </span>
         )}
         <span className="crumb-sep">›</span>
-        {parent ? (
+        {state.related ? (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
+            New issue <b style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{({ parent: 'parent of', blocks: 'blocking', blocked_by: 'blocked by', related: 'related to' } as const)[state.related.kind]} {(() => { const r = snap.issues.find(i => i.id === state.related!.issueId); return r ? `${snap.teams.find(t => t.id === r.teamId)?.key}-${r.number}` : ''; })()}</b>
+          </span>
+        ) : parent ? (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
             <IconSubIssue size={13} style={{ color: 'var(--text-dim)' }} /> New sub-issue of <b style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{parentKey}</b>
           </span>
@@ -280,13 +329,8 @@ export function CreateIssueModal() {
         />
       </div>
       <div className="cm-desc">
-        <textarea
-          ref={descRef}
-          value={description}
-          onChange={e => setDescription(e.target.value)}
-          placeholder="Add description…"
-          spellCheck={false}
-        />
+        <RichEditor key={editorKey} value={description} editorRef={editorRef} placeholder="Add description…"
+          onChange={setDescription} onBlur={setDescription} onSubmit={md => { if (title.trim() && current) void create(md); }} />
       </div>
 
       {templateMenu.anchor && (
@@ -323,6 +367,18 @@ export function CreateIssueModal() {
             : <IconBox size={13} style={{ color: 'var(--text-dim)' }} />}
           <span className="chip-text">{project?.name ?? 'Project'}</span>
         </button>
+        {milestones.length > 0 && (
+          <button className={`prop-chip${milestone ? ' set' : ''}`} onClick={milestoneMenu.open}>
+            <IconMilestone size={13} style={{ color: 'var(--text-dim)' }} />
+            <span className="chip-text">{milestone?.name ?? 'Milestone'}</span>
+          </button>
+        )}
+        {(openCycles.length > 0 || cycle) && (
+          <button className={`prop-chip${cycle ? ' set' : ''}`} onClick={cycleMenu.open}>
+            <IconCycle size={13} style={{ color: 'var(--text-dim)' }} />
+            <span className="chip-text">{cycle ? cycleName(cycle) : 'Cycle'}</span>
+          </button>
+        )}
         <button className={`prop-chip${estimate != null ? ' set' : ''}`} onClick={e => { setMorePhase('estimate'); moreMenu.open(e); }}>
           <IconEstimate size={13} style={{ color: 'var(--text-dim)' }} />
           <span className="chip-text">{estimate != null ? `${estimate} pt${estimate !== 1 ? 's' : ''}` : 'Estimate'}</span>
@@ -361,7 +417,18 @@ export function CreateIssueModal() {
         )}
       </div>
 
+      {files.length > 0 && (
+        <div className="cm-files">
+          {files.map((f, i) => (
+            <span key={i} className="res-chip"><IconAttach size={12} /><span className="res-title">{f.name}</span>
+              <button className="res-x" title="Remove" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}><IconClose size={10} /></button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="cm-footer">
+        <button className="icon-btn cm-attach" title="Attach files" onClick={() => fileInput.current?.click()}><IconAttach size={15} /></button>
+        <input ref={fileInput} type="file" multiple hidden onChange={e => { const list = Array.from(e.target.files ?? []); if (list.length) setFiles(prev => [...prev, ...list]); e.target.value = ''; }} />
         {/* always laid out, only shown once there's something to save — no reflow */}
         <button className="cm-link" style={{ visibility: title.trim() ? 'visible' : 'hidden' }} onClick={saveDraft}>Save draft</button>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -369,7 +436,7 @@ export function CreateIssueModal() {
             <span className={`toggle ${createMore ? 'on' : ''}`} />
             Create more
           </button>
-          <button className="btn primary" onClick={create} disabled={!title.trim()} title={title.trim() ? undefined : 'Add a title first'}>
+          <button className="btn primary" onClick={() => void create()} disabled={!title.trim()} title={title.trim() ? undefined : 'Add a title first'}>
             {state.parentId ? 'Create sub-issue' : 'Create issue'}
             <span className="btn-keys"><span className="kbd">⌘</span><span className="kbd">↵</span></span>
           </button>
@@ -473,14 +540,37 @@ export function CreateIssueModal() {
           <div className="menu-header"><span>Add to project…</span></div>
           {snap.projects.map(p => (
             <MenuItem key={p.id} icon={<span className="proj-icon" style={{ background: 'var(--bg-hover)' }}>{p.icon}</span>} label={p.name}
-              selected={projectId === p.id} onClick={() => { setProjectId(p.id); projectMenu.close(); }} />
+              selected={projectId === p.id} onClick={() => { if (p.id !== projectId) setMilestoneId(null); setProjectId(p.id); projectMenu.close(); }} />
           ))}
           <MenuSep />
-          <MenuItem label="No project" selected={!projectId} onClick={() => { setProjectId(null); projectMenu.close(); }} />
+          <MenuItem label="No project" selected={!projectId} onClick={() => { setProjectId(null); setMilestoneId(null); projectMenu.close(); }} />
+        </Menu>
+      )}
+      {cycleMenu.anchor && (
+        <Menu anchor={cycleMenu.anchor} onClose={cycleMenu.close} width={240}>
+          <div className="menu-header"><span>Add to cycle…</span></div>
+          {openCycles.map((c, i) => (
+            <MenuItem key={c.id} icon={<IconCycle size={14} />} label={cycleName(c)} selected={cycleId === c.id}
+              right={<span className="mi-hint">{c.startsAt <= nowIso ? 'Current' : i === 0 || openCycles[i - 1]?.startsAt <= nowIso ? 'Upcoming' : shortDate(c.startsAt)}</span>}
+              onClick={() => { setCycleId(c.id); cycleMenu.close(); }} />
+          ))}
+          <MenuSep />
+          <MenuItem label="No cycle" selected={!cycleId} onClick={() => { setCycleId(null); cycleMenu.close(); }} />
+        </Menu>
+      )}
+      {milestoneMenu.anchor && (
+        <Menu anchor={milestoneMenu.anchor} onClose={milestoneMenu.close} width={240}>
+          <div className="menu-header"><span>Set milestone…</span></div>
+          {milestones.map(m => (
+            <MenuItem key={m.id} icon={<IconMilestone size={14} />} label={m.name} selected={milestoneId === m.id} onClick={() => { setMilestoneId(m.id); milestoneMenu.close(); }} />
+          ))}
+          <MenuSep />
+          <MenuItem label="No milestone" selected={!milestoneId} onClick={() => { setMilestoneId(null); milestoneMenu.close(); }} />
         </Menu>
       )}
       {moreMenu.anchor && (
         <MorePropsMenu
+          scale={ESTIMATE_SCALES[team.estimateScale]}
           anchor={moreMenu.anchor}
           onClose={moreMenu.close}
           initialPhase={morePhase}
@@ -505,6 +595,8 @@ function MorePropsMenu(props: {
   estimate: number | null;
   setDueDate: (d: string | null) => void;
   setEstimate: (e: number | null) => void;
+  /** the team's estimate scale (Settings › team › Estimates) */
+  scale: Array<{ value: number; label: string }>;
 }) {
   const [phase, setPhase] = useState<'root' | 'due' | 'estimate'>(props.initialPhase ?? 'root');
   const today = new Date();
@@ -553,9 +645,9 @@ function MorePropsMenu(props: {
         <div className="menu-header"><span>Set estimate to…</span></div>
         <MenuItem label="No estimate" selected={props.estimate == null}
           onClick={() => { props.setEstimate(null); setPhase('root'); props.onClose(); }} />
-        {[1, 2, 3, 5, 8, 13, 21].map(pt => (
-          <MenuItem key={pt} icon={<span style={{ fontSize: 12, fontWeight: 600, width: 16, textAlign: 'center' }}>{pt}</span>}
-            label={`point${pt > 1 ? 's' : ''}`} selected={props.estimate === pt}
+        {props.scale.filter(s => s.value > 0).map(({ value: pt, label }) => (
+          <MenuItem key={pt} icon={<span className="est-glyph">{label}</span>}
+            label={`${pt} point${pt > 1 ? 's' : ''}`} selected={props.estimate === pt}
             onClick={() => { props.setEstimate(pt); setPhase('root'); props.onClose(); }} />
         ))}
       </Menu>

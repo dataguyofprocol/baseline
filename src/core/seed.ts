@@ -45,17 +45,17 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
 
   // projects
   const project = store.createProject({
-    name: 'Agent Handoff', teamId: core.id,
+    name: 'Agent Handoff', teamId: core.id, summary: 'Coding agents pick up, work and close issues without the UI.',
     description: 'Make the workspace fully drivable by coding agents: a first-class CLI, handoff briefs and machine-friendly issue keys.',
     icon: '🤖', leadId: me.id, startDate: iso(-7), targetDate: iso(23), priority: 2,
   });
   const mobile = store.createProject({
-    name: 'Mobile Companion', teamId: core.id,
+    name: 'Mobile Companion', teamId: core.id, summary: 'Triage on the go: inbox, my issues and search on a phone.',
     description: 'Read-only mobile web app for triaging issues on the go — inbox, my issues and search.',
     icon: '📱', leadId: ada.id, startDate: iso(3), targetDate: iso(45), priority: 3,
   });
-  store.createProject({
-    name: 'Design System 2.0', teamId: null,
+  const design = store.createProject({
+    name: 'Design System 2.0', teamId: null, summary: 'One set of tokens, motion and icons for every surface.',
     description: 'Consolidate tokens, motion and iconography across web and mobile surfaces.',
     icon: '🎨', leadId: jun.id, targetDate: iso(60), priority: 4,
   });
@@ -120,8 +120,47 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   const cliIssue = store.listIssues({ teamId: agents.id }).find(i => i.title.startsWith('CLI parity'));
   if (cliIssue) store.setRelation(cli.id, cliIssue.id, 'blocks');
 
-  // milestone on the flagship project
-  store.createMilestone(project.id, 'Alpha: agent-driven triage', iso(7));
+  // milestones on the flagship project, with its issues spread across them
+  const alpha = store.createMilestone(project.id, 'Alpha: agent-driven triage', iso(7));
+  const beta = store.createMilestone(project.id, 'Beta: hand-off loop', iso(20));
+  for (const i of store.listIssues({}).filter(x => x.projectId === project.id)) {
+    store.updateIssue(i.id, { milestoneId: /CLI|Cmd\+K/.test(i.title) ? alpha.id : beta.id });
+  }
+  db.prepare("DELETE FROM activity WHERE type = 'milestoneChanged'").run();
+  store.addProjectLink(project.id, 'https://github.com/anthropics/claude-code', 'Claude Code');
+  // documents: a spec on the flagship project, a runbook and a link on the Core team's home
+  store.createDoc({ projectId: project.id, title: 'Hand-off spec', content: '## Problem\n\nAgents need to pick up an issue, work it and close it without opening the app.\n\n## Approach\n\n- `baseline issue start` claims the issue and moves it to In Progress\n- the hand-off prompt carries the description, comments and location\n- `baseline issue done` closes it with a summary comment\n\n## Open questions\n\n- [ ] Should agents be able to decline work?\n' }, ada.id);
+  store.createDoc({ teamId: core.id, title: 'Release runbook', content: '1. Cut the release branch\n2. Run `npm run build` and the CLI test suite\n3. Tag and publish\n' }, me.id);
+  store.addTeamLink(core.id, 'https://github.com/anthropics/claude-code', 'Repository');
+  // the mobile app waits on the design system's tokens
+  store.addProjectDependency(design.id, mobile.id);
+  // project labels (one group, whose labels are exclusive), a custom status, an update schedule
+  const area = store.createProjectLabel({ name: 'Area', isGroup: true, color: '#8a8f98' });
+  const lAgents = store.createProjectLabel({ name: 'Agents', parentId: area.id, color: '#c770f4' });
+  const lApps = store.createProjectLabel({ name: 'Apps', parentId: area.id, color: '#3b82f6' });
+  const lQ4 = store.createProjectLabel({ name: 'Q4 bet', color: '#f2994a' });
+  store.updateProject(project.id, { labelIds: [lAgents.id, lQ4.id], updateCadence: 'weekly' });
+  store.updateProject(mobile.id, { labelIds: [lApps.id] });
+  store.createProjectStatus({ type: 'started', name: 'In Review', color: '#4cb782' });
+  store.setFeatures({ customerRequestsEnabled: true });
+  const acme = store.createCustomer({ name: 'Acme Robotics', domains: ['acme.dev'], revenue: 240000, size: 120, ownerId: ada.id });
+  const north = store.createCustomer({ name: 'Northwind', domains: ['northwind.io'], revenue: 60000, size: 30 });
+  store.addCustomerRequest({ customerId: acme.id, projectId: mobile.id, body: 'Our on-call team triages from phones — need the inbox on mobile.', important: true }, ada.id);
+  const reqIssue = store.listIssues({ teamId: core.id }).find(i => /search/i.test(i.title));
+  if (reqIssue) store.addCustomerRequest({ customerId: north.id, issueId: reqIssue.id, body: 'Search should match comment text too.' }, jun.id);
+  store.createDocTemplate({ name: 'Spec', title: 'Spec: ', content: '## Problem\n\n## Proposal\n\n## Open questions\n' });
+  store.createProjectTemplate({
+    name: 'Feature launch', icon: '🚀', summary: 'Ship a feature from spec to rollout.', priority: 2,
+    description: '## Goal\n\n## Scope\n\n## Rollout\n',
+    milestones: ['Spec signed off', 'Beta', 'General availability'],
+    issues: ['Write the spec', 'Build behind a flag', 'Beta feedback round', 'Docs and changelog'],
+  });
+
+  // triage on the agent team: two issues an agent filed through the CLI wait for review
+  store.updateTeam(agents.id, { triageEnabled: true });
+  const claude = store.claudeCodeUserId();
+  store.createIssue({ teamId: agents.id, title: 'Flaky: `issue list --json` drops archived children', description: 'Seen twice while closing out CORE-24 — the JSON output omits sub-issues whose parent was archived.' }, claude);
+  store.createIssue({ teamId: agents.id, title: 'Expose cycle automation in the CLI', description: '`baseline team update --auto-cycles` would let agents set up a team end to end.' }, agent.id);
 
   // comments
   const first = store.listIssues({ teamId: core.id })[0];
@@ -156,6 +195,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.toggleFavorite('project', project.id);
   store.toggleFavorite('view', store.snapshot().views[0].id);
 
-  setMeta(db, 'seedVersion', '3');
+  setMeta(db, 'seedVersion', '6');
   void nowIso;
 }

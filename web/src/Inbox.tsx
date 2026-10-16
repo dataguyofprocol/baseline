@@ -1,0 +1,369 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useApp, relTime, useCursor, registerVisibleList } from './store.js';
+import { api } from './api.js';
+import { TopBar } from './AppShell.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
+import { IssueDetail } from './IssueDetail.js';
+import { Avatar, StateIcon } from './pickers.js';
+import { AvatarStack } from './AvatarStack.js';
+import { LogoMark } from './Logo.js';
+import { parseReminder } from './propertyMenus.js';
+import { Markdown } from './Markdown.js';
+import {
+  IconAssignArrow, IconComment, IconMention, IconCycle, IconFilter, IconDisplay, IconCheck, IconTrash,
+  IconClock, IconSettings, IconReply, IconBell, IconClose, IconPulse, IconPlus, IconEdit,
+} from './icons.js';
+import type { Notification, NotificationType } from '../../src/core/types.js';
+
+/* Linear's inbox: notifications on the left (newest first, merged per issue and kind),
+   the issue on the right. U toggles read, ⌫ deletes, H snoozes, ⇧⌫ deletes everything
+   read. Snoozed notifications and reminders stay out of sight until their time. */
+
+type Row = { lead: Notification; actors: string[]; ids: string[]; unread: boolean };
+interface InboxPrefs { order: 'newest' | 'oldest'; showSnoozed: boolean; unreadFirst: boolean; types: NotificationType[]; from: string[]; priority: boolean; groupUnreads: 'none' | 'focus' }
+const PREFS_KEY = 'baseline:inboxPrefs';
+const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
+  issueAssignedToYou: 'Assignments', issueCommented: 'Comments', issueReplied: 'Replies', issueMentioned: 'Mentions',
+  issueStatusChanged: 'Status changes', issueReminder: 'Reminders', systemUpdate: 'Updates',
+  projectUpdate: 'Project updates', projectIssueAdded: 'Project activity', projectUpdateReminder: 'Update reminders', pulseDigest: 'Pulse',
+};
+/* one filter value covers several kinds */
+const TYPE_ALIASES: Partial<Record<NotificationType, NotificationType[]>> = { projectIssueAdded: ['projectIssueAdded', 'projectIssueClosed', 'projectChanged'] };
+
+const PRIORITY_TYPES: NotificationType[] = ['issueAssignedToYou', 'issueMentioned', 'issueReplied', 'issueReminder', 'projectUpdateReminder'];
+const FOCUS_LABELS: Partial<Record<NotificationType, string>> = {
+  issueAssignedToYou: 'Assigned to you', issueMentioned: 'Mentions', issueReplied: 'Replies', issueReminder: 'Reminders',
+  issueStatusChanged: 'Status changes', issueCommented: 'Comments',
+};
+
+function snoozeOptions(): Array<[string, Date]> {
+  const at = (h: number, add = 0) => { const d = new Date(); d.setDate(d.getDate() + add); d.setHours(h, 0, 0, 0); return d; };
+  const nextMon = () => { const d = at(9); d.setDate(d.getDate() + (((8 - d.getDay()) % 7) || 7)); return d; };
+  return [['An hour from now', new Date(Date.now() + 3600000)], ['In 3 hours', new Date(Date.now() + 3 * 3600000)], ['Tomorrow', at(9, 1)], ['Next week', nextMon()], ['A month from now', (() => { const d = at(9); d.setMonth(d.getMonth() + 1); return d; })()]];
+}
+const fmt = (d: Date) => d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+function SnoozeItems(props: { onPick: (d: Date) => void }) {
+  const [q, setQ] = useState('');
+  const typed = parseReminder(q);
+  return (
+    <>
+      <div className="menu-input menu-filter" onClick={e => e.stopPropagation()}>
+        <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Try: 4 pm, 2 days, in 5 weeks…" />
+      </div>
+      {typed && <MenuItem icon={<IconClock size={14} />} label={<>Snooze until {fmt(typed)}</>} onClick={() => props.onPick(typed)} />}
+      {snoozeOptions().filter(([l]) => l.toLowerCase().includes(q.toLowerCase())).map(([l, d]) => (
+        <MenuItem key={l} icon={<IconClock size={14} />} label={l} right={<span className="mi-hint">{fmt(d)}</span>} onClick={() => props.onPick(d)} />
+      ))}
+    </>
+  );
+}
+
+export function InboxPage() {
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  const [prefs, setPrefs] = useState<InboxPrefs>(() => {
+    const base: InboxPrefs = { order: 'newest', showSnoozed: false, unreadFirst: false, types: [], from: [], priority: false, groupUnreads: 'none' };
+    try { return { ...base, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }; } catch { return base; }
+  });
+  const patchPrefs = (p: Partial<InboxPrefs>) => setPrefs(cur => { const n = { ...cur, ...p }; try { localStorage.setItem(PREFS_KEY, JSON.stringify(n)); } catch { /* ignore */ } return n; });
+  const filterMenu = useMenu();
+  const displayMenu = useMenu();
+  const rowMenu = useMenu();
+  const snoozeMenu = useMenu();
+  const [menuRow, setMenuRow] = useState<Row | null>(null);
+  const now = new Date().toISOString();
+
+  const notifications = useMemo(() => snap.notifications.filter(n =>
+    (prefs.showSnoozed || !n.snoozedUntil || n.snoozedUntil <= now)
+    && (!prefs.types.length || prefs.types.some(t => (TYPE_ALIASES[t] ?? [t]).includes(n.type)))
+    && (!prefs.from.length || prefs.from.includes(n.actorId ?? 'none'))
+    && (n.type !== 'issueReminder' || !n.snoozedUntil || n.snoozedUntil <= now || prefs.showSnoozed),
+  ), [snap.notifications, prefs, now]);
+
+  /* Multiple actors on the same issue collapse into one row with a punched-gap stack.
+     Only same-issue, same-kind notifications merge; the merged row keeps the newest
+     timestamp and stays unread while any part is unread. */
+  const rows = useMemo(() => {
+    const out: Row[] = [];
+    for (const n of notifications) {
+      const hit = n.issueId ? out.find(r => r.lead.issueId === n.issueId && r.lead.type === n.type) : undefined;
+      if (hit) {
+        if (n.actorId && !hit.actors.includes(n.actorId)) hit.actors.push(n.actorId);
+        hit.ids.push(n.id);
+        hit.unread = hit.unread || !n.readAt;
+      } else out.push({ lead: n, actors: n.actorId ? [n.actorId] : [], ids: [n.id], unread: !n.readAt });
+    }
+    const at = (r: Row) => r.lead.snoozedUntil && r.lead.type === 'issueReminder' ? r.lead.snoozedUntil : r.lead.createdAt;
+    out.sort((a, b) => (prefs.unreadFirst ? Number(b.unread) - Number(a.unread) : 0) || (prefs.order === 'newest' ? at(b).localeCompare(at(a)) : at(a).localeCompare(at(b))));
+    return out;
+  }, [notifications, prefs.order, prefs.unreadFirst]);
+
+  /* Priority inbox puts what needs you (assignments, mentions, replies, reminders) above
+     everything else; Focus groups the unread ones by kind. Rows are re-ordered to match
+     the sections so J/K walks them top to bottom. */
+  const sectionOf = (r: Row): string | null => {
+    if (prefs.groupUnreads === 'focus' && r.unread) return FOCUS_LABELS[r.lead.type] ?? 'Other updates';
+    if (prefs.priority) return PRIORITY_TYPES.includes(r.lead.type) ? 'Priority' : 'Other';
+    if (prefs.groupUnreads === 'focus') return 'Read';
+    return null;
+  };
+  const sectionRank = (name: string | null) => {
+    if (name === null) return 0;
+    const order = prefs.groupUnreads === 'focus' ? [...Object.values(FOCUS_LABELS), 'Other updates', ...(prefs.priority ? ['Priority', 'Other'] : ['Read'])] : ['Priority', 'Other'];
+    const i = order.indexOf(name);
+    return i < 0 ? 99 : i;
+  };
+  const sectioned = useMemo(() => rows.map((r, i) => ({ r, i, sec: sectionOf(r) })).sort((a, b) => sectionRank(a.sec) - sectionRank(b.sec) || a.i - b.i), [rows, prefs.priority, prefs.groupUnreads]); // eslint-disable-line react-hooks/exhaustive-deps
+  const orderedRows = sectioned.map(x => x.r);
+
+  const issueOf = (n: Notification) => n.issueId ? snap.issues.find(i => i.id === n.issueId) : undefined;
+  const keyOf = (n: Notification) => { const i = issueOf(n); const t = i && snap.teams.find(x => x.id === i.teamId); return i && t ? `${t.key}-${i.number}` : ''; };
+
+  // J/K and the issue shortcuts run on the shared list cursor
+  const navigable = useMemo(() => orderedRows.filter(r => issueOf(r.lead)), [orderedRows, snap.issues]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cursor = useCursor(s => s.index);
+  useEffect(() => { registerVisibleList(navigable.map(r => issueOf(r.lead)!), ''); }, [navigable]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const first = navigable.findIndex(r => r.unread);
+    useCursor.setState({ index: navigable.length ? Math.max(first, 0) : -1 });
+    return () => useCursor.getState().reset();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (cursor >= navigable.length && navigable.length) useCursor.setState({ index: navigable.length - 1 }); }, [navigable.length, cursor]);
+
+  const selected = cursor >= 0 ? navigable[cursor] : undefined;
+  const selectedIssue = selected ? issueOf(selected.lead) : undefined;
+  // project and Pulse notifications have no issue: clicking one previews it here
+  const [openRow, setOpenRow] = useState<Row | null>(null);
+  const refresh = () => useApp.getState().bootstrap();
+  const markRead = async (row: Row, value: boolean) => { for (const id of row.ids) await api.markNotificationRead(id, value); await refresh(); };
+  const remove = async (row: Row) => { for (const id of row.ids) await api.deleteNotification(id); await refresh(); };
+  const snooze = async (row: Row, d: Date) => {
+    for (const id of row.ids) await api.snoozeNotification(id, d.toISOString());
+    await refresh();
+    useApp.getState().toast({ title: 'Snoozed', line: <>Back in your inbox {fmt(d)}</> });
+  };
+
+  // viewing a notification reads it — after a beat, so skimming past doesn't clear it
+  useEffect(() => {
+    if (!selected?.unread) return;
+    const t = setTimeout(() => void markRead(selected, true), 900);
+    return () => clearTimeout(t);
+  }, [selected?.lead.id, selected?.unread]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { document.querySelector('.inbox-row.selected')?.scrollIntoView({ block: 'nearest' }); }, [cursor]);
+
+  // inbox keys (U, ⌫, H, ⇧⌫) — capture phase so they beat the list shortcuts
+  const selRef = useRef(selected);
+  selRef.current = selected;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (document.querySelector('.menu:not(.closing)') || useApp.getState().peekIssueId) return;
+      const row = selRef.current;
+      if (e.key === 'Backspace' && e.shiftKey) { e.preventDefault(); e.stopImmediatePropagation(); void api.deleteReadNotifications().then(refresh); return; }
+      if (!row) return;
+      if (e.key.toLowerCase() === 'u' && !e.shiftKey) { e.preventDefault(); e.stopImmediatePropagation(); void markRead(row, row.unread); }
+      else if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); e.stopImmediatePropagation(); void remove(row); }
+      else if (e.key.toLowerCase() === 'h' && !e.shiftKey) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        const el = document.querySelector<HTMLElement>('.inbox-row.selected');
+        if (el) { setMenuRow(row); snoozeMenu.setAnchor(el.getBoundingClientRect()); }
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const describe = (n: Notification): { icon: React.ReactNode; what: string } => {
+    switch (n.type) {
+      case 'issueAssignedToYou': return { icon: <IconAssignArrow size={12} />, what: 'assigned the issue to you' };
+      case 'issueCommented': return { icon: <IconComment size={12} />, what: 'commented' };
+      case 'issueReplied': return { icon: <IconReply size={12} />, what: 'replied to your thread' };
+      case 'issueMentioned': return { icon: <IconMention size={12} />, what: 'mentioned you' };
+      case 'issueStatusChanged': return { icon: <IconCycle size={12} />, what: n.body ? `changed status to ${n.body}` : 'changed the status' };
+      case 'issueReminder': return { icon: <IconClock size={12} />, what: 'Reminder' };
+      case 'systemUpdate': return { icon: <IconBell size={12} />, what: '' };
+      case 'projectUpdate': return { icon: <IconPulse size={12} />, what: 'posted a project update' };
+      case 'projectIssueAdded': return { icon: <IconPlus size={12} />, what: 'added an issue to the project' };
+      case 'projectIssueClosed': return { icon: <IconCheck size={12} />, what: n.body.startsWith('Canceled') ? 'canceled an issue in the project' : 'completed an issue in the project' };
+      case 'projectChanged': return { icon: <IconEdit size={12} />, what: 'changed the project description' };
+      case 'projectUpdateReminder': return { icon: <IconClock size={12} />, what: 'Project update due' };
+      case 'pulseDigest': return { icon: <IconPulse size={12} />, what: 'Pulse summary' };
+      default: return { icon: <IconComment size={12} />, what: 'updated the issue' };
+    }
+  };
+  const unreadCount = rows.filter(r => r.unread).length;
+  const senders = [...new Set(snap.notifications.map(n => n.actorId).filter(Boolean))] as string[];
+
+  return (
+    <div className="inbox">
+      <div className="inbox-list">
+        <TopBar crumbs={[{ label: 'Inbox' }]} more={<>
+          <MenuItem icon={<IconCheck size={14} />} label="Mark all as read" onClick={async () => { await api.markAllNotificationsRead(); await refresh(); }} />
+          <MenuItem icon={<IconTrash size={14} />} label="Delete all read" right={<span className="mi-kbd">⇧⌫</span>} onClick={async () => { await api.deleteReadNotifications(); await refresh(); }} />
+          <MenuItem icon={<IconTrash size={14} />} danger label="Delete all" onClick={async () => { for (const n of snap.notifications) await api.deleteNotification(n.id); await refresh(); }} />
+          <MenuSep />
+          <MenuItem icon={<IconSettings size={14} />} label="Notification settings" onClick={() => navigate('/settings/notifications')} />
+        </>} right={<>
+          {unreadCount > 0 && <button className="icon-btn" title="Mark all as read" onClick={async () => { await api.markAllNotificationsRead(); await refresh(); }}><IconCheck size={15} /></button>}
+          <button className={`icon-btn${prefs.types.length || prefs.from.length ? ' on' : ''}`} title="Filter" onClick={filterMenu.open}><IconFilter size={15} /></button>
+          <button className="icon-btn" title="Display options" onClick={displayMenu.open}><IconDisplay size={15} /></button>
+        </>} />
+        {(prefs.types.length > 0 || prefs.from.length > 0) && (
+          <div className="filterbar">
+            {prefs.types.length > 0 && <span className="fpill"><span className="fp-part fp-field">Type</span><span className="fp-part fp-vals">{prefs.types.map(t => TYPE_LABELS[t] ?? t).join(', ')}</span><button className="fp-part fp-x" onClick={() => patchPrefs({ types: [] })}><IconClose size={11} /></button></span>}
+            {prefs.from.length > 0 && <span className="fpill"><span className="fp-part fp-field">From</span><span className="fp-part fp-vals">{prefs.from.map(id => snap.users.find(u => u.id === id)?.name ?? 'App').join(', ')}</span><button className="fp-part fp-x" onClick={() => patchPrefs({ from: [] })}><IconClose size={11} /></button></span>}
+          </div>
+        )}
+        <div className="content">
+          {rows.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-mark"><LogoMark size={30} /></div>
+              <div className="empty-title">You're all caught up</div>
+              <div className="empty-desc">Assignments, mentions, comments and status changes on issues you follow land here.</div>
+            </div>
+          ) : sectioned.map(({ r: row, sec }, k) => {
+            const n = row.lead;
+            const header = sec && (k === 0 || sectioned[k - 1].sec !== sec) ? sec : null;
+            const d = describe(n);
+            const issue = issueOf(n);
+            const actors = row.actors.map(a => snap.users.find(u => u.id === a)).filter(Boolean) as typeof snap.users;
+            const idx = navigable.indexOf(row);
+            const isSel = idx >= 0 && idx === cursor;
+            const excerpt = ['issueCommented', 'issueMentioned', 'issueReplied'].includes(n.type) ? n.body : '';
+            const st = issue ? snap.states.find(s => s.id === issue.stateId) : undefined;
+            const project = !issue && n.projectId ? snap.projects.find(p => p.id === n.projectId) : undefined;
+            const projTitle = project ? `${project.icon} ${project.name}` : n.type === 'pulseDigest' ? 'Pulse' : '';
+            const snoozed = n.snoozedUntil && n.snoozedUntil > now;
+            return (
+              <div key={n.id}>
+              {header && <div className="inbox-group">{header}<span className="count">{sectioned.filter(x => x.sec === sec).length}</span></div>}
+              <div
+                className={`inbox-row${row.unread ? ' unread' : ''}${isSel || openRow?.lead.id === n.id ? ' selected' : ''}${idx < 0 ? ' static' : ''}${snoozed ? ' snoozed' : ''}`}
+                onClick={() => { if (idx >= 0) { useCursor.setState({ index: idx }); setOpenRow(null); } else { setOpenRow(row); if (row.unread) void markRead(row, true); } }}
+                onDoubleClick={() => { const k = keyOf(n); if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); else if (n.type === 'pulseDigest') navigate('/pulse'); }}
+                onContextMenu={e => { setMenuRow(row); rowMenu.open(e); }}>
+                <span className="inbox-lead">
+                  {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? <span className="inbox-sys">{d.icon}</span>
+                    : actors.length > 1 ? <AvatarStack size={20} people={actors.map(a => ({ name: a.name, initials: a.initials, color: a.color }))} />
+                    : actors.length === 1 ? <Avatar user={actors[0]} size={20} />
+                    : <span className="inbox-sys">{d.icon}</span>}
+                </span>
+                <div className="inbox-body">
+                  <div className="inbox-line1">
+                    {st && <StateIcon type={st.type} color={st.color} size={12} />}
+                    <span className="inbox-title">{issue ? issue.title : projTitle || n.body || 'Issue no longer exists'}</span>
+                    <span className="rel-time">{snoozed ? `Snoozed until ${fmt(new Date(n.snoozedUntil!))}` : relTime(n.type === 'issueReminder' && n.snoozedUntil ? n.snoozedUntil : n.createdAt)}</span>
+                  </div>
+                  <div className="inbox-line2">
+                    {keyOf(n) && <span className="inbox-key">{keyOf(n)}</span>}
+                    <span className="inbox-what">
+                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? n.body : <>{actors[0] ? <>{actors[0].name}{actors.length > 1 ? ` +${actors.length - 1}` : ''} </> : null}{d.what}</>}
+                      {(n.type === 'projectIssueAdded' || n.type === 'projectIssueClosed' || n.type === 'projectUpdate') && n.body && <>: <span className="inbox-excerpt">{n.body.replace(/^(Completed|Canceled): /, '')}</span></>}
+                      {excerpt && <>: <span className="inbox-excerpt">{excerpt}</span></>}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="inbox-preview">
+        {openRow ? <ProjectNotice n={openRow.lead} /> : selectedIssue ? <IssueDetail key={selectedIssue.id} issue={selectedIssue} /> : (
+          <div className="empty-state">
+            <div className="empty-mark"><LogoMark size={26} /></div>
+            <div className="empty-title">{rows.length ? 'No notification selected' : 'Nothing to preview'}</div>
+            {rows.length > 0 && <div className="empty-desc"><span className="kbd">J</span> <span className="kbd">K</span> to move · <span className="kbd">U</span> read/unread · <span className="kbd">⌫</span> delete · <span className="kbd">H</span> snooze</div>}
+          </div>
+        )}
+      </div>
+
+      {rowMenu.anchor && menuRow && (
+        <Menu anchor={rowMenu.anchor} onClose={rowMenu.close} width={230}>
+          <MenuItem icon={<IconCheck size={14} />} label={menuRow.unread ? 'Mark as read' : 'Mark as unread'} right={<span className="mi-kbd">U</span>} onClick={() => void markRead(menuRow, menuRow.unread)} />
+          <MenuItem icon={<IconTrash size={14} />} label="Delete notification" right={<span className="mi-kbd">⌫</span>} onClick={() => void remove(menuRow)} />
+          <MenuSub icon={<IconClock size={14} />} label="Snooze" right={<span className="mi-kbd">H</span>} width={300}>
+            <SnoozeItems onPick={d => void snooze(menuRow, d)} />
+          </MenuSub>
+          {menuRow.lead.snoozedUntil && menuRow.lead.snoozedUntil > now && <MenuItem icon={<IconClock size={14} />} label="Unsnooze" onClick={async () => { for (const id of menuRow.ids) await api.snoozeNotification(id, null); await refresh(); }} />}
+        </Menu>
+      )}
+      {snoozeMenu.anchor && menuRow && (
+        <Menu anchor={snoozeMenu.anchor} onClose={snoozeMenu.close} width={300}>
+          <SnoozeItems onPick={d => void snooze(menuRow, d)} />
+        </Menu>
+      )}
+      {filterMenu.anchor && (
+        <Menu anchor={filterMenu.anchor} onClose={filterMenu.close} width={240}>
+          <div className="menu-header"><span>Notification type</span></div>
+          {(Object.keys(TYPE_LABELS) as NotificationType[]).map(t => (
+            <button key={t} className="menu-item" onClick={e => { e.stopPropagation(); patchPrefs({ types: prefs.types.includes(t) ? prefs.types.filter(x => x !== t) : [...prefs.types, t] }); }}>
+              <span className={`mi-check${prefs.types.includes(t) ? ' on' : ''}`}>{prefs.types.includes(t) && <IconCheck size={11} />}</span>
+              <span className="mi-label">{TYPE_LABELS[t]}</span>
+            </button>
+          ))}
+          {senders.length > 0 && <><MenuSep /><div className="menu-header"><span>From</span></div></>}
+          {senders.map(id => {
+            const u = snap.users.find(x => x.id === id);
+            return (
+              <button key={id} className="menu-item" onClick={e => { e.stopPropagation(); patchPrefs({ from: prefs.from.includes(id) ? prefs.from.filter(x => x !== id) : [...prefs.from, id] }); }}>
+                <span className={`mi-check${prefs.from.includes(id) ? ' on' : ''}`}>{prefs.from.includes(id) && <IconCheck size={11} />}</span>
+                <span className="mi-icon"><Avatar user={u} size={16} /></span>
+                <span className="mi-label">{u?.name ?? 'Someone'}</span>
+              </button>
+            );
+          })}
+        </Menu>
+      )}
+      {displayMenu.anchor && (
+        <Menu anchor={displayMenu.anchor} onClose={displayMenu.close} width={260}>
+          <div className="dopts">
+            <div className="dopts-row"><span>Enable priority inbox</span><button className={`switch${prefs.priority ? ' on' : ''}`} onClick={() => patchPrefs({ priority: !prefs.priority })}><span /></button></div>
+            <div className="dopts-sep" />
+            <div className="dopts-row"><span>Group unreads by</span>
+              <span className="seg-pair">
+                <button className={`seg${prefs.groupUnreads === 'none' ? ' selected' : ''}`} onClick={() => patchPrefs({ groupUnreads: 'none' })}>No grouping</button>
+                <button className={`seg${prefs.groupUnreads === 'focus' ? ' selected' : ''}`} onClick={() => patchPrefs({ groupUnreads: 'focus' })}>Focus</button>
+              </span>
+            </div>
+            <div className="dopts-row"><span>Ordering</span>
+              <span className="seg-pair">
+                <button className={`seg${prefs.order === 'newest' ? ' selected' : ''}`} onClick={() => patchPrefs({ order: 'newest' })}>Newest</button>
+                <button className={`seg${prefs.order === 'oldest' ? ' selected' : ''}`} onClick={() => patchPrefs({ order: 'oldest' })}>Oldest</button>
+              </span>
+            </div>
+            <div className="dopts-sep" />
+            <div className="dopts-row"><span>Show snoozed</span><button className={`switch${prefs.showSnoozed ? ' on' : ''}`} onClick={() => patchPrefs({ showSnoozed: !prefs.showSnoozed })}><span /></button></div>
+            <div className="dopts-row"><span>Show unread first</span><button className={`switch${prefs.unreadFirst ? ' on' : ''}`} onClick={() => patchPrefs({ unreadFirst: !prefs.unreadFirst })}><span /></button></div>
+          </div>
+        </Menu>
+      )}
+    </div>
+  );
+}
+
+/** preview for a notification about a project (or a Pulse summary) */
+function ProjectNotice({ n }: { n: Notification }) {
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  const p = n.projectId ? snap.projects.find(x => x.id === n.projectId) : undefined;
+  const update = n.type === 'projectUpdate' && p ? snap.projectUpdates.find(u => u.projectId === p.id && Math.abs(new Date(u.createdAt).getTime() - new Date(n.createdAt).getTime()) < 5000) ?? snap.projectUpdates.find(u => u.projectId === p.id) : undefined;
+  const issue = n.issueId ? snap.issues.find(i => i.id === n.issueId) : undefined;
+  return (
+    <div className="proj-notice">
+      <div className="pn-title">{p ? <><span>{p.icon}</span>{p.name}</> : 'Pulse'}</div>
+      <div className="pn-body">{n.body}</div>
+      {update && <div className="pulse-card"><Markdown text={update.body} /></div>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {p && <button className="btn primary sm" onClick={() => navigate(`/projects/${p.id}`)}>Open project</button>}
+        {issue && <button className="btn secondary sm" onClick={() => navigate(`/issue/${snap.teams.find(t => t.id === issue.teamId)?.key}-${issue.number}`)}>Open issue</button>}
+        {n.type === 'projectUpdateReminder' && p && <button className="btn secondary sm" onClick={() => navigate(`/projects/${p.id}`)}>Write update</button>}
+        {n.type === 'pulseDigest' && <button className="btn primary sm" onClick={() => navigate('/pulse')}>Open Pulse</button>}
+      </div>
+    </div>
+  );
+}

@@ -1,27 +1,34 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useApp, useHelpers, relTime, shortDate } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
 import { IssueToolbar, IssueLocationRow, OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
+import { CustomerRequests } from './Workspace.js';
 import { Markdown } from './Markdown.js';
+import { RichEditor, isBlank } from './RichEditor.js';
 import {
-  StateIcon, PriorityIcon, Avatar, StatusMenu, PriorityMenu, AssigneeMenu, LabelsMenu, ProjectMenu,
+  StateIcon, PriorityIcon, Avatar, StatusMenu, PriorityMenu, AssigneeMenu, LabelsMenu, ProjectMenu, MilestoneMenu,
   DueDateMenu, EstimateMenu, CycleMenu, IssuePickerMenu, AddRelationMenu,
 } from './pickers.js';
-import { SubIssueSpine } from './AvatarStack.js';
+import { PropertyMenuBody, propMenuWidth } from './propertyMenus.js';
+import { SubIssueSpine, AvatarStack } from './AvatarStack.js';
 import { SubIssueComposer } from './SubIssueComposer.js';
-import { SubIssueProgress, subIssueProgress } from './IssueViews.js';
+import { SubIssueProgress, subIssueProgress, estimateLabel } from './IssueViews.js';
+import { archiveIssues, deleteIssues, setIssueProps, toggleSubscription, markDuplicate, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS } from './actions.js';
+import { navFor, neighbour } from './nav.js';
 import { Logo } from './Logo.js';
-import { useLanding, playExit } from './motion.js';
+import { useLanding } from './motion.js';
 import {
-  IconAttach, IconArrowUp, IconPlus, IconClose,
-  IconArchive, IconRestore, IconTrash, IconEdit, IconDuplicate,
-  IconEstimate, IconCycle, IconCalendar, IconBox,
-  IconBranch, IconHandoff, IconSpark, IconCopyId,
+  IconAttach, IconPlus, IconClose, IconArchive, IconRestore, IconTrash, IconEdit, IconDuplicate,
+  IconEstimate, IconCycle, IconCalendar, IconBox, IconBranch, IconHandoff, IconSpark, IconCopyId,
+  IconMilestone, IconLink, IconFile, IconReply, IconResolve, IconChevronDown, IconChevronUp, IconExternal,
+  IconBell, IconBellOff, IconTeam, IconClock, IconTriage, IconCheck, IconEmoji, IconMore, IconDoc,
 } from './icons.js';
-import type { Issue } from '../../src/core/types.js';
+import type { Issue, Comment } from '../../src/core/types.js';
 
 /* shared activity text builder */
 function useActivityText() {
@@ -29,123 +36,179 @@ function useActivityText() {
   return (a: { type: string; data: Record<string, unknown>; userId: string; createdAt: string }) => {
     const who = snap.users.find(u => u.id === a.userId)?.name ?? 'Someone';
     const st = (id: unknown) => snap.states.find(s => s.id === id)?.name ?? '?';
-    const prio = (p: unknown) => ['', 'Urgent', 'High', 'Medium', 'Low'][Number(p)] ?? '?';
+    const prio = (p: unknown) => ['No priority', 'Urgent', 'High', 'Medium', 'Low'][Number(p)] ?? '?';
     const issueRef = (id: unknown) => {
       const i = snap.issues.find(x => x.id === id);
-      if (!i) return '?';
+      if (!i) return 'a deleted issue';
       const t = snap.teams.find(t2 => t2.id === i.teamId);
       return `${t?.key}-${i.number} ${i.title}`;
     };
+    const when = <span className="rel-time" title={new Date(a.createdAt).toLocaleString()}>· {relTime(a.createdAt)}</span>;
+    const relLabel: Record<string, string> = { blocks: 'marked this as blocking', blocked_by: 'marked this as blocked by', related: 'related this to', duplicate: 'marked this as a duplicate of' };
     switch (a.type) {
-      case 'created': return <><b>{who}</b> created the issue · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'renamed': return <><b>{who}</b> renamed the issue · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'described': return <><b>{who}</b> updated the description · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'stateChanged': return <><b>{who}</b> changed status from <b>{st(a.data.from)}</b> to <b>{st(a.data.to)}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'priorityChanged': return <><b>{who}</b> changed priority from <b>{prio(a.data.from)}</b> to <b>{prio(a.data.to)}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'assigned': return <><b>{who}</b> assigned to <b>{snap.users.find(u => u.id === a.data.to)?.name ?? '?'}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'unassigned': return <><b>{who}</b> unassigned · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'labeled': return <><b>{who}</b> added label <b>{snap.labels.find(l => l.id === a.data.labelId)?.name ?? '?'}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'unlabeled': return <><b>{who}</b> removed label <b>{snap.labels.find(l => l.id === a.data.labelId)?.name ?? '?'}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'projected': return <><b>{who}</b> added to <b>{snap.projects.find(p => p.id === a.data.to)?.name ?? 'no project'}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>;
+      case 'created': return <><b>{who}</b> created the issue {when}</>;
+      case 'renamed': return <><b>{who}</b> changed the title to <b>{String(a.data.to ?? '')}</b> {when}</>;
+      case 'described': return <><b>{who}</b> updated the description {when}</>;
+      case 'stateChanged': return <><b>{who}</b> changed status from <b>{st(a.data.from)}</b> to <b>{st(a.data.to)}</b> {when}</>;
+      case 'triageAccepted': return <><b>{who}</b> accepted the issue from triage into <b>{st(a.data.to)}</b> {when}</>;
+      case 'triageDeclined': return <><b>{who}</b> declined the issue {when}</>;
+      case 'priorityChanged': return <><b>{who}</b> set priority to <b>{prio(a.data.to)}</b> {when}</>;
+      case 'assigned': return <><b>{who}</b> assigned the issue to <b>{a.data.to === a.userId ? 'themselves' : snap.users.find(u => u.id === a.data.to)?.name ?? '?'}</b> {when}</>;
+      case 'unassigned': return <><b>{who}</b> removed the assignee {when}</>;
+      case 'labeled': return <><b>{who}</b> added label <b>{snap.labels.find(l => l.id === a.data.labelId)?.name ?? '?'}</b> {when}</>;
+      case 'unlabeled': return <><b>{who}</b> removed label <b>{snap.labels.find(l => l.id === a.data.labelId)?.name ?? '?'}</b> {when}</>;
+      case 'projected': return a.data.to
+        ? <><b>{who}</b> added the issue to project <b>{snap.projects.find(p => p.id === a.data.to)?.name ?? '?'}</b> {when}</>
+        : <><b>{who}</b> removed the issue from its project {when}</>;
+      case 'milestoneChanged': return a.data.to
+        ? <><b>{who}</b> moved the issue to milestone <b>{snap.milestones.find(m => m.id === a.data.to)?.name ?? '?'}</b> {when}</>
+        : <><b>{who}</b> removed the milestone {when}</>;
       case 'parented': return a.data.to
-        ? <><b>{who}</b> added sub-issue to <b>{issueRef(a.data.to)}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>
-        : <><b>{who}</b> removed sub-issue from <b>{issueRef(a.data.from)}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>;
+        ? <><b>{who}</b> made this a sub-issue of <b>{issueRef(a.data.to)}</b> {when}</>
+        : <><b>{who}</b> removed the parent issue <b>{issueRef(a.data.from)}</b> {when}</>;
       case 'cycleChanged': return a.data.to
-        ? <><b>{who}</b> added the issue to <b>{snap.cycles.find(c => c.id === a.data.to)?.name ?? 'a cycle'}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>
-        : <><b>{who}</b> removed the issue from its cycle · <span className="rel-time">{relTime(a.createdAt)}</span></>;
+        ? <><b>{who}</b> moved the issue to <b>{(() => { const c = snap.cycles.find(x => x.id === a.data.to); return c ? c.name || `Cycle ${c.number}` : 'a cycle'; })()}</b> {when}</>
+        : <><b>{who}</b> removed the issue from its cycle {when}</>;
       case 'dueChanged': return a.data.to
-        ? <><b>{who}</b> set due date to <b>{shortDate(String(a.data.to))}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>
-        : <><b>{who}</b> removed the due date · <span className="rel-time">{relTime(a.createdAt)}</span></>;
+        ? <><b>{who}</b> set the due date to <b>{shortDate(String(a.data.to).slice(0, 10) + 'T12:00')}</b> {when}</>
+        : <><b>{who}</b> removed the due date {when}</>;
       case 'estimateChanged': return a.data.to != null
-        ? <><b>{who}</b> set estimate to <b>{String(a.data.to)} point{Number(a.data.to) !== 1 ? 's' : ''}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>
-        : <><b>{who}</b> removed the estimate · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'related':
-        return <><b>{who}</b> related this issue to <b>{issueRef(a.data.relatedId)}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>;
+        ? <><b>{who}</b> set the estimate to <b>{String(a.data.to)} point{Number(a.data.to) !== 1 ? 's' : ''}</b> {when}</>
+        : <><b>{who}</b> removed the estimate {when}</>;
+      case 'related': return <><b>{who}</b> {relLabel[String(a.data.type)] ?? 'related this to'} <b>{issueRef(a.data.relatedId)}</b> {when}</>;
+      case 'unrelated': return <><b>{who}</b> removed the relation to <b>{issueRef(a.data.relatedId)}</b> {when}</>;
+      case 'teamChanged': return <><b>{who}</b> moved the issue from <b>{String(a.data.from)}</b> to <b>{String(a.data.to)}</b> {when}</>;
+      case 'attached': return <><b>{who}</b> {a.data.kind === 'file' ? 'attached' : 'added link'} <b>{String(a.data.title ?? '')}</b> {when}</>;
       case 'locationChanged': return a.data.to
-        ? <><b>{who}</b> set the location to <b>{snap.locations.find(l => l.id === a.data.to)?.name ?? 'a removed location'}</b> · <span className="rel-time">{relTime(a.createdAt)}</span></>
-        : <><b>{who}</b> removed the location · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'commented': return <><b>{who}</b> commented · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'archived': return <><b>{who}</b> archived the issue · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      case 'restored': return <><b>{who}</b> restored the issue · <span className="rel-time">{relTime(a.createdAt)}</span></>;
-      default: return <><b>{who}</b> {a.type} · <span className="rel-time">{relTime(a.createdAt)}</span></>;
+        ? <><b>{who}</b> set the location to <b>{snap.locations.find(l => l.id === a.data.to)?.name ?? 'a removed location'}</b> {when}</>
+        : <><b>{who}</b> removed the location {when}</>;
+      case 'archived': return <><b>{who}</b> archived the issue {when}</>;
+      case 'restored': return <><b>{who}</b> restored the issue {when}</>;
+      default: return <><b>{who}</b> {a.type} {when}</>;
     }
   };
 }
 
-const REACTION_SET = ['👍', '👎', '❤️', '🎉', '🚀', '😄'];
+const REACTION_SET = ['👍', '👎', '❤️', '🎉', '🚀', '😄', '👀', '🙏'];
 
-/* ---------------- comment ---------------- */
-function CommentItem(props: { comment: { id: string; userId: string; body: string; createdAt: string; editedAt: string | null; reactions: Record<string, string[]> } }) {
+/** a reaction key: a unicode emoji, or :name: for a custom emoji */
+function EmojiGlyph({ value }: { value: string }) {
+  const emojis = useApp(s => s.snap?.emojis ?? []);
+  const m = /^:([a-z0-9_-]+):$/.exec(value);
+  const custom = m && emojis.find(e => e.name === m[1]);
+  return custom ? <img className="custom-emoji" src={custom.url} alt={value} title={value} /> : <>{value}</>;
+}
+
+/* ---------------- comments & threads ---------------- */
+function Reactions(props: { comment: Comment }) {
+  const snap = useApp(s => s.snap)!;
+  const entries = Object.entries(props.comment.reactions);
+  if (!entries.length) return null;
+  return (
+    <div className="reactions">
+      {entries.map(([emoji, userIds]) => (
+        <button key={emoji} className={`reaction-chip ${userIds.includes(snap.currentUser.id) ? 'mine' : ''}`}
+          title={userIds.map(id => snap.users.find(u => u.id === id)?.name ?? '?').join(', ')}
+          onClick={async () => { await api.toggleReaction(props.comment.id, emoji); await useApp.getState().bootstrap(); }}>
+          <EmojiGlyph value={emoji} /> {userIds.length}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean; onReply?: () => void; resolved?: boolean; onResolve?: () => void }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const c = props.comment;
   const author = snap.users.find(u => u.id === c.userId);
   const isMine = c.userId === snap.currentUser.id;
-  const menu = useMenu();
+  const reactMenu = useMenu();
+  const moreMenu = useMenu();
   const [editing, setEditing] = useState(false);
-  const [body, setBody] = useState(c.body);
-  useEffect(() => { setBody(c.body); }, [c.body]);
 
   return (
-    <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-      <Avatar user={author} size={24} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ fontWeight: 600 }}>{author?.name ?? 'Someone'}</span>
-          <span className="rel-time">{relTime(c.createdAt)}{c.editedAt ? ' (edited)' : ''}</span>
-          <span style={{ flex: 1 }} />
-          <button className="icon-btn hover-only" style={{ width: 22, height: 22 }} title="Add reaction" onClick={menu.open}>🙂</button>
-          {isMine && <button className="icon-btn hover-only" style={{ width: 22, height: 22 }} title="Edit comment" onClick={() => setEditing(true)}><IconEdit size={13} /></button>}
-          {isMine && (
-            <button className="icon-btn hover-only" style={{ width: 22, height: 22 }} title="Delete comment"
-              onClick={async () => {
-                await api.deleteComment(c.id);
-                await useApp.getState().bootstrap();
-                toast({ title: 'Comment deleted' });
-              }}><IconTrash size={13} /></button>
-          )}
-        </div>
-        {editing ? (
-          <div className="comment-box" style={{ padding: 0 }}>
-            <textarea autoFocus value={body} onChange={e => setBody(e.target.value)} style={{ padding: '8px 10px', minHeight: 60 }}
-              onKeyDown={async e => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { setEditing(false); if (body !== c.body) { await api.updateComment(c.id, body); await useApp.getState().bootstrap(); } }
-                if (e.key === 'Escape') { e.stopPropagation(); setEditing(false); }
-              }} />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, padding: '4px 8px 8px' }}>
-              <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={() => setEditing(false)}>Cancel</button>
-              <button className="btn primary" style={{ height: 24, fontSize: 12 }} disabled={body === c.body}
-                onClick={async () => { setEditing(false); await api.updateComment(c.id, body); await useApp.getState().bootstrap(); }}>Save</button>
-            </div>
-          </div>
-        ) : (
-          <div className="comment-card"><Markdown text={c.body} /></div>
-        )}
-        {Object.keys(c.reactions).length > 0 && (
-          <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-            {Object.entries(c.reactions).map(([emoji, userIds]) => (
-              <button key={emoji} className={`reaction-chip ${userIds.includes(snap.currentUser.id) ? 'mine' : ''}`}
-                title={userIds.map(id => snap.users.find(u => u.id === id)?.name ?? '?').join(', ')}
-                onClick={async () => { await api.toggleReaction(c.id, emoji); await useApp.getState().bootstrap(); }}>
-                {emoji} {userIds.length}
-              </button>
-            ))}
-          </div>
-        )}
+    <div className={`cmt${props.reply ? ' reply' : ''}`}>
+      <div className="cmt-head">
+        <Avatar user={author} size={props.reply ? 18 : 20} />
+        <span className="cmt-author">{author?.name ?? 'Someone'}</span>
+        <span className="rel-time" title={new Date(c.createdAt).toLocaleString()}>{relTime(c.createdAt)}{c.editedAt ? ' (edited)' : ''}</span>
+        <span style={{ flex: 1 }} />
+        <span className="cmt-actions">
+          <button className="icon-btn" title="Add reaction" onClick={reactMenu.open}><IconEmoji size={13} /></button>
+          {props.onReply && <button className="icon-btn" title="Reply" onClick={props.onReply}><IconReply size={13} /></button>}
+          {props.onResolve && <button className="icon-btn" title={props.resolved ? 'Reopen thread' : 'Resolve thread'} onClick={props.onResolve}><IconResolve size={13} /></button>}
+          <button className="icon-btn" title="More" onClick={moreMenu.open}><IconMore size={13} /></button>
+        </span>
       </div>
-      {menu.anchor && (
-        <Menu anchor={menu.anchor} onClose={menu.close} width={170}>
-          <div className="menu-header"><span>Reactions</span></div>
-          <div style={{ display: 'flex', gap: 2, padding: '2px 8px 8px', flexWrap: 'wrap' }}>
-            {REACTION_SET.map(emoji => (
-              <button key={emoji} className="reaction-chip"
-                onClick={async () => { await api.toggleReaction(c.id, emoji); await useApp.getState().bootstrap(); menu.close(); }}>
-                {emoji}
-              </button>
+      {editing ? (
+        <div className="comment-box editing">
+          <RichEditor value={c.body} autoFocus issueId={props.issueId}
+            onSubmit={async md => { setEditing(false); if (md !== c.body && !isBlank(md)) { await api.updateComment(c.id, md); await useApp.getState().bootstrap(); } }}
+            onEscape={() => setEditing(false)} />
+          <div className="cbox-foot">
+            <span className="cbox-hint">⌘↵ to save · Esc to cancel</span>
+            <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div className="cmt-body"><Markdown text={c.body} /></div>
+      )}
+      <Reactions comment={c} />
+      {reactMenu.anchor && (
+        <Menu anchor={reactMenu.anchor} onClose={reactMenu.close} width={196}>
+          <div className="reaction-grid">
+            {[...REACTION_SET, ...snap.emojis.map(e => `:${e.name}:`)].map(emoji => (
+              <button key={emoji} className="reaction-pick" title={emoji}
+                onClick={async () => { await api.toggleReaction(c.id, emoji); await useApp.getState().bootstrap(); reactMenu.close(); }}><EmojiGlyph value={emoji} /></button>
             ))}
           </div>
         </Menu>
       )}
+      {moreMenu.anchor && (
+        <Menu anchor={moreMenu.anchor} onClose={moreMenu.close} width={200}>
+          <MenuItem icon={<IconLink size={14} />} label="Copy comment text" onClick={async () => { await navigator.clipboard.writeText(c.body).catch(() => {}); toast({ title: 'Copied comment' }); }} />
+          {isMine && <MenuItem icon={<IconEdit size={14} />} label="Edit comment" onClick={() => setEditing(true)} />}
+          {isMine && <MenuSep />}
+          {isMine && <MenuItem icon={<IconTrash size={14} />} danger label={props.reply ? 'Delete reply' : 'Delete comment'} onClick={async () => { await api.deleteComment(c.id); await useApp.getState().bootstrap(); toast({ title: 'Comment deleted' }); }} />}
+        </Menu>
+      )}
+    </div>
+  );
+}
+
+function CommentThread(props: { root: Comment; replies: Comment[]; issueId: string }) {
+  const [replying, setReplying] = useState(false);
+  const resolved = !!props.root.resolvedAt;
+  const [expanded, setExpanded] = useState(!resolved);
+  useEffect(() => { setExpanded(!resolved); }, [resolved]);
+  const snap = useApp(s => s.snap)!;
+  const resolve = async () => { await api.resolveComment(props.root.id, !resolved); await useApp.getState().bootstrap(); };
+  if (resolved && !expanded) {
+    const author = snap.users.find(u => u.id === props.root.userId);
+    return (
+      <button className="thread-resolved" onClick={() => setExpanded(true)}>
+        <IconResolve size={13} /> <b>{author?.name}</b>'s thread was resolved
+        {props.replies.length > 0 && <span className="dim"> · {props.replies.length} repl{props.replies.length === 1 ? 'y' : 'ies'}</span>}
+        <span className="dim"> · show</span>
+      </button>
+    );
+  }
+  return (
+    <div className={`thread${resolved ? ' is-resolved' : ''}`}>
+      <CommentBody comment={props.root} issueId={props.issueId} onReply={() => setReplying(true)} resolved={resolved} onResolve={resolve} />
+      {props.replies.map(r => <CommentBody key={r.id} comment={r} issueId={props.issueId} reply />)}
+      {replying ? (
+        <div className="comment-box reply-box">
+          <RichEditor value="" autoFocus issueId={props.issueId} placeholder="Leave a reply…" clearOnSubmit
+            onSubmit={async md => { if (isBlank(md)) return; await api.addComment(props.issueId, md, props.root.id); await useApp.getState().bootstrap(); setReplying(false); }}
+            onEscape={() => setReplying(false)} />
+          <div className="cbox-foot"><span className="cbox-hint">⌘↵ to reply</span><button className="btn" style={{ height: 24, fontSize: 12 }} onClick={() => setReplying(false)}>Cancel</button></div>
+        </div>
+      ) : props.replies.length > 0 && (
+        <button className="thread-reply-btn" onClick={() => setReplying(true)}><IconReply size={12} /> Reply…</button>
+      )}
+      {resolved && <button className="thread-reply-btn" onClick={() => setExpanded(false)}>Collapse resolved thread</button>}
     </div>
   );
 }
@@ -156,75 +219,55 @@ function SubIssuesSection(props: { issue: Issue }) {
   const navigate = useNavigate();
   const toast = useApp(s => s.toast);
   const [composing, setComposing] = useState(false);
+  const [open, setOpen] = useState(true);
   useEffect(() => { setComposing(false); }, [props.issue.id]);
   const children = snap.issues.filter(i => i.parentId === props.issue.id && !i.archivedAt && !i.deletedAt)
     .sort((a, b) => a.sortOrder - b.sortOrder);
-  const childKey = (ch: Issue) => {
-    const t = snap.teams.find(t => t.id === ch.teamId);
-    return `${t?.key}-${ch.number}`;
-  };
+  const childKey = (ch: Issue) => `${snap.teams.find(t => t.id === ch.teamId)?.key}-${ch.number}`;
   const done = children.filter(i => {
     const st = snap.states.find(s => s.id === i.stateId);
     return st?.type === 'completed' || st?.type === 'canceled';
   }).length;
 
   return (
-    <div style={{ marginTop: 14 }}>
+    <div className="subissues">
       {children.length > 0 && (
-        <div className="card" style={{ padding: '4px 10px', marginBottom: 8 }}>
+        <>
           <div className="subissues-head">
-            <span className="subissues-title">Sub-issues</span>
+            <button className={`subissues-toggle${open ? '' : ' closed'}`} onClick={() => setOpen(o => !o)}><IconChevronDown size={11} /> Sub-issues</button>
             <SubIssueProgress done={done} total={children.length} />
             <span style={{ flex: 1 }} />
-            <button className="icon-btn" title="Add sub-issue" onClick={() => setComposing(true)}><IconPlus size={13} /></button>
+            <IssuePickerMenu title="Add existing issue as sub-issue…" teamId={props.issue.teamId} excludeId={props.issue.id}
+              onPick={async (child) => { await setIssueProps([child.id], { parentId: props.issue.id }); toast({ title: 'Sub-issue added', line: <>{child.title}</> }); }}>
+              {({ open: o }) => <button className="icon-btn" title="Add existing issue" onClick={o}><IconLink size={13} /></button>}
+            </IssuePickerMenu>
+            <button className="icon-btn" title="Add sub-issue (⌘⇧O)" onClick={() => setComposing(true)}><IconPlus size={13} /></button>
           </div>
-          {/* the nodes punch the spine they sit on — no opaque dot on a continuous rule */}
-          <div style={{ display: 'flex', gap: 4 }}>
-          <SubIssueSpine rows={children.map(ch => ({ active: snap.states.find(s => s.id === ch.stateId)?.type === 'started' }))} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-          {children.map(ch => {
-            const st = snap.states.find(s => s.id === ch.stateId);
-            const team = snap.teams.find(t => t.id === ch.teamId);
-            return (
-              <div key={ch.id} className="prop-row group" style={{ cursor: 'pointer' }}
-                onClick={() => navigate(`/issue/${childKey(ch)}`)}>
-                {st && <StateIcon type={st.type} color={st.color} size={13} />}
-                <span className="issue-key">{team?.key}-{ch.number}</span>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.title}</span>
-                <PriorityIcon priority={ch.priority} size={13} />
-                <Avatar user={snap.users.find(u => u.id === ch.assigneeId)} size={18} />
-                <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Remove sub-issue"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    await api.updateIssue(ch.id, { parentId: null });
-                    await useApp.getState().bootstrap();
-                    toast({ title: 'Sub-issue removed', line: <>{team?.key}-{ch.number} — {ch.title}</> });
-                  }}><IconClose size={12} /></button>
+          {open && (
+            <div style={{ display: 'flex', gap: 4 }}>
+              {/* the nodes punch the spine they sit on — no opaque dot on a continuous rule */}
+              <SubIssueSpine rows={children.map(ch => ({ active: snap.states.find(s => s.id === ch.stateId)?.type === 'started' }))} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {children.map(ch => {
+                  const st = snap.states.find(s => s.id === ch.stateId);
+                  return (
+                    <div key={ch.id} className="prop-row sub-row group" onClick={() => navigate(`/issue/${childKey(ch)}`)}>
+                      <PriorityIcon priority={ch.priority} size={13} />
+                      <span className="issue-key">{childKey(ch)}</span>
+                      {st && <StateIcon type={st.type} color={st.color} size={13} />}
+                      <span className="sub-title">{ch.title}</span>
+                      <Avatar user={snap.users.find(u => u.id === ch.assigneeId)} size={18} />
+                      <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Remove from sub-issues"
+                        onClick={async (e) => { e.stopPropagation(); await setIssueProps([ch.id], { parentId: null }); toast({ title: 'Sub-issue removed', line: <>{childKey(ch)} — {ch.title}</> }); }}><IconClose size={12} /></button>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-          </div>
-          </div>
-        </div>
+            </div>
+          )}
+        </>
       )}
       {composing && <SubIssueComposer parent={props.issue} onClose={() => setComposing(false)} />}
-      <div style={{ display: composing ? 'none' : 'flex', gap: 8 }}>
-        <button className="prop-chip" style={{ color: 'var(--text-dim)' }} onClick={() => setComposing(true)}>
-          <IconPlus size={13} /> Add sub-issues
-        </button>
-        <IssuePickerMenu
-          title="Attach existing issue…"
-          teamId={props.issue.teamId}
-          excludeId={props.issue.id}
-          onPick={async (child) => {
-            await api.updateIssue(child.id, { parentId: props.issue.id });
-            await useApp.getState().bootstrap();
-            toast({ title: 'Sub-issue added', line: <>{child.title}</> });
-          }}
-        >
-          {({ open }) => <button className="prop-chip" style={{ color: 'var(--text-dim)' }} onClick={open}>Attach existing…</button>}
-        </IssuePickerMenu>
-      </div>
     </div>
   );
 }
@@ -251,39 +294,88 @@ function ParentLine(props: { issue: Issue }) {
   );
 }
 
+/* ---------------- links & files ---------------- */
+function Attachments(props: { issue: Issue }) {
+  const snap = useApp(s => s.snap)!;
+  const items = snap.attachments.filter(a => a.issueId === props.issue.id);
+  if (!items.length) return null;
+  const host = (u: string) => { try { return new URL(u, location.origin).host; } catch { return ''; } };
+  return (
+    <div className="attachments">
+      {items.map(a => (
+        <div key={a.id} className="att-row group">
+          <span className="att-icon">{a.kind === 'file' ? (a.mime.startsWith('image/') ? <img src={a.url} alt="" /> : <IconFile size={14} />) : <IconLink size={14} />}</span>
+          <a className="att-title" href={a.url} target="_blank" rel="noreferrer">{a.title}</a>
+          <span className="att-meta">{a.kind === 'file' ? `${Math.max(1, Math.round(a.size / 1024))} KB` : host(a.url)} · {relTime(a.createdAt)}</span>
+          <a className="icon-btn hover-only" href={a.url} target="_blank" rel="noreferrer" title="Open"><IconExternal size={12} /></a>
+          <button className="icon-btn hover-only" title="Remove" onClick={async () => { await api.deleteAttachment(a.id); await useApp.getState().bootstrap(); }}><IconClose size={12} /></button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AddLinkMenu(props: { issue: Issue; anchor: DOMRect; onClose: () => void }) {
+  const [url, setUrl] = useState('');
+  const [title, setTitle] = useState('');
+  const save = async () => {
+    const u = url.trim();
+    if (!u) return;
+    await api.addLink(props.issue.id, /^[a-z]+:\/\//i.test(u) ? u : `https://${u}`, title.trim() || undefined);
+    await useApp.getState().bootstrap();
+    props.onClose();
+  };
+  return (
+    <Menu anchor={props.anchor} onClose={props.onClose} width={320}>
+      <div className="menu-header"><span>Add link</span><span className="kbd">⌃L</span></div>
+      <div className="link-form" onClick={e => e.stopPropagation()}>
+        <input className="text-input" autoFocus placeholder="https://…" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void save(); }} />
+        <input className="text-input" placeholder="Title (optional)" value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void save(); }} />
+        <button className="btn primary" style={{ height: 28 }} onClick={save} disabled={!url.trim()}>Add link</button>
+      </div>
+    </Menu>
+  );
+}
+
 /* ---------------- relations ---------------- */
 function RelationsCard(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const relations = snap.relations.filter(r => r.issueId === props.issue.id);
-  if (relations.length === 0) return null;
   const keyOf = (id: string) => {
     const i = snap.issues.find(x => x.id === id);
     if (!i) return null;
     const t = snap.teams.find(t2 => t2.id === i.teamId);
-    return { key: `${t?.key}-${i.number}`, title: i.title, id: i.id };
+    return { key: `${t?.key}-${i.number}`, title: i.title, state: snap.states.find(s => s.id === i.stateId) };
   };
-  const typeLabel: Record<string, string> = { blocks: 'blocks', blocked_by: 'blocked by', related: 'related to', duplicate: 'duplicate of' };
+  const typeLabel: Record<string, string> = { blocks: 'Blocking', blocked_by: 'Blocked by', related: 'Related', duplicate: 'Duplicate of' };
+  const groups = ['blocked_by', 'blocks', 'related', 'duplicate'].map(t => ({ t, rels: relations.filter(r => r.type === t) })).filter(g => g.rels.length);
   return (
     <div className="rail-section">
       <div className="rail-header">Relations</div>
-      {relations.map(r => {
-        const other = keyOf(r.relatedIssueId);
-        if (!other) return null;
-        return (
-          <div key={r.id} className="prop-line" style={{ cursor: 'pointer' }} onClick={() => navigate(`/issue/${other.key}`)}>
-            <span className="prop-line-meta" style={{ width: 70 }}>{typeLabel[r.type]}</span>
-            <span className="prop-line-label">{other.key} {other.title}</span>
-            <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Remove relation"
-              onClick={async (e) => { e.stopPropagation(); await api.removeRelation(r.id); await useApp.getState().bootstrap(); }}>
-              <IconClose size={12} />
-            </button>
-          </div>
-        );
-      })}
+      {groups.map(g => (
+        <div key={g.t}>
+          <div className="rel-kind">{typeLabel[g.t]}</div>
+          {g.rels.map(r => {
+            const other = keyOf(r.relatedIssueId);
+            if (!other) return null;
+            return (
+              <div key={r.id} className="prop-line rel-line" onClick={() => navigate(`/issue/${other.key}`)}>
+                {other.state && <StateIcon type={other.state.type} color={other.state.color} size={13} />}
+                <span className="issue-key">{other.key}</span>
+                <span className="prop-line-label">{other.title}</span>
+                <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Remove relation"
+                  onClick={async (e) => { e.stopPropagation(); await api.removeRelation(r.id); await useApp.getState().bootstrap(); }}>
+                  <IconClose size={12} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ))}
       <AddRelationMenu issue={props.issue}>
         {({ open }) => (
-          <button className="prop-line dim" onClick={open}><IconPlus size={13} /> <span className="prop-line-label">Add relationship…</span></button>
+          <button className="prop-line dim" onClick={open}><IconPlus size={13} /> <span className="prop-line-label">Add relation…</span></button>
         )}
       </AddRelationMenu>
     </div>
@@ -298,7 +390,15 @@ export function PropertiesRail(props: { issue: Issue }) {
   const assignee = snap.users.find(u => u.id === issue.assigneeId);
   const labels = snap.labels.filter(l => issue.labelIds.includes(l.id));
   const project = snap.projects.find(p => p.id === issue.projectId);
+  const milestone = snap.milestones.find(m => m.id === issue.milestoneId);
+  const hasMilestones = !!project && snap.milestones.some(m => m.projectId === project.id);
   const cycle = snap.cycles.find(c => c.id === issue.cycleId);
+  const team = snap.teams.find(t => t.id === issue.teamId);
+  const estimatesOn = team?.estimateScale !== 'none';
+  const est = estimateLabel(issue, snap);
+  const closed = state?.type === 'completed' || state?.type === 'canceled';
+  const due = issue.dueDate?.slice(0, 10);
+  const overdue = !!due && !closed && due < new Date().toISOString().slice(0, 10);
   // the rail's own status line morphs when the issue lands on completed
   const { becameDone } = useLanding(issue, state?.type);
 
@@ -308,7 +408,7 @@ export function PropertiesRail(props: { issue: Issue }) {
         <div className="rail-header">Properties</div>
         <StatusMenu issue={issue}>
           {({ open }) => (
-            <button className="prop-line" onClick={open}>
+            <button className="prop-line" data-prop="status" onClick={open} title="Change status (S)">
               {state && <StateIcon type={state.type} color={state.color} size={14} morph={becameDone} />}
               <span className="prop-line-label">{state?.name ?? 'Set status'}</span>
             </button>
@@ -316,7 +416,7 @@ export function PropertiesRail(props: { issue: Issue }) {
         </StatusMenu>
         <PriorityMenu issue={issue}>
           {({ open }) => (
-            <button className={`prop-line ${issue.priority === 0 ? 'dim' : ''}`} onClick={open}>
+            <button className={`prop-line ${issue.priority === 0 ? 'dim' : ''}`} data-prop="priority" onClick={open} title="Set priority (P)">
               <PriorityIcon priority={issue.priority} size={14} />
               <span className="prop-line-label">{['Set priority', 'Urgent', 'High', 'Medium', 'Low'][issue.priority]}</span>
             </button>
@@ -324,63 +424,65 @@ export function PropertiesRail(props: { issue: Issue }) {
         </PriorityMenu>
         <AssigneeMenu issue={issue}>
           {({ open }) => (
-            <button className={`prop-line ${assignee ? '' : 'dim'}`} onClick={open}>
+            <button className={`prop-line ${assignee ? '' : 'dim'}`} data-prop="assignee" onClick={open} title="Assign (A)">
               <Avatar user={assignee} size={18} />
               <span className="prop-line-label">{assignee?.name ?? 'Assign'}</span>
             </button>
           )}
         </AssigneeMenu>
-        <EstimateMenu issue={issue}>
-          {({ open }) => (
-            <button className={`prop-line ${issue.estimate == null ? 'dim' : ''}`} onClick={open}>
-              <IconEstimate size={14} />
-              <span className="prop-line-label">{issue.estimate != null ? `${issue.estimate} point${issue.estimate !== 1 ? 's' : ''}` : 'Set estimate'}</span>
-            </button>
-          )}
-        </EstimateMenu>
+        {estimatesOn && (
+          <EstimateMenu issue={issue}>
+            {({ open }) => (
+              <button className={`prop-line ${issue.estimate == null ? 'dim' : ''}`} data-prop="estimate" onClick={open} title="Set estimate (⇧E)">
+                <IconEstimate size={14} />
+                <span className="prop-line-label">{est != null ? (team?.estimateScale === 'tshirt' ? est : `${est} point${issue.estimate !== 1 ? 's' : ''}`) : 'Set estimate'}</span>
+              </button>
+            )}
+          </EstimateMenu>
+        )}
         <CycleMenu issue={issue}>
           {({ open }) => (
-            <button className={`prop-line ${cycle ? '' : 'dim'}`} onClick={open}>
+            <button className={`prop-line ${cycle ? '' : 'dim'}`} data-prop="cycle" onClick={open} title="Add to cycle (⇧C)">
               <IconCycle size={14} />
               <span className="prop-line-label">{cycle ? (cycle.name || `Cycle ${cycle.number}`) : 'Add to cycle'}</span>
             </button>
           )}
         </CycleMenu>
-        <IssueLocationRow issue={issue} />
         <DueDateMenu issue={issue}>
           {({ open }) => (
-            <button className={`prop-line ${issue.dueDate ? '' : 'dim'}`} onClick={open}>
+            <button className={`prop-line ${issue.dueDate ? '' : 'dim'}${overdue ? ' overdue' : ''}`} data-prop="due" onClick={open} title="Set due date (⇧D)">
               <IconCalendar size={14} />
-              <span className="prop-line-label">{issue.dueDate ? shortDate(issue.dueDate) : 'Set date'}</span>
+              <span className="prop-line-label">{due ? `${overdue ? 'Overdue · ' : ''}${shortDate(due + 'T12:00')}` : 'Set due date'}</span>
             </button>
           )}
         </DueDateMenu>
+        <IssueLocationRow issue={issue} />
       </div>
 
       <div className="rail-section">
         <div className="rail-header">Labels</div>
-        <div className="rail-labels">
-          {labels.map(l => (
-            <span key={l.id} className="label-pill" style={{ background: `color-mix(in srgb, ${l.color} calc(var(--label-bg-alpha) * 100%), transparent)`, color: 'var(--text-secondary)' }}>
-              <span className="label-dot" style={{ background: l.color }} />
-              {l.name}
-            </span>
-          ))}
-          <LabelsMenu issue={issue}>
-            {({ open }) => (
-              <button className="icon-btn" style={{ width: 22, height: 22 }} onClick={open} title="Add label">
-                <IconPlus size={13} />
-              </button>
-            )}
-          </LabelsMenu>
-        </div>
+        <LabelsMenu issue={issue}>
+          {({ open }) => (
+            <div className="rail-labels" data-prop="labels">
+              {labels.map(l => (
+                <button key={l.id} className="label-pill" onClick={open} style={{ background: `color-mix(in srgb, ${l.color} calc(var(--label-bg-alpha) * 100%), transparent)`, color: 'var(--text-secondary)' }}>
+                  <span className="label-dot" style={{ background: l.color }} />
+                  {l.name}
+                </button>
+              ))}
+              {labels.length === 0
+                ? <button className="prop-line dim" onClick={open} title="Add label (L)"><IconPlus size={13} /><span className="prop-line-label">Add label</span></button>
+                : <button className="icon-btn" style={{ width: 22, height: 22 }} onClick={open} title="Add label (L)"><IconPlus size={13} /></button>}
+            </div>
+          )}
+        </LabelsMenu>
       </div>
 
       <div className="rail-section">
         <div className="rail-header">Project</div>
         <ProjectMenu issue={issue}>
           {({ open }) => (
-            <button className={`prop-line ${project ? '' : 'dim'}`} onClick={open}>
+            <button className={`prop-line ${project ? '' : 'dim'}`} data-prop="project" onClick={open} title="Add to project (⇧P)">
               {project
                 ? <span className="proj-icon" style={{ width: 15, height: 15, fontSize: 9, background: 'var(--bg-hover)' }}>{project.icon}</span>
                 : <IconBox size={14} />}
@@ -388,6 +490,16 @@ export function PropertiesRail(props: { issue: Issue }) {
             </button>
           )}
         </ProjectMenu>
+        {hasMilestones && (
+          <MilestoneMenu issue={issue}>
+            {({ open }) => (
+              <button className={`prop-line ${milestone ? '' : 'dim'}`} data-prop="milestone" onClick={open} title="Set milestone (⇧M)">
+                <IconMilestone size={14} />
+                <span className="prop-line-label">{milestone ? milestone.name : 'Add to milestone'}</span>
+              </button>
+            )}
+          </MilestoneMenu>
+        )}
       </div>
 
       <RelationsCard issue={issue} />
@@ -395,8 +507,33 @@ export function PropertiesRail(props: { issue: Issue }) {
   );
 }
 
+/* ---------------- triage banner ---------------- */
+function TriageBanner(props: { issue: Issue }) {
+  const snap = useApp(s => s.snap)!;
+  const state = snap.states.find(s => s.id === props.issue.stateId);
+  const dup = useMenu();
+  if (state?.type !== 'triage') return null;
+  const creator = snap.users.find(u => u.id === props.issue.creatorId);
+  const target = (type: string) => snap.states.filter(s => s.teamId === props.issue.teamId && s.type === type).sort((a, b) => a.position - b.position)[0];
+  return (
+    <div className="triage-banner">
+      <IconTriage size={14} />
+      <span className="tb-text"><b>{creator?.name ?? 'Someone'}</b> filed this into triage {relTime(props.issue.createdAt)}</span>
+      <span style={{ flex: 1 }} />
+      <button className="btn primary sm" title="Accept (1)" onClick={() => { const s = target('backlog') ?? target('unstarted'); if (s) void setIssueProps([props.issue.id], { stateId: s.id }); }}><IconCheck size={12} /> Accept</button>
+      <button className="btn secondary sm" title="Mark as duplicate (⇧M)" onClick={dup.open}><IconDuplicate size={12} /> Duplicate</button>
+      <button className="btn secondary sm" title="Decline (2)" onClick={() => { const s = target('canceled'); if (s) void setIssueProps([props.issue.id], { stateId: s.id }); }}><IconClose size={12} /> Decline</button>
+      {dup.anchor && (
+        <Menu anchor={dup.anchor} onClose={dup.close} width={propMenuWidth('duplicate')}>
+          <PropertyMenuBody kind="duplicate" issues={[props.issue]} onClose={dup.close} />
+        </Menu>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- issue detail body ---------------- */
-export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: boolean }) {
+export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: boolean; peek?: boolean; hideTriage?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const issue = props.issue;
   const helpers = useHelpers();
@@ -404,66 +541,101 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const team = helpers.teamById(issue.teamId)!;
   const activityText = useActivityText();
   const toast = useApp(s => s.toast);
-  const [comment, setComment] = useState('');
-  const [descEditing, setDescEditing] = useState(false);
-  const [desc, setDesc] = useState(issue.description);
   const [titleDraft, setTitleDraft] = useState(issue.title);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
+  const linkMenu = useMenu();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const handoff = useHandoffActions(issue);
+  const nav = props.full ? navFor(issue.id) : { ids: [], origin: null };
+  const navIndex = nav.ids.indexOf(issue.id);
 
-  useEffect(() => { setDesc(issue.description); setDescEditing(false); setComment(''); setTitleDraft(issue.title); }, [issue.id, issue.description]); // eslint-disable-line
+  useEffect(() => { setTitleDraft(issue.title); }, [issue.id, issue.title]);
+  // the title wraps like Linear's: a textarea that grows with its text
+  useLayoutEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = '0px';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [titleDraft]);
+  useEffect(() => {
+    const onRename = () => { titleRef.current?.focus(); titleRef.current?.select(); };
+    window.addEventListener('baseline:rename-issue', onRename);
+    return () => window.removeEventListener('baseline:rename-issue', onRename);
+  }, []);
+  // ⌃L adds a link, like Linear
+  useEffect(() => {
+    if (props.peek) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        const btn = document.querySelector<HTMLElement>('.issue-page [data-add-link]');
+        if (btn) linkMenu.setAnchor(btn.getBoundingClientRect());
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [props.peek]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const comments = snap.comments.filter(c => c.issueId === issue.id);
-  const commentIds = new Set(comments.map(c => c.id));
-  const activity = snap.activity
-    .filter(a => a.issueId === issue.id && (a.type !== 'commented' || !commentIds.has(String(a.data.commentId))))
-    .slice()
-    .reverse();
+  const roots = comments.filter(c => !c.parentId);
+  const repliesOf = (id: string) => comments.filter(c => c.parentId === id);
+  const timeline = useMemo(() => {
+    const events = snap.activity
+      .filter(a => a.issueId === issue.id && a.type !== 'commented')
+      .map(a => ({ kind: 'event' as const, at: a.createdAt, a }));
+    const threads = roots.map(c => ({ kind: 'thread' as const, at: c.createdAt, c }));
+    return [...events, ...threads].sort((x, y) => x.at.localeCompare(y.at));
+  }, [snap.activity, comments, issue.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const me = snap.currentUser.id;
+  const subscribers = snap.subscriptions.filter(s => s.issueId === issue.id).map(s => snap.users.find(u => u.id === s.userId)).filter(Boolean) as typeof snap.users;
+  const subscribed = subscribers.some(u => u.id === me);
 
   const saveTitle = async (value: string) => {
+    if (titleTimer.current) { clearTimeout(titleTimer.current); titleTimer.current = null; }
     const v = value.trim();
-    if (v && v !== issue.title) {
-      await api.updateIssue(issue.id, { title: v });
-      await useApp.getState().bootstrap();
-    } else {
-      setTitleDraft(issue.title);
-    }
+    if (v && v !== issue.title) await setIssueProps([issue.id], { title: v });
+    else setTitleDraft(issue.title);
   };
   const onTitleChange = (value: string) => {
-    setTitleDraft(value);
+    setTitleDraft(value.replace(/\n/g, ' '));
     if (titleTimer.current) clearTimeout(titleTimer.current);
     titleTimer.current = setTimeout(() => void saveTitle(value), 900);
   };
-  const saveDesc = async () => {
-    setDescEditing(false);
-    if (desc !== issue.description) {
-      await api.updateIssue(issue.id, { description: desc });
-      await useApp.getState().bootstrap();
+  const saveDesc = async (md: string) => {
+    const cur = useApp.getState().snap?.issues.find(i => i.id === issue.id)?.description ?? '';
+    if (md !== cur) await setIssueProps([issue.id], { description: md });
+  };
+  const postComment = async (md: string) => {
+    if (isBlank(md)) return;
+    await api.addComment(issue.id, md);
+    await useApp.getState().bootstrap();
+  };
+  const uploadFiles = async (files: FileList | null) => {
+    if (!files) return;
+    for (const f of [...files]) {
+      try { await api.uploadFile(issue.id, f); } catch (err) { toast({ title: 'Upload failed', line: String((err as Error).message) }); }
     }
-  };
-  const postComment = async () => {
-    if (!comment.trim()) return;
-    await api.addComment(issue.id, comment.trim());
-    setComment('');
     await useApp.getState().bootstrap();
   };
-  const archive = async () => {
-    await playExit([issue.id]);
-    await api.archiveIssue(issue.id);
-    await useApp.getState().bootstrap();
-    navigate(`/team/${team.key}/all`);
-    toast({
-      title: 'Issue archived', line: <>{key} — {issue.title}</>,
-      actions: [{ label: 'Undo', onClick: async () => { await api.unarchiveIssue(issue.id); await useApp.getState().bootstrap(); } }],
-    });
+  const go = (delta: 1 | -1) => {
+    const id = neighbour(issue.id, delta);
+    const next = id ? snap.issues.find(i => i.id === id) : null;
+    if (next) navigate(`/issue/${helpers.keyOf(next)}`, { replace: true });
   };
-  const handoff = useHandoffActions(issue);
+
+  const project = snap.projects.find(p => p.id === issue.projectId);
+  const crumbs = nav.origin
+    ? [{ label: nav.origin.label, to: nav.origin.to, muted: true }, { label: `${key} ${issue.title}` }]
+    : project
+      ? [{ label: project.name, icon: <span className="crumb-emoji">{project.icon}</span>, to: `/projects/${project.id}`, muted: true }, { label: `${key} ${issue.title}` }]
+      : [{ label: team.name, to: `/team/${team.key}/all`, muted: true }, { label: `${key} ${issue.title}` }];
 
   return (
     <div className="issue-page">
-      {/* Print / export header: the app appears as an object on paper, so it is
-          the paper cut of the tile over an ink rule. Screen-hidden; @media print
-          strips the chrome around it. */}
+      {/* Print / export header: the app appears as an object on paper. Screen-hidden. */}
       <div className="print-head" aria-hidden="true">
         <div className="print-head-row">
           <Logo size={26} tone="paper" />
@@ -473,131 +645,132 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
         <div className="print-rule" />
       </div>
       <TopBar
-          crumbs={[
-            { label: team.name, to: `/team/${team.key}/all`, muted: true },
-            { label: `${key} ${issue.title}` },
-          ]}
-          favoriteRef={{ type: 'issue', refId: issue.id }}
-          more={
-            <>
-              <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" onClick={() => void handoff.copyPrompt()} />
-              <MenuSub icon={<IconSpark size={14} />} label="Open in Claude Code">
-                <OpenInClaudeItems issue={issue} actions={handoff} />
+        crumbs={crumbs}
+        favoriteRef={{ type: 'issue', refId: issue.id }}
+        more={
+          <>
+            <MenuItem icon={subscribed ? <IconBellOff size={14} /> : <IconBell size={14} />} label={subscribed ? 'Unsubscribe' : 'Subscribe'} right={<span className="mi-kbd">⇧S</span>} onClick={() => void toggleSubscription(issue.id)} />
+            <MenuSub icon={<IconClock size={14} />} label="Remind me" right={<span className="mi-kbd">⇧H</span>} width={propMenuWidth('remind')}>
+              <PropertyMenuBody kind="remind" issues={[issue]} onClose={() => {}} />
+            </MenuSub>
+            <MenuSub icon={<IconTeam size={14} />} label="Move to team" right={<span className="mi-kbd">⌘⇧M</span>} width={propMenuWidth('team')}>
+              <PropertyMenuBody kind="team" issues={[issue]} onClose={() => {}} />
+            </MenuSub>
+            <MenuSub icon={<IconDuplicate size={14} />} label="Mark as duplicate of" right={<span className="mi-kbd">M M</span>} width={propMenuWidth('duplicate')}>
+              <PropertyMenuBody kind="duplicate" issues={[issue]} onClose={() => {}} />
+            </MenuSub>
+            <MenuSub icon={<IconBox size={14} />} label="Convert to" width={220}>
+              <MenuItem icon={<IconBox size={14} />} label="Project" onClick={() => void convertToProject(issue.id, navigate)} />
+              <MenuItem icon={<IconDoc size={14} />} label="Template" onClick={() => void convertToTemplate(issue.id)} />
+              <MenuSub icon={<IconCycle size={14} />} label="Recurring issue" width={200}>
+                {(Object.keys(CADENCE_LABELS) as Array<keyof typeof CADENCE_LABELS>).map(c => <MenuItem key={c} label={CADENCE_LABELS[c]} onClick={() => void makeRecurring(issue.id, c)} />)}
               </MenuSub>
-              <MenuItem icon={<IconBranch size={14} />} label="Copy branch name" onClick={() => void handoff.copyBranch()} />
-              <MenuItem icon={<IconCopyId size={14} />} label="Copy issue ID" onClick={() => void handoff.copyId()} />
-              <MenuItem icon={<IconDuplicate size={14} />} label="Duplicate issue" onClick={async () => {
-                const { issue: dup } = await api.createIssue({
-                  teamId: issue.teamId, title: issue.title, description: issue.description,
-                  priority: issue.priority, assigneeId: issue.assigneeId, projectId: issue.projectId,
-                  labelIds: issue.labelIds, dueDate: issue.dueDate, estimate: issue.estimate,
-                });
-                await useApp.getState().bootstrap();
-                toast({ title: 'Issue duplicated', line: <>{team.key}-{dup.number} — {dup.title}</> });
-              }} />
-              <MenuSep />
-              {issue.archivedAt
-                ? <MenuItem icon={<IconRestore size={14} />} label="Unarchive" onClick={archive} />
-                : <MenuItem icon={<IconArchive size={14} />} label="Archive" onClick={archive} />}
-              <MenuItem icon={<IconTrash size={14} />} danger label="Delete issue"
-                onClick={async () => {
-                  await api.deleteIssue(issue.id);
-                  await useApp.getState().bootstrap();
-                  navigate(`/team/${team.key}/all`);
-                  toast({
-                    title: 'Issue deleted', line: <>{key} — {issue.title}</>,
-                    actions: [{ label: 'Undo', onClick: async () => { await api.restoreIssue(issue.id); await useApp.getState().bootstrap(); } }],
-                  });
-                }} />
-            </>
-          }
-          right={<IssueToolbar issue={issue} />}
-        />
-        <div className="issue-body">
-        <div className="issue-main">
-        <div className="issue-scroll">
-          <div className="issue-col" style={props.full ? undefined : { maxWidth: 'none' }}>
-            <input
-              className="issue-title"
-              value={titleDraft}
-              onChange={e => onTitleChange(e.target.value)}
-              onBlur={e => void saveTitle(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-              spellCheck={false}
-            />
-            <ParentLine issue={issue} />
-            {descEditing ? (
-              <div className="comment-box" style={{ padding: 0 }}>
-                <textarea
-                  autoFocus
-                  value={desc}
-                  onChange={e => setDesc(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void saveDesc();
-                    if (e.key === 'Escape') { e.stopPropagation(); setDescEditing(false); }
-                  }}
-                  onBlur={saveDesc}
-                  style={{ padding: '10px 12px', minHeight: 120 }}
-                  placeholder="Add description…"
-                />
-              </div>
-            ) : issue.description ? (
-              <div onClick={() => setDescEditing(true)} style={{ cursor: 'text' }}>
-                <Markdown text={issue.description} />
-              </div>
-            ) : (
-              <div className="desc-placeholder" onClick={() => setDescEditing(true)}>
-                Add description…
-              </div>
+            </MenuSub>
+            <MenuSep />
+            <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<span className="mi-kbd">⌘⌥P</span>} onClick={() => void handoff.copyPrompt()} />
+            <MenuSub icon={<IconSpark size={14} />} label="Open in Claude Code">
+              <OpenInClaudeItems issue={issue} actions={handoff} />
+            </MenuSub>
+            <MenuItem icon={<IconBranch size={14} />} label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={() => void handoff.copyBranch()} />
+            <MenuItem icon={<IconCopyId size={14} />} label="Copy issue ID" right={<span className="mi-kbd">⌘.</span>} onClick={() => void handoff.copyId()} />
+            <MenuItem icon={<IconDuplicate size={14} />} label="Make a copy" onClick={async () => {
+              const { issue: dup } = await api.createIssue({
+                teamId: issue.teamId, title: `${issue.title} (copy)`, description: issue.description,
+                priority: issue.priority, assigneeId: issue.assigneeId, projectId: issue.projectId, milestoneId: issue.milestoneId,
+                labelIds: issue.labelIds, dueDate: issue.dueDate, estimate: issue.estimate, cycleId: issue.cycleId, parentId: issue.parentId,
+              });
+              await useApp.getState().bootstrap();
+              toast({ title: 'Copy created', link: { label: `View ${team.key}-${dup.number}`, to: `/issue/${team.key}-${dup.number}` } });
+            }} />
+            <MenuSep />
+            {issue.archivedAt
+              ? <MenuItem icon={<IconRestore size={14} />} label="Unarchive" onClick={async () => { await api.unarchiveIssue(issue.id); await useApp.getState().bootstrap(); }} />
+              : <MenuItem icon={<IconArchive size={14} />} label="Archive" right={<span className="mi-kbd">E</span>} onClick={async () => { await archiveIssues([issue.id]); navigate(-1); }} />}
+            <MenuItem icon={<IconTrash size={14} />} danger label="Delete" right={<span className="mi-kbd">⌘⌫</span>} onClick={async () => { await deleteIssues([issue.id]); navigate(-1); }} />
+          </>
+        }
+        right={
+          <>
+            {props.full && nav.ids.length > 1 && navIndex >= 0 && (
+              <span className="issue-nav">
+                <span className="issue-nav-count">{navIndex + 1} / {nav.ids.length}</span>
+                <button className="icon-btn" title="Next issue (J)" disabled={navIndex >= nav.ids.length - 1} onClick={() => go(1)}><IconChevronDown size={14} /></button>
+                <button className="icon-btn" title="Previous issue (K)" disabled={navIndex <= 0} onClick={() => go(-1)}><IconChevronUp size={14} /></button>
+              </span>
             )}
-
-            <SubIssuesSection issue={issue} />
-
-            <div className="activity">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontWeight: 600, fontSize: 15 }}>Activity</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-secondary)', fontSize: 12.5 }}>
-                  Unsubscribe
-                  <Avatar user={snap.users.find(u => u.id === snap.currentUser.id)} size={20} />
-                </span>
+            {props.onClose && <button className="icon-btn" title="Close (Esc)" onClick={props.onClose}><IconClose size={14} /></button>}
+          </>
+        }
+      />
+      <div className="issue-body">
+        <div className="issue-main">
+          <div className="issue-toolbar-row"><IssueToolbar issue={issue} /></div>
+          <div className="issue-scroll">
+            <div className="issue-col" style={props.full ? undefined : { maxWidth: 'none' }}>
+              {!props.hideTriage && <TriageBanner issue={issue} />}
+              <textarea
+                ref={titleRef}
+                className="issue-title"
+                rows={1}
+                value={titleDraft}
+                placeholder="Issue title"
+                onChange={e => onTitleChange(e.target.value)}
+                onBlur={e => void saveTitle(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } if (e.key === 'Escape') { e.stopPropagation(); setTitleDraft(issue.title); (e.target as HTMLTextAreaElement).blur(); } }}
+                spellCheck={false}
+              />
+              <ParentLine issue={issue} />
+              <div className="issue-desc">
+                <RichEditor key={issue.id} value={issue.description} issueId={issue.id} placeholder="Add description…"
+                  onChange={md => void saveDesc(md)} onBlur={md => void saveDesc(md)} />
               </div>
+              <div className="issue-under-desc">
+                <button className="icon-btn" title="Attach files" onClick={() => fileInput.current?.click()}><IconAttach size={14} /></button>
+                <button className="icon-btn" data-add-link title="Add link (⌃L)" onClick={linkMenu.open}><IconLink size={14} /></button>
+                <button className="icon-btn" title="Add sub-issue (⌘⇧O)" onClick={() => useApp.getState().openCreate({ teamId: issue.teamId, parentId: issue.id, projectId: issue.projectId, cycleId: issue.cycleId })}><IconPlus size={14} /></button>
+                <input ref={fileInput} type="file" multiple hidden onChange={e => { void uploadFiles(e.target.files); e.target.value = ''; }} />
+              </div>
+              <Attachments issue={issue} />
+              <SubIssuesSection issue={issue} />
+              <CustomerRequests issueId={issue.id} />
 
-              {activity.map(a => (
-                <div key={a.id} className="activity-item">
-                  <Avatar user={snap.users.find(u => u.id === a.userId)} size={20} />
-                  <span className="activity-body" style={{ fontSize: 13 }}>{activityText(a)}</span>
-                </div>
-              ))}
-
-              {comments.map(c => <CommentItem key={c.id} comment={c} />)}
-
-              <div className="comment-box">
-                <textarea
-                  value={comment}
-                  onChange={e => setComment(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void postComment(); }}
-                  placeholder="Leave a comment…"
-                  style={{ minHeight: 40 }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <button className="icon-btn"><IconAttach size={14} /></button>
-                  <button
-                    className="icon-btn"
-                    style={comment.trim() ? { background: 'var(--brand)', color: '#fff' } : undefined}
-                    onClick={postComment}
-                    title="Submit (⌘⏎)"
-                  >
-                    <IconArrowUp size={14} />
+              <div className="activity">
+                <div className="activity-head">
+                  <span className="activity-title">Activity</span>
+                  <span style={{ flex: 1 }} />
+                  <button className="subscribe-btn" onClick={() => void toggleSubscription(issue.id)} title={subscribed ? 'Stop notifications for this issue (⇧S)' : 'Get notified about this issue (⇧S)'}>
+                    {subscribed ? 'Unsubscribe' : 'Subscribe'}
                   </button>
+                  {subscribers.length > 0 && (
+                    <span className="subscribers" title={`Subscribers: ${subscribers.map(u => u.name).join(', ')}`}>
+                      <AvatarStack size={18} people={subscribers.slice(0, 4).map(u => ({ name: u.name, initials: u.initials, color: u.color }))} />
+                    </span>
+                  )}
+                </div>
+
+                {timeline.map(item => item.kind === 'event' ? (
+                  <div key={item.a.id} className="activity-item">
+                    <Avatar user={snap.users.find(u => u.id === item.a.userId)} size={16} />
+                    <span className="activity-body">{activityText(item.a)}</span>
+                  </div>
+                ) : (
+                  <CommentThread key={item.c.id} root={item.c} replies={repliesOf(item.c.id)} issueId={issue.id} />
+                ))}
+
+                <div className="comment-box composer">
+                  <RichEditor key={`c-${issue.id}`} value="" issueId={issue.id} placeholder="Leave a comment…" clearOnSubmit onSubmit={postComment} />
+                  <div className="cbox-foot">
+                    <button className="icon-btn" title="Attach files" onClick={() => fileInput.current?.click()}><IconAttach size={14} /></button>
+                    <span className="cbox-hint">⌘↵ to comment</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+        <PropertiesRail issue={issue} />
       </div>
-
-      <PropertiesRail issue={issue} />
-      </div>
+      {linkMenu.anchor && <AddLinkMenu issue={issue} anchor={linkMenu.anchor} onClose={linkMenu.close} />}
     </div>
   );
 }
@@ -609,8 +782,65 @@ export function IssuePage(props: { issueKey: string }) {
   const m = /^(.+)-(\d+)$/.exec(props.issueKey);
   const team = snap.teams.find(t => t.key.toLowerCase() === (m?.[1] ?? '').toLowerCase());
   const issue = snap.issues.find(i => i.teamId === team?.id && i.number === Number(m?.[2]));
-  if (!issue) {
-    return <div className="empty-state"><div className="empty-title">Issue not found</div></div>;
-  }
+  if (!issue) return <MissingIssue issueKey={props.issueKey} />;
   return <IssueDetail issue={issue} full />;
 }
+
+/* an archived or trashed issue still opens — read-only, with a way back */
+function MissingIssue(props: { issueKey: string }) {
+  const navigate = useNavigate();
+  const [found, setFound] = useState<{ issue: Issue; where: 'archive' | 'trash' } | null | undefined>(undefined);
+  useEffect(() => {
+    let off = false;
+    void (async () => {
+      const [a, d] = await Promise.all([api.archivedIssues(), api.deletedIssues()]);
+      const snap = useApp.getState().snap!;
+      const keyOf = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`.toLowerCase();
+      const k = props.issueKey.toLowerCase();
+      const hitA = a.issues.find(i => keyOf(i) === k);
+      const hitD = d.issues.find(i => keyOf(i) === k);
+      if (!off) setFound(hitD ? { issue: hitD, where: 'trash' } : hitA ? { issue: hitA, where: 'archive' } : null);
+    })();
+    return () => { off = true; };
+  }, [props.issueKey]);
+  if (found === undefined) return null;
+  if (!found) return <div className="empty-state"><div className="empty-title">Issue not found</div><div className="empty-desc">{props.issueKey} doesn't exist, or was deleted permanently.</div></div>;
+  return (
+    <div className="empty-state">
+      <div className="empty-title">{props.issueKey.toUpperCase()} is {found.where === 'trash' ? 'in the trash' : 'archived'}</div>
+      <div className="empty-desc">{found.issue.title}</div>
+      <div className="empty-actions">
+        <button className="btn primary" onClick={async () => {
+          if (found.where === 'trash') await api.restoreIssue(found.issue.id); else await api.unarchiveIssue(found.issue.id);
+          await useApp.getState().bootstrap();
+        }}>{found.where === 'trash' ? 'Restore issue' : 'Unarchive issue'}</button>
+        <button className="btn secondary" onClick={() => navigate(-1)}>Go back</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- peek (Space on a row) ---------------- */
+export function PeekPanel() {
+  const peekId = useApp(s => s.peekIssueId);
+  const setPeek = useApp(s => s.setPeek);
+  const issue = useApp(s => s.snap?.issues.find(i => i.id === peekId));
+  useEffect(() => { if (peekId && !issue) setPeek(null); }, [peekId, issue, setPeek]);
+  return createPortal(
+    <AnimatePresence>
+      {issue && (
+        <>
+          <motion.div key="peek-scrim" className="peek-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={() => setPeek(null)} />
+          <motion.div key="peek" className="peek-panel"
+            initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16, transition: { duration: 0.14 } }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}>
+            <IssueDetail key={issue.id} issue={issue} peek onClose={() => setPeek(null)} />
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>,
+    document.body,
+  );
+}
+
+export { markDuplicate };

@@ -50,13 +50,17 @@ export function Menu(props: {
       // move its J/K cursor or open the row under it
       if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setIndex(i => (i + 1) % Math.max(els.length, 1)); }
       if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setIndex(i => (i - 1 + els.length) % Math.max(els.length, 1)); }
-      // a digit cap in an item's right slot (priority 0–4, status 1–n) is a real shortcut
-      if (/^[0-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !(e.target as HTMLElement)?.closest?.('input, textarea')) {
+      // a digit cap in an item's right slot (priority 0–4, status 1–n) is a real shortcut —
+      // also from an empty filter field (a filter with text in it takes the digit as text)
+      const target = e.target as HTMLElement | null;
+      const inFilter = !!target?.closest?.('.menu-filter');
+      const emptyFilter = inFilter && !(target as HTMLInputElement).value;
+      if (/^[0-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && (emptyFilter || !target?.closest?.('input, textarea'))) {
         const hit = els.find(el => el.querySelector('.mi-right .kbd')?.textContent === e.key);
         if (hit) { e.preventDefault(); e.stopPropagation(); hit.click(); return; }
       }
       const pick = els[Math.min(index, els.length - 1)];
-      if (e.key === 'Enter' && pick && !(e.target as HTMLElement)?.closest?.('.menu-input')) {
+      if (e.key === 'Enter' && pick && (inFilter || !target?.closest?.('.menu-input'))) {
         e.preventDefault(); e.stopPropagation(); pick.click();
       }
     };
@@ -71,6 +75,15 @@ export function Menu(props: {
     els.forEach((el, n) => el.classList.toggle('highlighted', n === i));
     if (i >= 0) els[i]?.scrollIntoView({ block: 'nearest' });
   });
+
+  // typing in a filter field re-ranks the list: the highlight goes back to the top match
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onInput = () => setIndex(0);
+    el.addEventListener('input', onInput);
+    return () => el.removeEventListener('input', onInput);
+  }, []);
 
   const onPointerMove = (e: React.PointerEvent) => {
     const el = (e.target as HTMLElement).closest?.('.menu-item');

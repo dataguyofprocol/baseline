@@ -8,10 +8,10 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
 import { IconEstimate, IconTag, IconCycle, IconMore, IconUser, IconBox, IconCalendar, IconCheck, IconClose, IconFolder } from './icons.js';
+import { ESTIMATE_SCALES } from '../../src/core/types.js';
 import type { Issue, Priority } from '../../src/core/types.js';
 
 const PRIORITIES: Array<[Priority, string]> = [[0, 'No priority'], [1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low']];
-const ESTIMATES = [1, 2, 3, 5, 8, 13, 21];
 
 export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) {
   const snap = useApp(s => s.snap)!;
@@ -185,8 +185,8 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
         <Menu anchor={est.anchor} onClose={est.close} width={200}>
           <div className="menu-header"><span>Set estimate to…</span></div>
           <MenuItem label="No estimate" selected={estimate == null} onClick={() => setEstimate(null)} />
-          {ESTIMATES.map(pt => (
-            <MenuItem key={pt} icon={<span className="est-num">{pt}</span>} label={`point${pt > 1 ? 's' : ''}`} selected={estimate === pt} onClick={() => setEstimate(pt)} />
+          {ESTIMATE_SCALES[snap.teams.find(t => t.id === props.parent.teamId)?.estimateScale ?? 'fibonacci'].filter(x => x.value > 0).map(({ value: pt, label }) => (
+            <MenuItem key={pt} icon={<span className="est-num">{label}</span>} label={`${pt} point${pt > 1 ? 's' : ''}`} selected={estimate === pt} onClick={() => setEstimate(pt)} />
           ))}
         </Menu>
       )}

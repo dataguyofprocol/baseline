@@ -12,6 +12,10 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Main area bg #121213; top bar = breadcrumb (workspace › view / issue), star (favorite), more menu
 - ✅ Sub-nav pills row: All issues / Active / Backlog (+ filter count badge); right: Add filter, Display options, side-panel toggle
 - ✅ Tab title pattern: "Workspace › View - App"
+- ✅ Team rows: Triage (with count, when on), Issues, Cycles, Projects, Views; "…" menu (archive, settings, copy link)
+- ✅ Search page (`/`), Trash page, team Archive page; ⌘Z undo for every issue change; `[` toggles the sidebar
+- ✅ Team Home (team "…" › Team overview): Overview (icon, name, description, team resources), Documents, Members; right rail with members and Go to links
+- ✅ "+" beside Your teams opens Create a new team (name, identifier derived from it)
 
 ## 2. Issues list
 - ✅ Grouping: Status (cross-team merge by name), Priority, Assignee, Label, Project, Cycle, None
@@ -24,6 +28,12 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Filters: pill bar with dismissible pills (query, status, priority, assignee, label, project); `/` focuses filter; per-view persistence
 - ✅ J/K cursor ring with scrollIntoView; X select; Enter opens peek; multi-select bulk bar (status/priority/assignee/archive/delete)
 - ✅ Context menu: status/priority/assignee/labels (opens the same menus as detail), copy ID, copy as prompt (agent hand-off brief), open full page, duplicate, archive, delete — all with undo toasts
+- ✅ Linear filter menu: Status, Assignee (incl. Me / none), Creator, Priority, Estimate, Labels, Relations, Sub-issues, Due, Created, Updated, Project, Milestone, Cycle, Content — typing searches values across fields, per-value counts; pills are field · operator (is / is not / any of) · values · ×, with Clear and Save-as-view; "N issues hidden by filters"
+- ✅ Display options (Linear's popover): Grouping/Columns, Sub-grouping/Rows, Ordering, Order completed by recency, Completed issues window, Show sub-issues, Show triage issues, empty groups, 14 display properties, Reset
+- ✅ Every property menu (shortcut, rail, context menu, bulk bar) is the same filterable menu with number keys, acting on one issue or the selection
+- ✅ Right-click menu with property flyouts, Create related, Mark as (parent/sub-issue/related/blocked/blocking/duplicate), Copy ▸, Favorite, Subscribe, Remind me, Delete
+- ✅ Space peeks the hovered/cursor row; ⌘-click / ⇧-click select; ⌘A selects all; ⌘B flips list ↔ board
+- ✅ Advanced filters: nested AND / OR groups of conditions next to the simple pills, saved with views
 
 ## 3. Create issue modal (C)
 - ✅ Centered modal (#1a1a1b, radius 14, shadow), header: [team switcher ▾] › New issue (or "New sub-issue of KEY"), expand, close
@@ -32,6 +42,8 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Save as draft (localStorage per team, restored on reopen with Discard), Create more toggle, ⌘⏎ creates
 - ✅ Sub-issue mode: opens with parent pre-wired from issue detail or cycle page
 - ✅ Draft state persists; toasts on create with View issue link
+- ✅ Cycle pill (current / upcoming cycles), Milestone pill once the project has milestones, paperclip to attach files (uploaded on create); ⌘↵ works after picking from any pill menu
+- ✅ On the triage page, C (or "+") files the new issue straight into triage
 
 ## 4. Issue detail
 - ✅ Full page + side-peek variants; breadcrumb, star, copy link/ID, split view, more menu
@@ -46,6 +58,10 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Locations: a workspace list of directories (usually git repos) linked many-to-many to projects; every issue works in exactly one (Location property; every open issue without one shows "Needs a location"); sub-issues inherit the parent's location; a project's locations are suggestions in the picker, never defaults; add several at once (⌘-click in the folder picker)
 - ✅ Hand-off is always explicit (Copy as prompt, Open in Claude Code): nothing picks up assigned issues on its own
 - ✅ Sub-issues: list rows nest under their parent (elbow + indent), show "› parent" when apart, and parents show a closed/total progress ring; issue page shows "Sub-issue of ◐ KEY title  ◌ n/m"; inline sub-issue composer inherits the parent's priority, assignee, cycle and project, and Enter creates and keeps it open for the next one
+- ✅ Breadcrumb names the list you came from, "3 / 27" with ↓↑, J/K steps through it; every issue shortcut works on the open issue (menus anchor at the rail)
+- ✅ Rich-text description and comments (TipTap, stored as Markdown): headings, lists, checklists, code, quotes, `/` commands, @mentions of people and issues, pasted/dropped images and files
+- ✅ One activity timeline; comment threads with reply / resolve / reactions; real subscriptions (subscribers shown, ⇧S); links and file attachments (⌃L); Remind me (⇧H); move to team (⌘⇧M); Make a copy
+- ✅ Triage banner (Accept / Duplicate / Decline) on issues waiting in triage; archived and trashed URLs open with Restore
 
 ## 5. Board view
 - ✅ Columns per group (status/priority/assignee/project/cycle); header icon+name+count+actions; "+" per status column
@@ -53,6 +69,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Drag & drop: reorder within a column (sortOrder midpoint) and across columns (moves the group field)
 - ✅ Hidden columns panel: empty columns and Canceled (plus any you hide) move to a side panel with counts; rows accept drops and a click brings the column back
 - ✅ Claude Code identity: the integrated agent's avatar is an orange burst mark (also used for Open in Claude Code)
+- ✅ Rows (swimlanes) from sub-grouping, cards follow the display properties, estimate sums in column headers, card context menu, drag across lanes
 
 ## 6. Projects
 - ✅ List: name + favorite star, health dot, priority icon, lead, target date, issue count, progress donut + %
@@ -61,10 +78,17 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Overview: editable name/summary (click to edit), property chips (Status, Health, Priority, Lead, Target), project updates (health-tagged composer + feed), milestones (add/advance-status/delete, target dates), editable description (markdown)
 - ✅ Right rail: Status, Lead, Members (multi-pick), Dates, Progress, Activity feed
 - ✅ Issues tab: full grouped list with filters/display options, "New issue" and "Add existing issue" pickers
+- ✅ Projects list: filters (status, priority, lead, members, health, team, target, text), grouping, ordering, closed-projects window, display properties; Board and draggable Timeline layouts
+- ✅ Project statuses Backlog / Planned / In Progress / Paused / Completed / Canceled; summary; resources (links); Overview · Activity · Issues tabs; details panel (⌘I) with milestones and progress breakdown
+- ✅ Issues belong to milestones (rail, filter, grouping, CLI `--milestone`), milestone progress
+- ✅ Project templates (Settings › Templates; pick one in New project) and project dependencies (blocked by / blocking, arrows on the timeline)
+- ✅ Documents: "Add document or link…" in project and team resources; document page with the rich editor; `baseline doc`
+- ✅ Project saved views: Views has Issues | Projects tabs; a project view keeps filters, grouping, ordering, layout and properties; ⌥V saves whatever list is on screen
 
 ## 7. Command palette (⌘K)
 - ✅ Fuzzy subsequence search with scoring; sections: Navigation, Actions, Teams, Projects, Views, Issues
 - ✅ Commands: go to inbox/my issues/projects/views/settings pages, per-team home/cycles, create issue, create project, switch theme, shortcuts overlay, copy as prompt (when an issue is in view)
+- ✅ Acts on the open / peeked / hovered issue when nothing is selected: assign to me, relations, remind, move team, subscribe, copy ID/URL/title/branch/Markdown/prompt; navigation to triage, archive, current cycle, search, trash, settings pages
 
 ## 8. Settings
 - ✅ Own layout: "‹ Back to app", nav sections
@@ -76,25 +100,34 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Coding tools: locations (add, rename, see projects/issues using each, missing-path warning, remove), terminal app dropdown (installed terminals only), prompt template editor with live preview
 - ✅ Appearance: dark/light
 - ✅ Import & export: export JSON, import JSON (full restore), reset sample workspace
+- ✅ Account: Preferences (home view, first day of week, theme), Profile (name, email, avatar colour), Notifications (per kind)
+- ✅ Recurring issues per team (daily / weekly / every 2 weeks / monthly); any issue converts to one, or to a template, or to a project
+- ✅ Per-team page: triage, estimate scale (none / exponential / fibonacci / linear / t-shirt), cycle automation (length, cooldown, upcoming, rollover), workflow, cycles
 
 ## 9. Inbox & notifications
 - ✅ Grouped Today / Yesterday / Earlier with counts
 - ✅ Rows: type icon (assignment arrow / comment bubble), actor avatar, bold refs, unread accent bar, hover mark-read/unread, mark all as read
 - ✅ Click opens the issue in split peek and marks read
 - Generated on: assignment to you, comments by others (self-comments don't notify)
+- ✅ Linear inbox: U read/unread, ⌫ delete, H snooze (with natural-language times), ⇧⌫ delete all read, row menu, filters (type, from), display (ordering, show snoozed, unread first)
+- ✅ Notifications follow subscriptions: status changes (e.g. an agent finishing), comments, replies, mentions, assignment, reminders
+- ✅ Priority inbox (assignments, mentions, replies and reminders first) and grouping by Focus
+- ✅ Triage queue: filters, ordering (oldest / newest / priority), show snoozed, H snoozes, "Create triage issue"
 
 ## 10. Cycles
 - ✅ Team cycles page: Current / Upcoming / Previous sections, per-cycle card with date range, issue count, progress bar, inline issue rows, "+ Issue" (create pre-assigned to the cycle)
 - ✅ Cycle picker in issue properties; cycles manageable in team settings
+- ✅ Cycle page: full list/board with filters, burn-up chart (scope / started / completed), breakdown by assignee / label / project, rename, delete, previous/next
+- ✅ Automation keeps cycles scheduled and rolls unfinished issues into the next cycle
 
 ## 11. Keyboard model
-- ✅ C create; ⌘K palette; ⌘B sidebar; / filter; ? shortcuts overlay; J/K cursor; Enter open; Esc close/back (menus swallow Esc properly); S/P/A/L quick menus on the cursored row; 1-5 set status; ⇧U/H/M/L set priority; X select; E archive; ⌘⌫ delete (archive/delete undoable via toast); G then I/M/P/A/V navigation
-- ✅ ? opens the two-column cheatsheet (kept in sync with the above)
+- ✅ Linear's map: C create; ⌘K palette; / search; F filter; [ sidebar; ⌘B list/board; ⌘Z undo; J/K; Enter open; Space peek; X select; S P A L, I, ⇧D ⇧E ⇧C ⇧P ⇧M ⇧H ⇧S ⇧R, ⌥F, ⌘⇧P ⌘⇧M ⌘⇧O, M then B/X/R/M; 1–9 status; E archive; ⌘⌫ delete; copy chords; G then I/M/A/E/B/T/C/P/V/X/F/S
+- ✅ Inbox U / ⌫ / H / ⇧⌫; Triage 1 / 2 / 3 / H; ⌥V save as view
+- ✅ ? opens the searchable cheatsheet (also in Settings › Keyboard shortcuts), one source for both
 
 ## 12. Non-UI (agentic core)
 - ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution for agent identities; JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
 
 ## Known gaps (deliberate)
-- Issue subscriptions/unsubscribe, mentions parsing, markdown @-links
-- Rich-text toolbar on description editor (markdown textarea + renderer instead)
-- Trash bin page (soft-deleted issues are restorable via undo toast or API, but not browsable)
+- Initiatives (removed from the model earlier), customer requests, integrations, SSO, billing
+- See JOURNEYS.md for the journey-by-journey comparison with Linear

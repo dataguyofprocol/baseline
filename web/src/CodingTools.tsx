@@ -61,6 +61,13 @@ export function handoffActions(issue: Issue) {
   };
   const copyUrl = () => copy(`${location.origin}/#/issue/${key}`, 'Copied issue URL');
   const copyId = () => copy(key, `Copied ${key}`);
+  const copyTitle = () => copy(issue.title, 'Copied title');
+  const copyMarkdown = () => {
+    const s2 = useApp.getState().snap;
+    const st = s2?.states.find(x => x.id === issue.stateId)?.name ?? '';
+    const body = `# ${key} ${issue.title}\n\nStatus: ${st}\n\n${issue.description}`.trim();
+    return copy(body, `Copied ${key} as Markdown`);
+  };
 
   const setLocation = async (locationId: string | null) => {
     await api.updateIssue(issue.id, { locationId });
@@ -92,7 +99,7 @@ export function handoffActions(issue: Issue) {
     });
     await useApp.getState().bootstrap();
   };
-  return { key, copyPrompt, copyBranch, copyUrl, copyId, openInClaude, chooseAndOpen, setLocation, chooseAndPin };
+  return { key, copyPrompt, copyBranch, copyUrl, copyId, copyTitle, copyMarkdown, openInClaude, chooseAndOpen, setLocation, chooseAndPin };
 }
 export type HandoffActions = ReturnType<typeof handoffActions>;
 
@@ -111,6 +118,8 @@ function useHandoffShortcuts(actions: HandoffActions) {
       if (e.altKey && e.code === 'KeyP') run(actions.copyPrompt);
       else if (!e.altKey && e.code === 'Period') run(e.shiftKey ? actions.copyBranch : actions.copyId);
       else if (!e.altKey && e.shiftKey && e.code === 'Comma') run(actions.copyUrl);
+      else if (!e.altKey && e.shiftKey && e.code === 'Quote') run(actions.copyTitle);
+      else if (e.altKey && e.code === 'KeyC') run(actions.copyMarkdown);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);

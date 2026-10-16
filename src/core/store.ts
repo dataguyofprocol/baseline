@@ -1,18 +1,24 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { homedir } from 'node:os';
 import { resolve as resolvePath } from 'node:path';
-import { getMeta, migrateDirectoriesToLocations, setMeta } from './db.js';
+import { getMeta, migrateDirectoriesToLocations, setMeta, ensureDefaults } from './db.js';
 import { id, nowIso, midSort } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import type {
-  ActivityItem, ActivityType, TerminalApp, Comment, Location, Cycle, Favorite, Handoff,
+  ActivityItem, ActivityType, Attachment, RecurringIssue, ProjectTemplate, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, EstimateScale,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
-  WorkflowState, WorkflowStateType,
+  WorkflowState, WorkflowStateType, UpdateCadence, ProjectStatusDef, ProjectSubscription, ProjectLabel, DocTemplate, CustomEmoji,
+  Customer, CustomerRequest, WorkspaceFeatures,
 } from './types.js';
-import { toTerminalApp } from './types.js';
+import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES } from './types.js';
 
-interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; }
+interface TeamRow { id: string; key: string; name: string; icon: string; color: string; description: string; position: number; triage_enabled: number; auto_cycles: number; cycle_duration: number; cycle_cooldown: number; cycle_upcoming: number; cycle_rollover: number; estimate_scale: string }
+interface CommentRow { id: string; issue_id: string; user_id: string; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null; parent_id: string | null }
+interface AttachmentRow { id: string; issue_id: string; user_id: string; kind: string; url: string; title: string; mime: string; size: number; created_at: string }
+const DAY = 86400000;
+
+interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; milestone_id: string | null; creator_id: string | null; snoozed_until: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; }
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
@@ -38,11 +44,40 @@ export class Store {
   private mapIssue = (r: IssueRow): Issue => ({
     id: r.id, teamId: r.team_id, number: r.number, title: r.title, description: r.description,
     stateId: r.state_id, priority: r.priority as Priority, assigneeId: r.assignee_id,
-    projectId: r.project_id, cycleId: r.cycle_id, parentId: r.parent_id, locationId: r.location_id ?? null, estimate: r.estimate,
+    projectId: r.project_id, cycleId: r.cycle_id, parentId: r.parent_id, locationId: r.location_id ?? null,
+    milestoneId: r.milestone_id ?? null, creatorId: r.creator_id ?? null, snoozedUntil: r.snoozed_until ?? null, estimate: r.estimate,
     dueDate: r.due_date, sortOrder: r.sort_order, labelIds: JSON.parse(r.labels),
     createdAt: r.created_at, updatedAt: r.updated_at, archivedAt: r.archived_at,
     completedAt: r.completed_at, canceledAt: r.canceled_at, deletedAt: r.deleted_at,
   });
+
+  private mapTeam = (t: TeamRow): Team => ({
+    id: t.id, key: t.key, name: t.name, icon: t.icon, color: t.color, description: t.description, position: t.position,
+    triageEnabled: !!t.triage_enabled, autoCycles: !!t.auto_cycles, cycleDuration: t.cycle_duration ?? 2,
+    cycleCooldown: t.cycle_cooldown ?? 0, cycleUpcoming: t.cycle_upcoming ?? 2, cycleRollover: t.cycle_rollover !== 0,
+    estimateScale: (t.estimate_scale as EstimateScale) ?? 'fibonacci',
+  });
+  private mapComment = (c: CommentRow): Comment => ({
+    id: c.id, issueId: c.issue_id, userId: c.user_id, body: c.body, createdAt: c.created_at, editedAt: c.edited_at,
+    reactions: JSON.parse(c.reactions), resolvedAt: c.resolved_at, parentId: c.parent_id ?? null,
+  });
+  private mapAttachment = (a: AttachmentRow): Attachment => ({
+    id: a.id, issueId: a.issue_id, userId: a.user_id, kind: a.kind === 'file' ? 'file' : 'link', url: a.url,
+    title: a.title, mime: a.mime, size: a.size, createdAt: a.created_at,
+  });
+
+  private mapProject(p: Record<string, unknown>, locs = this.projectLocationMap()): Project {
+    return {
+      id: p.id as string, teamId: (p.team_id as string | null) ?? null, name: p.name as string, summary: (p.summary as string) ?? '',
+      description: p.description as string, icon: p.icon as string, color: p.color as string,
+      status: p.status as Project['status'], health: p.health as Project['health'],
+      priority: (p.priority as number ?? 0) as Priority, locationIds: locs.get(p.id as string) ?? [], startDate: (p.start_date as string | null) ?? null,
+      targetDate: (p.target_date as string | null) ?? null, leadId: (p.lead_id as string | null) ?? null,
+      memberIds: JSON.parse((p.members as string) ?? '[]'), labelIds: JSON.parse((p.labels as string) ?? '[]'),
+      statusId: (p.status_id as string | null) ?? null, updateCadence: (p.update_cadence as UpdateCadence | null) ?? null,
+      position: p.position as number, createdAt: p.created_at as string, updatedAt: p.updated_at as string, completedAt: (p.completed_at as string | null) ?? null,
+    };
+  }
 
   // ---------- snapshot ----------
   snapshot(): Snapshot {
@@ -50,25 +85,42 @@ export class Store {
     const projectLocs = this.projectLocationMap();
     const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human' }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
-    const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig() };
+    const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig(), preferences: this.getPreferences(), features: this.getFeatures() };
     const currentUser = users.find(u => u.id === (getMeta(this.db, 'currentUser') ?? '')) ?? users[0];
     return {
       workspace, users, currentUser: currentUser!,
-      teams: rows<{ id: string; key: string; name: string; icon: string; color: string; description: string; position: number }>('SELECT * FROM teams ORDER BY position').map(t => ({ id: t.id, key: t.key, name: t.name, icon: t.icon, color: t.color, description: t.description, position: t.position })),
+      teams: rows<TeamRow>('SELECT * FROM teams ORDER BY position').map(this.mapTeam),
       states: rows<{ id: string; team_id: string; name: string; type: WorkflowStateType; color: string; position: number }>('SELECT * FROM states ORDER BY position').map(s => ({ id: s.id, teamId: s.team_id, name: s.name, type: s.type, color: s.color, position: s.position })),
       labels: rows<{ id: string; team_id: string; name: string; color: string; description: string }>('SELECT * FROM labels').map(l => ({ id: l.id, teamId: l.team_id, name: l.name, color: l.color, description: l.description })),
       templates: rows<TemplateRow>('SELECT * FROM issue_templates ORDER BY position, created_at').map(t => ({ id: t.id, teamId: t.team_id, name: t.name, title: t.title, description: t.description, position: t.position, createdAt: t.created_at })),
       issues: rows<IssueRow>('SELECT * FROM issues WHERE archived_at IS NULL AND deleted_at IS NULL').map(this.mapIssue),
-      comments: rows<{ id: string; issue_id: string; user_id: string; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null }>('SELECT * FROM comments ORDER BY created_at').map(c => ({ id: c.id, issueId: c.issue_id, userId: c.user_id, body: c.body, createdAt: c.created_at, editedAt: c.edited_at, reactions: JSON.parse(c.reactions), resolvedAt: c.resolved_at })),
+      comments: rows<CommentRow>('SELECT * FROM comments ORDER BY created_at').map(this.mapComment),
+      attachments: rows<AttachmentRow>('SELECT * FROM attachments ORDER BY created_at').map(this.mapAttachment),
+      subscriptions: rows<{ issue_id: string; user_id: string }>('SELECT * FROM subscriptions').map(r => ({ issueId: r.issue_id, userId: r.user_id })),
       relations: rows<{ id: string; issue_id: string; related_id: string; type: string }>('SELECT * FROM relations').map(r => ({ id: r.id, issueId: r.issue_id, relatedIssueId: r.related_id, type: r.type as RelationType })),
-      projects: rows<{ id: string; team_id: string | null; name: string; description: string; icon: string; color: string; status: Project['status']; health: Project['health']; priority: number; directory: string | null; start_date: string | null; target_date: string | null; lead_id: string | null; members: string; position: number; created_at: string; updated_at: string; completed_at: string | null }>('SELECT * FROM projects ORDER BY position, created_at').map(p => ({ id: p.id, teamId: p.team_id, name: p.name, description: p.description, icon: p.icon, color: p.color, status: p.status, health: p.health, priority: p.priority as Priority, locationIds: projectLocs.get(p.id) ?? [], startDate: p.start_date, targetDate: p.target_date, leadId: p.lead_id, memberIds: JSON.parse(p.members), position: p.position, createdAt: p.created_at, updatedAt: p.updated_at, completedAt: p.completed_at })),
+      projects: rows<Record<string, unknown>>('SELECT * FROM projects ORDER BY position, created_at').map(p => this.mapProject(p, projectLocs)),
+      projectLabels: rows<{ id: string; name: string; color: string; description: string; parent_id: string | null; is_group: number; created_at: string }>('SELECT * FROM project_labels ORDER BY name').map(l => ({ id: l.id, name: l.name, color: l.color, description: l.description, parentId: l.parent_id, isGroup: !!l.is_group, createdAt: l.created_at })),
+      projectStatuses: rows<{ id: string; type: Project['status']; name: string; color: string; description: string; position: number }>('SELECT * FROM project_statuses ORDER BY position').map(x => ({ id: x.id, type: x.type, name: x.name, color: x.color, description: x.description, position: x.position })),
+      projectSubscriptions: rows<{ project_id: string; user_id: string; issue_added: number; issue_closed: number; comments: number; updates: number }>('SELECT * FROM project_subscriptions').map(x => ({ projectId: x.project_id, userId: x.user_id, issueAdded: !!x.issue_added, issueClosed: !!x.issue_closed, comments: !!x.comments, updates: !!x.updates })),
+      docTemplates: rows<{ id: string; name: string; title: string; content: string; created_at: string }>('SELECT * FROM doc_templates ORDER BY created_at').map(t => ({ id: t.id, name: t.name, title: t.title, content: t.content, createdAt: t.created_at })),
+      emojis: rows<{ id: string; name: string; url: string; created_at: string }>('SELECT * FROM emojis ORDER BY name').map(e => ({ id: e.id, name: e.name, url: e.url, createdAt: e.created_at })),
+      customers: rows<{ id: string; name: string; domains: string; status_id: string | null; tier_id: string | null; revenue: number | null; size: number | null; owner_id: string | null; created_at: string }>('SELECT * FROM customers ORDER BY name').map(c => ({ id: c.id, name: c.name, domains: JSON.parse(c.domains), statusId: c.status_id, tierId: c.tier_id, revenue: c.revenue, size: c.size, ownerId: c.owner_id, createdAt: c.created_at })),
+      customerStatuses: rows<{ id: string; name: string; color: string; position: number }>('SELECT * FROM customer_statuses ORDER BY position').map(x => ({ id: x.id, name: x.name, color: x.color, position: x.position })),
+      customerTiers: rows<{ id: string; name: string; color: string; position: number }>('SELECT * FROM customer_tiers ORDER BY position').map(x => ({ id: x.id, name: x.name, color: x.color, position: x.position })),
+      customerRequests: rows<{ id: string; customer_id: string; issue_id: string | null; project_id: string | null; body: string; important: number; creator_id: string | null; created_at: string }>('SELECT * FROM customer_requests ORDER BY created_at DESC').map(r => ({ id: r.id, customerId: r.customer_id, issueId: r.issue_id, projectId: r.project_id, body: r.body, important: !!r.important, creatorId: r.creator_id, createdAt: r.created_at })),
+      recurring: rows<{ id: string; team_id: string; title: string; description: string; priority: number; assignee_id: string | null; labels: string; project_id: string | null; cadence: string; next_at: string; created_at: string }>('SELECT * FROM recurring_issues ORDER BY created_at').map(r => ({ id: r.id, teamId: r.team_id, title: r.title, description: r.description, priority: r.priority as Priority, assigneeId: r.assignee_id, labelIds: JSON.parse(r.labels), projectId: r.project_id, cadence: r.cadence as RecurringIssue['cadence'], nextAt: r.next_at, createdAt: r.created_at })),
+      projectTemplates: rows<{ id: string; name: string; icon: string; summary: string; description: string; status: string; priority: number; milestones: string; issues: string; created_at: string }>('SELECT * FROM project_templates ORDER BY created_at').map(t => ({ id: t.id, name: t.name, icon: t.icon, summary: t.summary, description: t.description, status: t.status as Project['status'], priority: t.priority as Priority, milestones: JSON.parse(t.milestones), issues: JSON.parse(t.issues), createdAt: t.created_at })),
+      projectRelations: rows<{ id: string; project_id: string; related_id: string; type: string }>('SELECT * FROM project_relations').map(r => ({ id: r.id, projectId: r.project_id, relatedProjectId: r.related_id, type: 'blocks' as const })),
+      docs: rows<{ id: string; title: string; icon: string; content: string; project_id: string | null; team_id: string | null; creator_id: string | null; created_at: string; updated_at: string }>('SELECT * FROM documents ORDER BY updated_at DESC').map(d => ({ id: d.id, title: d.title, icon: d.icon, content: d.content, projectId: d.project_id, teamId: d.team_id, creatorId: d.creator_id, createdAt: d.created_at, updatedAt: d.updated_at })),
+      teamLinks: rows<{ id: string; team_id: string; url: string; title: string; created_at: string }>('SELECT * FROM team_links ORDER BY created_at').map(l => ({ id: l.id, teamId: l.team_id, url: l.url, title: l.title, createdAt: l.created_at })),
+      projectLinks: rows<{ id: string; project_id: string; url: string; title: string; created_at: string }>('SELECT * FROM project_links ORDER BY created_at').map(l => ({ id: l.id, projectId: l.project_id, url: l.url, title: l.title, createdAt: l.created_at })),
       locations: this.listLocations(),
       milestones: rows<{ id: string; project_id: string; name: string; target_date: string | null; status: Milestone['status']; position: number; created_at: string }>('SELECT * FROM milestones ORDER BY position, created_at').map(m => ({ id: m.id, projectId: m.project_id, name: m.name, targetDate: m.target_date, status: m.status, position: m.position, createdAt: m.created_at })),
       projectUpdates: rows<{ id: string; project_id: string; user_id: string; body: string; health: ProjectUpdate['health']; created_at: string }>('SELECT * FROM project_updates ORDER BY created_at DESC').map(u => ({ id: u.id, projectId: u.project_id, userId: u.user_id, body: u.body, health: u.health, createdAt: u.created_at })),
       cycles: rows<{ id: string; team_id: string; number: number; name: string; starts_at: string; ends_at: string; completed_at: string | null }>('SELECT * FROM cycles ORDER BY number').map(c => ({ id: c.id, teamId: c.team_id, number: c.number, name: c.name, startsAt: c.starts_at, endsAt: c.ends_at, completedAt: c.completed_at })),
-      views: rows<{ id: string; team_id: string | null; name: string; icon: string; filters: string; group_by: string; order_by: string; layout: string; position: number }>('SELECT * FROM views ORDER BY position').map(v => ({ id: v.id, teamId: v.team_id, name: v.name, icon: v.icon, filters: JSON.parse(v.filters), groupBy: v.group_by as GroupBy, orderBy: v.order_by as OrderBy, layout: v.layout as 'list' | 'board', position: v.position })),
+      views: rows<{ id: string; team_id: string | null; name: string; icon: string; filters: string; group_by: string; order_by: string; layout: string; position: number; kind: string; project_options: string | null }>('SELECT * FROM views ORDER BY position').map(v => ({ id: v.id, teamId: v.team_id, name: v.name, icon: v.icon, filters: JSON.parse(v.filters), groupBy: v.group_by as GroupBy, orderBy: v.order_by as OrderBy, layout: v.layout as 'list' | 'board', position: v.position, kind: (v.kind === 'projects' ? 'projects' : 'issues') as SavedView['kind'], projectOptions: v.project_options ? JSON.parse(v.project_options) : null })),
       favorites: rows<{ id: string; type: Favorite['type']; ref_id: string; position: number }>('SELECT * FROM favorites ORDER BY position').map(f => ({ id: f.id, type: f.type, refId: f.ref_id, position: f.position })),
-      notifications: rows<{ id: string; type: Notification['type']; actor_id: string | null; issue_id: string | null; project_id: string | null; body: string; read_at: string | null; created_at: string }>('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 500').map(n => ({ id: n.id, type: n.type, actorId: n.actor_id, issueId: n.issue_id, projectId: n.project_id, body: n.body, readAt: n.read_at, createdAt: n.created_at })),
+      notifications: rows<{ id: string; type: Notification['type']; actor_id: string | null; issue_id: string | null; project_id: string | null; body: string; read_at: string | null; snoozed_until: string | null; created_at: string }>('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 500').map(n => ({ id: n.id, type: n.type, actorId: n.actor_id, issueId: n.issue_id, projectId: n.project_id, body: n.body, readAt: n.read_at, snoozedUntil: n.snoozed_until ?? null, createdAt: n.created_at })),
       activity: rows<{ id: string; issue_id: string | null; project_id: string | null; user_id: string; type: ActivityType; data: string; created_at: string }>('SELECT * FROM activity ORDER BY created_at DESC LIMIT 2000').map(a => ({ id: a.id, issueId: a.issue_id, projectId: a.project_id, userId: a.user_id, type: a.type, data: JSON.parse(a.data), createdAt: a.created_at })),
     };
   }
@@ -84,8 +136,10 @@ export class Store {
 
   // ---------- teams ----------
   createTeam(key: string, name: string, icon = '📦', color = '#5e6ad2'): Team {
-    const team: Team = { id: id('t'), key: key.toUpperCase(), name, icon, color, description: '', position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM teams').get() as { p: number }).p };
-    this.db.prepare('INSERT INTO teams (id, key, name, icon, color, description, position) VALUES (?, ?, ?, ?, ?, ?, ?)').run(team.id, team.key, team.name, team.icon, team.color, team.description, team.position);
+    const position = (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM teams').get() as { p: number }).p;
+    const tid = id('t');
+    this.db.prepare('INSERT INTO teams (id, key, name, icon, color, description, position) VALUES (?, ?, ?, ?, ?, ?, ?)').run(tid, key.toUpperCase(), name, icon, color, '', position);
+    const team = this.getTeam(tid)!;
     const defaults: Array<[string, WorkflowStateType, string]> = [
       ['Backlog', 'backlog', '#95a2b3'], ['Todo', 'unstarted', '#e2e2e2'], ['In Progress', 'started', '#f2c94c'],
       ['Done', 'completed', '#5e6ad2'], ['Canceled', 'canceled', '#7d8084'],
@@ -95,12 +149,31 @@ export class Store {
   }
 
   listTeams(): Team[] { return this.snapshot().teams; }
-  updateTeam(teamId: string, patch: Partial<Pick<Team, 'key' | 'name' | 'icon' | 'color' | 'description' | 'position'>>): void {
+  getTeam(teamId: string): Team | undefined {
+    const row = this.db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as TeamRow | undefined;
+    return row ? this.mapTeam(row) : undefined;
+  }
+  updateTeam(teamId: string, patch: Partial<Pick<Team, 'key' | 'name' | 'icon' | 'color' | 'description' | 'position' | 'triageEnabled' | 'autoCycles' | 'cycleDuration' | 'cycleCooldown' | 'cycleUpcoming' | 'cycleRollover' | 'estimateScale'>>): void {
+    const col: Record<string, string> = {
+      triageEnabled: 'triage_enabled', autoCycles: 'auto_cycles', cycleDuration: 'cycle_duration', cycleCooldown: 'cycle_cooldown',
+      cycleUpcoming: 'cycle_upcoming', cycleRollover: 'cycle_rollover', estimateScale: 'estimate_scale',
+    };
     const sets: string[] = []; const vals: (string | number)[] = [];
-    for (const [k, v] of sqlPairs(patch, ['key', 'name', 'icon', 'color', 'description', 'position'])) { sets.push(`${k} = ?`); vals.push(v as string | number); }
+    for (const [k, v] of sqlPairs(patch, ['key', 'name', 'icon', 'color', 'description', 'position', 'triageEnabled', 'autoCycles', 'cycleDuration', 'cycleCooldown', 'cycleUpcoming', 'cycleRollover', 'estimateScale'])) {
+      sets.push(`${col[k] ?? k} = ?`);
+      vals.push(typeof v === 'boolean' ? (v ? 1 : 0) : k === 'key' ? String(v).toUpperCase() : v as string | number);
+    }
     if (!sets.length) return;
     vals.push(teamId);
     this.db.prepare(`UPDATE teams SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    // triage is a workflow state of its own: turning it on adds one, turning it off sends
+    // anything still waiting to the backlog and removes it
+    if (patch.triageEnabled === true && !this.stateOfType(teamId, 'triage')) this.createState(teamId, 'Triage', 'triage', '#fc7840', 0);
+    if (patch.triageEnabled === false) {
+      const triage = this.stateOfType(teamId, 'triage');
+      if (triage) this.deleteState(triage);
+    }
+    if (patch.autoCycles) this.scheduleCycles(teamId);
   }
   deleteTeam(teamId: string): void {
     this.db.prepare('DELETE FROM teams WHERE id = ?').run(teamId); // issues cascade
@@ -300,9 +373,12 @@ export class Store {
     return s.id;
   }
 
-  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null }, actorId?: string): Issue {
+  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null }, actorId?: string): Issue {
     const now = ts();
-    const stateId = input.stateId ?? this.defaultState(input.teamId);
+    const creatorId = actorId ?? getMeta(this.db, 'currentUser');
+    // with triage on, work filed by anyone but you (agents, teammates on the CLI) waits for review
+    const triage = this.getTeam(input.teamId)?.triageEnabled && creatorId !== getMeta(this.db, 'currentUser') ? this.stateOfType(input.teamId, 'triage') : undefined;
+    const stateId = input.stateId ?? triage ?? this.defaultState(input.teamId);
     const maxOrder = (this.db.prepare('SELECT COALESCE(MAX(sort_order), 0) m FROM issues WHERE team_id = ?').get(input.teamId) as { m: number }).m;
     const issue: Issue = {
       id: id('i'), teamId: input.teamId, number: this.nextNumber(input.teamId), title: input.title,
@@ -310,18 +386,22 @@ export class Store {
       assigneeId: input.assigneeId ?? null, projectId: input.projectId ?? null, cycleId: input.cycleId ?? null,
       parentId: input.parentId ?? null,
       locationId: input.locationId !== undefined ? (input.locationId && this.getLocation(input.locationId) ? input.locationId : null) : this.defaultLocationFor(input),
+      milestoneId: input.projectId ? input.milestoneId ?? null : null, creatorId: creatorId ?? null, snoozedUntil: null,
       estimate: input.estimate ?? null, dueDate: input.dueDate ?? null,
       sortOrder: maxOrder + 1024, labelIds: input.labelIds ?? [],
       createdAt: now, updatedAt: now, archivedAt: null, completedAt: null, canceledAt: null, deletedAt: null,
     };
-    this.db.prepare(`INSERT INTO issues (id, team_id, number, title, description, state_id, priority, assignee_id, project_id, cycle_id, parent_id, location_id, estimate, due_date, sort_order, labels, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(issue.id, issue.teamId, issue.number, issue.title, issue.description, issue.stateId, issue.priority, issue.assigneeId, issue.projectId, issue.cycleId, issue.parentId, issue.locationId, issue.estimate, issue.dueDate, issue.sortOrder, JSON.stringify(issue.labelIds), now, now);
+    this.db.prepare(`INSERT INTO issues (id, team_id, number, title, description, state_id, priority, assignee_id, project_id, cycle_id, parent_id, location_id, milestone_id, creator_id, estimate, due_date, sort_order, labels, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(issue.id, issue.teamId, issue.number, issue.title, issue.description, issue.stateId, issue.priority, issue.assigneeId, issue.projectId, issue.cycleId, issue.parentId, issue.locationId, issue.milestoneId, issue.creatorId, issue.estimate, issue.dueDate, issue.sortOrder, JSON.stringify(issue.labelIds), now, now);
     this.logActivity({ issueId: issue.id, type: 'created', data: { title: issue.title } }, actorId);
-    if (issue.assigneeId) this.notifyAssign(issue.id, issue.assigneeId, actorId);
+    if (issue.creatorId) this.subscribe(issue.id, issue.creatorId);
+    if (issue.assigneeId) { this.subscribe(issue.id, issue.assigneeId); this.notifyAssign(issue.id, issue.assigneeId, actorId); }
+    for (const uid of this.mentions(issue.description)) this.subscribe(issue.id, uid);
+    if (issue.projectId) this.notifyProject(issue.projectId, 'issueAdded', 'projectIssueAdded', creatorId, issue.title, issue.id);
     return issue;
   }
 
-  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt'>>, actorId?: string): Issue | undefined {
+  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'milestoneId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt'>>, actorId?: string): Issue | undefined {
     // drop explicitly-undefined keys so partial patches never clobber values
     const patch = Object.fromEntries(Object.entries(rawPatch).filter(([, v]) => v !== undefined)) as typeof rawPatch;
     const row = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(issueId) as IssueRow | undefined;
@@ -330,6 +410,11 @@ export class Store {
     const now = ts();
     const next: Issue = { ...before, ...patch, updatedAt: now };
     if (patch.locationId !== undefined && patch.locationId !== null && !this.getLocation(patch.locationId)) next.locationId = before.locationId;
+    // a milestone belongs to one project: leaving the project (or picking a milestone of another) clears it
+    if (next.milestoneId) {
+      const ms = this.db.prepare('SELECT project_id FROM milestones WHERE id = ?').get(next.milestoneId) as { project_id: string } | undefined;
+      if (!ms || ms.project_id !== next.projectId) next.milestoneId = null;
+    }
 
     // state side-effects
     if (patch.stateId && patch.stateId !== before.stateId) {
@@ -337,25 +422,42 @@ export class Store {
       next.completedAt = st.type === 'completed' ? now : null;
       next.canceledAt = st.type === 'canceled' ? now : null;
     }
-    this.db.prepare(`UPDATE issues SET title=?, description=?, state_id=?, priority=?, assignee_id=?, project_id=?, cycle_id=?, parent_id=?, location_id=?, estimate=?, due_date=?, sort_order=?, labels=?, updated_at=?, completed_at=?, canceled_at=?, archived_at=? WHERE id=?`)
-      .run(next.title, next.description, next.stateId, next.priority, next.assigneeId, next.projectId, next.cycleId, next.parentId, next.locationId, next.estimate, next.dueDate, next.sortOrder, JSON.stringify(next.labelIds), now, next.completedAt, next.canceledAt, next.archivedAt, issueId);
+    this.db.prepare(`UPDATE issues SET title=?, description=?, state_id=?, priority=?, assignee_id=?, project_id=?, cycle_id=?, parent_id=?, location_id=?, milestone_id=?, estimate=?, due_date=?, sort_order=?, labels=?, updated_at=?, completed_at=?, canceled_at=?, archived_at=? WHERE id=?`)
+      .run(next.title, next.description, next.stateId, next.priority, next.assigneeId, next.projectId, next.cycleId, next.parentId, next.locationId, next.milestoneId, next.estimate, next.dueDate, next.sortOrder, JSON.stringify(next.labelIds), now, next.completedAt, next.canceledAt, next.archivedAt, issueId);
 
     // activity diffs
     const acts: Array<[ActivityType, Record<string, unknown>]> = [];
     if (patch.title !== undefined && patch.title !== before.title) acts.push(['renamed', { from: before.title, to: next.title }]);
-    if (patch.description !== undefined && patch.description !== before.description) acts.push(['described', {}]);
-    if (patch.stateId !== undefined && patch.stateId !== before.stateId) acts.push(['stateChanged', { from: before.stateId, to: next.stateId }]);
+    if (patch.description !== undefined && patch.description !== before.description) {
+      acts.push(['described', {}]);
+      const had = new Set(this.mentions(before.description));
+      for (const uid of this.mentions(next.description)) if (!had.has(uid)) { this.subscribe(issueId, uid); this.notifyMention(issueId, uid, actorId, next.title); }
+    }
+    if (patch.stateId !== undefined && patch.stateId !== before.stateId) {
+      const fromType = this.stateType(before.stateId);
+      const toType = this.stateType(next.stateId);
+      if (fromType === 'triage' && toType !== 'triage') acts.push([toType === 'canceled' ? 'triageDeclined' : 'triageAccepted', { to: next.stateId }]);
+      else acts.push(['stateChanged', { from: before.stateId, to: next.stateId }]);
+      this.notifySubscribed(issueId, 'issueStatusChanged', actorId, (this.db.prepare('SELECT name FROM states WHERE id = ?').get(next.stateId) as { name: string } | undefined)?.name ?? '', 'statusChanged');
+    }
     if (patch.priority !== undefined && patch.priority !== before.priority) acts.push(['priorityChanged', { from: before.priority, to: next.priority }]);
     if (patch.assigneeId !== undefined && patch.assigneeId !== before.assigneeId) {
       acts.push([next.assigneeId ? 'assigned' : 'unassigned', { to: next.assigneeId, from: before.assigneeId }]);
-      if (next.assigneeId) this.notifyAssign(issueId, next.assigneeId, actorId);
+      if (next.assigneeId) { this.subscribe(issueId, next.assigneeId); this.notifyAssign(issueId, next.assigneeId, actorId); }
     }
-    if (patch.projectId !== undefined && patch.projectId !== before.projectId) acts.push(['projected', { to: next.projectId }]);
+    if (patch.projectId !== undefined && patch.projectId !== before.projectId) {
+      acts.push(['projected', { to: next.projectId }]);
+      if (next.projectId) this.notifyProject(next.projectId, 'issueAdded', 'projectIssueAdded', actorId, next.title, issueId);
+    }
+    if (next.projectId && next.stateId !== before.stateId && (next.completedAt || next.canceledAt) && !(before.completedAt || before.canceledAt)) {
+      this.notifyProject(next.projectId, 'issueClosed', 'projectIssueClosed', actorId, `${next.completedAt ? 'Completed' : 'Canceled'}: ${next.title}`, issueId);
+    }
     if (patch.parentId !== undefined && patch.parentId !== before.parentId) acts.push(['parented', { to: next.parentId, from: before.parentId }]);
     if (patch.cycleId !== undefined && patch.cycleId !== before.cycleId) acts.push(['cycleChanged', { to: next.cycleId, from: before.cycleId }]);
     if (next.locationId !== before.locationId) acts.push(['locationChanged', { to: next.locationId, from: before.locationId }]);
     if (patch.dueDate !== undefined && patch.dueDate !== before.dueDate) acts.push(['dueChanged', { to: next.dueDate }]);
     if (patch.estimate !== undefined && patch.estimate !== before.estimate) acts.push(['estimateChanged', { to: next.estimate }]);
+    if (next.milestoneId !== before.milestoneId) acts.push(['milestoneChanged', { to: next.milestoneId, from: before.milestoneId }]);
     if (patch.labelIds !== undefined) {
       for (const lid of patch.labelIds) if (!before.labelIds.includes(lid)) acts.push(['labeled', { labelId: lid }]);
       for (const lid of before.labelIds) if (!patch.labelIds.includes(lid)) acts.push(['unlabeled', { labelId: lid }]);
@@ -406,6 +508,59 @@ export class Store {
   deleteIssue(issueId: string): void {
     this.db.prepare('UPDATE issues SET deleted_at = ? WHERE id = ?').run(ts(), issueId);
   }
+  /** triage snooze: out of the queue until `until` (null brings it back now) */
+  snoozeIssue(issueId: string, until: string | null): void {
+    this.db.prepare('UPDATE issues SET snoozed_until = ? WHERE id = ?').run(until, issueId);
+  }
+  /** archived (not deleted) issues, newest first — the team's Archive view */
+  listArchived(teamId?: string): Issue[] {
+    const rows = teamId
+      ? this.db.prepare('SELECT * FROM issues WHERE archived_at IS NOT NULL AND deleted_at IS NULL AND team_id = ? ORDER BY archived_at DESC').all(teamId)
+      : this.db.prepare('SELECT * FROM issues WHERE archived_at IS NOT NULL AND deleted_at IS NULL ORDER BY archived_at DESC').all();
+    return (rows as unknown as IssueRow[]).map(this.mapIssue);
+  }
+  /** soft-deleted issues, newest first — the Trash view; they can be restored or purged */
+  listDeleted(teamId?: string): Issue[] {
+    const rows = teamId
+      ? this.db.prepare('SELECT * FROM issues WHERE deleted_at IS NOT NULL AND team_id = ? ORDER BY deleted_at DESC').all(teamId)
+      : this.db.prepare('SELECT * FROM issues WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC').all();
+    return (rows as unknown as IssueRow[]).map(this.mapIssue);
+  }
+  /** move an issue to another team: it takes the next number there, its status maps to the
+   *  new team's first state of the same type, and team-scoped labels and cycles drop off */
+  moveIssueToTeam(issueId: string, teamId: string, actorId?: string): Issue | undefined {
+    const issue = this.getIssue(issueId);
+    if (!issue || issue.teamId === teamId || !this.getTeam(teamId)) return issue;
+    const fromKey = this.keyOf(issue);
+    const type = this.stateType(issue.stateId) ?? 'backlog';
+    const stateId = this.stateOfType(teamId, type) ?? this.defaultState(teamId);
+    const labelIds = issue.labelIds.filter(l => (this.db.prepare('SELECT team_id FROM labels WHERE id = ?').get(l) as { team_id: string } | undefined)?.team_id === teamId);
+    const number = this.nextNumber(teamId);
+    this.db.prepare('UPDATE issues SET team_id = ?, number = ?, state_id = ?, labels = ?, cycle_id = NULL, updated_at = ? WHERE id = ?')
+      .run(teamId, number, stateId, JSON.stringify(labelIds), ts(), issueId);
+    const moved = this.getIssue(issueId)!;
+    this.logActivity({ issueId, type: 'teamChanged', data: { from: fromKey, to: this.keyOf(moved) } }, actorId);
+    return moved;
+  }
+  /** Linear's "Convert to project": the issue's title, description, lead and priority become a
+   *  project, its sub-issues become that project's issues, and the issue itself is archived */
+  convertIssueToProject(issueId: string, actorId?: string): { project: Project; moved: string[] } | undefined {
+    const issue = this.getIssue(issueId);
+    if (!issue) return undefined;
+    const p = this.createProject({
+      name: issue.title, description: issue.description, teamId: issue.teamId,
+      leadId: issue.assigneeId ?? actorId ?? getMeta(this.db, 'currentUser'), priority: issue.priority,
+      targetDate: issue.dueDate,
+    });
+    const kids = this.db.prepare('SELECT id FROM issues WHERE parent_id = ? AND deleted_at IS NULL').all(issueId) as Array<{ id: string }>;
+    for (const k of kids) this.updateIssue(k.id, { projectId: p.id, parentId: null }, actorId);
+    this.updateIssue(issueId, { archivedAt: ts() }, actorId);
+    return { project: p, moved: kids.map(k => k.id) };
+  }
+  keyOf(issue: Pick<Issue, 'teamId' | 'number'>): string {
+    const t = this.db.prepare('SELECT key FROM teams WHERE id = ?').get(issue.teamId) as { key: string } | undefined;
+    return `${t?.key ?? 'ISS'}-${issue.number}`;
+  }
   restoreIssue(issueId: string): void {
     this.db.prepare('UPDATE issues SET deleted_at = NULL, archived_at = NULL WHERE id = ?').run(issueId);
   }
@@ -420,21 +575,66 @@ export class Store {
   }
 
   // ---------- comments ----------
-  addComment(issueId: string, userId: string, body: string): Comment {
+  addComment(issueId: string, userId: string, body: string, parentId: string | null = null): Comment {
     const now = ts();
-    const c: Comment = { id: id('c'), issueId, userId, body, createdAt: now, editedAt: null, reactions: {}, resolvedAt: null };
-    this.db.prepare('INSERT INTO comments (id, issue_id, user_id, body, created_at, reactions) VALUES (?, ?, ?, ?, ?, ?)').run(c.id, issueId, userId, body, now, '{}');
+    // replies hang off the thread's root, never off another reply
+    const root = parentId ? this.db.prepare('SELECT id, parent_id, user_id FROM comments WHERE id = ?').get(parentId) as { id: string; parent_id: string | null; user_id: string } | undefined : undefined;
+    const threadId = root ? root.parent_id ?? root.id : null;
+    const c: Comment = { id: id('c'), issueId, userId, body, createdAt: now, editedAt: null, reactions: {}, resolvedAt: null, parentId: threadId };
+    this.db.prepare('INSERT INTO comments (id, issue_id, user_id, body, created_at, reactions, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(c.id, issueId, userId, body, now, '{}', threadId);
     this.logActivity({ issueId, type: 'commented', data: { commentId: c.id } }, userId);
+    this.subscribe(issueId, userId);
     const me = getMeta(this.db, 'currentUser');
-    if (userId !== me) {
-      // a mention outranks the plain comment notification — never raise both
-      this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id('n'), (me ? this.mentions(body).includes(me) : false) ? 'issueMentioned' : 'issueCommented', userId, issueId, body.slice(0, 140), now);
+    const mentioned = this.mentions(body);
+    for (const uid of mentioned) this.subscribe(issueId, uid);
+    if (userId !== me && me) {
+      // a mention outranks a reply, which outranks the plain comment notification — never raise two
+      const threadAuthors = threadId ? (this.db.prepare('SELECT DISTINCT user_id FROM comments WHERE id = ? OR parent_id = ?').all(threadId, threadId) as Array<{ user_id: string }>).map(r => r.user_id) : [];
+      if (mentioned.includes(me)) this.notifyMention(issueId, me, userId, body);
+      else if (threadAuthors.includes(me)) { if (this.getPreferences().notify.comments) this.notify('issueReplied', { actorId: userId, issueId, body: body.slice(0, 140), createdAt: now }); }
+      else this.notifySubscribed(issueId, 'issueCommented', userId, body.slice(0, 140), 'comments');
     }
     return c;
   }
   updateComment(commentId: string, body: string): void { this.db.prepare('UPDATE comments SET body = ?, edited_at = ? WHERE id = ?').run(body, ts(), commentId); }
-  deleteComment(commentId: string): void { this.db.prepare('DELETE FROM comments WHERE id = ?').run(commentId); }
+  /** resolving closes a whole thread (its root carries the mark) */
+  resolveComment(commentId: string, resolved: boolean): void {
+    const row = this.db.prepare('SELECT id, parent_id FROM comments WHERE id = ?').get(commentId) as { id: string; parent_id: string | null } | undefined;
+    if (!row) return;
+    this.db.prepare('UPDATE comments SET resolved_at = ? WHERE id = ?').run(resolved ? ts() : null, row.parent_id ?? row.id);
+  }
+  deleteComment(commentId: string): void { this.db.prepare('DELETE FROM comments WHERE id = ? OR parent_id = ?').run(commentId, commentId); }
+
+  // ---------- subscriptions ----------
+  subscribe(issueId: string, userId: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO subscriptions (issue_id, user_id) VALUES (?, ?)').run(issueId, userId);
+  }
+  unsubscribe(issueId: string, userId: string): void {
+    this.db.prepare('DELETE FROM subscriptions WHERE issue_id = ? AND user_id = ?').run(issueId, userId);
+  }
+  isSubscribed(issueId: string, userId: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM subscriptions WHERE issue_id = ? AND user_id = ?').get(issueId, userId);
+  }
+
+  // ---------- attachments ----------
+  addAttachment(input: { issueId: string; kind: 'link' | 'file'; url: string; title?: string; mime?: string; size?: number; id?: string }, userId?: string): Attachment {
+    const a: Attachment = {
+      id: input.id ?? id('att'), issueId: input.issueId, userId: userId ?? getMeta(this.db, 'currentUser') ?? '', kind: input.kind,
+      url: input.url, title: input.title?.trim() || input.url, mime: input.mime ?? '', size: input.size ?? 0, createdAt: ts(),
+    };
+    this.db.prepare('INSERT INTO attachments (id, issue_id, user_id, kind, url, title, mime, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(a.id, a.issueId, a.userId, a.kind, a.url, a.title, a.mime, a.size, a.createdAt);
+    this.logActivity({ issueId: a.issueId, type: 'attached', data: { attachmentId: a.id, title: a.title, kind: a.kind } }, userId);
+    return a;
+  }
+  getAttachment(attachmentId: string): Attachment | undefined {
+    const row = this.db.prepare('SELECT * FROM attachments WHERE id = ?').get(attachmentId) as AttachmentRow | undefined;
+    return row ? this.mapAttachment(row) : undefined;
+  }
+  updateAttachment(attachmentId: string, title: string): void {
+    this.db.prepare('UPDATE attachments SET title = ? WHERE id = ?').run(title, attachmentId);
+  }
+  deleteAttachment(attachmentId: string): void { this.db.prepare('DELETE FROM attachments WHERE id = ?').run(attachmentId); }
   toggleReaction(commentId: string, emoji: string, userId: string): void {
     const row = this.db.prepare('SELECT reactions FROM comments WHERE id = ?').get(commentId) as { reactions: string } | undefined;
     if (!row) return;
@@ -465,36 +665,107 @@ export class Store {
       this.db.prepare('DELETE FROM relations WHERE issue_id = ? AND related_id = ? AND type = ?').run(row.related_id, row.issue_id, inverse);
     }
     this.db.prepare('DELETE FROM relations WHERE id = ?').run(relationId);
+    this.logActivity({ issueId: row.issue_id, type: 'unrelated', data: { relatedId: row.related_id, type: row.type } });
   }
 
   // ---------- projects ----------
-  createProject(input: { name: string; teamId?: string | null; description?: string; icon?: string; color?: string; status?: Project['status']; leadId?: string | null; targetDate?: string | null; startDate?: string | null; priority?: Priority; memberIds?: string[]; locationIds?: string[] }): Project {
+  createProject(input: { name: string; teamId?: string | null; summary?: string; description?: string; icon?: string; color?: string; status?: Project['status']; leadId?: string | null; targetDate?: string | null; startDate?: string | null; priority?: Priority; memberIds?: string[]; locationIds?: string[]; labelIds?: string[]; statusId?: string | null }): Project {
     const now = ts();
     const p: Project = {
-      id: id('p'), teamId: input.teamId ?? null, name: input.name, description: input.description ?? '',
+      id: id('p'), teamId: input.teamId ?? null, name: input.name, summary: input.summary ?? '', description: input.description ?? '',
       icon: input.icon ?? '🧊', color: input.color ?? '#5e6ad2', status: input.status ?? 'planned', health: 'onTrack',
       priority: input.priority ?? 0, locationIds: [],
       startDate: input.startDate ?? null, targetDate: input.targetDate ?? null, leadId: input.leadId ?? null,
-      memberIds: input.memberIds ?? [], position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM projects').get() as { p: number }).p,
+      memberIds: input.memberIds ?? [], labelIds: input.labelIds ?? [], statusId: null, updateCadence: null,
+      position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM projects').get() as { p: number }).p,
       createdAt: now, updatedAt: now, completedAt: input.status === 'completed' ? now : null,
     };
-    this.db.prepare('INSERT INTO projects (id, team_id, name, description, icon, color, status, health, priority, start_date, target_date, lead_id, members, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(p.id, p.teamId, p.name, p.description, p.icon, p.color, p.status, p.health, p.priority, p.startDate, p.targetDate, p.leadId, JSON.stringify(p.memberIds), p.position, now, now);
+    const named = input.statusId ? this.projectStatus(input.statusId) : undefined;
+    if (named) p.status = named.type;
+    p.statusId = named?.id ?? this.defaultProjectStatus(p.status)?.id ?? null;
+    this.db.prepare('INSERT INTO projects (id, team_id, name, summary, description, icon, color, status, health, priority, start_date, target_date, lead_id, members, position, created_at, updated_at, labels, status_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(p.id, p.teamId, p.name, p.summary, p.description, p.icon, p.color, p.status, p.health, p.priority, p.startDate, p.targetDate, p.leadId, JSON.stringify(p.memberIds), p.position, now, now, JSON.stringify(p.labelIds), p.statusId);
+    // the person who makes a project follows it (the bell on the project page)
+    const me = getMeta(this.db, 'currentUser');
+    if (me) this.setProjectSubscription(p.id, me, { comments: true, updates: true });
     this.logActivity({ projectId: p.id, type: 'projectCreated', data: {} });
     if (input.locationIds?.length) { this.setProjectLocations(p.id, input.locationIds); p.locationIds = this.projectLocationMap().get(p.id) ?? []; }
     return p;
   }
-  updateProject(projectId: string, patch: Partial<Pick<Project, 'name' | 'description' | 'icon' | 'color' | 'status' | 'health' | 'priority' | 'startDate' | 'targetDate' | 'leadId' | 'memberIds' | 'position' | 'completedAt'>>): void {
-    const cur = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as unknown as Project | undefined;
+  updateProject(projectId: string, rawPatch: Partial<Pick<Project, 'name' | 'summary' | 'teamId' | 'description' | 'icon' | 'color' | 'status' | 'statusId' | 'health' | 'priority' | 'startDate' | 'targetDate' | 'leadId' | 'memberIds' | 'labelIds' | 'updateCadence' | 'position' | 'completedAt'>>, actorId?: string): void {
+    const cur = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Record<string, unknown> | undefined;
     if (!cur) return;
+    const patch = { ...rawPatch };
+    // a named status carries its category; a bare category picks that category's first status
+    if (patch.statusId) { const st = this.projectStatus(patch.statusId); if (st) patch.status = st.type; else delete patch.statusId; }
+    else if (patch.status && patch.status !== cur.status) patch.statusId = this.defaultProjectStatus(patch.status)?.id ?? null;
+    if (patch.status && patch.status !== cur.status && patch.completedAt === undefined) patch.completedAt = patch.status === 'completed' ? ts() : null;
     const sets: string[] = []; const vals: (string | number | null)[] = [];
-    const col: Record<string, string> = { startDate: 'start_date', targetDate: 'target_date', leadId: 'lead_id', memberIds: 'members', completedAt: 'completed_at' };
-    for (const [k, v] of sqlPairs(patch, ['name', 'description', 'icon', 'color', 'status', 'health', 'priority', 'startDate', 'targetDate', 'leadId', 'memberIds', 'position', 'completedAt'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'memberIds' ? JSON.stringify(v) : v as string | number | null); }
+    const col: Record<string, string> = { startDate: 'start_date', targetDate: 'target_date', leadId: 'lead_id', memberIds: 'members', labelIds: 'labels', completedAt: 'completed_at', teamId: 'team_id', statusId: 'status_id', updateCadence: 'update_cadence' };
+    for (const [k, v] of sqlPairs(patch, ['name', 'summary', 'teamId', 'description', 'icon', 'color', 'status', 'statusId', 'health', 'priority', 'startDate', 'targetDate', 'leadId', 'memberIds', 'labelIds', 'updateCadence', 'position', 'completedAt'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'memberIds' || k === 'labelIds' ? JSON.stringify(v) : v as string | number | null); }
+    if (patch.description !== undefined && patch.description !== cur.description) this.notifyProject(projectId, 'comments', 'projectChanged', actorId, 'Project description changed');
     sets.push('updated_at = ?'); vals.push(ts(), projectId);
     this.db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
     this.logActivity({ projectId, type: 'projectUpdated', data: { fields: Object.keys(patch) } });
     if (patch.health) this.logActivity({ projectId, type: 'projectHealth', data: { to: patch.health } });
   }
+  // ---------- documents & team links ----------
+  createDoc(input: { title?: string; content?: string; icon?: string; projectId?: string | null; teamId?: string | null }, actorId?: string): Doc {
+    const now = ts();
+    const d: Doc = { id: id('doc'), title: input.title ?? '', icon: input.icon ?? '', content: input.content ?? '', projectId: input.projectId ?? null, teamId: input.teamId ?? null, creatorId: actorId ?? getMeta(this.db, 'currentUser'), createdAt: now, updatedAt: now };
+    this.db.prepare('INSERT INTO documents (id, title, icon, content, project_id, team_id, creator_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(d.id, d.title, d.icon, d.content, d.projectId, d.teamId, d.creatorId, now, now);
+    if (d.projectId) this.logActivity({ projectId: d.projectId, type: 'projectUpdated', data: { fields: ['document'] } }, actorId);
+    return d;
+  }
+  updateDoc(docId: string, patch: Partial<Pick<Doc, 'title' | 'content' | 'icon'>>): void {
+    const pairs = sqlPairs(patch, ['title', 'content', 'icon']);
+    if (!pairs.length) return;
+    this.db.prepare(`UPDATE documents SET ${pairs.map(([k]) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...(pairs.map(([, v]) => v) as string[]), ts(), docId);
+  }
+  deleteDoc(docId: string): void { this.db.prepare('DELETE FROM documents WHERE id = ?').run(docId); }
+  addTeamLink(teamId: string, url: string, title?: string): void {
+    this.db.prepare('INSERT INTO team_links (id, team_id, url, title, created_at) VALUES (?, ?, ?, ?, ?)').run(id('tl'), teamId, url, title?.trim() || url, ts());
+  }
+  deleteTeamLink(linkId: string): void { this.db.prepare('DELETE FROM team_links WHERE id = ?').run(linkId); }
+
+  // ---------- project templates & dependencies ----------
+  createProjectTemplate(input: Partial<Omit<ProjectTemplate, 'id' | 'createdAt'>> & { name: string }): ProjectTemplate {
+    const t: ProjectTemplate = {
+      id: id('ptpl'), name: input.name, icon: input.icon ?? '🧊', summary: input.summary ?? '', description: input.description ?? '',
+      status: input.status ?? 'planned', priority: input.priority ?? 0, milestones: input.milestones ?? [], issues: input.issues ?? [], createdAt: ts(),
+    };
+    this.db.prepare('INSERT INTO project_templates (id, name, icon, summary, description, status, priority, milestones, issues, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(t.id, t.name, t.icon, t.summary, t.description, t.status, t.priority, JSON.stringify(t.milestones), JSON.stringify(t.issues), t.createdAt);
+    return t;
+  }
+  updateProjectTemplate(tplId: string, patch: Partial<Omit<ProjectTemplate, 'id' | 'createdAt'>>): void {
+    const pairs = sqlPairs(patch, ['name', 'icon', 'summary', 'description', 'status', 'priority', 'milestones', 'issues']);
+    if (!pairs.length) return;
+    this.db.prepare(`UPDATE project_templates SET ${pairs.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`)
+      .run(...(pairs.map(([k, v]) => k === 'milestones' || k === 'issues' ? JSON.stringify(v) : v) as Array<string | number>), tplId);
+  }
+  deleteProjectTemplate(tplId: string): void { this.db.prepare('DELETE FROM project_templates WHERE id = ?').run(tplId); }
+  /** a project from a template: its fields, then its milestones and starter issues (in the project's team) */
+  applyProjectTemplate(projectId: string, tplId: string, actorId?: string): void {
+    const t = this.snapshot().projectTemplates.find(x => x.id === tplId);
+    const p = this.snapshot().projects.find(x => x.id === projectId);
+    if (!t || !p) return;
+    for (const name of t.milestones) this.createMilestone(projectId, name);
+    const teamId = p.teamId ?? (this.db.prepare('SELECT id FROM teams ORDER BY position LIMIT 1').get() as { id: string } | undefined)?.id;
+    if (teamId) for (const title of t.issues) this.createIssue({ teamId, title, projectId }, actorId);
+  }
+  addProjectDependency(projectId: string, blocksProjectId: string): void {
+    if (projectId === blocksProjectId) return;
+    if (this.db.prepare('SELECT 1 FROM project_relations WHERE project_id = ? AND related_id = ?').get(projectId, blocksProjectId)) return;
+    this.db.prepare("INSERT INTO project_relations (id, project_id, related_id, type) VALUES (?, ?, ?, 'blocks')").run(id('prel'), projectId, blocksProjectId);
+  }
+  removeProjectDependency(relId: string): void { this.db.prepare('DELETE FROM project_relations WHERE id = ?').run(relId); }
+
+  addProjectLink(projectId: string, url: string, title?: string): void {
+    this.db.prepare('INSERT INTO project_links (id, project_id, url, title, created_at) VALUES (?, ?, ?, ?, ?)').run(id('pl'), projectId, url, title?.trim() || url, ts());
+  }
+  deleteProjectLink(linkId: string): void { this.db.prepare('DELETE FROM project_links WHERE id = ?').run(linkId); }
   deleteProject(projectId: string): void {
     this.db.prepare('UPDATE issues SET project_id = NULL WHERE project_id = ?').run(projectId);
     this.db.prepare('DELETE FROM project_updates WHERE project_id = ?').run(projectId);
@@ -504,7 +775,9 @@ export class Store {
     const now = ts();
     const u: ProjectUpdate = { id: id('pu'), projectId, userId, body, health: health ?? null, createdAt: now };
     this.db.prepare('INSERT INTO project_updates (id, project_id, user_id, body, health, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(u.id, projectId, userId, body, u.health, now);
-    if (health) this.updateProject(projectId, { health });
+    if (health) this.updateProject(projectId, { health }, userId);
+    const pname = (this.db.prepare('SELECT name FROM projects WHERE id = ?').get(projectId) as { name: string } | undefined)?.name ?? '';
+    this.notifyProject(projectId, 'updates', 'projectUpdate', userId, `New update on ${pname}: ${body.replace(/\s+/g, ' ').slice(0, 120)}`);
     return u;
   }
 
@@ -533,6 +806,92 @@ export class Store {
     this.db.prepare('UPDATE issues SET cycle_id = NULL WHERE cycle_id = ?').run(cycleId);
     this.db.prepare('DELETE FROM cycles WHERE id = ?').run(cycleId);
   }
+  /** keep a team on its cadence: with automation on, the running cycle plus `cycleUpcoming`
+   *  future cycles always exist, laid end to end (cooldown weeks between them) */
+  scheduleCycles(teamId: string, now = new Date()): void {
+    const team = this.getTeam(teamId);
+    if (!team?.autoCycles) return;
+    const len = Math.max(1, team.cycleDuration) * 7 * DAY;
+    const gap = Math.max(0, team.cycleCooldown) * 7 * DAY;
+    const cycles = (this.db.prepare('SELECT * FROM cycles WHERE team_id = ? ORDER BY starts_at').all(teamId) as Array<{ number: number; starts_at: string; ends_at: string }>);
+    let number = cycles.length ? Math.max(...cycles.map(c => c.number)) : 0;
+    let start: number;
+    if (cycles.length) start = new Date(cycles[cycles.length - 1].ends_at).getTime() + 1000 + gap;
+    else {
+      // the first cycle starts on the most recent Monday
+      const d = new Date(now); d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      start = d.getTime();
+    }
+    // catch up from a long gap without back-filling empty cycles
+    while (start + len < now.getTime()) start += len + gap;
+    const future = () => (this.db.prepare('SELECT COUNT(*) n FROM cycles WHERE team_id = ? AND ends_at > ?').get(teamId, now.toISOString()) as { n: number }).n;
+    for (let guard = 0; future() < team.cycleUpcoming + 1 && guard < 12; guard++) {
+      number++;
+      const end = start + len - 1000;
+      this.createCycle(teamId, number, new Date(start).toISOString(), new Date(end).toISOString());
+      start = end + 1000 + gap;
+    }
+  }
+  /** close cycles whose time is up; with rollover on, their unfinished issues move to the next cycle */
+  completeEndedCycles(now = new Date()): void {
+    const ended = this.db.prepare('SELECT c.id, c.team_id, c.ends_at, t.cycle_rollover FROM cycles c JOIN teams t ON t.id = c.team_id WHERE c.completed_at IS NULL AND c.ends_at < ?').all(now.toISOString()) as Array<{ id: string; team_id: string; ends_at: string; cycle_rollover: number }>;
+    for (const c of ended) {
+      if (c.cycle_rollover) {
+        const next = this.db.prepare('SELECT id FROM cycles WHERE team_id = ? AND starts_at > ? ORDER BY starts_at LIMIT 1').get(c.team_id, c.ends_at) as { id: string } | undefined;
+        if (next) {
+          const open = this.db.prepare("SELECT i.id FROM issues i JOIN states s ON s.id = i.state_id WHERE i.cycle_id = ? AND s.type NOT IN ('completed', 'canceled') AND i.archived_at IS NULL AND i.deleted_at IS NULL").all(c.id) as Array<{ id: string }>;
+          for (const i of open) this.updateIssue(i.id, { cycleId: next.id });
+        }
+      }
+      this.db.prepare('UPDATE cycles SET completed_at = ? WHERE id = ?').run(now.toISOString(), c.id);
+    }
+  }
+  /** periodic upkeep run before each snapshot: cycle cadence and rollover, recurring issues */
+  tick(now = new Date()): void {
+    for (const t of this.db.prepare('SELECT id FROM teams WHERE auto_cycles = 1').all() as Array<{ id: string }>) this.scheduleCycles(t.id, now);
+    this.completeEndedCycles(now);
+    this.fileRecurring(now);
+    this.remindUpdates(now);
+    this.pulseDigest(now);
+  }
+
+  // ---------- recurring issues ----------
+  static nextOccurrence(from: Date, cadence: RecurringIssue['cadence']): Date {
+    const d = new Date(from);
+    if (cadence === 'daily') d.setDate(d.getDate() + 1);
+    else if (cadence === 'weekly') d.setDate(d.getDate() + 7);
+    else if (cadence === 'biweekly') d.setDate(d.getDate() + 14);
+    else d.setMonth(d.getMonth() + 1);
+    return d;
+  }
+  createRecurring(input: { teamId: string; title: string; description?: string; priority?: Priority; assigneeId?: string | null; labelIds?: string[]; projectId?: string | null; cadence: RecurringIssue['cadence']; startAt?: string }): RecurringIssue {
+    const r: RecurringIssue = {
+      id: id('rec'), teamId: input.teamId, title: input.title, description: input.description ?? '', priority: input.priority ?? 0,
+      assigneeId: input.assigneeId ?? null, labelIds: input.labelIds ?? [], projectId: input.projectId ?? null, cadence: input.cadence,
+      nextAt: input.startAt ?? Store.nextOccurrence(new Date(), input.cadence).toISOString(), createdAt: ts(),
+    };
+    this.db.prepare('INSERT INTO recurring_issues (id, team_id, title, description, priority, assignee_id, labels, project_id, cadence, next_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+      .run(r.id, r.teamId, r.title, r.description, r.priority, r.assigneeId, JSON.stringify(r.labelIds), r.projectId, r.cadence, r.nextAt, r.createdAt);
+    return r;
+  }
+  updateRecurring(recId: string, patch: Partial<Pick<RecurringIssue, 'title' | 'description' | 'cadence' | 'nextAt' | 'priority' | 'assigneeId'>>): void {
+    const col: Record<string, string> = { nextAt: 'next_at', assigneeId: 'assignee_id' };
+    const pairs = sqlPairs(patch, ['title', 'description', 'cadence', 'nextAt', 'priority', 'assigneeId']);
+    if (!pairs.length) return;
+    this.db.prepare(`UPDATE recurring_issues SET ${pairs.map(([k]) => `${col[k] ?? k} = ?`).join(', ')} WHERE id = ?`).run(...(pairs.map(([, v]) => v) as Array<string | number | null>), recId);
+  }
+  deleteRecurring(recId: string): void { this.db.prepare('DELETE FROM recurring_issues WHERE id = ?').run(recId); }
+  /** file every recurring issue whose time has come (once each — a long gap doesn't flood the backlog) */
+  fileRecurring(now = new Date()): void {
+    const due = this.db.prepare('SELECT * FROM recurring_issues WHERE next_at <= ?').all(now.toISOString()) as Array<{ id: string; team_id: string; title: string; description: string; priority: number; assignee_id: string | null; labels: string; project_id: string | null; cadence: RecurringIssue['cadence']; next_at: string }>;
+    for (const r of due) {
+      this.createIssue({ teamId: r.team_id, title: r.title, description: r.description, priority: r.priority as Priority, assigneeId: r.assignee_id, labelIds: JSON.parse(r.labels), projectId: r.project_id, stateId: this.stateOfType(r.team_id, 'unstarted') });
+      let next = Store.nextOccurrence(new Date(r.next_at), r.cadence);
+      while (next <= now) next = Store.nextOccurrence(next, r.cadence);
+      this.db.prepare('UPDATE recurring_issues SET next_at = ? WHERE id = ?').run(next.toISOString(), r.id);
+    }
+  }
 
   // ---------- milestones ----------
   createMilestone(projectId: string, name: string, targetDate: string | null = null): Milestone {
@@ -552,20 +911,21 @@ export class Store {
   }
 
   // ---------- views ----------
-  createView(name: string, filters: ViewFilters, opts: { teamId?: string | null; icon?: string; groupBy?: GroupBy; orderBy?: OrderBy; layout?: 'list' | 'board' }): SavedView {
+  createView(name: string, filters: ViewFilters, opts: { teamId?: string | null; icon?: string; groupBy?: GroupBy; orderBy?: OrderBy; layout?: 'list' | 'board'; kind?: SavedView['kind']; projectOptions?: Record<string, unknown> | null }): SavedView {
     const v: SavedView = {
       id: id('v'), teamId: opts.teamId ?? null, name, icon: opts.icon ?? '', filters,
       groupBy: opts.groupBy ?? 'status', orderBy: opts.orderBy ?? 'priority', layout: opts.layout ?? 'list',
       position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM views').get() as { p: number }).p,
+      kind: opts.kind === 'projects' ? 'projects' : 'issues', projectOptions: opts.projectOptions ?? null,
     };
-    this.db.prepare('INSERT INTO views (id, team_id, name, icon, filters, group_by, order_by, layout, position, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-      .run(v.id, v.teamId, v.name, v.icon, JSON.stringify(v.filters), v.groupBy, v.orderBy, v.layout, v.position, ts());
+    this.db.prepare('INSERT INTO views (id, team_id, name, icon, filters, group_by, order_by, layout, position, created_at, kind, project_options) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(v.id, v.teamId, v.name, v.icon, JSON.stringify(v.filters), v.groupBy, v.orderBy, v.layout, v.position, ts(), v.kind, v.projectOptions ? JSON.stringify(v.projectOptions) : null);
     return v;
   }
-  updateView(viewId: string, patch: Partial<Pick<SavedView, 'name' | 'icon' | 'filters' | 'groupBy' | 'orderBy' | 'layout' | 'position'>>): void {
-    const col: Record<string, string> = { groupBy: 'group_by', orderBy: 'order_by' };
+  updateView(viewId: string, patch: Partial<Pick<SavedView, 'name' | 'icon' | 'filters' | 'groupBy' | 'orderBy' | 'layout' | 'position' | 'projectOptions'>>): void {
+    const col: Record<string, string> = { groupBy: 'group_by', orderBy: 'order_by', projectOptions: 'project_options' };
     const sets: string[] = []; const vals: (string | number | null)[] = [];
-    for (const [k, v] of sqlPairs(patch, ['name', 'icon', 'filters', 'groupBy', 'orderBy', 'layout', 'position'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'filters' ? JSON.stringify(v) : v as string | number | null); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'icon', 'filters', 'groupBy', 'orderBy', 'layout', 'position', 'projectOptions'])) { const c = col[k] ?? k.replace(/[A-Z]/g, m => '_' + m.toLowerCase()); sets.push(`${c} = ?`); vals.push(k === 'filters' || k === 'projectOptions' ? (v == null ? null : JSON.stringify(v)) : v as string | number | null); }
     vals.push(viewId);
     this.db.prepare(`UPDATE views SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
@@ -603,9 +963,235 @@ export class Store {
     }
     return hit;
   }
+  /** notifications are this install's person's: raise one when they follow the issue and
+   *  someone else acted, if their preferences want that kind */
+  private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, pref: keyof Preferences['notify']): void {
+    const me = getMeta(this.db, 'currentUser');
+    if (!me || (actorId ?? me) === me || !this.isSubscribed(issueId, me) || !this.getPreferences().notify[pref]) return;
+    this.notify(type, { actorId: actorId ?? null, issueId, body });
+  }
+  private notifyMention(issueId: string, userId: string, actorId: string | undefined, body: string): void {
+    const me = getMeta(this.db, 'currentUser');
+    if (userId !== me || (actorId ?? me) === me || !this.getPreferences().notify.mentions) return;
+    this.notify('issueMentioned', { actorId: actorId ?? null, issueId, body: body.slice(0, 140) });
+  }
   listNotifications(): Notification[] { return this.snapshot().notifications; }
   markNotificationRead(notificationId: string, read = true): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE id = ?').run(read ? ts() : null, notificationId); }
   markAllNotificationsRead(): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL').run(ts()); }
+  deleteNotification(notificationId: string): void { this.db.prepare('DELETE FROM notifications WHERE id = ?').run(notificationId); }
+  deleteReadNotifications(): void { this.db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL').run(); }
+  /** "Remind me": a notification that stays hidden until `at` */
+  remindIssue(issueId: string, at: string): void {
+    this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, body, snoozed_until, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)')
+      .run(id('n'), 'issueReminder', issueId, 'Reminder', at, at);
+  }
+  /** null wakes it now; a snoozed notification comes back unread */
+  snoozeNotification(notificationId: string, until: string | null): void {
+    this.db.prepare('UPDATE notifications SET snoozed_until = ?, read_at = NULL WHERE id = ?').run(until, notificationId);
+  }
+
+  // ---------- preferences ----------
+  getPreferences(): Preferences {
+    try {
+      const raw = JSON.parse(getMeta(this.db, 'preferences') ?? '{}') as Partial<Preferences>;
+      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } } };
+    } catch { return DEFAULT_PREFERENCES; }
+  }
+  setPreferences(patch: Partial<Preferences>): void {
+    const cur = this.getPreferences();
+    setMeta(this.db, 'preferences', JSON.stringify({ ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } } }));
+  }
+
+  getFeatures(): WorkspaceFeatures {
+    try { return { ...DEFAULT_FEATURES, ...(JSON.parse(getMeta(this.db, 'features') ?? '{}') as Partial<WorkspaceFeatures>) }; } catch { return DEFAULT_FEATURES; }
+  }
+  setFeatures(patch: Partial<WorkspaceFeatures>): void { setMeta(this.db, 'features', JSON.stringify({ ...this.getFeatures(), ...patch })); }
+
+  // ---------- project labels ----------
+  createProjectLabel(input: { name: string; color?: string; description?: string; parentId?: string | null; isGroup?: boolean }): ProjectLabel {
+    const l: ProjectLabel = { id: id('pl'), name: input.name.trim(), color: input.color ?? '#8a8f98', description: input.description ?? '', parentId: input.parentId ?? null, isGroup: !!input.isGroup, createdAt: ts() };
+    this.db.prepare('INSERT INTO project_labels (id, name, color, description, parent_id, is_group, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(l.id, l.name, l.color, l.description, l.parentId, l.isGroup ? 1 : 0, l.createdAt);
+    return l;
+  }
+  updateProjectLabel(labelId: string, patch: Partial<Pick<ProjectLabel, 'name' | 'color' | 'description' | 'parentId'>>): void {
+    const col: Record<string, string> = { parentId: 'parent_id' };
+    const sets: string[] = []; const vals: (string | null)[] = [];
+    for (const [k, v] of sqlPairs(patch, ['name', 'color', 'description', 'parentId'])) { sets.push(`${col[k] ?? k} = ?`); vals.push(v as string | null); }
+    if (!sets.length) return;
+    vals.push(labelId);
+    this.db.prepare(`UPDATE project_labels SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+  /** deleting a group deletes the labels in it; every project loses the removed labels */
+  deleteProjectLabel(labelId: string): void {
+    const gone = [labelId, ...(this.db.prepare('SELECT id FROM project_labels WHERE parent_id = ?').all(labelId) as Array<{ id: string }>).map(r => r.id)];
+    for (const l of gone) this.db.prepare('DELETE FROM project_labels WHERE id = ?').run(l);
+    for (const p of this.db.prepare('SELECT id, labels FROM projects').all() as Array<{ id: string; labels: string }>) {
+      const cur = JSON.parse(p.labels ?? '[]') as string[];
+      const next = cur.filter(x => !gone.includes(x));
+      if (next.length !== cur.length) this.db.prepare('UPDATE projects SET labels = ? WHERE id = ?').run(JSON.stringify(next), p.id);
+    }
+  }
+
+  // ---------- project statuses ----------
+  projectStatus(statusId: string): ProjectStatusDef | undefined {
+    const x = this.db.prepare('SELECT * FROM project_statuses WHERE id = ?').get(statusId) as { id: string; type: Project['status']; name: string; color: string; description: string; position: number } | undefined;
+    return x ? { id: x.id, type: x.type, name: x.name, color: x.color, description: x.description, position: x.position } : undefined;
+  }
+  defaultProjectStatus(type: Project['status']): ProjectStatusDef | undefined {
+    const x = this.db.prepare('SELECT id FROM project_statuses WHERE type = ? ORDER BY position LIMIT 1').get(type) as { id: string } | undefined;
+    return x ? this.projectStatus(x.id) : undefined;
+  }
+  createProjectStatus(input: { type: Project['status']; name: string; color?: string; description?: string }): ProjectStatusDef {
+    const pos = (this.db.prepare('SELECT COALESCE(MAX(position), 0) + 1 p FROM project_statuses WHERE type = ?').get(input.type) as { p: number }).p;
+    const st: ProjectStatusDef = { id: id('ps'), type: input.type, name: input.name.trim(), color: input.color ?? '#8a8f98', description: input.description ?? '', position: pos };
+    this.db.prepare('INSERT INTO project_statuses (id, type, name, color, description, position) VALUES (?, ?, ?, ?, ?, ?)').run(st.id, st.type, st.name, st.color, st.description, st.position);
+    return st;
+  }
+  updateProjectStatus(statusId: string, patch: Partial<Pick<ProjectStatusDef, 'name' | 'color' | 'description' | 'position'>>): void {
+    const sets: string[] = []; const vals: (string | number)[] = [];
+    for (const [k, v] of sqlPairs(patch, ['name', 'color', 'description', 'position'])) { sets.push(`${k} = ?`); vals.push(v as string | number); }
+    if (!sets.length) return;
+    vals.push(statusId);
+    this.db.prepare(`UPDATE project_statuses SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+  /** a category keeps at least one status; projects on a deleted status move to the category's first */
+  deleteProjectStatus(statusId: string): boolean {
+    const st = this.projectStatus(statusId);
+    if (!st) return false;
+    const others = this.db.prepare('SELECT id FROM project_statuses WHERE type = ? AND id != ? ORDER BY position').all(st.type, statusId) as Array<{ id: string }>;
+    if (!others.length) return false;
+    this.db.prepare('UPDATE projects SET status_id = ? WHERE status_id = ?').run(others[0].id, statusId);
+    this.db.prepare('DELETE FROM project_statuses WHERE id = ?').run(statusId);
+    return true;
+  }
+
+  // ---------- project subscriptions (the bell) ----------
+  setProjectSubscription(projectId: string, userId: string, flags: Partial<Omit<ProjectSubscription, 'projectId' | 'userId'>>): void {
+    const cur = this.db.prepare('SELECT * FROM project_subscriptions WHERE project_id = ? AND user_id = ?').get(projectId, userId) as { issue_added: number; issue_closed: number; comments: number; updates: number } | undefined;
+    const v = {
+      issue_added: flags.issueAdded ?? !!cur?.issue_added, issue_closed: flags.issueClosed ?? !!cur?.issue_closed,
+      comments: flags.comments ?? (cur ? !!cur.comments : true), updates: flags.updates ?? (cur ? !!cur.updates : true),
+    };
+    if (!v.issue_added && !v.issue_closed && !v.comments && !v.updates) { this.db.prepare('DELETE FROM project_subscriptions WHERE project_id = ? AND user_id = ?').run(projectId, userId); return; }
+    this.db.prepare('INSERT INTO project_subscriptions (project_id, user_id, issue_added, issue_closed, comments, updates) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id) DO UPDATE SET issue_added = excluded.issue_added, issue_closed = excluded.issue_closed, comments = excluded.comments, updates = excluded.updates')
+      .run(projectId, userId, v.issue_added ? 1 : 0, v.issue_closed ? 1 : 0, v.comments ? 1 : 0, v.updates ? 1 : 0);
+  }
+  /** notify you about a project event you follow — never about your own changes */
+  private notifyProject(projectId: string, flag: 'issueAdded' | 'issueClosed' | 'comments' | 'updates', type: NotificationType, actorId: string | undefined | null, body: string, issueId?: string): void {
+    const me = getMeta(this.db, 'currentUser');
+    if (!me || (actorId ?? me) === me) return;
+    const col = { issueAdded: 'issue_added', issueClosed: 'issue_closed', comments: 'comments', updates: 'updates' }[flag];
+    const sub = this.db.prepare(`SELECT ${col} v FROM project_subscriptions WHERE project_id = ? AND user_id = ?`).get(projectId, me) as { v: number } | undefined;
+    if (!sub?.v) return;
+    this.notify(type, { actorId: actorId ?? null, projectId, issueId: issueId ?? null, body });
+  }
+
+  // ---------- update schedule & pulse ----------
+  private cadenceDays(c: UpdateCadence): number | null { return c === 'weekly' ? 7 : c === 'biweekly' ? 14 : c === 'monthly' ? 30 : null; }
+  /** when the next update is due on a project (null: no expectation) */
+  updateDueAt(project: Pick<Project, 'id' | 'updateCadence' | 'createdAt'>): string | null {
+    const days = this.cadenceDays(project.updateCadence ?? this.getFeatures().updateCadence);
+    if (!days) return null;
+    const last = this.db.prepare('SELECT MAX(created_at) t FROM project_updates WHERE project_id = ?').get(project.id) as { t: string | null };
+    return new Date(new Date(last.t ?? project.createdAt).getTime() + days * 86400000).toISOString();
+  }
+  private remindUpdates(now: Date): void {
+    const me = getMeta(this.db, 'currentUser');
+    if (!me) return;
+    for (const row of this.db.prepare("SELECT * FROM projects WHERE lead_id = ? AND status NOT IN ('completed', 'canceled')").all(me) as Array<Record<string, unknown>>) {
+      const p = this.mapProject(row);
+      const due = this.updateDueAt(p);
+      if (!due || due > now.toISOString()) continue;
+      const already = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'projectUpdateReminder' AND project_id = ? AND created_at >= ?").get(p.id, due);
+      if (!already) this.notify('projectUpdateReminder', { projectId: p.id, body: `An update on ${p.name} is due` });
+    }
+  }
+  private pulseDigest(now: Date): void {
+    const f = this.getFeatures();
+    if (!f.pulseEnabled || f.pulseSchedule === 'never') return;
+    const days = f.pulseSchedule === 'daily' ? 1 : 7;
+    const last = (this.db.prepare("SELECT MAX(created_at) t FROM notifications WHERE type = 'pulseDigest'").get() as { t: string | null }).t;
+    if (last && now.getTime() - new Date(last).getTime() < days * 86400000) return;
+    const since = last ?? new Date(now.getTime() - days * 86400000).toISOString();
+    const n = (this.db.prepare('SELECT COUNT(*) n FROM project_updates WHERE created_at > ?').get(since) as { n: number }).n;
+    if (n) this.notify('pulseDigest', { body: `${n} project update${n === 1 ? '' : 's'} since your last summary` });
+  }
+
+  // ---------- document templates ----------
+  createDocTemplate(input: { name: string; title?: string; content?: string }): DocTemplate {
+    const t: DocTemplate = { id: id('dt'), name: input.name.trim(), title: input.title ?? '', content: input.content ?? '', createdAt: ts() };
+    this.db.prepare('INSERT INTO doc_templates (id, name, title, content, created_at) VALUES (?, ?, ?, ?, ?)').run(t.id, t.name, t.title, t.content, t.createdAt);
+    return t;
+  }
+  updateDocTemplate(templateId: string, patch: Partial<Pick<DocTemplate, 'name' | 'title' | 'content'>>): void {
+    const sets: string[] = []; const vals: string[] = [];
+    for (const [k, v] of sqlPairs(patch, ['name', 'title', 'content'])) { sets.push(`${k} = ?`); vals.push(v as string); }
+    if (!sets.length) return;
+    vals.push(templateId);
+    this.db.prepare(`UPDATE doc_templates SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+  deleteDocTemplate(templateId: string): void { this.db.prepare('DELETE FROM doc_templates WHERE id = ?').run(templateId); }
+
+  // ---------- custom emojis ----------
+  addEmoji(name: string, url: string): CustomEmoji {
+    const e: CustomEmoji = { id: id('em'), name: name.toLowerCase().replace(/[^a-z0-9_-]/g, ''), url, createdAt: ts() };
+    if (!e.name) throw new Error('Emoji name needs letters or numbers');
+    if (this.db.prepare('SELECT 1 FROM emojis WHERE name = ?').get(e.name)) throw new Error(`:${e.name}: already exists`);
+    this.db.prepare('INSERT INTO emojis (id, name, url, created_at) VALUES (?, ?, ?, ?)').run(e.id, e.name, e.url, e.createdAt);
+    return e;
+  }
+  deleteEmoji(emojiId: string): void { this.db.prepare('DELETE FROM emojis WHERE id = ?').run(emojiId); }
+
+  // ---------- customers ----------
+  createCustomer(input: { name: string; domains?: string[]; statusId?: string | null; tierId?: string | null; revenue?: number | null; size?: number | null; ownerId?: string | null }): Customer {
+    const c: Customer = {
+      id: id('cu'), name: input.name.trim(), domains: (input.domains ?? []).map(d => d.trim().toLowerCase()).filter(Boolean),
+      statusId: input.statusId ?? (this.db.prepare('SELECT id FROM customer_statuses ORDER BY position LIMIT 1').get() as { id: string } | undefined)?.id ?? null,
+      tierId: input.tierId ?? null, revenue: input.revenue ?? null, size: input.size ?? null, ownerId: input.ownerId ?? null, createdAt: ts(),
+    };
+    this.db.prepare('INSERT INTO customers (id, name, domains, status_id, tier_id, revenue, size, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(c.id, c.name, JSON.stringify(c.domains), c.statusId, c.tierId, c.revenue, c.size, c.ownerId, c.createdAt);
+    return c;
+  }
+  updateCustomer(customerId: string, patch: Partial<Pick<Customer, 'name' | 'domains' | 'statusId' | 'tierId' | 'revenue' | 'size' | 'ownerId'>>): void {
+    const col: Record<string, string> = { statusId: 'status_id', tierId: 'tier_id', ownerId: 'owner_id' };
+    const sets: string[] = []; const vals: (string | number | null)[] = [];
+    for (const [k, v] of sqlPairs(patch, ['name', 'domains', 'statusId', 'tierId', 'revenue', 'size', 'ownerId'])) { sets.push(`${col[k] ?? k} = ?`); vals.push(k === 'domains' ? JSON.stringify(v) : v as string | number | null); }
+    if (!sets.length) return;
+    vals.push(customerId);
+    this.db.prepare(`UPDATE customers SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+  deleteCustomer(customerId: string): void { this.db.prepare('DELETE FROM customers WHERE id = ?').run(customerId); }
+  /** customer statuses and tiers share a shape: name, colour, order */
+  createCustomerAttr(kind: 'status' | 'tier', name: string, color = '#8a8f98'): { id: string } {
+    const table = kind === 'status' ? 'customer_statuses' : 'customer_tiers';
+    const rid = id(kind === 'status' ? 'cs' : 'ct');
+    const pos = (this.db.prepare(`SELECT COALESCE(MAX(position), 0) + 1 p FROM ${table}`).get() as { p: number }).p;
+    this.db.prepare(`INSERT INTO ${table} (id, name, color, position) VALUES (?, ?, ?, ?)`).run(rid, name.trim(), color, pos);
+    return { id: rid };
+  }
+  updateCustomerAttr(kind: 'status' | 'tier', attrId: string, patch: { name?: string; color?: string }): void {
+    const table = kind === 'status' ? 'customer_statuses' : 'customer_tiers';
+    if (patch.name !== undefined) this.db.prepare(`UPDATE ${table} SET name = ? WHERE id = ?`).run(patch.name, attrId);
+    if (patch.color !== undefined) this.db.prepare(`UPDATE ${table} SET color = ? WHERE id = ?`).run(patch.color, attrId);
+  }
+  deleteCustomerAttr(kind: 'status' | 'tier', attrId: string): void {
+    const table = kind === 'status' ? 'customer_statuses' : 'customer_tiers';
+    this.db.prepare(`UPDATE customers SET ${kind === 'status' ? 'status_id' : 'tier_id'} = NULL WHERE ${kind === 'status' ? 'status_id' : 'tier_id'} = ?`).run(attrId);
+    this.db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(attrId);
+  }
+  addCustomerRequest(input: { customerId: string; issueId?: string | null; projectId?: string | null; body?: string; important?: boolean }, actorId?: string): CustomerRequest {
+    const r: CustomerRequest = { id: id('cr'), customerId: input.customerId, issueId: input.issueId ?? null, projectId: input.projectId ?? null, body: input.body ?? '', important: !!input.important, creatorId: actorId ?? getMeta(this.db, 'currentUser'), createdAt: ts() };
+    this.db.prepare('INSERT INTO customer_requests (id, customer_id, issue_id, project_id, body, important, creator_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(r.id, r.customerId, r.issueId, r.projectId, r.body, r.important ? 1 : 0, r.creatorId, r.createdAt);
+    return r;
+  }
+  updateCustomerRequest(requestId: string, patch: { body?: string; important?: boolean; customerId?: string }): void {
+    if (patch.body !== undefined) this.db.prepare('UPDATE customer_requests SET body = ? WHERE id = ?').run(patch.body, requestId);
+    if (patch.important !== undefined) this.db.prepare('UPDATE customer_requests SET important = ? WHERE id = ?').run(patch.important ? 1 : 0, requestId);
+    if (patch.customerId !== undefined) this.db.prepare('UPDATE customer_requests SET customer_id = ? WHERE id = ?').run(patch.customerId, requestId);
+  }
+  deleteCustomerRequest(requestId: string): void { this.db.prepare('DELETE FROM customer_requests WHERE id = ?').run(requestId); }
 
   // ---------- activity ----------
   logActivity(e: { issueId?: string; projectId?: string; type: ActivityType; data?: Record<string, unknown> }, actorId?: string): void {
@@ -618,15 +1204,7 @@ export class Store {
   // ---------- search ----------
   search(q: string): { issues: Issue[]; projects: Project[] } {
     const issues = this.listIssues({ query: q, limit: 20 });
-    const projects = (this.db.prepare('SELECT * FROM projects WHERE name LIKE ? ORDER BY position LIMIT 10').all(`%${q}%`) as Array<Record<string, unknown>>).map(p => ({
-      id: p.id as string, teamId: (p.team_id as string | null) ?? null, name: p.name as string,
-      description: p.description as string, icon: p.icon as string, color: p.color as string,
-      status: p.status as Project['status'], health: p.health as Project['health'],
-      priority: (p.priority as number ?? 0) as Priority, locationIds: this.projectLocationMap().get(p.id as string) ?? [], startDate: (p.start_date as string | null) ?? null,
-      targetDate: (p.target_date as string | null) ?? null, leadId: (p.lead_id as string | null) ?? null,
-      memberIds: JSON.parse((p.members as string) ?? '[]'), position: p.position as number,
-      createdAt: p.created_at as string, updatedAt: p.updated_at as string, completedAt: (p.completed_at as string | null) ?? null,
-    }));
+    const projects = (this.db.prepare('SELECT * FROM projects WHERE name LIKE ? ORDER BY position LIMIT 10').all(`%${q}%`) as Array<Record<string, unknown>>).map(p => this.mapProject(p as Record<string, unknown>));
     return { issues, projects };
   }
 
@@ -643,7 +1221,9 @@ export class Store {
   // ---------- export / import / reset ----------
   exportJson(): string {
     const snap = this.snapshot();
-    return JSON.stringify({ exportedAt: ts(), ...snap }, null, 2);
+    // the snapshot hides archived and trashed issues; a backup keeps them
+    const issues = (this.db.prepare('SELECT * FROM issues').all() as unknown as IssueRow[]).map(this.mapIssue);
+    return JSON.stringify({ exportedAt: ts(), ...snap, issues }, null, 2);
   }
   /** restore a full workspace from an exportJson payload (keeps ids) */
   importJson(json: string): void {
@@ -670,33 +1250,59 @@ export class Store {
     if (ws?.agentUserId && arr<{ id: string }>(data.users).some(u => u.id === ws.agentUserId)) setMeta(this.db, 'agentUserId', ws.agentUserId);
     const cu = data.currentUser as { id?: string } | undefined;
     if (cu?.id) setMeta(this.db, 'currentUser', cu.id);
-    for (const t of arr<Record<string, unknown>>(data.teams)) insert('teams', ['id', 'key', 'name', 'icon', 'color', 'description', 'position'], t);
+    for (const t of arr<Record<string, unknown>>(data.teams)) insert('teams', ['id', 'key', 'name', 'icon', 'color', 'description', 'position', 'triage_enabled', 'auto_cycles', 'cycle_duration', 'cycle_cooldown', 'cycle_upcoming', 'cycle_rollover', 'estimate_scale'],
+      { ...t, triage_enabled: t.triageEnabled ? 1 : 0, auto_cycles: t.autoCycles ? 1 : 0, cycle_duration: t.cycleDuration ?? 2, cycle_cooldown: t.cycleCooldown ?? 0, cycle_upcoming: t.cycleUpcoming ?? 2, cycle_rollover: t.cycleRollover === false ? 0 : 1, estimate_scale: t.estimateScale ?? 'fibonacci' });
     for (const s of arr<Record<string, unknown>>(data.states)) insert('states', ['id', 'team_id', 'name', 'type', 'color', 'position'], { ...s, team_id: s.teamId });
     for (const l of arr<Record<string, unknown>>(data.labels)) insert('labels', ['id', 'team_id', 'name', 'color', 'description'], { ...l, team_id: l.teamId });
     for (const t of arr<Record<string, unknown>>(data.templates)) insert('issue_templates', ['id', 'team_id', 'name', 'title', 'description', 'position', 'created_at'], { ...t, team_id: t.teamId, title: t.title ?? '', description: t.description ?? '', position: t.position ?? 0, created_at: t.createdAt ?? ts() });
     for (const i of arr<Record<string, unknown>>(data.issues)) insert('issues',
-      ['id', 'team_id', 'number', 'title', 'description', 'state_id', 'priority', 'assignee_id', 'project_id', 'cycle_id', 'parent_id', 'location_id', 'estimate', 'due_date', 'sort_order', 'labels', 'created_at', 'updated_at', 'archived_at', 'completed_at', 'canceled_at', 'deleted_at'],
-      { ...i, team_id: i.teamId, state_id: i.stateId, assignee_id: i.assigneeId, project_id: i.projectId, cycle_id: i.cycleId, parent_id: i.parentId, location_id: i.locationId ?? null, due_date: i.dueDate, sort_order: i.sortOrder, labels: JSON.stringify(i.labelIds ?? []), created_at: i.createdAt, updated_at: i.updatedAt, archived_at: i.archivedAt, completed_at: i.completedAt, canceled_at: i.canceledAt, deleted_at: i.deletedAt });
-    for (const c of arr<Record<string, unknown>>(data.comments)) insert('comments', ['id', 'issue_id', 'user_id', 'body', 'created_at', 'edited_at', 'reactions', 'resolved_at'], { ...c, issue_id: c.issueId, user_id: c.userId, created_at: c.createdAt, edited_at: c.editedAt, reactions: JSON.stringify(c.reactions ?? {}), resolved_at: c.resolvedAt });
+      ['id', 'team_id', 'number', 'title', 'description', 'state_id', 'priority', 'assignee_id', 'project_id', 'cycle_id', 'parent_id', 'location_id', 'milestone_id', 'creator_id', 'snoozed_until', 'estimate', 'due_date', 'sort_order', 'labels', 'created_at', 'updated_at', 'archived_at', 'completed_at', 'canceled_at', 'deleted_at'],
+      { ...i, team_id: i.teamId, state_id: i.stateId, assignee_id: i.assigneeId, project_id: i.projectId, cycle_id: i.cycleId, parent_id: i.parentId, location_id: i.locationId ?? null, milestone_id: i.milestoneId ?? null, creator_id: i.creatorId ?? null, snoozed_until: i.snoozedUntil ?? null, due_date: i.dueDate, sort_order: i.sortOrder, labels: JSON.stringify(i.labelIds ?? []), created_at: i.createdAt, updated_at: i.updatedAt, archived_at: i.archivedAt, completed_at: i.completedAt, canceled_at: i.canceledAt, deleted_at: i.deletedAt });
+    for (const c of arr<Record<string, unknown>>(data.comments)) insert('comments', ['id', 'issue_id', 'user_id', 'body', 'created_at', 'edited_at', 'reactions', 'resolved_at', 'parent_id'], { ...c, issue_id: c.issueId, user_id: c.userId, created_at: c.createdAt, edited_at: c.editedAt, reactions: JSON.stringify(c.reactions ?? {}), resolved_at: c.resolvedAt, parent_id: c.parentId ?? null });
+    for (const a of arr<Record<string, unknown>>(data.attachments)) insert('attachments', ['id', 'issue_id', 'user_id', 'kind', 'url', 'title', 'mime', 'size', 'created_at'], { ...a, issue_id: a.issueId, user_id: a.userId, mime: a.mime ?? '', size: a.size ?? 0, created_at: a.createdAt ?? ts() });
+    for (const sub of arr<Record<string, unknown>>(data.subscriptions)) this.db.prepare('INSERT OR IGNORE INTO subscriptions (issue_id, user_id) VALUES (?, ?)').run(sub.issueId as string, sub.userId as string);
     for (const r of arr<Record<string, unknown>>(data.relations)) insert('relations', ['id', 'issue_id', 'related_id', 'type'], { ...r, issue_id: r.issueId, related_id: r.relatedIssueId });
     for (const p of arr<Record<string, unknown>>(data.projects)) insert('projects',
-      ['id', 'team_id', 'name', 'description', 'icon', 'color', 'status', 'health', 'priority', 'directory', 'start_date', 'target_date', 'lead_id', 'members', 'position', 'created_at', 'updated_at', 'completed_at'],
-      { ...p, team_id: p.teamId, status: p.status ?? 'planned', health: p.health ?? 'onTrack', priority: p.priority ?? 0, directory: normalizeDir(p.directory as string | undefined), start_date: p.startDate, target_date: p.targetDate, lead_id: p.leadId, members: JSON.stringify(p.memberIds ?? []), position: p.position ?? 0, created_at: p.createdAt ?? ts(), updated_at: p.updatedAt ?? ts(), completed_at: p.completedAt });
+      ['id', 'team_id', 'name', 'summary', 'description', 'icon', 'color', 'status', 'health', 'priority', 'directory', 'start_date', 'target_date', 'lead_id', 'members', 'position', 'created_at', 'updated_at', 'completed_at'],
+      { ...p, team_id: p.teamId, summary: p.summary ?? '', status: p.status ?? 'planned', health: p.health ?? 'onTrack', priority: p.priority ?? 0, directory: normalizeDir(p.directory as string | undefined), start_date: p.startDate, target_date: p.targetDate, lead_id: p.leadId, members: JSON.stringify(p.memberIds ?? []), position: p.position ?? 0, created_at: p.createdAt ?? ts(), updated_at: p.updatedAt ?? ts(), completed_at: p.completedAt });
     for (const l of arr<Record<string, unknown>>(data.locations)) insert('locations', ['id', 'name', 'path', 'created_at'], { ...l, path: normalizeDir(l.path as string), created_at: l.createdAt ?? ts() });
     for (const p of arr<{ id: string; locationIds?: string[] }>(data.projects)) (p.locationIds ?? []).forEach((lid, n) => insert('project_locations', ['project_id', 'location_id', 'position'], { project_id: p.id, location_id: lid, position: n }));
+    for (const d of arr<Record<string, unknown>>(data.docs)) insert('documents', ['id', 'title', 'icon', 'content', 'project_id', 'team_id', 'creator_id', 'created_at', 'updated_at'], { ...d, project_id: d.projectId ?? null, team_id: d.teamId ?? null, creator_id: d.creatorId ?? null, created_at: d.createdAt ?? ts(), updated_at: d.updatedAt ?? ts() });
+    for (const l of arr<Record<string, unknown>>(data.teamLinks)) insert('team_links', ['id', 'team_id', 'url', 'title', 'created_at'], { ...l, team_id: l.teamId, created_at: l.createdAt ?? ts() });
+    for (const t of arr<Record<string, unknown>>(data.projectTemplates)) insert('project_templates', ['id', 'name', 'icon', 'summary', 'description', 'status', 'priority', 'milestones', 'issues', 'created_at'], { ...t, milestones: JSON.stringify(t.milestones ?? []), issues: JSON.stringify(t.issues ?? []), created_at: t.createdAt ?? ts() });
+    for (const r of arr<Record<string, unknown>>(data.projectRelations)) insert('project_relations', ['id', 'project_id', 'related_id', 'type'], { ...r, project_id: r.projectId, related_id: r.relatedProjectId, type: 'blocks' });
+    for (const r of arr<Record<string, unknown>>(data.recurring)) insert('recurring_issues', ['id', 'team_id', 'title', 'description', 'priority', 'assignee_id', 'labels', 'project_id', 'cadence', 'next_at', 'created_at'], { ...r, team_id: r.teamId, assignee_id: r.assigneeId ?? null, labels: JSON.stringify(r.labelIds ?? []), project_id: r.projectId ?? null, next_at: r.nextAt, created_at: r.createdAt ?? ts() });
+    for (const l of arr<Record<string, unknown>>(data.projectLinks)) insert('project_links', ['id', 'project_id', 'url', 'title', 'created_at'], { ...l, project_id: l.projectId, created_at: l.createdAt ?? ts() });
     for (const u of arr<Record<string, unknown>>(data.projectUpdates)) insert('project_updates', ['id', 'project_id', 'user_id', 'body', 'health', 'created_at'], { ...u, project_id: u.projectId, user_id: u.userId, created_at: u.createdAt });
     for (const m of arr<Record<string, unknown>>(data.milestones)) insert('milestones', ['id', 'project_id', 'name', 'target_date', 'status', 'position', 'created_at'], { ...m, project_id: m.projectId, target_date: m.targetDate, position: m.position ?? 0, created_at: m.createdAt ?? ts() });
     for (const cy of arr<Record<string, unknown>>(data.cycles)) insert('cycles', ['id', 'team_id', 'number', 'name', 'starts_at', 'ends_at', 'completed_at'], { ...cy, team_id: cy.teamId, starts_at: cy.startsAt, ends_at: cy.endsAt, completed_at: cy.completedAt });
-    for (const v of arr<Record<string, unknown>>(data.views)) insert('views', ['id', 'team_id', 'name', 'icon', 'filters', 'group_by', 'order_by', 'layout', 'position', 'created_at'], { ...v, team_id: v.teamId, icon: v.icon ?? '', filters: JSON.stringify(v.filters ?? {}), group_by: v.groupBy ?? 'status', order_by: v.orderBy ?? 'priority', layout: v.layout ?? 'list', position: v.position ?? 0, created_at: ts() });
+    for (const v of arr<Record<string, unknown>>(data.views)) insert('views', ['id', 'team_id', 'name', 'icon', 'filters', 'group_by', 'order_by', 'layout', 'position', 'created_at', 'kind', 'project_options'], { ...v, team_id: v.teamId, icon: v.icon ?? '', filters: JSON.stringify(v.filters ?? {}), kind: v.kind === 'projects' ? 'projects' : 'issues', project_options: v.projectOptions ? JSON.stringify(v.projectOptions) : null, group_by: v.groupBy ?? 'status', order_by: v.orderBy ?? 'priority', layout: v.layout ?? 'list', position: v.position ?? 0, created_at: ts() });
     for (const f of arr<Record<string, unknown>>(data.favorites)) insert('favorites', ['id', 'type', 'ref_id', 'position'], { ...f, ref_id: f.refId, position: f.position ?? 0 });
-    for (const n of arr<Record<string, unknown>>(data.notifications)) insert('notifications', ['id', 'type', 'actor_id', 'issue_id', 'project_id', 'body', 'read_at', 'created_at'], { ...n, actor_id: n.actorId, issue_id: n.issueId, project_id: n.projectId, read_at: n.readAt, created_at: n.createdAt });
+    for (const n of arr<Record<string, unknown>>(data.notifications)) insert('notifications', ['id', 'type', 'actor_id', 'issue_id', 'project_id', 'body', 'read_at', 'snoozed_until', 'created_at'], { ...n, actor_id: n.actorId, issue_id: n.issueId, project_id: n.projectId, read_at: n.readAt, snoozed_until: n.snoozedUntil ?? null, created_at: n.createdAt });
+    if (ws && (ws as { preferences?: Preferences }).preferences) setMeta(this.db, 'preferences', JSON.stringify((ws as { preferences?: Preferences }).preferences));
     for (const a of arr<Record<string, unknown>>(data.activity)) insert('activity', ['id', 'issue_id', 'project_id', 'user_id', 'type', 'data', 'created_at'], { ...a, issue_id: a.issueId, project_id: a.projectId, user_id: a.userId, data: JSON.stringify(a.data ?? {}), created_at: a.createdAt });
+    for (const l of arr<Record<string, unknown>>(data.projectLabels)) insert('project_labels', ['id', 'name', 'color', 'description', 'parent_id', 'is_group', 'created_at'], { ...l, description: l.description ?? '', parent_id: l.parentId ?? null, is_group: l.isGroup ? 1 : 0, created_at: l.createdAt ?? ts() });
+    // the export's statuses replace the defaults wipe() put back
+    if (arr(data.projectStatuses).length) this.db.exec('DELETE FROM project_statuses');
+    if (arr(data.customerStatuses).length) this.db.exec('DELETE FROM customer_statuses');
+    for (const x of arr<Record<string, unknown>>(data.projectStatuses)) insert('project_statuses', ['id', 'type', 'name', 'color', 'description', 'position'], { ...x, description: x.description ?? '', position: x.position ?? 0 });
+    for (const x of arr<Record<string, unknown>>(data.projectSubscriptions)) insert('project_subscriptions', ['project_id', 'user_id', 'issue_added', 'issue_closed', 'comments', 'updates'], { project_id: x.projectId, user_id: x.userId, issue_added: x.issueAdded ? 1 : 0, issue_closed: x.issueClosed ? 1 : 0, comments: x.comments ? 1 : 0, updates: x.updates ? 1 : 0 });
+    for (const x of arr<Record<string, unknown>>(data.docTemplates)) insert('doc_templates', ['id', 'name', 'title', 'content', 'created_at'], { ...x, title: x.title ?? '', content: x.content ?? '', created_at: x.createdAt ?? ts() });
+    for (const x of arr<Record<string, unknown>>(data.emojis)) insert('emojis', ['id', 'name', 'url', 'created_at'], { ...x, created_at: x.createdAt ?? ts() });
+    for (const x of arr<Record<string, unknown>>(data.customerStatuses)) insert('customer_statuses', ['id', 'name', 'color', 'position'], { ...x, position: x.position ?? 0 });
+    for (const x of arr<Record<string, unknown>>(data.customerTiers)) insert('customer_tiers', ['id', 'name', 'color', 'position'], { ...x, position: x.position ?? 0 });
+    for (const x of arr<Record<string, unknown>>(data.customers)) insert('customers', ['id', 'name', 'domains', 'status_id', 'tier_id', 'revenue', 'size', 'owner_id', 'created_at'], { ...x, domains: JSON.stringify(x.domains ?? []), status_id: x.statusId ?? null, tier_id: x.tierId ?? null, revenue: x.revenue ?? null, size: x.size ?? null, owner_id: x.ownerId ?? null, created_at: x.createdAt ?? ts() });
+    for (const x of arr<Record<string, unknown>>(data.customerRequests)) insert('customer_requests', ['id', 'customer_id', 'issue_id', 'project_id', 'body', 'important', 'creator_id', 'created_at'], { ...x, customer_id: x.customerId, issue_id: x.issueId ?? null, project_id: x.projectId ?? null, body: x.body ?? '', important: x.important ? 1 : 0, creator_id: x.creatorId ?? null, created_at: x.createdAt ?? ts() });
+    for (const p of arr<Record<string, unknown>>(data.projects)) this.db.prepare('UPDATE projects SET labels = ?, status_id = ?, update_cadence = ? WHERE id = ?').run(JSON.stringify(p.labelIds ?? []), (p.statusId as string | null) ?? null, (p.updateCadence as string | null) ?? null, p.id as string);
+    if (ws && (ws as { features?: WorkspaceFeatures }).features) setMeta(this.db, 'features', JSON.stringify((ws as { features?: WorkspaceFeatures }).features));
+    ensureDefaults(this.db);
     // a pre-locations export: its project directories and default become locations, as on upgrade
     migrateDirectoriesToLocations(this.db);
   }
   wipe(): void {
-    for (const t of ['activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
+    ensureDefaults(this.db);
   }
 }

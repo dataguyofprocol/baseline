@@ -63,10 +63,15 @@ baseline issue open CORE-3 [--location <name>]  # human-facing: opens an interac
 # create / update issues
 baseline issue create "Title" -t CORE -s "In Progress" -p high -a "Ada Osei" \
   -l Bug,Perf -j "Agent Handoff" -d "Markdown description" \
-  --parent CORE-1 --estimate 3 --due 2026-09-15 [--json]   # prints new key
+  --parent CORE-1 --estimate 3 --due 2026-09-15 [--cycle current|next|22] [--milestone "Beta"] [--json]   # prints new key
 baseline issue update CORE-3 -s Done -p urgent -a "Jun Watanabe" --title "New title" -d "New description"
 baseline issue update CORE-3 --labels Bug,Perf             # replace the whole label set…
 baseline issue update CORE-3 --add-labels Perf --remove-labels Bug   # …or delta-label
+baseline issue update CORE-3 --cycle next --milestone "Beta"           # "none" clears either
+baseline issue transfer CORE-3 AGO           # move to another team (new key printed)
+baseline issue link CORE-3 https://github.com/org/repo/pull/12 --title "PR #12"   # attach a PR / doc / design
+baseline issue subscribe CORE-3 / unsubscribe CORE-3   # follow an issue (notifications)
+baseline issue remind CORE-3 2d              # inbox reminder later (2d, 3h, 2026-10-20, 2026-10-20T14:00)
 baseline issue archive CORE-3 / unarchive / restore
 baseline issue delete CORE-3 [--purge]
 
@@ -77,15 +82,35 @@ baseline issue move CORE-3 --before CORE-4   # or --after
 # relations & comments
 baseline issue relate CORE-3 CORE-4 --type blocks   # blocks|blocked_by|related|duplicate; inverse auto-stored
 baseline issue unrelate CORE-3 CORE-4 [--type blocks]
-baseline issue comment CORE-3 "text"
+baseline issue comment CORE-3 "text"         # prints the new comment id
+baseline issue comment CORE-3 "text" --reply <commentId>   # answer inside that thread
 baseline issue comments CORE-3                # list with comment ids
+baseline comment resolve <commentId> [--undo] # close / reopen a thread
 baseline comment edit <commentId> "new text" / comment delete <commentId>
 
+# triage (issues filed into a team with triage on wait here for review)
+baseline triage list [-t AGO]
+baseline triage accept AGO-6 [-s Todo]        # into the team (default: its first Todo state)
+baseline triage decline AGO-6                 # moves it to Canceled
+baseline triage snooze AGO-6 2d               # out of the queue until then ("none" brings it back)
+
+# recurring issues (file themselves on a cadence)
+baseline recurring list [-t CORE]
+baseline recurring add "Weekly dependency bump" -t CORE -c weekly [--start 2026-10-20]   # or --from CORE-12 to repeat an issue
+baseline recurring remove <id>
+
+# teams
+baseline team update CORE --triage on --estimates fibonacci --auto-cycles on --cycle-weeks 2 --cooldown 0 --upcoming 2 --rollover on
+
 # projects
-baseline project create "Name" -d "desc" -l "Jun Watanabe" -t CORE --start 2026-08-01 --target 2026-10-01 -p high
+baseline project create "Name" --summary "one line" -d "desc" -l "Jun Watanabe" -t CORE --start 2026-08-01 --target 2026-10-01 -p high
 baseline project list [--json]
 baseline project show "Name" [--json]         # status, health, progress %, issues, updates, milestones
-baseline project update "Name" --status started --health atRisk -p low --target none   # planned|started|completed|paused, onTrack|atRisk|offTrack
+baseline project update "Name" --status started --health atRisk -p low --target none --summary "…"   # backlog|planned|started|paused|completed|canceled, onTrack|atRisk|offTrack
+baseline project link "Name" https://figma.com/file/… --title "Designs"   # project resources
+baseline project depend "Mobile" "Design System"     # Mobile is blocked by Design System (--remove to drop)
+baseline project templates                            # list project templates
+baseline project create "Search v2" --template "Feature launch"   # fields + milestones + starter issues
 baseline location list                           # directories agents work in (usually git repos), with the projects using them
 baseline location add ~/code/api -n api -j "Name"  # register one (and link it to a project); a location can serve several projects
 baseline project update "Name" --add-location api  # / --remove-location api
@@ -95,6 +120,13 @@ baseline project milestone-add "Name" "Beta cut" --target 2026-09-30
 baseline project milestone-update "Name" "Beta cut" --status inProgress   # planned|inProgress|done
 baseline project milestone-delete "Name" "Beta cut"
 baseline project delete "Name"                # issues are kept and detached
+
+# documents (specs, briefs, runbooks on a project or team — Markdown)
+baseline doc list [--project "Name"] [--team CORE] [--json]
+baseline doc show "Hand-off spec" [--json]    # by id or title
+baseline doc create "API spec" --project "Name" --content "## Goals…"   # or --team CORE; --content - reads stdin
+baseline doc update "API spec" --append "- new decision"   # --title / --content (replace) / --append
+baseline doc delete "API spec"
 
 # labels & workspace backup
 baseline label create "Flaky" -t CORE -c "#eb5757" -d "description" / label update / label delete
@@ -168,6 +200,9 @@ baseline issue update CORE-3 -s Done       # only when truly finished; otherwise
 ## Conventions the store enforces (why your updates look the way they do)
 
 - Completing an issue (moving to a done-type state) sets `completedAt`; canceling sets `canceledAt`. Project progress % counts completed + canceled issues over total.
-- Every mutation writes an activity entry; comments notify the assignee. `issue show --json` exposes the activity trail — read it to catch up on an issue's history.
+- Every mutation writes an activity entry. Notifications follow subscriptions: creating, being assigned, commenting or being @mentioned subscribes a user, and the human's inbox gets status changes, comments, replies and mentions on issues they follow — so your status moves and comments reach them. `issue show --json` exposes the activity trail, comment threads (`replyTo`), subscribers and links — read it to catch up on an issue's history.
+- Triage: when a team has triage on, issues you create there (as an agent, via `--as` or `BASELINE_AS`) land in its Triage state for the human to accept. Pass `-s Todo` to skip triage only when you were asked to.
+- Cycles with automation on are created and closed by the app; unfinished issues roll into the next cycle. Use `--cycle current|next` instead of guessing numbers.
+- `@Full Name` in a comment or description mentions that member (and notifies them); an issue key like `CORE-12` renders as a link to it.
 - Blocked relations store both directions, so `issue show` on either issue displays them.
 - Verify your changes: after a write, re-read with `--json` rather than trusting the confirmation line alone.
