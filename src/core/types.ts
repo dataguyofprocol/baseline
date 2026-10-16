@@ -17,6 +17,10 @@ export interface User {
   color: string;
   admin: boolean;
   kind: 'human' | 'agent';
+  /** Google profile picture ('' = show initials) */
+  avatarUrl: string;
+  /** suspended people can't sign in; their work stays */
+  status: 'active' | 'suspended';
 }
 
 export interface Team {
@@ -465,6 +469,8 @@ export interface Workspace {
   agentUserId: string | null;
   /** the server's home directory, so the web app can show paths as ~/… (server memory) */
   homeDir?: string;
+  /** how people sign in: 'local' = this machine only, no sign-in; 'google' = hosted, Google accounts */
+  auth?: 'local' | 'google';
   preferences: Preferences;
   features: WorkspaceFeatures;
 }

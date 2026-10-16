@@ -28,6 +28,25 @@ sandbox DB and port 7327 so they can't touch real data — including `seed --res
 port 7770. Override anything with `BASELINE_DB`, `BASELINE_PORT`, or `BASELINE_URL`.
 The server only listens on this machine (127.0.0.1 and ::1) and rejects requests addressed to any other host or sent cross-site from another origin; set `BASELINE_HOST=0.0.0.0` to open it to your network (launching Claude Code stays local-only either way).
 
+**Hosted mode (a team server).** Setting `GOOGLE_CLIENT_ID` switches the server to Google sign-in. That mode
+also needs `GOOGLE_CLIENT_SECRET` and `BASELINE_PUBLIC_URL`; the server refuses to start with only some of them.
+
+| Variable | Meaning |
+|---|---|
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | An OAuth client of type "Web application" in Google Cloud. Its authorised redirect URI is `<BASELINE_PUBLIC_URL>/auth/google/callback`. |
+| `BASELINE_PUBLIC_URL` | The address people open, e.g. `https://baseline.example.com`. Requests addressed to any other host, and writes from any other origin, are refused. |
+| `BASELINE_OWNER_EMAIL` | The first admin. Signing in with this Google account creates them, and always keeps them an admin. |
+| `BASELINE_WORKSPACE_NAME` | Name of a new hosted workspace (default "Baseline"). |
+
+How hosted mode differs:
+- **A new hosted workspace starts empty**, with no sample data.
+- **Who can sign in:** the owner, or someone whose email matches an existing member who hasn't signed in yet. That covers imported data. Invites come next.
+- **Sessions** last 30 days, renewed as long as you keep using them.
+- **Admin-only:** people, workspace settings, import and export.
+- **Not available on a hosted server:** opening Claude Code and adding locations, which act on the machine they run on.
+
+`npm run test:auth` covers the sign-in rules.
+
 **Production data:** the work DB was wiped of all seed/demo data on 2026-08-29 — the workspace
 starts empty (create your team in Settings) and only real work lives there now. The app auto-seeds
 any database whose `meta` table is empty, so never point dev tools or experiments at

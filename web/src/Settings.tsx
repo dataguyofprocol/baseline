@@ -351,8 +351,8 @@ function ProfileSettings() {
         <input className="text-input" value={name} onChange={e => setName(e.target.value)} onBlur={() => name.trim() && name !== me.name && void save({ name: name.trim() })} />
       </div>
       <div className="field-row">
-        <div><div className="field-label">Email</div><div className="field-help">Shown to agents in hand-off prompts.</div></div>
-        <input className="text-input" value={email} onChange={e => setEmail(e.target.value)} onBlur={() => email !== me.email && void save({ email })} />
+        <div><div className="field-label">Email</div><div className="field-help">{snap.workspace.auth === 'google' ? 'Your Google account’s address.' : 'Shown to agents in hand-off prompts.'}</div></div>
+        <input className="text-input" value={email} disabled={snap.workspace.auth === 'google'} onChange={e => setEmail(e.target.value)} onBlur={() => email !== me.email && void save({ email })} />
       </div>
     </div>
   );
@@ -679,7 +679,9 @@ function MembersSettings() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const [name, setName] = useState('');
-  const [asAgent, setAsAgent] = useState(false);
+  const hosted = snap.workspace.auth === 'google';
+  // hosted, people arrive through Google sign-in — only agent identities are added by hand
+  const [asAgent, setAsAgent] = useState(hosted);
   const create = async () => {
     if (!name.trim()) return;
     await api.createUser({ name: name.trim(), kind: asAgent ? 'agent' : 'human' });
@@ -697,7 +699,7 @@ function MembersSettings() {
             <span style={{ flex: 1 }}>{u.name}{u.id === snap.currentUser.id ? <span style={{ color: 'var(--text-dim)' }}> (you)</span> : null}</span>
             {u.kind === 'agent' && <span className="kbd" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconAgent size={11} /> Agent</span>}
             {u.admin && <span className="kbd">Admin</span>}
-            {u.id !== snap.currentUser.id && (
+            {u.id !== snap.currentUser.id && snap.workspace.auth !== 'google' && (
               <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={async () => {
                 await api.updateWorkspace({ currentUserId: u.id });
                 await useApp.getState().bootstrap();
@@ -709,17 +711,17 @@ function MembersSettings() {
       </div>
       <div className="field-row" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
         <div>
-          <div className="field-label">Add member</div>
+          <div className="field-label">{hosted ? 'Add agent' : 'Add member'}</div>
           <div className="field-help">Agents (Claude, Codex, OpenCode…) can be assigned issues; their CLI writes land under their name when passed <code>--as "Name"</code>.</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <input className="text-input" placeholder={asAgent ? 'Agent name' : 'Full name'} value={name} onChange={e => setName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && create()} />
-          <div style={{ display: 'flex', gap: 4 }}>
+          {!hosted && <div style={{ display: 'flex', gap: 4 }}>
             {(['human', 'agent'] as const).map(k => (
               <button key={k} className={`seg seg-fill ${asAgent === (k === 'agent') ? 'selected' : ''}`} style={{ textTransform: 'capitalize' }} onClick={() => setAsAgent(k === 'agent')}>{k}</button>
             ))}
-          </div>
+          </div>}
           <button className="btn primary" onClick={create}>Add</button>
         </div>
       </div>

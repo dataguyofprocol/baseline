@@ -1,19 +1,26 @@
 import { markCreated } from './motion.js';
 import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest } from '../../src/core/types.js';
 
+/** a failed API call; `status` 401 means the session is gone and the person must sign in again */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
+  if (res.status === 401) window.dispatchEvent(new Event('baseline:signed-out'));
+  if (!res.ok) throw new ApiError(`${method} ${path} → ${res.status}`, res.status);
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
 export const api = {
   bootstrap: () => req<Snapshot>('GET', '/api/bootstrap'),
+  logout: () => req<{ ok: true }>('POST', '/api/auth/logout'),
   createIssue: async (b: Partial<Issue> & { teamId: string; title: string }) => {
     const r = await req<{ issue: Issue }>('POST', '/api/issues', b);
     markCreated(r.issue.id);   // the row plays its enter + flash when it lands

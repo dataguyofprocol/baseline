@@ -25,6 +25,7 @@ import { PulsePage, CustomersPage, CustomerPage, TeamsPage, MembersPage, DraftsP
 import { ProjectsPage, NewProjectPage, ProjectPage } from './Projects.js';
 import { IssuePage } from './IssueDetail.js';
 import { Onboarding } from './Onboarding.js';
+import { SignIn } from './SignIn.js';
 import { Logo } from './Logo.js';
 import { reducedMotion } from './motion.js';
 
@@ -309,6 +310,7 @@ function InboxRedirect() {
 
 export function App() {
   const loaded = useApp(s => s.loaded);
+  const signedOut = useApp(s => s.signedOut);
   const bootstrap = useApp(s => s.bootstrap);
   const resolvedTheme = useApp(s => s.resolvedTheme);
   const hasTeam = useApp(s => (s.snap?.teams.length ?? 0) > 0);
@@ -317,6 +319,8 @@ export function App() {
     document.documentElement.dataset.theme = resolvedTheme;
     void bootstrap();
   }, []); // eslint-disable-line
+
+  if (signedOut) return <SignIn />;
 
   if (!loaded) {
     // Boot: the app appears as an object here, so it is the tile — large cut at 28

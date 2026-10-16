@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { flushSync } from 'react-dom';
-import { api } from './api.js';
+import { api, ApiError } from './api.js';
 import { revealTheme } from './motion.js';
 import type { Snapshot, Issue, Priority } from '../../src/core/types.js';
 import type { PropKind } from './propertyMenus.js';
@@ -17,6 +17,8 @@ export interface Toast {
 interface AppState {
   snap: Snapshot | null;
   loaded: boolean;
+  /** hosted mode: the server answered 401 — show the sign-in screen instead of the app */
+  signedOut: boolean;
   theme: ThemePref;
   /** theme with 'system' resolved to the dark/light actually applied */
   resolvedTheme: 'dark' | 'light';
@@ -63,6 +65,7 @@ const initialTheme: ThemePref = storedTheme === 'light' || storedTheme === 'dark
 export const useApp = create<AppState>((set, get) => ({
   snap: null,
   loaded: false,
+  signedOut: false,
   theme: initialTheme,
   resolvedTheme: resolveTheme(initialTheme),
   toasts: [],
@@ -75,8 +78,13 @@ export const useApp = create<AppState>((set, get) => ({
   setPeek: (id) => set({ peekIssueId: id }),
 
   bootstrap: async () => {
-    const snap = await api.bootstrap();
-    set({ snap, loaded: true });
+    try {
+      const snap = await api.bootstrap();
+      set({ snap, loaded: true, signedOut: false });
+    } catch (err) {
+      // a 401 already flipped signedOut (see the listener below); anything else is a real failure
+      if (!(err instanceof ApiError && err.status === 401)) throw err;
+    }
   },
 
   setTheme: (t) => {
@@ -221,7 +229,7 @@ export async function refresh() {
 // the tab is visible (and on focus) and only swap the snapshot when something actually moved.
 let lastSnapJson = '';
 async function pollSnapshot() {
-  if (!useApp.getState().loaded || document.visibilityState !== 'visible') return;
+  if (!useApp.getState().loaded || useApp.getState().signedOut || document.visibilityState !== 'visible') return;
   try {
     const snap = await api.bootstrap();
     const json = JSON.stringify(snap);
@@ -230,4 +238,6 @@ async function pollSnapshot() {
   } catch { /* server restarting — next tick retries */ }
 }
 setInterval(() => void pollSnapshot(), 5000);
+// any API call that comes back 401 (an expired or revoked session) drops to the sign-in screen
+window.addEventListener('baseline:signed-out', () => useApp.setState({ signedOut: true }));
 window.addEventListener('focus', () => void pollSnapshot());

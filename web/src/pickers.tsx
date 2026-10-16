@@ -26,7 +26,7 @@ export function PriorityIcon({ priority, size = 14 }: { priority: Priority; size
   return <PrioNone size={size} style={{ color: 'var(--text-dim)' }} />;
 }
 
-export function Avatar({ user, size = 20 }: { user?: { name: string; initials: string; color: string; kind?: 'human' | 'agent' } | null; size?: number }) {
+export function Avatar({ user, size = 20 }: { user?: { name: string; initials: string; color: string; kind?: 'human' | 'agent'; avatarUrl?: string } | null; size?: number }) {
   if (!user) {
     return <span className="avatar placeholder" style={{ width: size, height: size }}><IconUser size={12} /></span>;
   }
@@ -48,8 +48,9 @@ export function Avatar({ user, size = 20 }: { user?: { name: string; initials: s
     );
   }
   return (
-    <span className="avatar" title={user.name} style={{ width: size, height: size, background: user.color, fontSize: size * 0.42 }}>
-      {user.initials}
+    <span className="avatar" title={user.name} style={{ width: size, height: size, background: user.color, fontSize: size * 0.42, overflow: 'hidden' }}>
+      {/* Google's picture when there is one (no-referrer: googleusercontent refuses some referrers) */}
+      {user.avatarUrl ? <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : user.initials}
     </span>
   );
 }

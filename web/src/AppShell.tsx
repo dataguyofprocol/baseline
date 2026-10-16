@@ -136,8 +136,10 @@ export function Sidebar() {
             <div className="menu-header"><span>{me.name} — {me.email || 'local user'}</span></div>
             <MenuItem icon={<IconSettings size={14} />} label="Settings" onClick={() => navigate('/settings/workspace')} />
             <MenuSep />
-            <ConfirmButton className="menu-item danger" label={<span className="mi-label">Reset sample workspace</span>} confirmLabel={<span className="mi-label">Click again to wipe all data</span>}
-              onConfirm={async () => { workspaceMenu.close(); await api.reseed(); await useApp.getState().bootstrap(); }} />
+            {snap.workspace.auth === 'google'
+              ? <MenuItem label="Log out" onClick={async () => { workspaceMenu.close(); await api.logout(); useApp.setState({ signedOut: true, loaded: false, snap: null }); }} />
+              : <ConfirmButton className="menu-item danger" label={<span className="mi-label">Reset sample workspace</span>} confirmLabel={<span className="mi-label">Click again to wipe all data</span>}
+                  onConfirm={async () => { workspaceMenu.close(); await api.reseed(); await useApp.getState().bootstrap(); }} />}
           </Menu>
         )}
 

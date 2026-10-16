@@ -223,6 +223,26 @@ function migrate(db: DatabaseSync): void {
   db.prepare("DELETE FROM meta WHERE key IN ('agentRunner', 'agentNudges')").run();
   if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
 
+  // accounts: Google identity, suspension, and server-side sessions (one row per signed-in browser;
+  // the cookie holds a random token, the row only its SHA-256)
+  for (const [col, def] of [
+    ['google_sub', 'TEXT'], ['avatar_url', "TEXT NOT NULL DEFAULT ''"], ['status', "TEXT NOT NULL DEFAULT 'active'"],
+    ['created_at', 'TEXT'], ['last_seen_at', 'TEXT'],
+  ] as const) if (!columns('users').includes(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      user_agent TEXT NOT NULL DEFAULT '',
+      ip TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+  `);
+
   // threads, milestones on issues, creators, snoozed notifications, team automation
   if (!columns('comments').includes('parent_id')) db.exec('ALTER TABLE comments ADD COLUMN parent_id TEXT');
   if (!columns('issues').includes('snoozed_until')) db.exec('ALTER TABLE issues ADD COLUMN snoozed_until TEXT');

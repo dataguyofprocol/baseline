@@ -4,6 +4,7 @@ import { resolve as resolvePath } from 'node:path';
 import { getMeta, migrateDirectoriesToLocations, setMeta, ensureDefaults } from './db.js';
 import { id, nowIso, midSort } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
+import { actingUser } from './actor.js';
 import type {
   ActivityItem, ActivityType, Attachment, RecurringIssue, ProjectTemplate, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, EstimateScale,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
@@ -83,10 +84,10 @@ export class Store {
   snapshot(): Snapshot {
     const rows = <T>(sql: string): T[] => this.db.prepare(sql).all() as unknown as T[];
     const projectLocs = this.projectLocationMap();
-    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human' }));
+    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string; avatar_url: string | null; status: string | null }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human', avatarUrl: u.avatar_url ?? '', status: u.status === 'suspended' ? 'suspended' as const : 'active' as const }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
     const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig(), preferences: this.getPreferences(), features: this.getFeatures() };
-    const currentUser = users.find(u => u.id === (getMeta(this.db, 'currentUser') ?? '')) ?? users[0];
+    const currentUser = users.find(u => u.id === this.actor()) ?? users[0];
     return {
       workspace, users, currentUser: currentUser!,
       teams: rows<TeamRow>('SELECT * FROM teams ORDER BY position').map(this.mapTeam),
@@ -129,8 +130,8 @@ export class Store {
   createUser(name: string, email = '', admin = false, kind: User['kind'] = 'human'): User {
     const initials = name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
     const colors = ['#5e6ad2', '#c770f4', '#f2994a', '#4cb782', '#eb5757', '#307ec6'];
-    const user: User = { id: id('u'), name, email, initials, color: colors[Math.floor(Math.random() * colors.length)], admin, kind };
-    this.db.prepare('INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES (?, ?, ?, ?, ?, ?, ?)').run(user.id, user.name, user.email, user.initials, user.color, admin ? 1 : 0, kind);
+    const user: User = { id: id('u'), name, email, initials, color: colors[Math.floor(Math.random() * colors.length)], admin, kind, avatarUrl: '', status: 'active' };
+    this.db.prepare('INSERT INTO users (id, name, email, initials, color, admin, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(user.id, user.name, user.email, user.initials, user.color, admin ? 1 : 0, kind, ts());
     return user;
   }
 
@@ -375,9 +376,9 @@ export class Store {
 
   createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null }, actorId?: string): Issue {
     const now = ts();
-    const creatorId = actorId ?? getMeta(this.db, 'currentUser');
+    const creatorId = actorId ?? this.actor();
     // with triage on, work filed by anyone but you (agents, teammates on the CLI) waits for review
-    const triage = this.getTeam(input.teamId)?.triageEnabled && creatorId !== getMeta(this.db, 'currentUser') ? this.stateOfType(input.teamId, 'triage') : undefined;
+    const triage = this.getTeam(input.teamId)?.triageEnabled && creatorId !== this.actor() ? this.stateOfType(input.teamId, 'triage') : undefined;
     const stateId = input.stateId ?? triage ?? this.defaultState(input.teamId);
     const maxOrder = (this.db.prepare('SELECT COALESCE(MAX(sort_order), 0) m FROM issues WHERE team_id = ?').get(input.teamId) as { m: number }).m;
     const issue: Issue = {
@@ -549,7 +550,7 @@ export class Store {
     if (!issue) return undefined;
     const p = this.createProject({
       name: issue.title, description: issue.description, teamId: issue.teamId,
-      leadId: issue.assigneeId ?? actorId ?? getMeta(this.db, 'currentUser'), priority: issue.priority,
+      leadId: issue.assigneeId ?? actorId ?? this.actor(), priority: issue.priority,
       targetDate: issue.dueDate,
     });
     const kids = this.db.prepare('SELECT id FROM issues WHERE parent_id = ? AND deleted_at IS NULL').all(issueId) as Array<{ id: string }>;
@@ -584,7 +585,7 @@ export class Store {
     this.db.prepare('INSERT INTO comments (id, issue_id, user_id, body, created_at, reactions, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(c.id, issueId, userId, body, now, '{}', threadId);
     this.logActivity({ issueId, type: 'commented', data: { commentId: c.id } }, userId);
     this.subscribe(issueId, userId);
-    const me = getMeta(this.db, 'currentUser');
+    const me = this.inboxOwner();
     const mentioned = this.mentions(body);
     for (const uid of mentioned) this.subscribe(issueId, uid);
     if (userId !== me && me) {
@@ -619,7 +620,7 @@ export class Store {
   // ---------- attachments ----------
   addAttachment(input: { issueId: string; kind: 'link' | 'file'; url: string; title?: string; mime?: string; size?: number; id?: string }, userId?: string): Attachment {
     const a: Attachment = {
-      id: input.id ?? id('att'), issueId: input.issueId, userId: userId ?? getMeta(this.db, 'currentUser') ?? '', kind: input.kind,
+      id: input.id ?? id('att'), issueId: input.issueId, userId: userId ?? this.actor(), kind: input.kind,
       url: input.url, title: input.title?.trim() || input.url, mime: input.mime ?? '', size: input.size ?? 0, createdAt: ts(),
     };
     this.db.prepare('INSERT INTO attachments (id, issue_id, user_id, kind, url, title, mime, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -686,7 +687,7 @@ export class Store {
     this.db.prepare('INSERT INTO projects (id, team_id, name, summary, description, icon, color, status, health, priority, start_date, target_date, lead_id, members, position, created_at, updated_at, labels, status_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(p.id, p.teamId, p.name, p.summary, p.description, p.icon, p.color, p.status, p.health, p.priority, p.startDate, p.targetDate, p.leadId, JSON.stringify(p.memberIds), p.position, now, now, JSON.stringify(p.labelIds), p.statusId);
     // the person who makes a project follows it (the bell on the project page)
-    const me = getMeta(this.db, 'currentUser');
+    const me = this.actor();
     if (me) this.setProjectSubscription(p.id, me, { comments: true, updates: true });
     this.logActivity({ projectId: p.id, type: 'projectCreated', data: {} });
     if (input.locationIds?.length) { this.setProjectLocations(p.id, input.locationIds); p.locationIds = this.projectLocationMap().get(p.id) ?? []; }
@@ -712,7 +713,7 @@ export class Store {
   // ---------- documents & team links ----------
   createDoc(input: { title?: string; content?: string; icon?: string; projectId?: string | null; teamId?: string | null }, actorId?: string): Doc {
     const now = ts();
-    const d: Doc = { id: id('doc'), title: input.title ?? '', icon: input.icon ?? '', content: input.content ?? '', projectId: input.projectId ?? null, teamId: input.teamId ?? null, creatorId: actorId ?? getMeta(this.db, 'currentUser'), createdAt: now, updatedAt: now };
+    const d: Doc = { id: id('doc'), title: input.title ?? '', icon: input.icon ?? '', content: input.content ?? '', projectId: input.projectId ?? null, teamId: input.teamId ?? null, creatorId: actorId ?? this.actor(), createdAt: now, updatedAt: now };
     this.db.prepare('INSERT INTO documents (id, title, icon, content, project_id, team_id, creator_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
       .run(d.id, d.title, d.icon, d.content, d.projectId, d.teamId, d.creatorId, now, now);
     if (d.projectId) this.logActivity({ projectId: d.projectId, type: 'projectUpdated', data: { fields: ['document'] } }, actorId);
@@ -941,11 +942,11 @@ export class Store {
   // ---------- notifications ----------
   // only notify when someone else assigned it to you — never for self-assignment
   private notifyAssign(issueId: string, assigneeId: string, actorId?: string): void {
-    const me = getMeta(this.db, 'currentUser');
-    if (assigneeId === me && assigneeId !== (actorId ?? me)) {
+    const me = this.inboxOwner();
+    if (assigneeId === me && assigneeId !== (actorId ?? this.actor())) {
       // the actor is who the inbox row leads with — without it the row falls back
       // to the app's own tile, which reads as a system message it isn't
-      this.notify('issueAssignedToYou', { actorId: actorId ?? null, issueId, body: 'You were assigned this issue' });
+      this.notify('issueAssignedToYou', { actorId: actorId ?? this.actor(), issueId, body: 'You were assigned this issue' });
     }
   }
   /** single insert point for every notification the store raises */
@@ -966,14 +967,14 @@ export class Store {
   /** notifications are this install's person's: raise one when they follow the issue and
    *  someone else acted, if their preferences want that kind */
   private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, pref: keyof Preferences['notify']): void {
-    const me = getMeta(this.db, 'currentUser');
-    if (!me || (actorId ?? me) === me || !this.isSubscribed(issueId, me) || !this.getPreferences().notify[pref]) return;
-    this.notify(type, { actorId: actorId ?? null, issueId, body });
+    const me = this.inboxOwner();
+    if (!me || (actorId ?? this.actor()) === me || !this.isSubscribed(issueId, me) || !this.getPreferences().notify[pref]) return;
+    this.notify(type, { actorId: actorId ?? this.actor(), issueId, body });
   }
   private notifyMention(issueId: string, userId: string, actorId: string | undefined, body: string): void {
-    const me = getMeta(this.db, 'currentUser');
-    if (userId !== me || (actorId ?? me) === me || !this.getPreferences().notify.mentions) return;
-    this.notify('issueMentioned', { actorId: actorId ?? null, issueId, body: body.slice(0, 140) });
+    const me = this.inboxOwner();
+    if (userId !== me || (actorId ?? this.actor()) === me || !this.getPreferences().notify.mentions) return;
+    this.notify('issueMentioned', { actorId: actorId ?? this.actor(), issueId, body: body.slice(0, 140) });
   }
   listNotifications(): Notification[] { return this.snapshot().notifications; }
   markNotificationRead(notificationId: string, read = true): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE id = ?').run(read ? ts() : null, notificationId); }
@@ -1078,12 +1079,12 @@ export class Store {
   }
   /** notify you about a project event you follow — never about your own changes */
   private notifyProject(projectId: string, flag: 'issueAdded' | 'issueClosed' | 'comments' | 'updates', type: NotificationType, actorId: string | undefined | null, body: string, issueId?: string): void {
-    const me = getMeta(this.db, 'currentUser');
-    if (!me || (actorId ?? me) === me) return;
+    const me = this.inboxOwner();
+    if (!me || (actorId ?? this.actor()) === me) return;
     const col = { issueAdded: 'issue_added', issueClosed: 'issue_closed', comments: 'comments', updates: 'updates' }[flag];
     const sub = this.db.prepare(`SELECT ${col} v FROM project_subscriptions WHERE project_id = ? AND user_id = ?`).get(projectId, me) as { v: number } | undefined;
     if (!sub?.v) return;
-    this.notify(type, { actorId: actorId ?? null, projectId, issueId: issueId ?? null, body });
+    this.notify(type, { actorId: actorId ?? this.actor(), projectId, issueId: issueId ?? null, body });
   }
 
   // ---------- update schedule & pulse ----------
@@ -1096,7 +1097,7 @@ export class Store {
     return new Date(new Date(last.t ?? project.createdAt).getTime() + days * 86400000).toISOString();
   }
   private remindUpdates(now: Date): void {
-    const me = getMeta(this.db, 'currentUser');
+    const me = this.inboxOwner();
     if (!me) return;
     for (const row of this.db.prepare("SELECT * FROM projects WHERE lead_id = ? AND status NOT IN ('completed', 'canceled')").all(me) as Array<Record<string, unknown>>) {
       const p = this.mapProject(row);
@@ -1181,7 +1182,7 @@ export class Store {
     this.db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(attrId);
   }
   addCustomerRequest(input: { customerId: string; issueId?: string | null; projectId?: string | null; body?: string; important?: boolean }, actorId?: string): CustomerRequest {
-    const r: CustomerRequest = { id: id('cr'), customerId: input.customerId, issueId: input.issueId ?? null, projectId: input.projectId ?? null, body: input.body ?? '', important: !!input.important, creatorId: actorId ?? getMeta(this.db, 'currentUser'), createdAt: ts() };
+    const r: CustomerRequest = { id: id('cr'), customerId: input.customerId, issueId: input.issueId ?? null, projectId: input.projectId ?? null, body: input.body ?? '', important: !!input.important, creatorId: actorId ?? this.actor(), createdAt: ts() };
     this.db.prepare('INSERT INTO customer_requests (id, customer_id, issue_id, project_id, body, important, creator_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(r.id, r.customerId, r.issueId, r.projectId, r.body, r.important ? 1 : 0, r.creatorId, r.createdAt);
     return r;
@@ -1195,7 +1196,7 @@ export class Store {
 
   // ---------- activity ----------
   logActivity(e: { issueId?: string; projectId?: string; type: ActivityType; data?: Record<string, unknown> }, actorId?: string): void {
-    const uid = actorId ?? getMeta(this.db, 'currentUser');
+    const uid = actorId ?? this.actor();
     this.db.prepare('INSERT INTO activity (id, issue_id, project_id, user_id, type, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id('a'), e.issueId ?? null, e.projectId ?? null, uid, e.type, JSON.stringify(e.data ?? {}), ts());
   }
@@ -1216,6 +1217,11 @@ export class Store {
     };
   }
   setWorkspaceName(name: string): void { setMeta(this.db, 'workspaceName', name); }
+  /** who this write is by: the signed-in person on a server request, else the workspace's own user */
+  actor(): string { return actingUser.getStore() ?? getMeta(this.db, 'currentUser') ?? ''; }
+  /** whose inbox the notification emitters fill. Until notifications get a recipient per row
+   *  this stays the workspace's own user, whoever is acting. */
+  inboxOwner(): string { return getMeta(this.db, 'currentUser') ?? ''; }
   setCurrentUser(userId: string): void { setMeta(this.db, 'currentUser', userId); }
 
   // ---------- export / import / reset ----------
@@ -1300,7 +1306,7 @@ export class Store {
     migrateDirectoriesToLocations(this.db);
   }
   wipe(): void {
-    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'sessions', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
     ensureDefaults(this.db);

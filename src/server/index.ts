@@ -4,6 +4,10 @@ import { openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
+import { authConfigFromEnv, mountAuth, type AuthConfig } from './auth.js';
+import { Accounts } from '../core/accounts.js';
+import { setMeta } from '../core/db.js';
+import { id } from '../core/util.js';
 import type { Priority, Snapshot, WorkflowStateType, RelationType } from '../core/types.js';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, resolve, dirname, basename } from 'node:path';
@@ -32,22 +36,30 @@ const originHostOf = (c: Context): string | null => {
   try { return new URL(origin).hostname; } catch { return '?'; }
 };
 
-export function createApp(dbPath: string) {
+export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()) {
   const db = openDb(dbPath);
   const store = new Store(db);
+  const accounts = new Accounts(db, store);
+  const hosted = auth.mode === 'google';
 
-  // seed on first run
+  // first run: a laptop gets the sample workspace to play with; a hosted one starts empty —
+  // its people come from Google sign-in, and onboarding asks for the first team
   const hasWorkspace = db.prepare('SELECT COUNT(*) AS n FROM meta').get() as { n: number };
-  if (Number(hasWorkspace.n) === 0) {
+  if (Number(hasWorkspace.n) === 0 && hosted) {
+    setMeta(db, 'workspaceId', id('w'));
+    setMeta(db, 'workspaceName', process.env.BASELINE_WORKSPACE_NAME?.trim() || 'Baseline');
+    setMeta(db, 'workspaceCreatedAt', new Date().toISOString());
+  } else if (Number(hasWorkspace.n) === 0) {
     seedWorkspace(db);
     console.error('[baseline] seeded a sample workspace — run `baseline seed --reset` to reseed');
   }
 
   const app = new Hono();
 
-  // The tracker is this machine's own: a Host that isn't loopback means a LAN client or a
+  if (hosted) mountAuth(app, auth, accounts);
+  // Local mode: the tracker is this machine's own. A Host that isn't loopback means a LAN client or a
   // DNS-rebinding page, and a write whose Origin is another site is a cross-site request.
-  app.use('/api/*', async (c, next) => {
+  else app.use('/api/*', async (c, next) => {
     const host = hostOf(c);
     if (!LAN_OPEN && !isLoopback(host)) return c.json({ error: 'Baseline only accepts requests from this machine (set BASELINE_HOST to change that)', code: 'forbidden' }, 403);
     const originHost = originHostOf(c);
@@ -57,11 +69,21 @@ export function createApp(dbPath: string) {
     await next();
   });
 
+  // workspace-wide settings, people and whole-workspace data are admins' (everyone is, in local mode)
+  const adminOnly = async (c: Context, next: Next) => {
+    if (hosted && !accounts.isAdmin(store.actor())) return c.json({ error: 'Only admins can do that', code: 'forbidden' }, 403);
+    await next();
+  };
+  for (const path of ['/api/workspace', '/api/features', '/api/export', '/api/import', '/api/seed']) app.use(path, adminOnly);
+  app.post('/api/users', adminOnly);
+
   // ---------- bootstrap ----------
   app.get('/api/bootstrap', (c) => {
     store.tick();
     const snap = store.snapshot();
-    snap.workspace.homeDir = homedir();
+    snap.workspace.auth = auth.mode;
+    // the home directory only means something when the server is this machine
+    if (!hosted) snap.workspace.homeDir = homedir();
     return c.json(snap);
   });
 
@@ -121,7 +143,7 @@ export function createApp(dbPath: string) {
   });
   app.post('/api/issues/:id/subscribe', async (c) => {
     const b = await c.req.json().catch(() => ({}));
-    const uid = b.userId ?? store.workspaceMeta().currentUser;
+    const uid = store.actor();
     if (b.subscribed === false) store.unsubscribe(c.req.param('id'), uid);
     else store.subscribe(c.req.param('id'), uid);
     return c.json({ ok: true });
@@ -196,6 +218,7 @@ export function createApp(dbPath: string) {
   // Origin means another site, and a non-JSON body means a CORS-free "simple" form post
   // (these stay loopback-only even when BASELINE_HOST opens the rest to the LAN)
   const localOnly = async (c: Context, next: Next) => {
+    if (hosted) return c.json({ error: 'The hosted app can\'t open programs on your computer yet — copy the prompt instead', code: 'companion-required' }, 403);
     const originHost = originHostOf(c);
     if (!isLoopback(hostOf(c)) || (originHost !== null && !isLoopback(originHost)) || !(c.req.header('content-type') ?? '').includes('application/json')) {
       return c.json({ error: 'Launching Claude Code is only allowed from this machine', code: 'forbidden' }, 403);
@@ -225,7 +248,7 @@ export function createApp(dbPath: string) {
       throw err;
     }
   });
-  app.get('/api/terminals', (c) => c.json({ installed: installedTerminals() }));
+  app.get('/api/terminals', (c) => c.json({ installed: hosted ? [] : installedTerminals() }));
   app.post('/api/directories/check', async (c) => {
     const b = await c.req.json() as { directory?: string };
     return c.json({ exists: isDirectory(normalizeDir(b.directory)) });
@@ -233,6 +256,8 @@ export function createApp(dbPath: string) {
 
   // ---------- locations (directories agents work in) ----------
   app.post('/api/locations', async (c) => {
+    // a location is checked against this server's disk — meaningless (and a probe) on a hosted server
+    if (hosted) return c.json({ error: 'Locations can\'t be added on the hosted app yet', code: 'companion-required' }, 403);
     const b = await c.req.json() as { path?: string; name?: string };
     const path = normalizeDir(b.path);
     if (!isDirectory(path)) return c.json({ error: `Directory not found: ${path || '(empty)'}` }, 400);
@@ -248,12 +273,12 @@ export function createApp(dbPath: string) {
   // ---------- comments ----------
   app.post('/api/issues/:id/comments', async (c) => {
     const b = await c.req.json();
-    const comment = store.addComment(c.req.param('id'), b.userId ?? store.workspaceMeta().currentUser, b.body, b.parentId ?? null);
+    const comment = store.addComment(c.req.param('id'), store.actor(), b.body, b.parentId ?? null);
     return c.json({ comment }, 201);
   });
   app.patch('/api/comments/:id', async (c) => {
     const b = await c.req.json();
-    if (b.reaction) { store.toggleReaction(c.req.param('id'), b.reaction, b.userId ?? store.workspaceMeta().currentUser); return c.json({ ok: true }); }
+    if (b.reaction) { store.toggleReaction(c.req.param('id'), b.reaction, store.actor()); return c.json({ ok: true }); }
     if ('resolved' in b) { store.resolveComment(c.req.param('id'), !!b.resolved); return c.json({ ok: true }); }
     store.updateComment(c.req.param('id'), b.body);
     return c.json({ ok: true });
@@ -283,7 +308,7 @@ export function createApp(dbPath: string) {
   app.delete('/api/projects/:id', (c) => { store.deleteProject(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/projects/:id/updates', async (c) => {
     const b = await c.req.json();
-    const update = store.addProjectUpdate(c.req.param('id'), b.userId ?? store.workspaceMeta().currentUser, b.body, b.health);
+    const update = store.addProjectUpdate(c.req.param('id'), store.actor(), b.body, b.health);
     return c.json({ update }, 201);
   });
   app.post('/api/projects/:id/links', async (c) => {
@@ -397,8 +422,17 @@ export function createApp(dbPath: string) {
     return c.json({ user }, 201);
   });
   app.patch('/api/users/:id', async (c) => {
-    const b = await c.req.json();
-    store.updateUser(c.req.param('id'), b);
+    const b = await c.req.json() as { name?: string; color?: string; email?: string; admin?: boolean };
+    const targetId = c.req.param('id');
+    const admin = !hosted || accounts.isAdmin(store.actor());
+    if (!admin && targetId !== store.actor()) return c.json({ error: 'You can only edit your own profile', code: 'forbidden' }, 403);
+    // hosted: the email is the Google account's, so it isn't editable; admin rights are for admins to give
+    const patch: Parameters<Store['updateUser']>[1] = {};
+    if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim();
+    if (typeof b.color === 'string') patch.color = b.color;
+    if (!hosted && typeof b.email === 'string') patch.email = b.email;
+    if (admin && typeof b.admin === 'boolean') patch.admin = b.admin;
+    store.updateUser(targetId, patch);
     return c.json({ ok: true });
   });
 
@@ -485,7 +519,7 @@ export function createApp(dbPath: string) {
   app.patch('/api/project-statuses/:id', async (c) => { store.updateProjectStatus(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/project-statuses/:id', (c) => store.deleteProjectStatus(c.req.param('id')) ? c.json({ ok: true }) : c.json({ error: 'A category keeps at least one status' }, 400));
   app.put('/api/projects/:id/subscription', async (c) => {
-    store.setProjectSubscription(c.req.param('id'), store.workspaceMeta().currentUser, await c.req.json());
+    store.setProjectSubscription(c.req.param('id'), store.actor(), await c.req.json());
     return c.json({ ok: true });
   });
 
@@ -550,7 +584,8 @@ export function createApp(dbPath: string) {
   app.patch('/api/workspace', async (c) => {
     const b = await c.req.json();
     if (b.name) store.setWorkspaceName(b.name);
-    if (b.currentUserId) store.setCurrentUser(b.currentUserId);
+    // "Set as me" is a single-user convenience; hosted, you are whoever signed in
+    if (b.currentUserId && !hosted) store.setCurrentUser(b.currentUserId);
     if ('handoffPromptTemplate' in b) store.setHandoffTemplate(b.handoffPromptTemplate ?? null);
     if ('terminalApp' in b) store.setAgentConfig({ terminalApp: b.terminalApp });
     return c.json({ ok: true });
@@ -572,6 +607,7 @@ export function createApp(dbPath: string) {
     }
   });
   app.post('/api/seed', async (c) => {
+    if (hosted) return c.json({ error: 'Sample data can\'t replace a hosted workspace', code: 'forbidden' }, 403);
     const b = await c.req.json().catch(() => ({}));
     seedWorkspace(db, { workspaceName: b.workspaceName });
     return c.json({ ok: true });
@@ -590,13 +626,14 @@ export function createApp(dbPath: string) {
     return c.body(readFileSync(join(WEB_DIST, 'index.html')), 200, { 'Content-Type': 'text/html' });
   });
 
-  return { app, store, db };
+  return { app, store, db, accounts };
 }
 
 export function serve(opts: ServeOptions = {}): { server: ServerType; port: number } {
   const dbPath = resolveDbPath(opts.dbPath);
   const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7770);
-  const { app } = createApp(dbPath);
+  const auth = authConfigFromEnv();
+  const { app } = createApp(dbPath, auth);
   // loopback by default: IPv4 and IPv6 each get a listener, since `localhost` may resolve to either
   const server = nodeServe({ fetch: app.fetch, port, hostname: LISTEN_HOST || '127.0.0.1' });
   if (!LISTEN_HOST) {
@@ -606,6 +643,7 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
   server.once('listening', () => {
     const url = `http://localhost:${port}`;
     console.log(`[baseline] serving on ${url}  (db: ${dbPath})`);
+    if (auth.mode === 'google') console.log(`[baseline] hosted mode: Google sign-in at ${auth.publicUrl.origin}`);
     if (opts.open) exec(`open ${url}`);
   });
   return { server, port };
