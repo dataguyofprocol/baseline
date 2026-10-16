@@ -144,10 +144,19 @@ export const useCursor = create<CursorState>((set) => ({
 }));
 
 /** the mounted list registers its visible issues so global keys act on them */
-export const visibleList: { issues: Issue[]; teamId: string } = { issues: [], teamId: '' };
+/** the list on screen; `route` is the page that registered it, so a list left behind
+    (e.g. after opening a project page) can't be acted on by issue shortcuts */
+export const visibleList: { issues: Issue[]; teamId: string; route: string } = { issues: [], teamId: '', route: '' };
 export function registerVisibleList(issues: Issue[], teamId: string) {
   visibleList.issues = issues;
   visibleList.teamId = teamId;
+  visibleList.route = location.hash.split('?')[0];
+}
+
+/** a person's name as Preferences › Display names asks for it */
+export function nameOf(u: { name: string } | null | undefined, fallback = 'Someone'): string {
+  if (!u) return fallback;
+  return useApp.getState().snap?.workspace.preferences.displayNames === 'first' ? u.name.split(/\s+/)[0] : u.name;
 }
 
 /* ---------- derived helpers ---------- */

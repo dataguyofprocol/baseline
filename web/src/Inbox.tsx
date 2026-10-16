@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, relTime, useCursor, registerVisibleList } from './store.js';
+import { useApp, relTime, useCursor, registerVisibleList, nameOf } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
@@ -27,11 +27,12 @@ const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
   issueAssignedToYou: 'Assignments', issueCommented: 'Comments', issueReplied: 'Replies', issueMentioned: 'Mentions',
   issueStatusChanged: 'Status changes', issueReminder: 'Reminders', systemUpdate: 'Updates',
   projectUpdate: 'Project updates', projectIssueAdded: 'Project activity', projectUpdateReminder: 'Update reminders', pulseDigest: 'Pulse',
+  slaBreached: 'SLA breaches', prActivity: 'Pull requests', loopFailed: 'Loops', teamActivity: 'Team activity',
 };
 /* one filter value covers several kinds */
 const TYPE_ALIASES: Partial<Record<NotificationType, NotificationType[]>> = { projectIssueAdded: ['projectIssueAdded', 'projectIssueClosed', 'projectChanged'] };
 
-const PRIORITY_TYPES: NotificationType[] = ['issueAssignedToYou', 'issueMentioned', 'issueReplied', 'issueReminder', 'projectUpdateReminder'];
+const PRIORITY_TYPES: NotificationType[] = ['issueAssignedToYou', 'issueMentioned', 'issueReplied', 'issueReminder', 'projectUpdateReminder', 'slaBreached'];
 const FOCUS_LABELS: Partial<Record<NotificationType, string>> = {
   issueAssignedToYou: 'Assigned to you', issueMentioned: 'Mentions', issueReplied: 'Replies', issueReminder: 'Reminders',
   issueStatusChanged: 'Status changes', issueCommented: 'Comments',
@@ -191,6 +192,10 @@ export function InboxPage() {
       case 'projectChanged': return { icon: <IconEdit size={12} />, what: 'changed the project description' };
       case 'projectUpdateReminder': return { icon: <IconClock size={12} />, what: 'Project update due' };
       case 'pulseDigest': return { icon: <IconPulse size={12} />, what: 'Pulse summary' };
+      case 'slaBreached': return { icon: <IconClock size={12} />, what: 'SLA breached' };
+      case 'prActivity': return { icon: <IconCheck size={12} />, what: n.body };
+      case 'loopFailed': return { icon: <IconClose size={12} />, what: `loop failed — ${n.body}` };
+      case 'teamActivity': return { icon: <IconBell size={12} />, what: n.body };
       default: return { icon: <IconComment size={12} />, what: 'updated the issue' };
     }
   };
@@ -260,7 +265,7 @@ export function InboxPage() {
                   <div className="inbox-line2">
                     {keyOf(n) && <span className="inbox-key">{keyOf(n)}</span>}
                     <span className="inbox-what">
-                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? n.body : <>{actors[0] ? <>{actors[0].name}{actors.length > 1 ? ` +${actors.length - 1}` : ''} </> : null}{d.what}</>}
+                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? n.body : <>{actors[0] ? <>{nameOf(actors[0])}{actors.length > 1 ? ` +${actors.length - 1}` : ''} </> : null}{d.what}</>}
                       {(n.type === 'projectIssueAdded' || n.type === 'projectIssueClosed' || n.type === 'projectUpdate') && n.body && <>: <span className="inbox-excerpt">{n.body.replace(/^(Completed|Canceled): /, '')}</span></>}
                       {excerpt && <>: <span className="inbox-excerpt">{excerpt}</span></>}
                     </span>

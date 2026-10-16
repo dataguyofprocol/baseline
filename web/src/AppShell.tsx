@@ -10,7 +10,7 @@ import { CustomizeSidebar, sidebarVisibility, useDrafts } from './Workspace.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues, IconCycle, IconTeam, IconHelp, IconCaret,
   IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
-  IconTriage, IconArchive, IconTrash, IconLink, IconPlus, IconPulse, IconCustomers, IconDrafts, IconMembers, IconHome,
+  IconTriage, IconArchive, IconTrash, IconLink, IconPlus, IconPulse, IconCustomers, IconDrafts, IconMembers, IconHome, IconInitiative, IconRelease, IconAsk,
 } from './icons.js';
 
 /** Panel-with-a-left-rail glyph: the standard "toggle the nav" affordance. */
@@ -64,8 +64,11 @@ export function Sidebar() {
     { key: 'inbox', to: '/inbox', icon: <IconInbox />, label: 'Inbox', badge: unread, section: 'personal' },
     { key: 'my-issues', to: '/my-issues', icon: <IconMyIssues />, label: 'My issues', badge: 0, section: 'personal' },
     { key: 'drafts', to: '/drafts', icon: <IconDrafts />, label: 'Drafts', badge: drafts.length, section: 'personal' },
+    ...(f.initiativesEnabled ? [{ key: 'initiatives', to: '/initiatives', icon: <IconInitiative />, label: 'Initiatives', badge: 0, section: 'workspace' }] : []),
     { key: 'projects', to: '/projects', icon: <IconBox />, label: 'Projects', badge: 0, section: 'workspace' },
     { key: 'views', to: '/views', icon: <IconViews />, label: 'Views', badge: 0, section: 'workspace' },
+    ...(f.releasesEnabled ? [{ key: 'releases', to: '/releases', icon: <IconRelease />, label: 'Releases', badge: 0, section: 'workspace' }] : []),
+    { key: 'asks', to: '/asks', icon: <IconAsk />, label: 'Asks', badge: 0, section: 'workspace' },
     ...(f.pulseEnabled ? [{ key: 'pulse', to: '/pulse', icon: <IconPulse />, label: 'Pulse', badge: 0, section: 'workspace' }] : []),
     ...(f.customerRequestsEnabled ? [{ key: 'customers', to: '/customers', icon: <IconCustomers />, label: 'Customers', badge: 0, section: 'workspace' }] : []),
     { key: 'teams', to: '/teams', icon: <IconTeam />, label: 'Teams', badge: 0, section: 'workspace' },
@@ -97,6 +100,10 @@ export function Sidebar() {
           }
         }
         return null;
+      }
+      if (f.type === 'initiative') {
+        const ini = snap.initiatives.find(x => x.id === f.refId);
+        return ini ? { id: f.id, label: ini.name, icon: <span className="fav-emoji">{ini.icon}</span>, to: `/initiatives/${ini.id}` } : null;
       }
       if (f.type === 'cycle') {
         const c = snap.cycles.find(x => x.id === f.refId);
@@ -337,10 +344,11 @@ export function TopBar(props: {
             <IconStar size={14} filled={faved} />
           </button>
         )}
+        {/* Linear keeps the page's "…" beside the title, and only on pages that have actions */}
+        {props.more && <button className="icon-btn topbar-more" title="More" onClick={menu.open}><IconMore size={15} /></button>}
       </div>
       <div className="topbar-right">
         {props.right}
-        <button className="icon-btn" title="More" onClick={menu.open}><IconMore size={15} /></button>
       </div>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close}>

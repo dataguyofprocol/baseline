@@ -12,13 +12,14 @@ import type {
   Customer, CustomerRequest, WorkspaceFeatures,
 } from './types.js';
 import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES } from './types.js';
+import { createExtensions, type Extensions } from './extensions.js';
 
 interface TeamRow { id: string; key: string; name: string; icon: string; color: string; description: string; position: number; triage_enabled: number; auto_cycles: number; cycle_duration: number; cycle_cooldown: number; cycle_upcoming: number; cycle_rollover: number; estimate_scale: string }
 interface CommentRow { id: string; issue_id: string; user_id: string; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null; parent_id: string | null }
 interface AttachmentRow { id: string; issue_id: string; user_id: string; kind: string; url: string; title: string; mime: string; size: number; created_at: string }
 const DAY = 86400000;
 
-interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; milestone_id: string | null; creator_id: string | null; snoozed_until: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; }
+interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; milestone_id: string | null; creator_id: string | null; snoozed_until: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; release_id?: string | null; ask_form_id?: string | null; sla_rule_id?: string | null; sla_breaches_at?: string | null; }
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
@@ -38,7 +39,13 @@ function sqlPairs<T extends object>(patch: T, allowed: Array<keyof T>): Array<[s
 }
 
 export class Store {
-  constructor(private db: DatabaseSync) {}
+  /** extension modules (initiatives, releases, SLAs, asks, loops, git) — see extensions.ts */
+  readonly ext: Extensions;
+  /** called after every issue create (before = null) and update */
+  readonly issueHooks: Array<(before: Issue | null, after: Issue, actorId?: string) => void> = [];
+  /** called on every tick */
+  readonly tickHooks: Array<(now: Date) => void> = [];
+  constructor(private db: DatabaseSync) { this.ext = createExtensions(this, db); }
 
   // ---------- mappers ----------
   private mapIssue = (r: IssueRow): Issue => ({
@@ -49,6 +56,7 @@ export class Store {
     dueDate: r.due_date, sortOrder: r.sort_order, labelIds: JSON.parse(r.labels),
     createdAt: r.created_at, updatedAt: r.updated_at, archivedAt: r.archived_at,
     completedAt: r.completed_at, canceledAt: r.canceled_at, deletedAt: r.deleted_at,
+    releaseId: r.release_id ?? null, askFormId: r.ask_form_id ?? null, slaRuleId: r.sla_rule_id ?? null, slaBreachesAt: r.sla_breaches_at ?? null,
   });
 
   private mapTeam = (t: TeamRow): Team => ({
@@ -122,6 +130,7 @@ export class Store {
       favorites: rows<{ id: string; type: Favorite['type']; ref_id: string; position: number }>('SELECT * FROM favorites ORDER BY position').map(f => ({ id: f.id, type: f.type, refId: f.ref_id, position: f.position })),
       notifications: rows<{ id: string; type: Notification['type']; actor_id: string | null; issue_id: string | null; project_id: string | null; body: string; read_at: string | null; snoozed_until: string | null; created_at: string }>('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 500').map(n => ({ id: n.id, type: n.type, actorId: n.actor_id, issueId: n.issue_id, projectId: n.project_id, body: n.body, readAt: n.read_at, snoozedUntil: n.snoozed_until ?? null, createdAt: n.created_at })),
       activity: rows<{ id: string; issue_id: string | null; project_id: string | null; user_id: string; type: ActivityType; data: string; created_at: string }>('SELECT * FROM activity ORDER BY created_at DESC LIMIT 2000').map(a => ({ id: a.id, issueId: a.issue_id, projectId: a.project_id, userId: a.user_id, type: a.type, data: JSON.parse(a.data), createdAt: a.created_at })),
+      ...this.ext.snapshot(),
     };
   }
 
@@ -261,7 +270,7 @@ export class Store {
     if (!issue) return undefined;
     const snap = this.snapshot();
     const template = getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
-    return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels }, template);
+    return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels, branchFormat: snap.workspace.features.branchFormat, username: snap.currentUser?.name }, template);
   }
   getHandoffTemplate(): string {
     return getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
@@ -373,7 +382,7 @@ export class Store {
     return s.id;
   }
 
-  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null }, actorId?: string): Issue {
+  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null; releaseId?: string | null; askFormId?: string | null }, actorId?: string): Issue {
     const now = ts();
     const creatorId = actorId ?? getMeta(this.db, 'currentUser');
     // with triage on, work filed by anyone but you (agents, teammates on the CLI) waits for review
@@ -398,10 +407,15 @@ export class Store {
     if (issue.assigneeId) { this.subscribe(issue.id, issue.assigneeId); this.notifyAssign(issue.id, issue.assigneeId, actorId); }
     for (const uid of this.mentions(issue.description)) this.subscribe(issue.id, uid);
     if (issue.projectId) this.notifyProject(issue.projectId, 'issueAdded', 'projectIssueAdded', creatorId, issue.title, issue.id);
+    if (input.releaseId !== undefined || input.askFormId) {
+      this.db.prepare('UPDATE issues SET release_id = ?, ask_form_id = ? WHERE id = ?').run(input.releaseId ?? null, input.askFormId ?? null, issue.id);
+      issue.releaseId = input.releaseId ?? null; issue.askFormId = input.askFormId ?? null;
+    }
+    for (const h of this.issueHooks) h(null, issue, actorId);
     return issue;
   }
 
-  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'milestoneId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt'>>, actorId?: string): Issue | undefined {
+  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'milestoneId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt' | 'releaseId'>>, actorId?: string): Issue | undefined {
     // drop explicitly-undefined keys so partial patches never clobber values
     const patch = Object.fromEntries(Object.entries(rawPatch).filter(([, v]) => v !== undefined)) as typeof rawPatch;
     const row = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(issueId) as IssueRow | undefined;
@@ -463,7 +477,12 @@ export class Store {
       for (const lid of before.labelIds) if (!patch.labelIds.includes(lid)) acts.push(['unlabeled', { labelId: lid }]);
     }
     if (patch.archivedAt !== undefined) acts.push([patch.archivedAt ? 'archived' : 'restored', {}]);
+    if (patch.releaseId !== undefined && patch.releaseId !== before.releaseId) {
+      this.db.prepare('UPDATE issues SET release_id = ? WHERE id = ?').run(patch.releaseId, issueId);
+      acts.push(['releaseChanged', { to: patch.releaseId, from: before.releaseId ?? null }]);
+    }
     for (const [type, data] of acts) this.logActivity({ issueId, type, data }, actorId);
+    for (const h of this.issueHooks) h(before, next, actorId);
     return next;
   }
 
@@ -854,6 +873,7 @@ export class Store {
     this.fileRecurring(now);
     this.remindUpdates(now);
     this.pulseDigest(now);
+    for (const h of this.tickHooks) h(now);
   }
 
   // ---------- recurring issues ----------
@@ -1103,7 +1123,7 @@ export class Store {
       const due = this.updateDueAt(p);
       if (!due || due > now.toISOString()) continue;
       const already = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'projectUpdateReminder' AND project_id = ? AND created_at >= ?").get(p.id, due);
-      if (!already) this.notify('projectUpdateReminder', { projectId: p.id, body: `An update on ${p.name} is due` });
+      if (!already) this.notify('projectUpdateReminder', { projectId: p.id, body: `An update on ${p.name} is due`, createdAt: now.toISOString() });
     }
   }
   private pulseDigest(now: Date): void {
@@ -1114,7 +1134,7 @@ export class Store {
     if (last && now.getTime() - new Date(last).getTime() < days * 86400000) return;
     const since = last ?? new Date(now.getTime() - days * 86400000).toISOString();
     const n = (this.db.prepare('SELECT COUNT(*) n FROM project_updates WHERE created_at > ?').get(since) as { n: number }).n;
-    if (n) this.notify('pulseDigest', { body: `${n} project update${n === 1 ? '' : 's'} since your last summary` });
+    if (n) this.notify('pulseDigest', { body: `${n} project update${n === 1 ? '' : 's'} since your last summary`, createdAt: now.toISOString() });
   }
 
   // ---------- document templates ----------
@@ -1295,11 +1315,14 @@ export class Store {
     for (const x of arr<Record<string, unknown>>(data.customerRequests)) insert('customer_requests', ['id', 'customer_id', 'issue_id', 'project_id', 'body', 'important', 'creator_id', 'created_at'], { ...x, customer_id: x.customerId, issue_id: x.issueId ?? null, project_id: x.projectId ?? null, body: x.body ?? '', important: x.important ? 1 : 0, creator_id: x.creatorId ?? null, created_at: x.createdAt ?? ts() });
     for (const p of arr<Record<string, unknown>>(data.projects)) this.db.prepare('UPDATE projects SET labels = ?, status_id = ?, update_cadence = ? WHERE id = ?').run(JSON.stringify(p.labelIds ?? []), (p.statusId as string | null) ?? null, (p.updateCadence as string | null) ?? null, p.id as string);
     if (ws && (ws as { features?: WorkspaceFeatures }).features) setMeta(this.db, 'features', JSON.stringify((ws as { features?: WorkspaceFeatures }).features));
+    this.ext.importData(data, insert);
+    for (const i of arr<Record<string, unknown>>(data.issues)) this.db.prepare('UPDATE issues SET release_id = ?, ask_form_id = ?, sla_rule_id = ?, sla_breaches_at = ? WHERE id = ?').run((i.releaseId as string | null) ?? null, (i.askFormId as string | null) ?? null, (i.slaRuleId as string | null) ?? null, (i.slaBreachesAt as string | null) ?? null, i.id as string);
     ensureDefaults(this.db);
     // a pre-locations export: its project directories and default become locations, as on upgrade
     migrateDirectoriesToLocations(this.db);
   }
   wipe(): void {
+    for (const t of this.ext.tables) this.db.exec(`DELETE FROM ${t};`);
     for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }

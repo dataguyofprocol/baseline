@@ -5,22 +5,35 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar } from './icons.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconRelease, IconAsk, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
 import { ShortcutList } from './Palette.js';
 import { CADENCE_LABELS } from './actions.js';
+import { SlaSettings, AsksSettings, LoopsSettings } from './AutomationUI.js';
+import { GitHubSettings, PrAutomationSettings } from './GitHubUI.js';
+import { CustomizeSidebar } from './Workspace.js';
 import { ProjectLabelsSettings, ProjectStatusesSettings, ProjectUpdatesSettings, DocumentsSettings, CustomerRequestsSettings, PulseSettings, EmojisSettings } from './SettingsMore.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
 import { TERMINAL_APPS, type WorkflowStateType, type Priority, type TerminalApp } from '../../src/core/types.js';
 
 const NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
-  { sec: 'Account', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Keyboard shortcuts', 'shortcuts']] },
-  { sec: 'Issues', items: [['Labels', 'labels'], ['Templates', 'templates']] },
+  { sec: 'Personal', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Keyboard shortcuts', 'shortcuts']] },
+  { sec: 'Issues', items: [['Labels', 'labels'], ['Templates', 'templates'], ['SLAs', 'slas']] },
   { sec: 'Projects', items: [['Labels', 'project-labels'], ['Templates', 'project-templates'], ['Statuses', 'project-statuses'], ['Updates', 'project-updates']] },
-  { sec: 'Features', items: [['Documents', 'documents'], ['Customer requests', 'customer-requests'], ['Pulse', 'pulse'], ['Emojis', 'emojis']] },
+  { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Documents', 'documents'], ['Customer requests', 'customer-requests'], ['Releases', 'releases'], ['Pulse', 'pulse'], ['Asks', 'asks'], ['Loops', 'loops'], ['Emojis', 'emojis']] },
+  { sec: 'Integrations', items: [['GitHub', 'github']] },
   { sec: 'Administration', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Coding tools', 'handoff'], ['Import & export', 'data']] },
 ];
+
+const SETTINGS_ICONS: Record<string, React.ReactNode> = {
+  preferences: <IconSliders size={14} />, profile: <IconUser size={14} />, notifications: <IconBell size={14} />, shortcuts: <IconKeyboard size={14} />,
+  labels: <IconTag size={14} />, templates: <IconDoc size={14} />, slas: <IconSla size={14} />,
+  'project-labels': <IconTag size={14} />, 'project-templates': <IconDoc size={14} />, 'project-statuses': <IconStatusRing size={14} />, 'project-updates': <IconPulse size={14} />,
+  initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />, 'customer-requests': <IconCustomers size={14} />, releases: <IconRelease size={14} />,
+  pulse: <IconPulse size={14} />, asks: <IconAsk size={14} />, loops: <IconLoop size={14} />, emojis: <IconEmoji size={14} />, github: <IconPr size={14} />,
+  workspace: <IconSettings size={14} />, teams: <IconTeam size={14} />, members: <IconUsers size={14} />, handoff: <IconAgent size={14} />, data: <IconArchive size={14} />,
+};
 
 const STATE_TYPES: Array<[WorkflowStateType, string]> = [
   ['backlog', 'Backlog'], ['unstarted', 'Todo'], ['started', 'Started'], ['completed', 'Completed'], ['canceled', 'Canceled'],
@@ -31,20 +44,28 @@ const LABEL_COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5
 export function SettingsLayout() {
   const { section = 'workspace', teamKey } = useParams();
   const snap = useApp(s => s.snap)!;
+  const [q, setQ] = useState('');
+  const match = (label: string, sec: string) => !q.trim() || `${label} ${sec}`.toLowerCase().includes(q.trim().toLowerCase());
   return (
     <div className="settings-layout">
       <nav className="settings-nav">
         <Link to="/" className="back"><IconBack size={14} /> Back to app</Link>
-        {NAV.map(g => (
-          <div key={g.sec}>
-            <div className="sec">{g.sec}</div>
-            {g.items.map(([label, key]) => (
-              <NavLink key={key} to={`/settings/${key}`} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ height: 30 }}>
-                <span className="nav-label">{label}</span>
-              </NavLink>
-            ))}
-          </div>
-        ))}
+        <div className="settings-search"><IconSearch size={13} /><input placeholder="Search…" value={q} onChange={e => setQ(e.target.value)} /></div>
+        {NAV.map(g => {
+          const items = g.items.filter(([label]) => match(label, g.sec));
+          if (!items.length) return null;
+          return (
+            <div key={g.sec}>
+              <div className="sec">{g.sec}</div>
+              {items.map(([label, key]) => (
+                <NavLink key={key} to={`/settings/${key}`} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ height: 30 }}>
+                  <span className="settings-icon">{SETTINGS_ICONS[key]}</span>
+                  <span className="nav-label">{label}</span>
+                </NavLink>
+              ))}
+            </div>
+          );
+        })}
         <div>
           <div className="sec">Your teams</div>
           {snap.teams.map(t => (
@@ -78,6 +99,12 @@ export function SettingsLayout() {
         {section === 'customer-requests' && <CustomerRequestsSettings />}
         {section === 'pulse' && <PulseSettings />}
         {section === 'emojis' && <EmojisSettings />}
+        {section === 'slas' && <SlaSettings />}
+        {section === 'asks' && <AsksSettings />}
+        {section === 'loops' && <LoopsSettings />}
+        {section === 'github' && <GitHubSettings />}
+        {section === 'initiatives' && <FeatureToggle title="Initiatives" flag="initiativesEnabled" help="Initiatives are larger, strategic efforts made of projects. They get their own status, owner, target date, health and updates, and can nest as sub-initiatives." link={['/initiatives', 'Open initiatives']} />}
+        {section === 'releases' && <FeatureToggle title="Releases" flag="releasesEnabled" help="Track which issues ship in each release: give issues a Release, move releases from Planned to In progress to Released." link={['/releases', 'Open releases']} />}
       </div>
     </div>
   );
@@ -243,6 +270,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
       </div>
       <div className="settings-h2">Recurring issues</div>
       <RecurringIssues teamId={team.id} />
+      <PrAutomationSettings teamId={team.id} />
       <div className="settings-h2">Workflow and cycles</div>
       <TeamEditor teamId={team.id} />
     </div>
@@ -284,6 +312,22 @@ function RecurringIssues(props: { teamId: string }) {
   );
 }
 
+/** a settings page that's mostly one switch (Initiatives, Releases) */
+function FeatureToggle(props: { title: string; flag: 'initiativesEnabled' | 'releasesEnabled'; help: string; link: [string, string] }) {
+  const snap = useApp(s => s.snap)!;
+  const on = snap.workspace.features[props.flag];
+  return (
+    <div className="settings-card">
+      <h1>{props.title}</h1>
+      <div className="field-row">
+        <div><div className="field-label">Enable {props.title.toLowerCase()}</div><div className="field-help">{props.help}</div></div>
+        <SettingSwitch on={on} onChange={async v => { await api.setFeatures({ [props.flag]: v }); await useApp.getState().bootstrap(); }} />
+      </div>
+      {on && <Link className="btn secondary sm" to={props.link[0]}>{props.link[1]}</Link>}
+    </div>
+  );
+}
+
 function SettingSwitch(props: { on: boolean; onChange: (v: boolean) => void }) {
   return <button className={`switch${props.on ? ' on' : ''}`} role="switch" aria-checked={props.on} onClick={() => props.onChange(!props.on)}><span /></button>;
 }
@@ -291,6 +335,7 @@ function SettingSwitch(props: { on: boolean; onChange: (v: boolean) => void }) {
 /* ---------------- account ---------------- */
 function PreferencesSettings() {
   const snap = useApp(s => s.snap)!;
+  const [customizing, setCustomizing] = useState(false);
   const theme = useApp(s => s.theme);
   const setTheme = useApp(s => s.setTheme);
   const prefs = snap.workspace.preferences;
@@ -314,7 +359,31 @@ function PreferencesSettings() {
           <option value={0}>Sunday</option>
         </select>
       </div>
+      <div className="field-row">
+        <div><div className="field-label">Display names</div><div className="field-help">How people's names show in lists, activity and the inbox.</div></div>
+        <select className="text-input" aria-label="Display names" value={prefs.displayNames} onChange={e => void save({ displayNames: e.target.value })}><option value="full">Full name</option><option value="first">First name</option></select>
+      </div>
+      <div className="field-row">
+        <div><div className="field-label">Convert text emoticons into emojis</div><div className="field-help">Strings like :) will be converted to 🙂</div></div>
+        <SettingSwitch on={prefs.convertEmoticons} onChange={v => void save({ convertEmoticons: v })} />
+      </div>
+      <div className="field-row">
+        <div><div className="field-label">Send comments on…</div><div className="field-help">Which key press submits a comment.</div></div>
+        <select className="text-input" aria-label="Send comments on" value={prefs.sendCommentsOn} onChange={e => void save({ sendCommentsOn: e.target.value })}><option value="enter">Enter</option><option value="mod-enter">⌘ + Enter</option></select>
+      </div>
       <div className="settings-h2">Interface and theme</div>
+      <div className="field-row">
+        <div><div className="field-label">App sidebar</div><div className="field-help">Customize sidebar item visibility and badge style.</div></div>
+        <button className="btn ghost sm" onClick={() => setCustomizing(true)}>Customize</button>
+      </div>
+      <div className="field-row">
+        <div><div className="field-label">Font size</div><div className="field-help">Adjust the size of text across the app.</div></div>
+        <select className="text-input" aria-label="Font size" value={prefs.fontSize} onChange={e => void save({ fontSize: e.target.value })}><option value="small">Small</option><option value="default">Default</option><option value="large">Large</option></select>
+      </div>
+      <div className="field-row">
+        <div><div className="field-label">Use pointer cursors</div><div className="field-help">Change the cursor to a pointer when hovering over any interactive element.</div></div>
+        <SettingSwitch on={prefs.pointerCursors} onChange={v => void save({ pointerCursors: v })} />
+      </div>
       <div className="field-row">
         <div><div className="field-label">Theme</div><div className="field-help">System follows your device appearance; light and dark override it.</div></div>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -323,6 +392,7 @@ function PreferencesSettings() {
           ))}
         </div>
       </div>
+      <AnimatePresence>{customizing && <CustomizeSidebar key="cs" onClose={() => setCustomizing(false)} />}</AnimatePresence>
     </div>
   );
 }

@@ -161,6 +161,8 @@ const SlashCommands = Extension.create({
 });
 
 /* ---------- the editor ---------- */
+const EMOTICONS: Record<string, string> = { ':)': '🙂', ':-)': '🙂', ':(': '🙁', ':D': '😄', ';)': '😉', ':P': '😛', ':p': '😛', '<3': '❤️', ':O': '😮', ":'(": '😢' };
+
 export function RichEditor(props: {
   value: string;
   placeholder?: string;
@@ -220,7 +222,9 @@ export function RichEditor(props: {
       attributes: { class: `rte ${props.className ?? ''}`, spellcheck: 'true' },
       handleKeyDown: (_view, e) => {
         if (usePopup.getState().open) return false;
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        // "Send comments on" (Settings › Preferences): Enter alone sends in composers, ⇧↵ adds a line
+        const enterSends = useApp.getState().snap?.workspace.preferences.sendCommentsOn === 'enter' && !!propsRef.current.clearOnSubmit;
+        if (e.key === 'Enter' && ((e.metaKey || e.ctrlKey) || (enterSends && !e.shiftKey && !e.altKey))) {
           e.preventDefault();
           const ed = editorInstance.current;
           if (ed && propsRef.current.onSubmit) {
@@ -231,6 +235,15 @@ export function RichEditor(props: {
         }
         if (e.key === 'Escape' && propsRef.current.onEscape) { e.stopPropagation(); propsRef.current.onEscape(); return true; }
         return false;
+      },
+      handleTextInput: (view, from, to, text) => {
+        // Convert text emoticons into emojis (Settings › Preferences)
+        if (text !== ' ' || !useApp.getState().snap?.workspace.preferences.convertEmoticons) return false;
+        const before = view.state.doc.textBetween(Math.max(0, from - 3), from, '\n', '\n');
+        const hit = Object.entries(EMOTICONS).find(([k]) => before.endsWith(k) && (before.length === k.length || /\s/.test(before[before.length - k.length - 1] ?? ' ')));
+        if (!hit) return false;
+        view.dispatch(view.state.tr.insertText(`${hit[1]} `, from - hit[0].length, to));
+        return true;
       },
       handlePaste: (_view, e) => {
         const files = [...(e.clipboardData?.files ?? [])];

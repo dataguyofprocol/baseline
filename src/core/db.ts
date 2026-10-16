@@ -406,9 +406,11 @@ function migrate(db: DatabaseSync): void {
     `);
   }
 
-  // initiatives were removed from the model — drop leftover tables from pre-existing databases
-  db.exec('DROP TABLE IF EXISTS initiative_updates');
-  db.exec('DROP TABLE IF EXISTS initiatives');
+  // initiatives came back with a new schema (extensions.ts) — drop only tables left from the old one
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'initiatives'").get() && !columns('initiatives').includes('parent_id')) {
+    db.exec('DROP TABLE IF EXISTS initiative_updates');
+    db.exec('DROP TABLE IF EXISTS initiatives');
+  }
 
   // every workspace gets at least one agent identity for hand-offs
   const hasAgent = db.prepare("SELECT 1 FROM users WHERE kind = 'agent' LIMIT 1").get();

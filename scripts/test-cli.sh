@@ -284,7 +284,7 @@ check  "handoff includes title"  "renamed issue"  issue handoff "$KEY"
 check  "handoff includes branch" "$BRANCH"        issue handoff "$KEY"
 check  "handoff suggests report-back" "state to Done" issue handoff "$KEY"
 b issue handoff "$KEY" --json > "$WORK/h.json"
-check_json "handoff json shape" "$WORK/h.json" "d.key==='$KEY'&&d.title==='renamed issue'&&d.branchName==='$BRANCH'&&d.prompt.includes('renamed issue')&&d.url.includes('/#/issue/')"
+check_json "handoff json shape" "$WORK/h.json" "d.key==='$KEY'&&d.title==='renamed issue'&&(d.branchName==='$BRANCH'||d.branchName.endsWith('/$BRANCH'))&&d.prompt.includes('renamed issue')&&d.url.includes('/#/issue/')"
 check_rc "handoff unknown issue" 1 issue handoff "NOPE-99"
 # --copy failure path: strip PATH so no clipboard helper exists (avoids clobbering the real clipboard)
 NODE_BIN=$(command -v node)

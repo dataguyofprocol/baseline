@@ -16,6 +16,9 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Search page (`/`), Trash page, team Archive page; ⌘Z undo for every issue change; `[` toggles the sidebar
 - ✅ Team Home (team "…" › Team overview): Overview (icon, name, description, team resources), Documents, Members; right rail with members and Go to links
 - ✅ "+" beside Your teams opens Create a new team (name, identifier derived from it)
+- ✅ Team sub-items start with Home; Workspace adds Pulse and Customers (when on); Drafts shows when you have drafts
+- ✅ Customize sidebar (More › Customize sidebar): badge style (count / dot / none) and per-item Always show / Show when badged / Don't show — hidden items live in More
+- ✅ Teams and Members directory pages; Drafts page
 
 ## 2. Issues list
 - ✅ Grouping: Status (cross-team merge by name), Priority, Assignee, Label, Project, Cycle, None
@@ -83,6 +86,16 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Issues belong to milestones (rail, filter, grouping, CLI `--milestone`), milestone progress
 - ✅ Project templates (Settings › Templates; pick one in New project) and project dependencies (blocked by / blocking, arrows on the timeline)
 - ✅ Documents: "Add document or link…" in project and team resources; document page with the rich editor; `baseline doc`
+- ✅ Project labels (Settings › Projects › Labels) with groups whose labels are exclusive; Labels in the properties "…" menu (P then L), list chips, filter and display property
+- ✅ Named project statuses (Settings › Projects › Statuses): add, rename, recolour or delete statuses inside each category
+- ✅ Project bell: choose which project events reach your inbox (issue added, issue completed/canceled, description changes, new update) and the project's update schedule
+- ✅ Update schedule (Settings › Projects › Updates, or per project): next-due hint under the update card; leads get an inbox reminder when an update is due
+- ✅ Pulse: one feed of every project update (All / Following / My projects) and an optional daily or weekly summary in the inbox
+- ✅ Customer requests (Settings › Customer requests): customers with status, tier, revenue, size, owner and domains; requests on issues and projects; New issue from a customer page goes to the default team
+- ✅ Document templates (Settings › Documents) offered in "Add document or link…"
+- ✅ Custom emojis (Settings › Emojis): reactions and :name: in Markdown
+- ✅ Initiatives (sidebar, G then N): Active / Planned / All, owner, target, health from updates, projects and sub-initiatives, progress across their projects; a project's properties show its initiatives
+- ✅ Releases: stages Planned / In progress / Released / Canceled, issues per release, Release on the issue rail, Release filter
 - ✅ Project saved views: Views has Issues | Projects tabs; a project view keeps filters, grouping, ordering, layout and properties; ⌥V saves whatever list is on screen
 
 ## 7. Command palette (⌘K)
@@ -112,6 +125,11 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Linear inbox: U read/unread, ⌫ delete, H snooze (with natural-language times), ⇧⌫ delete all read, row menu, filters (type, from), display (ordering, show snoozed, unread first)
 - ✅ Notifications follow subscriptions: status changes (e.g. an agent finishing), comments, replies, mentions, assignment, reminders
 - ✅ Priority inbox (assignments, mentions, replies and reminders first) and grouping by Focus
+- ✅ SLAs (Settings › Issues › SLAs): rules by priority, label and team give issues a deadline; badges on rows and the rail, SLA filter, breach notifications
+- ✅ Asks (sidebar › Asks, Settings › Asks): intake forms with fields; submissions land in the team's triage
+- ✅ Loops (Settings › Loops): on issue created / label added / status changed / a schedule → comment, assign, label, move, file an issue, open in Claude Code; run log and Run now
+- ✅ GitHub (Settings › Integrations › GitHub): Linear's linking rules and magic words, per-team PR automations with branch rules, In Review state, PR and commit rows on issues, PR icon and filter, branch-name format; data from `gh` and `git log` behind ingest functions a hosted webhook can reuse
+- ✅ Team bell: inbox notifications when issues are added to a team, closed, or land in its triage
 - ✅ Triage queue: filters, ordering (oldest / newest / priority), show snoozed, H snoozes, "Create triage issue"
 
 ## 10. Cycles

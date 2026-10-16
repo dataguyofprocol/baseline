@@ -121,6 +121,40 @@ baseline project milestone-update "Name" "Beta cut" --status inProgress   # plan
 baseline project milestone-delete "Name" "Beta cut"
 baseline project delete "Name"                # issues are kept and detached
 
+# project labels, statuses, update schedule
+baseline project labels                       # groups end with "/" and list their labels
+baseline project label-create "Infra" [--group] [--in "Area"] [-c "#3b82f6"]
+baseline project statuses                     # named statuses by category
+baseline project status-create started "In Review"
+baseline project update "Name" --status "In Review" --label Infra --remove-label "Q4 bet" --updates weekly   # --updates none|weekly|biweekly|monthly|default
+
+# initiatives & releases
+baseline initiative list [--json]
+baseline initiative create "Agent-first tracker" --status active --project "Agent Handoff" "Design System" [--parent "…"] [--target 2026-12-01]
+baseline initiative update "Agent-first tracker" --status completed --add-project "Mobile" --remove-project "…"
+baseline initiative note "Agent-first tracker" "On track for Q4" --health onTrack
+baseline release list [--json]
+baseline release create v1.5.0 [--target 2026-11-01] [-d "notes"]
+baseline release update v1.5.0 --add CORE-3 CORE-7 --stage released   # planned|started|released|canceled
+
+# SLAs, Asks, Loops
+baseline sla list                               # rules + breached issues
+baseline sla create "Urgent in 24h" --hours 24 -p urgent [-t CORE]
+baseline ask list                               # forms and their field ids (* = required)
+baseline ask submit "Bug report" f_title="Export crashes" f_sev=Blocking   # files into the team's triage
+baseline loop list
+baseline loop run "Bug acknowledgement" CORE-12  # run a loop now, optionally on an issue
+
+# git / GitHub (Linear's linking rules: key in branch or PR title; Fixes/Closes … moves the issue)
+baseline git sync                               # pull PRs (gh) and commits (git log) from your locations
+baseline git prs CORE-12 [--json]               # PRs and commits linked to an issue
+# name branches with the issue key (Copy git branch, ⌘⇧.) and write "Fixes CORE-12" in the PR so it moves on merge
+
+# customers (customer requests)
+baseline customer list [--json]
+baseline customer create "Acme" --domain acme.dev --revenue 240000 --size 120
+baseline customer request "Acme" CORE-12 -b "what they said" [--important]   # or a project name instead of an issue key
+
 # documents (specs, briefs, runbooks on a project or team — Markdown)
 baseline doc list [--project "Name"] [--team CORE] [--json]
 baseline doc show "Hand-off spec" [--json]    # by id or title

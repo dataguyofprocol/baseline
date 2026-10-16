@@ -35,6 +35,11 @@ const originHostOf = (c: Context): string | null => {
 export function createApp(dbPath: string) {
   const db = openDb(dbPath);
   const store = new Store(db);
+  const { planning, automation, git } = store.ext;
+  // Loops' "Open in Claude Code" action opens the same interactive session as the manual hand-off
+  automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
+  // the git integration polls gh / git log every two minutes while it's on
+  setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
 
   // seed on first run
   const hasWorkspace = db.prepare('SELECT COUNT(*) AS n FROM meta').get() as { n: number };
@@ -75,7 +80,7 @@ export function createApp(dbPath: string) {
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null, milestoneId: b.milestoneId ?? null,
       // omitted = a sub-issue inherits its parent's (nothing else is defaulted); null = explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
-    });
+    }, typeof b.actorId === 'string' ? b.actorId : undefined);
     return c.json({ issue }, 201);
   });
   app.patch('/api/issues/:id', async (c) => {
@@ -467,7 +472,54 @@ export function createApp(dbPath: string) {
     store.setPreferences(await c.req.json());
     return c.json({ ok: true });
   });
-  app.patch('/api/features', async (c) => { store.setFeatures(await c.req.json()); return c.json({ ok: true }); });
+  app.patch('/api/features', async (c) => {
+    const b = await c.req.json();
+    store.setFeatures(b);
+    // turning GitHub on adds Linear's "In Review" state and syncs straight away
+    if (b.githubEnabled === true) { git.ensureInReview(); void git.sync().catch(() => {}); }
+    return c.json({ ok: true });
+  });
+
+  // ---------- initiatives ----------
+  app.post('/api/initiatives', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ initiative: planning.createInitiative(b) }, 201); });
+  app.patch('/api/initiatives/:id', async (c) => { planning.updateInitiative(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/initiatives/:id', (c) => { planning.deleteInitiative(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/initiatives/:id/projects', async (c) => { const b = await c.req.json(); planning.addProject(c.req.param('id'), b.projectId); return c.json({ ok: true }, 201); });
+  app.delete('/api/initiatives/:id/projects/:projectId', (c) => { planning.removeProject(c.req.param('id'), c.req.param('projectId')); return c.json({ ok: true }); });
+  app.post('/api/initiatives/:id/updates', async (c) => { const b = await c.req.json(); if (!b.body) return c.json({ error: 'body is required' }, 400); return c.json({ update: planning.addInitiativeUpdate(c.req.param('id'), b.userId ?? store.workspaceMeta().currentUser, b.body, b.health) }, 201); });
+
+  // ---------- releases ----------
+  app.post('/api/releases', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ release: planning.createRelease(b) }, 201); });
+  app.patch('/api/releases/:id', async (c) => { planning.updateRelease(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/releases/:id', (c) => { planning.deleteRelease(c.req.param('id')); return c.json({ ok: true }); });
+
+  // ---------- SLAs, asks, loops ----------
+  app.post('/api/sla-rules', async (c) => { const b = await c.req.json(); if (!b.name || !(b.hours > 0)) return c.json({ error: 'name and hours are required' }, 400); return c.json({ rule: automation.createSlaRule(b) }, 201); });
+  app.patch('/api/sla-rules/:id', async (c) => { automation.updateSlaRule(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/sla-rules/:id', (c) => { automation.deleteSlaRule(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/asks', async (c) => { const b = await c.req.json(); if (!b.name || !b.teamId) return c.json({ error: 'name and teamId are required' }, 400); return c.json({ form: automation.createAskForm(b) }, 201); });
+  app.patch('/api/asks/:id', async (c) => { automation.updateAskForm(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/asks/:id', (c) => { automation.deleteAskForm(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/asks/:id/submit', async (c) => {
+    const b = await c.req.json();
+    try { return c.json({ issue: automation.submitAsk(c.req.param('id'), b.values ?? {}, b.requesterId) }, 201); }
+    catch (err) { return c.json({ error: (err as Error).message }, 400); }
+  });
+  app.post('/api/loops', async (c) => { const b = await c.req.json(); if (!b.name || !b.trigger) return c.json({ error: 'name and trigger are required' }, 400); return c.json({ loop: automation.createLoop({ ...b, actions: b.actions ?? [] }) }, 201); });
+  app.patch('/api/loops/:id', async (c) => { automation.updateLoop(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/loops/:id', (c) => { automation.deleteLoop(c.req.param('id')); return c.json({ ok: true }); });
+  app.put('/api/teams/:id/subscription', async (c) => { automation.setTeamSubscription(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.post('/api/loops/:id/run', async (c) => { const b = await c.req.json().catch(() => ({})); try { return c.json({ run: automation.runLoop(c.req.param('id'), b.issueId ?? null) }); } catch (err) { return c.json({ error: (err as Error).message }, 400); } });
+
+  // ---------- git / GitHub ----------
+  app.get('/api/git/status', async (c) => c.json(await git.status()));
+  app.post('/api/git/sync', async (c) => c.json(await git.sync()));
+  app.get('/api/git/automation/:teamId', (c) => c.json(git.automation(c.req.param('teamId'))));
+  app.put('/api/git/automation/:teamId', async (c) => { git.setAutomation(c.req.param('teamId'), await c.req.json()); return c.json({ ok: true }); });
+  app.post('/api/git/unlink', async (c) => { const b = await c.req.json(); git.unlink(b.issueId, b.prId); return c.json({ ok: true }); });
+  /** the webhook-shaped entry points, for scripts and (later) a hosted GitHub App */
+  app.post('/api/git/pull-requests', async (c) => c.json({ pr: git.ingestPullRequest(await c.req.json()) }, 201));
+  app.post('/api/git/commits', async (c) => { const b = await c.req.json(); return c.json({ linked: git.ingestPush(b.commits ?? []) }, 201); });
 
   // ---------- project labels, statuses, subscriptions ----------
   app.post('/api/project-labels', async (c) => {

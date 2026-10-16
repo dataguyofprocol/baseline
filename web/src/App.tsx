@@ -22,6 +22,8 @@ import { CycleDetailPage, CyclesPage, CycleAlias } from './Cycles.js';
 import { InboxPage } from './Inbox.js';
 import { DocumentPage, TeamHomePage } from './Docs.js';
 import { PulsePage, CustomersPage, CustomerPage, TeamsPage, MembersPage, DraftsPage } from './Workspace.js';
+import { InitiativesPage, InitiativePage, ReleasesPage, ReleasePage } from './Planning.js';
+import { AsksPage, AskFormPage } from './AutomationUI.js';
 import { ProjectsPage, NewProjectPage, ProjectPage } from './Projects.js';
 import { IssuePage } from './IssueDetail.js';
 import { Onboarding } from './Onboarding.js';
@@ -74,7 +76,7 @@ function KeyboardManager() {
         const c = chord; chord = null; clearTimeout(chordTimer);
         if (c === 'g') {
           const to: Record<string, string> = {
-            i: '/inbox', m: '/my-issues', p: '/projects', s: '/settings/workspace',
+            i: '/inbox', m: '/my-issues', p: '/projects', s: '/settings/workspace', n: '/initiatives',
             a: `/team/${teamKey}/all`, e: `/team/${teamKey}/active`, b: `/team/${teamKey}/backlog`,
             t: `/team/${teamKey}/triage`, c: `/team/${teamKey}/cycles`, v: `/team/${teamKey}/cycles/current`, w: '/views', x: `/team/${teamKey}/archive`, f: '/search',
           };
@@ -317,6 +319,10 @@ export function App() {
     document.documentElement.dataset.theme = resolvedTheme;
     void bootstrap();
   }, []); // eslint-disable-line
+  // Preferences › Font size and Use pointer cursors apply to the whole app
+  const fontSize = useApp(s => s.snap?.workspace.preferences.fontSize ?? 'default');
+  const pointer = useApp(s => !!s.snap?.workspace.preferences.pointerCursors);
+  useEffect(() => { document.documentElement.dataset.fontSize = fontSize; document.documentElement.classList.toggle('pointer-cursors', pointer); }, [fontSize, pointer]);
 
   if (!loaded) {
     // Boot: the app appears as an object here, so it is the tile — large cut at 28
@@ -363,6 +369,13 @@ export function App() {
                 <Route path="/views/:viewId" element={<SavedViewPage />} />
                 <Route path="/docs/:docId" element={<DocumentPage />} />
                 <Route path="/pulse" element={<PulsePage />} />
+                <Route path="/initiatives" element={<InitiativesPage />} />
+                <Route path="/initiatives/view/:tab" element={<InitiativesPage />} />
+                <Route path="/initiatives/:initiativeId" element={<InitiativePage />} />
+                <Route path="/releases" element={<ReleasesPage />} />
+                <Route path="/releases/:releaseId" element={<ReleasePage />} />
+                <Route path="/asks" element={<AsksPage />} />
+                <Route path="/asks/:formId" element={<AskFormPage />} />
                 <Route path="/customers" element={<CustomersPage />} />
                 <Route path="/customers/:customerId" element={<CustomerPage />} />
                 <Route path="/teams" element={<TeamsPage />} />

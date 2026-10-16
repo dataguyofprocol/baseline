@@ -275,7 +275,7 @@ function RequestRow(props: { request: Snap['customerRequests'][number]; showTarg
 }
 
 /** "Customer requests" on an issue or a project: who asked, what they said, add another */
-export function CustomerRequests(props: { issueId?: string; projectId?: string; compact?: boolean }) {
+export function CustomerRequests(props: { issueId?: string; projectId?: string; compact?: boolean; asButton?: boolean; hideWhenEmpty?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const menu = useMenu();
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -284,17 +284,21 @@ export function CustomerRequests(props: { issueId?: string; projectId?: string; 
   const [creatingName, setCreatingName] = useState<string | null>(null);
   if (!snap.workspace.features.customerRequestsEnabled) return null;
   const reqs = snap.customerRequests.filter(r => (props.issueId && r.issueId === props.issueId) || (props.projectId && r.projectId === props.projectId));
+  if (props.hideWhenEmpty && !reqs.length) return null;
   const add = async () => {
     if (!customerId) return;
     await api.addCustomerRequest({ customerId, issueId: props.issueId ?? null, projectId: props.projectId ?? null, body: body.trim() });
     setCustomerId(null); setBody(''); menu.close();
     await refresh();
   };
+  const opener = (e: React.MouseEvent) => { setCustomerId(null); setQ(''); menu.open(e); };
   return (
-    <div className="creq-section" data-customer-requests>
-      <div className="proj-section-label">Customer requests {reqs.length > 0 && <span className="dim">{reqs.length}</span>}</div>
-      {reqs.map(r => <RequestRow key={r.id} request={r} />)}
-      <button className="prop-line dim" onClick={e => { setCustomerId(null); setQ(''); menu.open(e); }}><IconPlus size={13} /><span className="prop-line-label">Add customer request…</span></button>
+    <div className={props.asButton ? 'creq-btn' : 'creq-section'} data-customer-requests={props.asButton ? undefined : ''}>
+      {props.asButton ? <button className="icon-btn" title="Add customer request" onClick={opener}><IconCustomers size={14} /></button> : <>
+        <div className="proj-section-label">Customer requests {reqs.length > 0 && <span className="dim">{reqs.length}</span>}</div>
+        {reqs.map(r => <RequestRow key={r.id} request={r} />)}
+        <button className="prop-line dim" onClick={opener}><IconPlus size={13} /><span className="prop-line-label">Add customer request…</span></button>
+      </>}
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={300}>
           {!customerId ? <>
@@ -453,7 +457,8 @@ export function DraftsPage() {
 /* ================= Customize sidebar ================= */
 export const SIDEBAR_ITEMS: Array<{ key: string; label: string; section: 'Personal' | 'Workspace' }> = [
   { key: 'inbox', label: 'Inbox', section: 'Personal' }, { key: 'my-issues', label: 'My issues', section: 'Personal' }, { key: 'drafts', label: 'Drafts', section: 'Personal' },
-  { key: 'projects', label: 'Projects', section: 'Workspace' }, { key: 'views', label: 'Views', section: 'Workspace' }, { key: 'pulse', label: 'Pulse', section: 'Workspace' },
+  { key: 'initiatives', label: 'Initiatives', section: 'Workspace' }, { key: 'projects', label: 'Projects', section: 'Workspace' }, { key: 'views', label: 'Views', section: 'Workspace' },
+  { key: 'releases', label: 'Releases', section: 'Workspace' }, { key: 'asks', label: 'Asks', section: 'Workspace' }, { key: 'pulse', label: 'Pulse', section: 'Workspace' },
   { key: 'customers', label: 'Customers', section: 'Workspace' }, { key: 'teams', label: 'Teams', section: 'Workspace' }, { key: 'members', label: 'Members', section: 'Workspace' },
 ];
 export function sidebarVisibility(snap: Snap, key: string): SidebarVisibility {

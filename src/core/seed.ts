@@ -148,6 +148,24 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.addCustomerRequest({ customerId: acme.id, projectId: mobile.id, body: 'Our on-call team triages from phones — need the inbox on mobile.', important: true }, ada.id);
   const reqIssue = store.listIssues({ teamId: core.id }).find(i => /search/i.test(i.title));
   if (reqIssue) store.addCustomerRequest({ customerId: north.id, issueId: reqIssue.id, body: 'Search should match comment text too.' }, jun.id);
+  // initiatives, releases, SLAs, asks, loops and a few pull requests
+  const { planning, automation, git } = store.ext;
+  const agentFirst = planning.createInitiative({ name: 'Agent-first tracker', icon: '🤖', status: 'active', description: 'Make Baseline the place coding agents and people share work.', targetDate: iso(45).slice(0, 10), projectIds: [project.id, design.id] });
+  planning.addInitiativeUpdate(agentFirst.id, ada.id, 'Hand-off loop is in beta; design tokens land next week.', 'onTrack');
+  planning.createInitiative({ name: 'Triage on the go', icon: '📱', status: 'planned', parentId: agentFirst.id, projectIds: [mobile.id] });
+  const coreIssues = store.listIssues({ teamId: core.id });
+  const done = coreIssues.filter(i => st(core.id, 'completed') === i.stateId).slice(0, 2);
+  const open = coreIssues.filter(i => [st(core.id, 'unstarted'), st(core.id, 'started')].includes(i.stateId)).slice(0, 3);
+  const v09 = planning.createRelease({ name: 'v0.9.0', description: 'Rich editor and triage', stage: 'released' });
+  const v10 = planning.createRelease({ name: 'v1.0.0', description: 'Projects and cycles parity', stage: 'started', targetDate: iso(10).slice(0, 10) });
+  for (const i of done) store.updateIssue(i.id, { releaseId: v09.id });
+  for (const i of open) store.updateIssue(i.id, { releaseId: v10.id });
+  automation.createSlaRule({ name: 'Urgent issues', priorities: [1], hours: 24 });
+  automation.createSlaRule({ name: 'High-priority bugs', priorities: [2], labelIds: [coreBug.id], hours: 7 * 24 });
+  automation.createAskForm({ name: 'Bug report', teamId: agents.id, description: 'Something broken? Tell us what you saw.', priority: 2,
+    fields: [{ id: 'f_title', label: 'What went wrong?', type: 'text', options: [], required: true }, { id: 'f_steps', label: 'Steps to reproduce', type: 'textarea', options: [], required: false }, { id: 'f_sev', label: 'How bad is it?', type: 'select', options: ['Blocking', 'Annoying', 'Cosmetic'], required: true }] });
+  automation.createLoop({ name: 'Bug acknowledgement', teamId: core.id, trigger: { kind: 'labelAdded', labelId: coreBug.id }, actions: [{ kind: 'comment', body: 'Thanks — {issue.key} is queued for the bug rotation.' }] });
+  if (open[0]) git.ingestPullRequest({ repo: 'example/baseline', number: 41, title: `${store.keyOf(open[0])} ${open[0].title}`, body: '', url: 'https://github.com/example/baseline/pull/41', state: 'open', branch: `parth/${store.keyOf(open[0]).toLowerCase()}`, base: 'main', author: 'parth', reviewDecision: 'review_required', checks: 'success', updatedAt: iso(-0.1), mergedAt: null });
   store.createDocTemplate({ name: 'Spec', title: 'Spec: ', content: '## Problem\n\n## Proposal\n\n## Open questions\n' });
   store.createProjectTemplate({
     name: 'Feature launch', icon: '🚀', summary: 'Ship a feature from spec to rollout.', priority: 2,
@@ -195,6 +213,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.toggleFavorite('project', project.id);
   store.toggleFavorite('view', store.snapshot().views[0].id);
 
-  setMeta(db, 'seedVersion', '6');
+  setMeta(db, 'seedVersion', '7');
   void nowIso;
 }

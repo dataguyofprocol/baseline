@@ -90,6 +90,13 @@ export interface Issue {
   creatorId: string | null;
   /** triage: hidden from the queue until this time */
   snoozedUntil: string | null;
+  /** the release it ships in */
+  releaseId?: string | null;
+  /** the Ask form it was filed through */
+  askFormId?: string | null;
+  /** SLA: the rule that applies and when it breaches (cleared once the issue closes) */
+  slaRuleId?: string | null;
+  slaBreachesAt?: string | null;
   estimate: number | null;
   dueDate: string | null;
   sortOrder: number;
@@ -184,6 +191,8 @@ export interface Project {
   memberIds: string[];
   /** workspace project labels (Settings › Projects › Labels) */
   labelIds: string[];
+  /** initiatives this project belongs to (derived) */
+  initiativeIds?: string[];
   /** the named status (Settings › Projects › Statuses); `status` is its category */
   statusId: string | null;
   /** how often updates are expected; null follows the workspace schedule */
@@ -196,6 +205,59 @@ export interface Project {
 
 export type UpdateCadence = 'none' | 'weekly' | 'biweekly' | 'monthly';
 export const UPDATE_CADENCE_LABELS: Record<UpdateCadence, string> = { none: 'No expectation for updates', weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month' };
+
+/* ---------- initiatives ---------- */
+export type InitiativeStatus = 'planned' | 'active' | 'completed';
+/** a strategic effort grouping projects (and sub-initiatives), with its own updates and health */
+export interface Initiative {
+  id: string; name: string; description: string; icon: string; color: string;
+  status: InitiativeStatus; health: ProjectHealth | null; ownerId: string | null; targetDate: string | null;
+  parentId: string | null; projectIds: string[]; position: number; createdAt: string; updatedAt: string;
+}
+export interface InitiativeUpdate { id: string; initiativeId: string; userId: string; body: string; health: ProjectHealth | null; createdAt: string }
+
+/* ---------- releases ---------- */
+export type ReleaseStage = 'planned' | 'started' | 'released' | 'canceled';
+/** which issues ship in a version */
+export interface Release { id: string; name: string; description: string; stage: ReleaseStage; teamId: string | null; targetDate: string | null; releasedAt: string | null; createdAt: string }
+
+/* ---------- SLAs ---------- */
+/** an automation rule: issues matching it get a deadline `hours` after they start matching */
+export interface SlaRule { id: string; name: string; teamId: string | null; priorities: Priority[]; labelIds: string[]; hours: number; enabled: boolean; createdAt: string }
+
+/* ---------- asks (intake forms) ---------- */
+export interface AskField { id: string; label: string; type: 'text' | 'textarea' | 'select'; options: string[]; required: boolean }
+/** a structured intake form; each submission becomes an issue in the team's triage */
+export interface AskForm { id: string; name: string; description: string; teamId: string; fields: AskField[]; labelIds: string[]; priority: Priority; enabled: boolean; createdAt: string }
+
+/* ---------- loops (automations) ---------- */
+export type LoopTrigger = { kind: 'schedule'; cadence: 'hourly' | 'daily' | 'weekly' } | { kind: 'issueCreated' } | { kind: 'labelAdded'; labelId: string } | { kind: 'statusChanged'; stateType: WorkflowStateType };
+export type LoopAction =
+  | { kind: 'assign'; userId: string }
+  | { kind: 'comment'; body: string }
+  | { kind: 'label'; labelId: string }
+  | { kind: 'status'; stateType: WorkflowStateType }
+  | { kind: 'createIssue'; title: string; description: string }
+  | { kind: 'claudeCode' };
+/** a workflow that runs on a schedule or when issues change — "Agent workflows" in Linear */
+export interface Loop { id: string; name: string; teamId: string | null; trigger: LoopTrigger; actions: LoopAction[]; enabled: boolean; lastRunAt: string | null; createdAt: string }
+export interface LoopRun { id: string; loopId: string; issueId: string | null; ok: boolean; detail: string; createdAt: string }
+
+/* ---------- git / GitHub (Linear's GitHub integration rules; TEAM_PLAN.md Phase 4) ---------- */
+export type PrState = 'draft' | 'open' | 'merged' | 'closed';
+export interface PullRequest {
+  id: string; repo: string; number: number; title: string; body: string; url: string; state: PrState;
+  branch: string; base: string; author: string; reviewDecision: 'approved' | 'changes_requested' | 'review_required' | null;
+  checks: 'success' | 'failure' | 'pending' | null; updatedAt: string; mergedAt: string | null;
+}
+/** closing links move the issue; ref links only show; related links add a relation-style mention */
+export interface IssuePr { issueId: string; prId: string; kind: 'closing' | 'ref' | 'related'; dismissed: boolean }
+export interface Commit { sha: string; repo: string; message: string; author: string; branch: string; committedAt: string }
+export interface IssueCommit { issueId: string; sha: string }
+export interface TeamSubscription { issueAdded: boolean; issueClosed: boolean; triage: boolean }
+export type PrEvent = 'draft' | 'opened' | 'review' | 'ready' | 'merged';
+/** per team: which workflow state each PR event moves a closing-linked issue to (null = no action) */
+export type PrAutomation = Record<PrEvent, string | null> & { branchRules: Array<{ pattern: string; event: PrEvent; stateId: string | null }> };
 
 /** workspace project label; a label with isGroup holds others (parentId) */
 export interface ProjectLabel { id: string; name: string; color: string; description: string; parentId: string | null; isGroup: boolean; createdAt: string }
@@ -228,8 +290,14 @@ export interface WorkspaceFeatures {
   customerRequestsEnabled: boolean;
   /** new issues created from a customer page go to this team's triage or backlog */
   customerDefaultTeamId: string | null;
+  initiativesEnabled: boolean;
+  releasesEnabled: boolean;
+  /** git / GitHub: poll `gh` for pull requests in your locations' repos */
+  githubEnabled: boolean;
+  /** branch name format for "Copy git branch": {issueIdentifier} {issueTitle} {username} */
+  branchFormat: string;
 }
-export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null };
+export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null, initiativesEnabled: true, releasesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}' };
 
 /** a directory on this machine that coding agents can work in — usually a git repo */
 export interface Location {
@@ -370,6 +438,12 @@ export interface ViewFilters {
   /** cycle ids; 'none' = no cycle, 'current' = the team's running cycle */
   cycleIds?: string[];
   milestoneIds?: string[];
+  /** release ids; 'none' = no release */
+  releaseIds?: string[];
+  /** SLA status */
+  sla?: Array<'breached' | 'risk' | 'ok' | 'none'>;
+  /** linked pull request state */
+  prs?: Array<'open' | 'draft' | 'merged' | 'none'>;
   /** estimate values; -1 = no estimate */
   estimates?: number[];
   due?: Array<'overdue' | 'today' | 'week' | 'month' | 'none' | 'any'>;
@@ -396,7 +470,7 @@ export type OrderBy = 'priority' | 'updated' | 'created' | 'due' | 'manual' | 't
 
 export interface Favorite {
   id: string;
-  type: 'issue' | 'project' | 'view' | 'cycle';
+  type: 'issue' | 'project' | 'view' | 'cycle' | 'initiative';
   refId: string;
   position: number;
 }
@@ -419,6 +493,14 @@ export type NotificationType =
   | 'projectUpdateReminder'
   /** Pulse summary of recent project updates */
   | 'pulseDigest'
+  /** an issue assigned to you breached (or is about to breach) its SLA */
+  | 'slaBreached'
+  /** a pull request linked to an issue you follow opened, got reviewed or merged */
+  | 'prActivity'
+  /** a loop failed to run */
+  | 'loopFailed'
+  /** team bell: an issue was added to a team you follow, closed, or landed in its triage */
+  | 'teamActivity'
   /** raised by the app itself — no human actor, so the inbox row signs with the tile */
   | 'systemUpdate';
 
@@ -441,7 +523,8 @@ export type ActivityType =
   | 'parented' | 'commented' | 'archived' | 'restored' | 'dueChanged'
   | 'estimateChanged' | 'related' | 'unrelated' | 'cycleChanged' | 'locationChanged' | 'milestoneChanged' | 'teamChanged'
   | 'attached' | 'triageAccepted' | 'triageDeclined' | 'deleted'
-  | 'projectCreated' | 'projectUpdated' | 'projectHealth';
+  | 'projectCreated' | 'projectUpdated' | 'projectHealth'
+  | 'releaseChanged' | 'slaApplied' | 'slaBreached' | 'prLinked' | 'prStateMoved' | 'commitLinked' | 'loopRan' | 'askSubmitted';
 
 export interface ActivityItem {
   id: string;
@@ -482,16 +565,26 @@ export interface Preferences {
     comments: boolean;
     mentions: boolean;
   };
+  /** how people's names show: full name, or first name only */
+  displayNames: 'full' | 'first';
+  /** turn :) and friends into emoji as you type */
+  convertEmoticons: boolean;
+  /** the key that sends a comment: Enter (⇧↵ for a new line) or ⌘↵ */
+  sendCommentsOn: 'enter' | 'mod-enter';
+  fontSize: 'small' | 'default' | 'large';
+  /** show the hand cursor on clickable things */
+  pointerCursors: boolean;
   /** Customize sidebar: badge style, and when each item shows (hidden ones move to More) */
   sidebar: { badgeStyle: 'count' | 'dot' | 'none'; items: Record<string, SidebarVisibility> };
 }
 export type SidebarVisibility = 'show' | 'badged' | 'hide';
-export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', projects: 'show', views: 'show', pulse: 'show', customers: 'show', teams: 'hide', members: 'hide' };
+export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', releases: 'show', asks: 'hide', pulse: 'show', customers: 'show', teams: 'hide', members: 'hide' };
 
 export const DEFAULT_PREFERENCES: Preferences = {
   homeView: 'inbox', firstDayOfWeek: 1,
   notify: { assigned: true, statusChanged: true, comments: true, mentions: true },
   sidebar: { badgeStyle: 'count', items: {} },
+  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false,
 };
 
 /** macOS terminals interactive sessions can open in, by app name (`open -a <name>`) */
@@ -529,6 +622,19 @@ export interface Snapshot {
   customerStatuses: CustomerStatus[];
   customerTiers: CustomerTier[];
   customerRequests: CustomerRequest[];
+  initiatives: Initiative[];
+  initiativeUpdates: InitiativeUpdate[];
+  releases: Release[];
+  slaRules: SlaRule[];
+  askForms: AskForm[];
+  loops: Loop[];
+  loopRuns: LoopRun[];
+  pullRequests: PullRequest[];
+  issuePrs: IssuePr[];
+  commits: Commit[];
+  issueCommits: IssueCommit[];
+  /** the team bell: which team events reach your inbox */
+  teamSubscriptions: Record<string, TeamSubscription>;
   recurring: RecurringIssue[];
   locations: Location[];
   projectUpdates: ProjectUpdate[];

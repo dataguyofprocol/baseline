@@ -1241,6 +1241,108 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof stor
   return { ...projectJson(p, snap, store), issues, updates, milestones, blockedBy, blocking, links };
 }
 
+// ---------- initiatives & releases ----------
+const initiative = program.command('initiative').description('Initiatives: strategic efforts made of projects');
+const findInitiative = (snap: Snapshot, ref: string) => snap.initiatives.find(i => i.id === ref) ?? snap.initiatives.find(i => i.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown initiative "${ref}"`);
+withDb(initiative.command('list')).description('List initiatives with progress').option('--json', 'output as JSON', false).action((opts: { db?: string; json?: boolean }) => {
+  const store = storeFor(opts.db); const snap = store.snapshot();
+  const rows = snap.initiatives.map(i => ({ name: i.name, status: i.status, health: i.health, owner: snap.users.find(u => u.id === i.ownerId)?.name ?? null, targetDate: i.targetDate, parent: snap.initiatives.find(x => x.id === i.parentId)?.name ?? null, projects: i.projectIds.map(pid => snap.projects.find(p => p.id === pid)?.name) }));
+  if (opts.json) console.log(JSON.stringify(rows, null, 2)); else for (const r of rows) console.log(`${r.name.padEnd(30)} ${r.status.padEnd(10)} ${(r.health ?? '-').padEnd(9)} ${r.projects.join(', ')}`);
+  process.exit(0);
+});
+withDb(initiative.command('create <name>')).description('Create an initiative').option('-d, --description <text>').option('--status <status>', 'planned|active|completed').option('--target <date>').option('--parent <initiative>').option('--project <name...>', 'projects to include')
+  .action((name: string, opts: { db?: string; description?: string; status?: string; target?: string; parent?: string; project?: string[] }) => {
+    const store = storeFor(opts.db); const snap = store.snapshot();
+    const ini = store.ext.planning.createInitiative({ name, description: opts.description, status: opts.status as 'planned' | undefined, targetDate: opts.target ?? null, parentId: opts.parent ? findInitiative(snap, opts.parent).id : null, projectIds: (opts.project ?? []).map(n => resolveProject(snap, n)!.id) });
+    console.log(`Created initiative "${ini.name}"`); process.exit(0);
+  });
+withDb(initiative.command('update <initiative>')).description('Update an initiative').option('--status <status>').option('--target <date>').option('--add-project <name>').option('--remove-project <name>')
+  .action((ref: string, opts: { db?: string; status?: string; target?: string; addProject?: string; removeProject?: string }) => {
+    const store = storeFor(opts.db); const snap = store.snapshot(); const ini = findInitiative(snap, ref);
+    store.ext.planning.updateInitiative(ini.id, { ...(opts.status ? { status: opts.status as 'active' } : {}), ...(opts.target ? { targetDate: opts.target === 'none' ? null : opts.target } : {}) });
+    if (opts.addProject) store.ext.planning.addProject(ini.id, resolveProject(snap, opts.addProject)!.id);
+    if (opts.removeProject) store.ext.planning.removeProject(ini.id, resolveProject(snap, opts.removeProject)!.id);
+    console.log(`Updated initiative "${ini.name}"`); process.exit(0);
+  });
+withAs(withDb(initiative.command('note <initiative> <body>'))).description('Post an initiative update').option('--health <health>', 'onTrack|atRisk|offTrack')
+  .action((ref: string, body: string, opts: { db?: string; health?: string; as?: string }) => {
+    const store = storeFor(opts.db); const snap = store.snapshot();
+    store.ext.planning.addInitiativeUpdate(findInitiative(snap, ref).id, actorId(snap, opts.as) ?? store.workspaceMeta().currentUser, body, opts.health as 'onTrack' | undefined);
+    console.log('Posted update'); process.exit(0);
+  });
+const release = program.command('release').description('Releases: which issues ship in a version');
+const findRelease = (snap: Snapshot, ref: string) => snap.releases.find(r => r.id === ref || r.name === ref) ?? fail(`Unknown release "${ref}"`);
+withDb(release.command('list')).description('List releases').option('--json', 'output as JSON', false).action((opts: { db?: string; json?: boolean }) => {
+  const snap = storeFor(opts.db).snapshot();
+  const rows = snap.releases.map(r => ({ name: r.name, stage: r.stage, targetDate: r.targetDate, releasedAt: r.releasedAt, issues: snap.issues.filter(i => i.releaseId === r.id).map(i => issueKey(i, snap.teams)) }));
+  if (opts.json) console.log(JSON.stringify(rows, null, 2)); else for (const r of rows) console.log(`${r.name.padEnd(12)} ${r.stage.padEnd(9)} ${r.issues.join(' ')}`);
+  process.exit(0);
+});
+withDb(release.command('create <name>')).description('Create a release').option('-d, --description <text>').option('--target <date>').action((name: string, opts: { db?: string; description?: string; target?: string }) => {
+  storeFor(opts.db).ext.planning.createRelease({ name, description: opts.description, targetDate: opts.target ?? null }); console.log(`Created release ${name}`); process.exit(0);
+});
+withDb(release.command('update <release>')).description('Change a release (stage: planned|started|released|canceled)').option('--stage <stage>').option('--add <keys...>', 'issue keys to add').option('--remove <keys...>', 'issue keys to remove')
+  .action((ref: string, opts: { db?: string; stage?: string; add?: string[]; remove?: string[] }) => {
+    const store = storeFor(opts.db); const r = findRelease(store.snapshot(), ref);
+    if (opts.stage) store.ext.planning.updateRelease(r.id, { stage: opts.stage as 'released' });
+    for (const k of opts.add ?? []) store.updateIssue(store.getByKey(k)?.id ?? fail(`Unknown issue ${k}`), { releaseId: r.id });
+    for (const k of opts.remove ?? []) store.updateIssue(store.getByKey(k)?.id ?? fail(`Unknown issue ${k}`), { releaseId: null });
+    console.log(`Updated release ${r.name}`); process.exit(0);
+  });
+
+// ---------- SLAs, asks, loops, git ----------
+const sla = program.command('sla').description('SLA rules: deadlines for matching issues');
+withDb(sla.command('list')).description('List SLA rules and breached issues').action((opts: { db?: string }) => {
+  const snap = storeFor(opts.db).snapshot();
+  for (const r of snap.slaRules) console.log(`${r.enabled ? '●' : '○'} ${r.name.padEnd(24)} priorities ${r.priorities.join(',') || 'any'} · within ${r.hours}h`);
+  const now = new Date().toISOString();
+  const breached = snap.issues.filter(i => i.slaBreachesAt && i.slaBreachesAt <= now).map(i => issueKey(i, snap.teams));
+  if (breached.length) console.log(`breached: ${breached.join(' ')}`);
+  process.exit(0);
+});
+withDb(sla.command('create <name>')).description('Add an SLA rule').requiredOption('--hours <n>', 'deadline in hours').option('-p, --priority <levels...>', 'urgent|high|medium|low|none').option('-t, --team <key>')
+  .action((name: string, opts: { db?: string; hours: string; priority?: string[]; team?: string }) => {
+    const store = storeFor(opts.db);
+    store.ext.automation.createSlaRule({ name, hours: Number(opts.hours), priorities: (opts.priority ?? []).map(p => priorityNum(p)!), teamId: opts.team ? resolveTeam(store.snapshot(), opts.team, { required: true })!.id : null });
+    console.log(`Created SLA rule "${name}"`); process.exit(0);
+  });
+const ask = program.command('ask').description('Asks: intake forms that file into triage');
+withDb(ask.command('list')).description('List Ask forms and their fields').action((opts: { db?: string }) => {
+  for (const f of storeFor(opts.db).snapshot().askForms) console.log(`${f.id}  ${f.name} — ${f.fields.map(x => `${x.id}:${x.label}${x.required ? '*' : ''}`).join(', ')}`);
+  process.exit(0);
+});
+withAs(withDb(ask.command('submit <form>'))).description('Submit an Ask (field values as id=value)').argument('<values...>')
+  .action((ref: string, values: string[], opts: { db?: string; as?: string }) => {
+    const store = storeFor(opts.db); const snap = store.snapshot();
+    const f = snap.askForms.find(x => x.id === ref || x.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown form "${ref}"`);
+    try { const issue = store.ext.automation.submitAsk(f.id, Object.fromEntries(values.map(v => [v.split('=')[0], v.split('=').slice(1).join('=')])), actorId(snap, opts.as)); console.log(`Filed ${store.keyOf(issue)}`); }
+    catch (e) { fail((e as Error).message); }
+    process.exit(0);
+  });
+const loop = program.command('loop').description('Loops: workflows that run on a schedule or when issues change');
+withDb(loop.command('list')).description('List loops and recent runs').action((opts: { db?: string }) => {
+  const snap = storeFor(opts.db).snapshot();
+  for (const l of snap.loops) { console.log(`${l.enabled ? '●' : '○'} ${l.name} (${l.trigger.kind}) → ${l.actions.map(a => a.kind).join(', ')}`); for (const r of snap.loopRuns.filter(x => x.loopId === l.id).slice(0, 2)) console.log(`    ${r.ok ? '✓' : '✗'} ${r.detail}`); }
+  process.exit(0);
+});
+withDb(loop.command('run <loop> [issue]')).description('Run a loop now (optionally on an issue)').action((ref: string, key: string | undefined, opts: { db?: string }) => {
+  const store = storeFor(opts.db); const l = store.snapshot().loops.find(x => x.id === ref || x.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown loop "${ref}"`);
+  const run = store.ext.automation.runLoop(l.id, key ? store.getByKey(key)?.id ?? fail(`Unknown issue ${key}`) : null);
+  console.log(`${run.ok ? 'ran' : 'failed'}: ${run.detail}`); process.exit(run.ok ? 0 : 1);
+});
+const gitCmd = program.command('git').description('Git / GitHub: link PRs and commits to issues');
+withDb(gitCmd.command('sync')).description('Pull recent PRs (gh) and commits (git log) from your locations').action(async (opts: { db?: string }) => {
+  const store = storeFor(opts.db); const r = await store.ext.git.sync();
+  console.log(`${r.prs} pull requests, ${r.commits} commit links${r.error ? ` — ${r.error}` : ''}`); process.exit(0);
+});
+withDb(gitCmd.command('prs <key>')).description('Pull requests and commits linked to an issue').option('--json', 'output as JSON', false).action((key: string, opts: { db?: string; json?: boolean }) => {
+  const store = storeFor(opts.db); const snap = store.snapshot(); const i = store.getByKey(key) ?? fail(`Unknown issue ${key}`);
+  const prs = snap.issuePrs.filter(l => l.issueId === i.id && !l.dismissed).map(l => ({ ...snap.pullRequests.find(p => p.id === l.prId)!, link: l.kind }));
+  const commits = snap.issueCommits.filter(c => c.issueId === i.id).map(c => snap.commits.find(x => x.sha === c.sha)!);
+  if (opts.json) console.log(JSON.stringify({ prs, commits }, null, 2)); else { for (const p of prs) console.log(`#${p.number} ${p.state.padEnd(7)} ${p.title} (${p.link}) ${p.url}`); for (const c of commits) console.log(`${c.sha.slice(0, 7)} ${c.message.split('\n')[0]}`); }
+  process.exit(0);
+});
+
 // ---------- customers ----------
 const customer = program.command('customer').description('Customers and the issues / projects they asked for');
 function resolveCustomer(snap: Snapshot, ref: string) {

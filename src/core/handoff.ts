@@ -76,9 +76,15 @@ export function slugify(text: string, maxChars = BRANCH_MAX_CHARS, maxWords = BR
 }
 
 /** e.g. ENG-42 "Fix the flaky login redirect on Safari" → `eng-42-fix-flaky-login-redirect` */
-export function branchName(key: string, title: string): string {
+export function branchName(key: string, title: string, format?: string, username?: string): string {
   const slug = slugify(title);
-  return slug ? `${key.toLowerCase()}-${slug}` : key.toLowerCase();
+  const plain = slug ? `${key.toLowerCase()}-${slug}` : key.toLowerCase();
+  if (!format) return plain;
+  // the workspace format (Settings › Integrations › GitHub), Linear's variables
+  const user = (username ?? '').toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9-]/g, '') ?? '';
+  const out = format.replace(/\{issueIdentifier\}/g, key.toLowerCase()).replace(/\{issueTitle\}/g, slug).replace(/\{username\}/g, user)
+    .replace(/\/+/g, '/').replace(/-+/g, '-').replace(/^[/-]+|[/-]+$/g, '').replace(/\/-|-\//g, '/');
+  return out || plain;
 }
 
 export function renderHandoff(template: string, vars: Record<string, string>): string {
@@ -92,6 +98,9 @@ export interface HandoffContext {
   projects: Project[];
   labels: Label[];
   baseUrl?: string;
+  /** workspace branch format and the person it's for */
+  branchFormat?: string;
+  username?: string;
 }
 
 export function buildHandoff(
@@ -106,7 +115,7 @@ export function buildHandoff(
   const labelNames = issue.labelIds
     .map(lid => ctx.labels.find(l => l.id === lid)?.name)
     .filter((n): n is string => !!n);
-  const branch = branchName(key, issue.title);
+  const branch = branchName(key, issue.title, ctx.branchFormat, ctx.username);
   // core also runs in the browser (Settings ▸ Handoff preview), where `process` doesn't exist
   const envUrl = typeof process !== 'undefined' ? process.env.BASELINE_URL : undefined;
   const base = (ctx.baseUrl ?? envUrl ?? windowOrigin() ?? 'http://localhost:7770').replace(/\/+$/, '');

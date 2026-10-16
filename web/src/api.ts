@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation } from '../../src/core/types.js';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -7,7 +7,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
+  // the server's own message (e.g. "Required: Summary") is what the person should see
+  if (!res.ok) { const msg = await res.json().then((j: { error?: string }) => j.error).catch(() => undefined); throw new Error(msg ?? `${method} ${path} → ${res.status}`); }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
@@ -99,6 +100,32 @@ export const api = {
   createMilestone: (b: Record<string, unknown>) => req<{ milestone: Milestone }>('POST', '/api/milestones', b),
   updateMilestone: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/milestones/${id}`, patch),
   deleteMilestone: (id: string) => req<{ ok: true }>('DELETE', `/api/milestones/${id}`),
+  createInitiative: (b: Record<string, unknown>) => req<{ initiative: Initiative }>('POST', '/api/initiatives', b),
+  updateInitiative: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/initiatives/${id}`, b),
+  deleteInitiative: (id: string) => req<{ ok: true }>('DELETE', `/api/initiatives/${id}`),
+  addInitiativeProject: (id: string, projectId: string) => req<{ ok: true }>('POST', `/api/initiatives/${id}/projects`, { projectId }),
+  removeInitiativeProject: (id: string, projectId: string) => req<{ ok: true }>('DELETE', `/api/initiatives/${id}/projects/${projectId}`),
+  addInitiativeUpdate: (id: string, body: string, health?: string | null) => req<{ ok: true }>('POST', `/api/initiatives/${id}/updates`, { body, health }),
+  createRelease: (b: Record<string, unknown>) => req<{ release: Release }>('POST', '/api/releases', b),
+  updateRelease: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/releases/${id}`, b),
+  deleteRelease: (id: string) => req<{ ok: true }>('DELETE', `/api/releases/${id}`),
+  createSlaRule: (b: Record<string, unknown>) => req<{ rule: SlaRule }>('POST', '/api/sla-rules', b),
+  updateSlaRule: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/sla-rules/${id}`, b),
+  deleteSlaRule: (id: string) => req<{ ok: true }>('DELETE', `/api/sla-rules/${id}`),
+  createAskForm: (b: Record<string, unknown>) => req<{ form: AskForm }>('POST', '/api/asks', b),
+  updateAskForm: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/asks/${id}`, b),
+  deleteAskForm: (id: string) => req<{ ok: true }>('DELETE', `/api/asks/${id}`),
+  submitAsk: (id: string, values: Record<string, string>) => req<{ issue: Issue }>('POST', `/api/asks/${id}/submit`, { values }),
+  createLoop: (b: Record<string, unknown>) => req<{ loop: Loop }>('POST', '/api/loops', b),
+  updateLoop: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/loops/${id}`, b),
+  deleteLoop: (id: string) => req<{ ok: true }>('DELETE', `/api/loops/${id}`),
+  runLoop: (id: string, issueId?: string | null) => req<{ run: LoopRun }>('POST', `/api/loops/${id}/run`, { issueId: issueId ?? null }),
+  setTeamSubscription: (teamId: string, flags: Record<string, boolean>) => req<{ ok: true }>('PUT', `/api/teams/${teamId}/subscription`, flags),
+  gitStatus: () => req<{ ghInstalled: boolean; ghUser: string | null; repos: Array<{ location: string; path: string; repo: string | null }>; lastSyncAt: string | null; lastError: string | null }>('GET', '/api/git/status'),
+  gitSync: () => req<{ prs: number; commits: number; error?: string }>('POST', '/api/git/sync'),
+  gitAutomation: (teamId: string) => req<PrAutomation>('GET', `/api/git/automation/${teamId}`),
+  setGitAutomation: (teamId: string, b: Partial<PrAutomation>) => req<{ ok: true }>('PUT', `/api/git/automation/${teamId}`, b),
+  unlinkPr: (issueId: string, prId: string) => req<{ ok: true }>('POST', '/api/git/unlink', { issueId, prId }),
   setFeatures: (patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', '/api/features', patch),
   createProjectLabel: (b: Record<string, unknown>) => req<{ label: ProjectLabel }>('POST', '/api/project-labels', b),
   updateProjectLabel: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/project-labels/${id}`, b),

@@ -8,8 +8,8 @@ import { GroupedList, FilterBar, DisplayOptionsMenu, useViewPrefs, DEFAULT_VIEW_
 import { Board } from './Board.js';
 import { ProjectsPage, countProjectView, describeProjectView } from './Projects.js';
 import { LogoMark } from './Logo.js';
-import { StateIcon } from './pickers.js';
-import { IconFilter, IconDisplay, IconStar, IconMore, IconTrash, IconEdit, IconChevronDown } from './icons.js';
+import { StateIcon, teamDisplayIcon } from './pickers.js';
+import { IconFilter, IconDisplay, IconStar, IconMore, IconTrash, IconEdit, IconViews, IconBell, IconCheck } from './icons.js';
 import type { SavedView, ViewFilters, Issue } from '../../src/core/types.js';
 
 /** the right-toolbar filter icon opens the filter menu anchored to itself */
@@ -142,17 +142,16 @@ export function TeamPage() {
   }, [snap.issues, snap.states, team, filter]);
 
   if (!team) return <TeamMissingRedirect />;
-  const title = filter === 'active' ? 'Active' : filter === 'backlog' ? 'Backlog' : 'All issues';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar
         crumbs={[
-          { label: team.name, icon: <span className="ws-avatar" style={{ background: team.color, borderRadius: 4, fontSize: 9, width: 18, height: 18 }}>{team.key.slice(0, 2)}</span>, to: `/team/${team.key}/all`, muted: true },
-          { label: 'Issues', muted: true },
-          { label: title },
+          { label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true },
+          { label: 'Issues' },
         ]}
         favoriteRef={{ type: 'view', refId: `team-${team.id}-${filter}` }}
+        right={<TeamBell teamId={team.id} />}
       />
       <TeamSubnav
         teamId={team.id}
@@ -182,6 +181,30 @@ export function TeamMissingRedirect() {
 }
 
 /** team selector + All/Active/Backlog/Cycles tabs shared by the team issues page and the cycles page */
+/** the team bell: which team events reach your inbox (Linear's three options) */
+function TeamBell({ teamId }: { teamId: string }) {
+  const snap = useApp(s => s.snap)!;
+  const menu = useMenu();
+  const sub = snap.teamSubscriptions[teamId] ?? { issueAdded: false, issueClosed: false, triage: false };
+  const on = sub.issueAdded || sub.issueClosed || sub.triage;
+  const toggle = async (k: keyof typeof sub) => { await api.setTeamSubscription(teamId, { [k]: !sub[k] }); await useApp.getState().bootstrap(); };
+  return (
+    <>
+      <button className={`icon-btn${on ? ' on' : ''}`} title="Notifications" data-team-bell onClick={menu.open}><IconBell size={15} /></button>
+      {menu.anchor && (
+        <Menu anchor={menu.anchor} onClose={menu.close} width={330}>
+          <div className="menu-header"><span>Send inbox notifications for</span></div>
+          {([['issueAdded', 'An issue is added to the team'], ['issueClosed', 'An issue is marked completed or canceled'], ['triage', 'An issue is added to the triage queue']] as const).map(([k, l]) => (
+            <button key={k} className="menu-item" onClick={e => { e.stopPropagation(); void toggle(k); }}>
+              <span className="mi-label">{l}</span><span className={`mi-check${sub[k] ? ' on' : ''}`} style={{ marginLeft: 'auto' }}>{sub[k] && <IconCheck size={11} />}</span>
+            </button>
+          ))}
+        </Menu>
+      )}
+    </>
+  );
+}
+
 export function TeamSubnav(props: { teamId: string; filter: 'all' | 'active' | 'backlog' | 'cycles'; trailing?: React.ReactNode }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -202,17 +225,13 @@ export function TeamSubnav(props: { teamId: string; filter: 'all' | 'active' | '
 
   return (
     <div className="subnav">
-      <button className="team-switch" onClick={teamMenu.open} title="Switch team">
-        {chip(team)}
-        <span>{team.name}</span>
-        <IconChevronDown size={13} style={{ color: 'var(--text-secondary)' }} />
-      </button>
-      {(['all', 'active', 'backlog', 'cycles'] as const).map(f => (
+      {(['active', 'backlog', 'all'] as const).map(f => (
         <button key={f} className={`seg ${props.filter === f ? 'selected' : ''}`} onClick={() => navigate(`/team/${team.key}/${f}`)}>
-          {f === 'all' ? 'All issues' : f === 'active' ? 'Active' : f === 'backlog' ? 'Backlog' : 'Cycles'}
+          {f === 'all' ? 'All issues' : f === 'active' ? 'Active' : 'Backlog'}
           {props.filter === f && <RegisterMark group="team-tabs" />}
         </button>
       ))}
+      <button className="icon-btn seg-add" title="New view from this list (⌥V)" onClick={() => { const ev = new CustomEvent('baseline:save-view', { cancelable: true }); window.dispatchEvent(ev); }}><IconViews size={14} /></button>
       <span style={{ flex: 1 }} />
       {props.trailing}
       {teamMenu.anchor && (

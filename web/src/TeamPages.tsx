@@ -99,14 +99,12 @@ export function TriagePage() {
   return (
     <div className="inbox">
       <div className="inbox-list">
-        <TopBar crumbs={[{ label: team.name, to: `/team/${team.key}/all`, muted: true }, { label: 'Triage' }]}
-          right={<button className="icon-btn" title="Create triage issue" onClick={createTriage}><IconPlus size={15} /></button>} />
-        <div className="subnav">
-          <span className="seg selected">Triage<span className="seg-count">{queue.length}</span></span>
-          <span style={{ flex: 1 }} />
-          <button className={`icon-btn${activeFilterCount(prefs.filters) ? ' on' : ''}`} data-filter-trigger title="Filter (F)" onClick={openFilterMenu}><IconFilter size={15} /></button>
-          <button className="icon-btn" title="Display options" onClick={displayMenu.open}><IconDisplay size={15} /></button>
-        </div>
+        <TopBar crumbs={[{ label: 'Triage' }]} favoriteRef={{ type: 'view', refId: `team-${team.id}-triage` }}
+          right={<>
+            <button className={`icon-btn${activeFilterCount(prefs.filters) ? ' on' : ''}`} data-filter-trigger title="Filter (F)" onClick={openFilterMenu}><IconFilter size={15} /></button>
+            <button className="icon-btn" title="Display options" onClick={displayMenu.open}><IconDisplay size={15} /></button>
+            <button className="icon-btn" title="Create triage issue" onClick={createTriage}><IconPlus size={15} /></button>
+          </>} />
         <div className="filterbar"><FilterBar filters={prefs.filters} onChange={filters => patchPrefs({ filters })} teamId={team.id} pool={pool} /></div>
         {displayMenu.anchor && (
           <Menu anchor={displayMenu.anchor} onClose={displayMenu.close} width={260}>
@@ -126,11 +124,10 @@ export function TriagePage() {
           {queue.length === 0 ? (
             <div className="empty-state">
               <div className="empty-mark"><LogoMark size={30} /></div>
-              <div className="empty-title">{activeFilterCount(prefs.filters) ? 'No triage issues match' : 'Triage is clear'}</div>
-              <div className="empty-desc">New issues from agents and the CLI land here for review.</div>
+              <div className="empty-title">{activeFilterCount(prefs.filters) ? 'No triage issues match' : 'Nothing to triage'}</div>
               <div className="empty-actions">
                 {activeFilterCount(prefs.filters) ? <button className="btn secondary" onClick={() => patchPrefs({ filters: {} })}>Clear filters</button>
-                  : <button className="btn secondary" onClick={createTriage}>Create triage issue</button>}
+                  : <button className="btn secondary" onClick={createTriage}><IconPlus size={12} /> Create triage issue</button>}
               </div>
             </div>
           ) : queue.map((i, n) => {

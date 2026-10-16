@@ -413,6 +413,10 @@ export function CommandPalette() {
         if (!ev.defaultPrevented) useApp.getState().toast({ title: 'Nothing to save', line: 'Open an issue or project list to save it as a view' });
       } },
       { id: 'act-create-team', icon: <IconPlus />, label: 'Create new team', section: 'Actions', keywords: 'new team add workspace', action: () => navigate('/settings/new-team') },
+      { id: 'nav-initiatives', icon: <IconBox size={14} />, label: 'Go to initiatives', section: 'Navigation', hint: 'G then N', keywords: 'initiatives strategy goals', action: () => navigate('/initiatives') },
+      { id: 'nav-releases', icon: <IconBox size={14} />, label: 'Go to releases', section: 'Navigation', keywords: 'releases versions ship', action: () => navigate('/releases') },
+      { id: 'nav-asks', icon: <IconBox size={14} />, label: 'Go to asks', section: 'Navigation', keywords: 'asks intake forms requests', action: () => navigate('/asks') },
+      { id: 'nav-pulse', icon: <IconBox size={14} />, label: 'Go to Pulse', section: 'Navigation', keywords: 'pulse updates feed', action: () => navigate('/pulse') },
     ];
 
     for (const t of snap.teams) {
@@ -644,7 +648,7 @@ export const SHORTCUT_GROUPS: Array<[string, Array<[string, string]>]> = [
   ]],
   ['Navigation', [
     ['G then I', 'Inbox'], ['G then M', 'My issues'], ['G then A', 'All issues'], ['G then E', 'Active issues'], ['G then B', 'Backlog'],
-    ['G then T', 'Triage'], ['G then C', 'Cycles'], ['G then V', 'Current cycle'], ['G then P', 'Projects'], ['G then W', 'Views'], ['G then X', 'Archive'], ['G then F', 'Search'], ['G then S', 'Settings'],
+    ['G then T', 'Triage'], ['G then C', 'Cycles'], ['G then V', 'Current cycle'], ['G then N', 'Initiatives'], ['G then P', 'Projects'], ['G then W', 'Views'], ['G then X', 'Archive'], ['G then F', 'Search'], ['G then S', 'Settings'],
   ]],
   ['Lists', [
     ['J / K', 'Move down / up'], ['↵', 'Open issue'], ['Space', 'Peek issue'], ['X', 'Select'], ['⇧ Click', 'Select range'], ['⌘A', 'Select all'],

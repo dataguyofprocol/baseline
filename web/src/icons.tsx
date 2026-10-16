@@ -120,8 +120,8 @@ export const IconTrash = (p: P) => <S {...p}><path d="M2.8 4h9.4M6.2 4V2.8h2.6V4
 export const IconRestore = (p: P) => <S {...p}><path d="M2.6 6.4A5.2 5.2 0 1 1 2.3 9" {...stroke} /><path d="M2.4 3.4v3h3" {...stroke} /></S>;
 export const IconMoon = (p: P) => <S {...p}><path d="M12.6 9.2A5.4 5.4 0 0 1 5.8 2.4a5.4 5.4 0 1 0 6.8 6.8Z" {...stroke} /></S>;
 export const IconSun = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="2.8" {...stroke} /><path d="M7.5 1.9v1.4M7.5 11.7v1.4M1.9 7.5h1.4M11.7 7.5h1.4M3.5 3.5l1 1M10.5 10.5l1 1M11.5 3.5l-1 1M4.5 10.5l-1 1" {...stroke} /></S>;
-export const IconCycle = (p: P) => <S {...p}><path d="M12.4 7.5a4.9 4.9 0 1 1-1.6-3.6" {...stroke} /><path d="M11 1.9v2.2H8.8" {...stroke} /></S>;
-export const IconEstimate = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.2" {...stroke} /><path d="M7.5 4.6v3.1l2 1.4" {...stroke} /></S>;
+export const IconCycle = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.3" {...stroke} /><path d="M6.4 5.3v4.4l3.5-2.2z" fill="currentColor" /></S>;
+export const IconEstimate = (p: P) => <S {...p}><path d="M7.5 2.4 12.9 12H2.1z" {...stroke} /><path d="M5.1 8.4h4.8M3.8 10.6h7.4" {...stroke} /></S>;
 export const IconSubIssue = (p: P) => <S {...p}><path d="M3.4 2.8v7a2 2 0 0 0 2 2h6.2" {...stroke} /><circle cx="3.4" cy="3.4" r="1" fill="currentColor" /></S>;
 export const IconEdit = (p: P) => <S {...p}><path d="M8.9 3.2l2.9 2.9-6.4 6.4-3.3.4.4-3.3 6.4-6.4Z" {...stroke} /></S>;
 export const IconFocus = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.2" {...stroke} /><circle cx="7.5" cy="7.5" r="1.6" fill="currentColor" /></S>;
@@ -206,3 +206,13 @@ export const IconPulse = (p: P) => <S {...p}><path d="M1.8 7.6h2.6l1.6-4 2.6 7.6
 export const IconCustomers = (p: P) => <S {...p}><rect x="2.4" y="3.4" width="10.2" height="8.6" rx="1.6" {...stroke} /><path d="M5 3.4V2.4h5v1M2.4 7.2h10.2" {...stroke} /></S>;
 export const IconDrafts = (p: P) => <S {...p}><path d="M3 2.6h6.4l2.6 2.6v7.2H3z" {...stroke} /><path d="M5.2 7h4.6M5.2 9.4h3" {...stroke} /></S>;
 export const IconMembers = (p: P) => <S {...p}><circle cx="5.6" cy="5.4" r="2" {...stroke} /><path d="M2 12c.5-2 2-3 3.6-3s3.1 1 3.6 3" {...stroke} /><path d="M9.8 3.6a1.8 1.8 0 1 1 0 3.6M11 9.2c1 .4 1.7 1.3 2 2.6" {...stroke} /></S>;
+export const IconInitiative = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.3" {...stroke} /><circle cx="7.5" cy="7.5" r="2.4" {...stroke} /><path d="M7.5 2.2v1.6M7.5 11.2v1.6M2.2 7.5h1.6M11.2 7.5h1.6" {...stroke} /></S>;
+export const IconRelease = (p: P) => <S {...p}><path d="M7.5 2.2 12.6 5v5L7.5 12.8 2.4 10V5z" {...stroke} /><path d="M2.6 5.1 7.5 7.8l4.9-2.7M7.5 7.8v5" {...stroke} /></S>;
+export const IconSla = (p: P) => <S {...p}><circle cx="7.5" cy="8" r="5" {...stroke} /><path d="M7.5 5.2V8l1.9 1.3M6 1.8h3" {...stroke} /></S>;
+export const IconAsk = (p: P) => <S {...p}><path d="M2.6 3.2h9.8v6.6H7.6L4.6 12.2V9.8h-2z" {...stroke} /><path d="M6.2 5.4c.2-.7.8-1 1.4-1 .8 0 1.4.5 1.4 1.2 0 .9-1.3 1-1.3 1.8M7.6 8.2v.1" {...stroke} /></S>;
+export const IconLoop = (p: P) => <S {...p}><path d="M11.8 5.6A4.6 4.6 0 0 0 3.4 5M3.2 9.4a4.6 4.6 0 0 0 8.4.6" {...stroke} /><path d="M11.9 2.8v2.9H9M3.1 12.2V9.3H6" {...stroke} /></S>;
+export const IconPr = (p: P) => <S {...p}><circle cx="4.2" cy="3.6" r="1.5" {...stroke} /><circle cx="4.2" cy="11.4" r="1.5" {...stroke} /><circle cx="10.8" cy="11.4" r="1.5" {...stroke} /><path d="M4.2 5.1v4.8M10.8 9.9V6.2c0-1.1-.9-2-2-2H6.6M8.2 2.8 6.6 4.2l1.6 1.4" {...stroke} /></S>;
+export const IconCommit = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="2.3" {...stroke} /><path d="M1.6 7.5h3.6M9.8 7.5h3.6" {...stroke} /></S>;
+export const IconSliders = (p: P) => <S {...p}><path d="M2.5 4.5h10M2.5 10.5h10" {...stroke} /><circle cx="5.5" cy="4.5" r="1.5" {...stroke} fill="var(--bg-main, #fff)" /><circle cx="9.5" cy="10.5" r="1.5" {...stroke} fill="var(--bg-main, #fff)" /></S>;
+export const IconKeyboard = (p: P) => <S {...p}><rect x="1.8" y="3.8" width="11.4" height="7.4" rx="1.4" {...stroke} /><path d="M4.2 6.3h.1M6.4 6.3h.1M8.6 6.3h.1M10.8 6.3h.1M4.8 8.8h5.4" {...stroke} /></S>;
+export const IconStatusRing = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.3" {...stroke} /><path d="M7.5 2.2a5.3 5.3 0 0 1 0 10.6z" fill="currentColor" /></S>;

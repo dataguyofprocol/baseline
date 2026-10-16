@@ -85,6 +85,8 @@ export function pageIssue(): Issue | null {
 
 
 export function listIssueAtCursor(): Issue | null {
+  // only the list on the current page counts
+  if (visibleList.route && visibleList.route !== location.hash.split('?')[0]) return null;
   const { index } = useCursor.getState();
   if (index < 0 || index >= visibleList.issues.length) return null;
   return visibleList.issues[index] ?? null;

@@ -7,18 +7,20 @@ import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu, Modal, RegisterMark } from './ui.js';
 import { Avatar, PriorityIcon, CalendarGrid, StateIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
-import { RichEditor, isBlank } from './RichEditor.js';
+import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
+import type { Editor } from '@tiptap/react';
 import { Markdown } from './Markdown.js';
 import { LogoMark } from './Logo.js';
 import { ProjectLocationsRow } from './CodingTools.js';
 import { Resources } from './Docs.js';
 import { CustomerRequests } from './Workspace.js';
+import { ProjectInitiatives } from './Planning.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueViews.js';
 import { IssueListBody, ListToolbar, useListLayoutToggle, openFilterMenu, ViewNameSeg } from './Views.js';
 import {
   IconPlus, IconStar, IconLink, IconTrash, IconClose, IconCalendar, IconUsers, IconUser, IconEdit, IconMilestone,
   IconChevronDown, IconCheck, IconFilter, IconDisplay, IconList, IconBoard, IconTimeline, IconMore, IconPanel,
-  IconBox, IconTag, IconCycle, IconTeam, IconBell,
+  IconBox, IconTag, IconCycle, IconTeam, IconBell, IconViews,
 } from './icons.js';
 import { UPDATE_CADENCE_LABELS, type Project, type ProjectStatus, type ProjectHealth, type Priority, type Issue, type SavedView, type UpdateCadence } from '../../src/core/types.js';
 
@@ -988,7 +990,8 @@ export function ProjectPage() {
   const tab = (['overview', 'activity', 'issues'] as const).includes(rawTab as 'overview') ? rawTab as 'overview' | 'activity' | 'issues' : 'overview';
   const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:project:${projectId}`, { ...DEFAULT_VIEW_OPTIONS, filters: {} });
   const issuesDisplay = useMenu();
-  const [details, setDetails] = useState(() => localStorage.getItem('baseline:projectDetails') !== '0');
+  // closed until you open it (⌘I), as in Linear
+  const [details, setDetails] = useState(() => localStorage.getItem('baseline:projectDetails') === '1');
   const toggleDetails = () => setDetails(d => { try { localStorage.setItem('baseline:projectDetails', d ? '0' : '1'); } catch { /* ignore */ } return !d; });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); toggleDetails(); } };
@@ -1003,7 +1006,7 @@ export function ProjectPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar
-        crumbs={[{ label: 'Projects', to: '/projects', muted: true }, { label: project.name, icon: <span className="crumb-emoji">{project.icon}</span> }]}
+        crumbs={[{ label: project.name, icon: <span className="crumb-emoji">{project.icon}</span> }]}
         favoriteRef={{ type: 'project', refId: project.id }}
         more={<>
           <MenuItem icon={<IconLink size={14} />} label="Copy project URL" onClick={async () => { if (await copyText(`${location.origin}/#/projects/${project.id}`)) toast({ title: 'Copied project URL' }); }} />
@@ -1022,6 +1025,7 @@ export function ProjectPage() {
             {tab === t && <RegisterMark group="project-tabs" />}
           </button>
         ))}
+        <button className="icon-btn seg-add" title="New view of this project's issues" onClick={() => navigate(`/projects/${project.id}/issues`)}><IconViews size={14} /></button>
         <span style={{ flex: 1 }} />
         {tab === 'issues' && <ListToolbar opts={opts} onDisplay={issuesDisplay.open} />}
         {tab !== 'issues' && <button className={`icon-btn${details ? ' on' : ''}`} title="Project details (⌘I)" onClick={toggleDetails}><IconPanel size={15} /></button>}
@@ -1073,10 +1077,11 @@ function ProjectOverview(props: { project: Project }) {
         {snap.projectLabels.filter(l => p.labelIds.includes(l.id)).map(l => (
           <ProjectMenu key={l.id} kind="labels" project={p} width={250}>{open => <button className="prop-chip ghost" data-pprop="labels" onClick={open}><span className="label-dot" style={{ background: l.color }} />{l.name}</button>}</ProjectMenu>
         ))}
+        <ProjectInitiatives projectId={p.id} />
         <ProjectMoreProps project={p} />
       </div>
       <Resources projectId={p.id} />
-      <CustomerRequests projectId={p.id} />
+      <CustomerRequests projectId={p.id} hideWhenEmpty />
 
       <UpdateComposer project={p} latest={latest} />
       <UpdateDue project={p} />
@@ -1115,8 +1120,11 @@ function ProjectMoreProps(props: { project: Project }) {
       const el = e.target as HTMLElement;
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable || e.metaKey || e.ctrlKey || e.altKey) return;
       const k = e.key.toLowerCase();
+      if (document.querySelector('.menu:not(.closing), .modal-palette')) return;
       if (armed && k === 'l') { armed = false; e.preventDefault(); e.stopImmediatePropagation(); const r = document.querySelector<HTMLElement>('[data-pprop="more"]')?.getBoundingClientRect(); if (r) setSub({ kind: 'labels', anchor: r }); return; }
       armed = k === 'p' && !e.shiftKey;
+      // on a project page P starts a chord (P then L), it doesn't reach the issue shortcuts
+      if (armed) { e.preventDefault(); e.stopImmediatePropagation(); }
       if (armed) { clearTimeout(t); t = setTimeout(() => { armed = false; }, 1200); }
     };
     window.addEventListener('keydown', onKey, true);
@@ -1178,6 +1186,8 @@ function UpdateComposer(props: { project: Project; latest?: Snap['projectUpdates
   const [open, setOpen] = useState(false);
   const [health, setHealth] = useState<ProjectHealth>(props.project.health);
   const [body, setBody] = useState('');
+  // the editor's onChange is debounced — Post reads the editor itself so nothing typed is lost
+  const editorRef = useRef<Editor | null>(null);
   const post = async (md: string) => {
     if (isBlank(md)) return;
     await api.addProjectUpdate(props.project.id, md, health);
@@ -1190,8 +1200,8 @@ function UpdateComposer(props: { project: Project; latest?: Snap['projectUpdates
         <div className="update-health-row">
           {HEALTH.map(([v, l, c]) => <button key={v} className={`health-pick${health === v ? ' on' : ''}`} onClick={() => setHealth(v)}><span className="health-dot" style={{ background: c }} />{l}</button>)}
         </div>
-        <RichEditor value="" autoFocus placeholder="How is the project going? What's next?" onChange={setBody} onSubmit={post} onEscape={() => setOpen(false)} />
-        <div className="cbox-foot"><span className="cbox-hint">⌘↵ to post</span><button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => setOpen(false)}>Cancel</button><button className="btn primary" style={{ height: 26, fontSize: 12 }} onClick={() => void post(body)}>Post update</button></div>
+        <RichEditor value="" autoFocus editorRef={editorRef} placeholder="How is the project going? What's next?" onChange={setBody} onSubmit={post} onEscape={() => setOpen(false)} />
+        <div className="cbox-foot"><span className="cbox-hint">⌘↵ to post</span><button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => setOpen(false)}>Cancel</button><button className="btn primary" style={{ height: 26, fontSize: 12 }} onClick={() => void post(editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : body)}>Post update</button></div>
       </div>
     );
   }

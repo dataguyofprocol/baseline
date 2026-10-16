@@ -10,7 +10,9 @@ import { PropertyMenu, PropertyMenuBody, propMenuWidth, PROP_KBD, type PropKind 
 import { deleteIssues, toggleFavoriteIssue, toggleSubscription, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS } from './actions.js';
 import { LogoMark } from './Logo.js';
 import { useLanding } from './motion.js';
-import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconBellOff, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc } from './icons.js';
+import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconBellOff, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc, IconRelease, IconSla, IconPr } from './icons.js';
+import { slaState, SlaBadge } from './AutomationUI.js';
+import { issuePrState, PrIcon } from './GitHubUI.js';
 import { ESTIMATE_SCALES, type Issue, type Priority, type ViewFilters, type GroupBy, type OrderBy, type FilterCondition, type FilterGroup } from '../../src/core/types.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
@@ -90,6 +92,9 @@ function testField(key: keyof ViewFilters, i: Issue, f: ViewFilters, snap: Snap)
     case 'labelIds': return f.labelIds!.some(l => l === 'none' ? i.labelIds.length === 0 : i.labelIds.includes(l));
     case 'projectIds': return f.projectIds!.includes(i.projectId ?? 'none');
     case 'milestoneIds': return f.milestoneIds!.includes(i.milestoneId ?? 'none');
+    case 'releaseIds': return f.releaseIds!.includes(i.releaseId ?? 'none');
+    case 'sla': return f.sla!.includes(slaState(i) ?? 'none');
+    case 'prs': { const st = issuePrState(snap, i.id); return f.prs!.some(v => v === 'none' ? !st : st === v); }
     case 'cycleIds': {
       const now = new Date().toISOString();
       return f.cycleIds!.some(c => {
@@ -140,7 +145,7 @@ function testField(key: keyof ViewFilters, i: Issue, f: ViewFilters, snap: Snap)
   }
 }
 
-const FILTER_KEYS: Array<keyof ViewFilters> = ['states', 'stateTypes', 'priority', 'assigneeIds', 'creatorIds', 'labelIds', 'projectIds', 'milestoneIds', 'cycleIds', 'estimates', 'due', 'created', 'updated', 'hierarchy', 'relations', 'subscriberIds', 'links', 'query'];
+const FILTER_KEYS: Array<keyof ViewFilters> = ['states', 'stateTypes', 'priority', 'assigneeIds', 'creatorIds', 'labelIds', 'projectIds', 'milestoneIds', 'releaseIds', 'sla', 'prs', 'cycleIds', 'estimates', 'due', 'created', 'updated', 'hierarchy', 'relations', 'subscriberIds', 'links', 'query'];
 const isSet = (f: ViewFilters, k: keyof ViewFilters) => { const v = f[k]; return Array.isArray(v) ? v.length > 0 : !!v; };
 
 export function applyFilters(issues: Issue[], f: ViewFilters, _states?: unknown): Issue[] {
@@ -313,7 +318,10 @@ let lastCheckedId: string | null = null;
 /** shift-click a checkbox: extend the selection across the visible list from the last clicked row */
 function shiftSelectRange(id: string) {
   const list = visibleList.issues.map(i => i.id);
-  const from = lastCheckedId ? list.indexOf(lastCheckedId) : -1;
+  // extend from the last row you selected — by click or with X — like Linear
+  const sel = useSelection.getState().ids;
+  const anchor = lastCheckedId && sel.includes(lastCheckedId) ? lastCheckedId : sel[sel.length - 1];
+  const from = anchor ? list.indexOf(anchor) : -1;
   const to = list.indexOf(id);
   lastCheckedId = id;
   if (from === -1 || to === -1 || from === to) {
@@ -498,6 +506,8 @@ export function IssueRow(props: {
         {display.cycle && cycle && <span className="proj-chip" title={cycle.name || `Cycle ${cycle.number}`}><IconCycle size={11} /> {cycle.number}</span>}
         {est && <span className="proj-chip" title={`${issue.estimate} points`}><IconEstimate size={11} /> {est}</span>}
         {display.links && links > 0 && <span className="proj-chip" title={`${links} link${links === 1 ? '' : 's'}`}><IconAttach size={11} /> {links}</span>}
+        {(() => { const pr = issuePrState(snap, issue.id); return pr ? <PrIcon state={pr} size={13} /> : null; })()}
+        {issue.slaBreachesAt && !closed && <SlaBadge issue={issue} />}
         {display.due && due && (
           <span className={`due-chip ${overdue ? 'overdue' : ''}`} title={overdue ? `Overdue — due ${shortDate(due)}` : `Due ${shortDate(due)}`}>
             <IconCalendar size={11} /> {shortDate(due + 'T12:00')}
@@ -613,7 +623,7 @@ export function QuickMenus() {
 }
 
 /* ================= filters ================= */
-type FieldKey = 'states' | 'assigneeIds' | 'creatorIds' | 'priority' | 'labelIds' | 'projectIds' | 'milestoneIds' | 'cycleIds' | 'estimates' | 'due' | 'created' | 'updated' | 'hierarchy' | 'relations' | 'subscriberIds' | 'links' | 'query';
+type FieldKey = 'states' | 'assigneeIds' | 'creatorIds' | 'priority' | 'labelIds' | 'projectIds' | 'milestoneIds' | 'releaseIds' | 'sla' | 'prs' | 'cycleIds' | 'estimates' | 'due' | 'created' | 'updated' | 'hierarchy' | 'relations' | 'subscriberIds' | 'links' | 'query';
 interface FieldValue { id: string; label: string; icon?: React.ReactNode }
 interface FieldDef { key: FieldKey; label: string; plural: string; icon: React.ReactNode; single?: boolean }
 
@@ -632,6 +642,9 @@ const FIELDS: FieldDef[] = [
   { key: 'projectIds', label: 'Project', plural: 'projects', icon: <IconBox size={14} /> },
   { key: 'milestoneIds', label: 'Milestone', plural: 'milestones', icon: <IconMilestone size={14} /> },
   { key: 'cycleIds', label: 'Cycle', plural: 'cycles', icon: <IconCycle size={14} /> },
+  { key: 'releaseIds', label: 'Release', plural: 'releases', icon: <IconRelease size={14} /> },
+  { key: 'sla', label: 'SLA status', plural: 'statuses', icon: <IconSla size={14} /> },
+  { key: 'prs', label: 'Pull requests', plural: 'states', icon: <IconPr size={14} /> },
   { key: 'subscriberIds', label: 'Subscribers', plural: 'people', icon: <IconBell size={14} /> },
   { key: 'links', label: 'Links', plural: 'kinds', icon: <IconAttach size={14} /> },
   { key: 'query', label: 'Content', plural: 'texts', icon: <IconTextAa size={14} /> },
@@ -701,6 +714,9 @@ function fieldValues(key: FieldKey, snap: Snap, teamId?: string): FieldValue[] {
       ...snap.users.filter(u => u.id !== me.id).map(u => ({ id: u.id, label: u.name, icon: <Avatar user={u} size={16} /> })),
     ];
     case 'links': return [{ id: 'any', label: 'Has links or files', icon: <IconAttach size={13} /> }, { id: 'none', label: 'No links', icon: <IconAttach size={13} /> }];
+    case 'releaseIds': return [{ id: 'none', label: 'No release', icon: <IconRelease size={13} /> }, ...snap.releases.map(r => ({ id: r.id, label: r.name, icon: <IconRelease size={13} /> }))];
+    case 'sla': return [{ id: 'breached', label: 'Breached' }, { id: 'risk', label: 'Breaching within a day' }, { id: 'ok', label: 'Within SLA' }, { id: 'none', label: 'No SLA' }].map(v => ({ ...v, icon: <IconSla size={13} /> }));
+    case 'prs': return [{ id: 'open', label: 'Open PR' }, { id: 'draft', label: 'Draft PR' }, { id: 'merged', label: 'Merged PR' }, { id: 'none', label: 'No pull requests' }].map(v => ({ ...v, icon: <IconPr size={13} /> }));
     case 'query': return [];
   }
 }
