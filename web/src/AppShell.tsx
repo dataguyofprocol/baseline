@@ -51,6 +51,10 @@ export function Sidebar() {
   const [customizing, setCustomizing] = useState(false);
   const drafts = useDrafts();
   if (!snap) return null;
+  // hosted: the teams you're on (everyone else's are a click away in Teams); someone on no team yet
+  // — and a laptop, where there's one person — sees them all
+  const mine = snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id));
+  const yourTeams = snap.workspace.auth === 'google' && mine.length ? mine : snap.teams;
   const triageState = (teamId: string) => snap.states.find(s => s.teamId === teamId && s.type === 'triage');
   const triageCount = (teamId: string) => { const st = triageState(teamId); return st ? snap.issues.filter(i => i.stateId === st.id).length : 0; };
   const menuTeam = snap.teams.find(t => t.id === teamMenuFor);
@@ -179,8 +183,8 @@ export function Sidebar() {
           action={<button className="icon-btn nav-section-add" title="Create a team" onClick={() => navigate('/settings/new-team')}><IconPlus size={13} /></button>} />
         {isOpen('teams') && (
           <div className="nav-group">
-            {snap.teams.map(t => {
-              const fallback = snap.teams.length === 1 || locTeam === t.key;
+            {yourTeams.map(t => {
+              const fallback = yourTeams.length === 1 || locTeam === t.key;
               const open = isOpen(`team:${t.id}`, fallback);
               const hasCycles = snap.cycles.some(c => c.teamId === t.id);
               return (

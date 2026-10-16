@@ -5,6 +5,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { createHash, randomBytes } from 'node:crypto';
 import { actingUser } from '../core/actor.js';
 import type { Accounts, GoogleIdentity } from '../core/accounts.js';
+import type { Store } from '../core/store.js';
 
 export type AuthConfig =
   | { mode: 'local' }
@@ -26,7 +27,10 @@ const random = () => b64url(randomBytes(32));
 
 /** Registers the /api/* guard and the sign-in routes. Call it before any other /api route:
  *  Hono runs handlers in registration order, so a route added earlier would skip the guard. */
-export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accounts: Accounts): void {
+export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accounts: Accounts, store: Store, hooks: {
+  /** someone joined through an invite — tell whoever sent it */
+  onInviteAccepted?: (userId: string, invitedBy: string) => void;
+} = {}): void {
   const secure = cfg.publicUrl.protocol === 'https:';
   // __Host- pins the cookie to this exact host over HTTPS (no Domain, Path=/); plain http is for local testing
   const SESSION_COOKIE = secure ? '__Host-baseline_session' : 'baseline_session';
@@ -52,10 +56,22 @@ export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accou
     await actingUser.run(session.userId, next);
   });
 
+  // what an invite link shows before sign-in: whose workspace, who sent it, and to which address
+  // (masked — the code is in an email, but links get forwarded)
+  app.get('/auth/invite/:code', (c) => {
+    const inv = accounts.inviteByCode(c.req.param('code'));
+    if (!inv) return c.json({ state: 'unknown' }, 404);
+    const inviter = inv.invited_by ? store.snapshot().users.find(u => u.id === inv.invited_by) : undefined;
+    const [local = '', domain = ''] = inv.email.split('@');
+    const state = inv.accepted_at ? 'accepted' : inv.revoked_at ? 'revoked' : Date.parse(inv.expires_at) <= Date.now() ? 'expired' : 'valid';
+    return c.json({ state, workspace: store.workspaceMeta().name, inviter: inviter?.name ?? null, email: `${local.slice(0, 2)}•••@${domain}` });
+  });
+
   app.get('/auth/google', (c) => {
     const next = c.req.query('next') ?? '/';
+    const invite = c.req.query('invite') ?? '';
     const state = random(), verifier = random(), nonce = random();
-    setCookie(c, OAUTH_COOKIE, b64url(Buffer.from(JSON.stringify({ state, verifier, nonce, next }))), {
+    setCookie(c, OAUTH_COOKIE, b64url(Buffer.from(JSON.stringify({ state, verifier, nonce, next, invite }))), {
       path: '/auth', httpOnly: true, secure, sameSite: 'Lax', maxAge: 600,
     });
     const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -69,7 +85,7 @@ export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accou
 
   app.get('/auth/google/callback', async (c) => {
     const fail = (reason: string) => { deleteCookie(c, OAUTH_COOKIE, { path: '/auth' }); return c.redirect(home(`?auth_error=${reason}`)); };
-    let saved: { state: string; verifier: string; nonce: string; next: string };
+    let saved: { state: string; verifier: string; nonce: string; next: string; invite?: string };
     try { saved = JSON.parse(Buffer.from(getCookie(c, OAUTH_COOKIE) ?? '', 'base64url').toString()); } catch { return fail('expired'); }
     if (c.req.query('error')) return fail('cancelled');
     const code = c.req.query('code');
@@ -84,16 +100,17 @@ export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accou
     const { id_token } = await res.json() as { id_token?: string };
     // the token came straight from Google's token endpoint over TLS, so its claims can be read
     // without checking the signature (OpenID Connect Core §3.1.3.7) — the rest still needs checking
-    let claims: { iss?: string; aud?: string; exp?: number; nonce?: string; sub?: string; email?: string; email_verified?: boolean; name?: string; picture?: string };
+    let claims: { iss?: string; aud?: string; exp?: number; nonce?: string; sub?: string; email?: string; email_verified?: boolean; name?: string; picture?: string; hd?: string };
     try { claims = JSON.parse(Buffer.from(id_token!.split('.')[1]!, 'base64url').toString()); } catch { return fail('google'); }
     const valid = (claims.iss === 'https://accounts.google.com' || claims.iss === 'accounts.google.com')
       && claims.aud === cfg.clientId && (claims.exp ?? 0) * 1000 > Date.now() && claims.nonce === saved.nonce
       && !!claims.sub && !!claims.email && claims.email_verified === true;
     if (!valid) return fail('google');
 
-    const identity: GoogleIdentity = { sub: claims.sub!, email: claims.email!, name: claims.name ?? '', picture: claims.picture ?? '' };
-    const result = accounts.signInWithGoogle(identity, cfg.ownerEmail);
+    const identity: GoogleIdentity = { sub: claims.sub!, email: claims.email!, name: claims.name ?? '', picture: claims.picture ?? '', hd: claims.hd };
+    const result = accounts.signInWithGoogle(identity, { ownerEmail: cfg.ownerEmail, inviteCode: saved.invite || undefined });
     if ('error' in result) return fail(result.error);
+    if (result.joined === 'invite' && result.invitedBy) hooks.onInviteAccepted?.(result.userId, result.invitedBy);
     const session = accounts.createSession(result.userId, { userAgent: c.req.header('user-agent'), ip: c.req.header('x-forwarded-for')?.split(',')[0]?.trim() });
     setSession(c, session.token, session.expiresAt);
     deleteCookie(c, OAUTH_COOKIE, { path: '/auth' });

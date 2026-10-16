@@ -5,6 +5,8 @@ import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
 import { authConfigFromEnv, mountAuth, type AuthConfig } from './auth.js';
+import { mountMembers } from './members.js';
+import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
 import { Accounts } from '../core/accounts.js';
 import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
@@ -36,7 +38,7 @@ const originHostOf = (c: Context): string | null => {
   try { return new URL(origin).hostname; } catch { return '?'; }
 };
 
-export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()) {
+export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv(), mailer: Mailer = mailerFromEnv()) {
   const db = openDb(dbPath);
   const store = new Store(db);
   const accounts = new Accounts(db, store);
@@ -56,7 +58,14 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   const app = new Hono();
 
-  if (hosted) mountAuth(app, auth, accounts);
+  if (hosted) mountAuth(app, auth, accounts, store, {
+    onInviteAccepted: (userId, invitedBy) => {
+      const who = accounts.userBrief(userId), inviter = accounts.userBrief(invitedBy);
+      if (!mailer.configured || !who || !inviter?.email) return;
+      mailer.send(inviteAcceptedEmail({ to: inviter.email, who: who.name, workspace: store.workspaceMeta().name, link: auth.publicUrl.toString() }))
+        .catch(err => console.error('[baseline] invite-accepted email failed:', (err as Error).message));
+    },
+  });
   // Local mode: the tracker is this machine's own. A Host that isn't loopback means a LAN client or a
   // DNS-rebinding page, and a write whose Origin is another site is a cross-site request.
   else app.use('/api/*', async (c, next) => {
@@ -76,6 +85,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   };
   for (const path of ['/api/workspace', '/api/features', '/api/export', '/api/import', '/api/seed']) app.use(path, adminOnly);
   app.post('/api/users', adminOnly);
+  mountMembers(app, { store, accounts, mailer, publicUrl: hosted ? auth.publicUrl : null });
 
   // ---------- bootstrap ----------
   app.get('/api/bootstrap', (c) => {

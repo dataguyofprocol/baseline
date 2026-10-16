@@ -28,6 +28,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   // teams with default workflow states
   const core = store.createTeam('CORE', 'Core', '◆', '#5e6ad2');
   const agents = store.createTeam('AGO', 'Agent Surface', '🤖', '#c770f4');
+  for (const t of [core, agents]) for (const u of [ada, jun]) store.addTeamMember(t.id, u.id);
 
   // labels (Linear default trio per team + extras)
   const coreBug = store.createLabel(core.id, 'Bug', '#eb5757');

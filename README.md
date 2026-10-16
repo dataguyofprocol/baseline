@@ -37,15 +37,25 @@ also needs `GOOGLE_CLIENT_SECRET` and `BASELINE_PUBLIC_URL`; the server refuses 
 | `BASELINE_PUBLIC_URL` | The address people open, e.g. `https://baseline.example.com`. Requests addressed to any other host, and writes from any other origin, are refused. |
 | `BASELINE_OWNER_EMAIL` | The first admin. Signing in with this Google account creates them, and always keeps them an admin. |
 | `BASELINE_WORKSPACE_NAME` | Name of a new hosted workspace (default "Baseline"). |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Optional email for invites. `SMTP_PORT` defaults to 587, and `SMTP_FROM` (e.g. `Baseline <baseline@acme.dev>`) is required once `SMTP_HOST` is set. GCP blocks outbound port 25, so use 587 or 465. Without SMTP, invites still work: copy the link from Settings › Members. |
 
 How hosted mode differs:
 - **A new hosted workspace starts empty**, with no sample data.
-- **Who can sign in:** the owner, or someone whose email matches an existing member who hasn't signed in yet. That covers imported data. Invites come next.
+- **Who can sign in:**
+  - the owner;
+  - someone whose email matches an existing member who hasn't signed in yet, which covers imported data;
+  - someone with an open invite, which lasts 7 days and is emailed or shared as a link;
+  - a Google Workspace account at an approved domain (Settings › Security).
+
+  Opening an invite with a different Google account says so instead of letting them in.
+- **Settings › Members:** invite people as Members or Admins onto chosen teams; resend, copy or revoke invites; change roles and teams; suspend or reactivate people. The workspace always keeps at least one admin, and nobody can suspend themselves.
+- **Settings › Security:** approved domains and the teams those people start on, and whether members may invite (only admins invite admins).
 - **Sessions** last 30 days, renewed as long as you keep using them.
-- **Admin-only:** people, workspace settings, import and export.
+- **Admin-only:** roles, suspension, security settings, workspace settings, import and export.
+- **Teams:** anyone can join or leave any team from the Teams page. "Your teams" in the sidebar lists the teams you're on.
 - **Not available on a hosted server:** opening Claude Code and adding locations, which act on the machine they run on.
 
-`npm run test:auth` covers the sign-in rules.
+`npm run test:auth` covers sign-in, invites, domains and roles.
 
 **Production data:** the work DB was wiped of all seed/demo data on 2026-08-29 — the workspace
 starts empty (create your team in Settings) and only real work lives there now. The app auto-seeds

@@ -21,6 +21,9 @@ export interface User {
   avatarUrl: string;
   /** suspended people can't sign in; their work stays */
   status: 'active' | 'suspended';
+  /** when they joined the workspace (null for people from before this was recorded) */
+  createdAt: string | null;
+  lastSeenAt: string | null;
 }
 
 export interface Team {
@@ -44,6 +47,8 @@ export interface Team {
   /** unfinished issues move into the next cycle when a cycle ends */
   cycleRollover: boolean;
   estimateScale: EstimateScale;
+  /** people who belong to the team (its "Your teams" entry); anyone can still open the team */
+  memberIds: string[];
 }
 
 export type EstimateScale = 'none' | 'linear' | 'exponential' | 'fibonacci' | 'tshirt';
@@ -233,6 +238,39 @@ export interface WorkspaceFeatures {
   /** new issues created from a customer page go to this team's triage or backlog */
   customerDefaultTeamId: string | null;
 }
+/** who may join a hosted workspace without a personal invite, and who may invite */
+export interface WorkspaceSecurity {
+  /** Google Workspace domains (e.g. acme.dev) whose accounts join as members on first sign-in */
+  approvedDomains: string[];
+  /** teams people joining through an approved domain are added to */
+  domainTeamIds: string[];
+  whoCanInvite: 'admins' | 'members';
+}
+export const DEFAULT_SECURITY: WorkspaceSecurity = { approvedDomains: [], domainTeamIds: [], whoCanInvite: 'admins' };
+
+/** a pending invite as admins see it (the link is safe to show: joining still needs the invited Google account) */
+export interface Invite {
+  id: string;
+  email: string;
+  admin: boolean;
+  teamIds: string[];
+  invitedBy: string | null;
+  createdAt: string;
+  expiresAt: string;
+  expired: boolean;
+  link: string;
+}
+
+/** what happened to one address in an invite request */
+export interface InviteResult {
+  email: string;
+  status: 'invited' | 'already-member' | 'invalid';
+  invite?: Invite;
+  /** 'off': no SMTP on this server — share the link instead */
+  emailed?: 'sent' | 'failed' | 'off';
+  error?: string;
+}
+
 export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null };
 
 /** a directory on this machine that coding agents can work in — usually a git repo */
@@ -473,6 +511,7 @@ export interface Workspace {
   auth?: 'local' | 'google';
   preferences: Preferences;
   features: WorkspaceFeatures;
+  security: WorkspaceSecurity;
 }
 
 /** per-install preferences (one person per local install) */

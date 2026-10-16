@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/server/index.js';
+import type { MailMessage } from '../src/server/mail.js';
 
 const ORIGIN = 'https://baseline.example.com';
 const CLIENT_ID = 'test-client.apps.googleusercontent.com';
@@ -14,9 +15,11 @@ const OWNER = 'owner@example.com';
 
 const work = mkdtempSync(join(tmpdir(), 'baseline-auth-test-'));
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));
+// email goes to this list instead of an SMTP server
+const sent: MailMessage[] = [];
 const { app, store, db } = createApp(join(work, 'hosted.db'), {
   mode: 'google', publicUrl: new URL(ORIGIN), clientId: CLIENT_ID, clientSecret: 'secret', ownerEmail: OWNER,
-});
+}, { configured: true, send: async (m) => { sent.push(m); } });
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = '') => {
@@ -47,8 +50,8 @@ const cookiesFrom = (res: Response): Record<string, string> => {
 };
 
 /** run the whole browser dance: /auth/google → (Google) → /auth/google/callback; returns the final redirect and cookies */
-async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boolean; next?: string } = {}) {
-  const start = await req(`/auth/google?next=${encodeURIComponent(opts.next ?? '/#/inbox')}`);
+async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boolean; next?: string; invite?: string } = {}) {
+  const start = await req(`/auth/google?next=${encodeURIComponent(opts.next ?? '/#/inbox')}${opts.invite ? `&invite=${opts.invite}` : ''}`);
   const google = new URL(start.headers.get('location')!);
   const oauthCookie = cookiesFrom(start)['baseline_oauth']!;
   nextIdentity = {
@@ -158,6 +161,105 @@ check('subscribing subscribes yourself, not the userId sent', store.isSubscribed
   check('the admin can export', (await req('/api/export', { cookie: ownerCookie })).status === 200);
   check('the hosted server won\'t open programs or probe its disk', (await req(`/api/issues/${issue.id}/open-claude`, { ...json({}), cookie: ownerCookie })).status === 403
     && (await req('/api/locations', { ...json({ path: '/etc' }), cookie: ownerCookie })).status === 403);
+}
+
+// ---- invites ----
+const patch = (path: string, body: unknown, cookie: string) => req(path, { ...json(body), method: 'PATCH', cookie });
+type Result = { email: string; status: string; emailed?: string; invite?: { id: string; link: string; teamIds: string[] } };
+{
+  const r = await req('/api/invites', { ...json({ emails: 'ben@example.com, cara@example.com\nnot-an-email, ada@example.com, BEN@example.com', teamIds: [team.team.id, 'nope'] }), cookie: ownerCookie });
+  const { results } = await r.json() as { results: Result[] };
+  const by = (e: string) => results.find(x => x.email === e);
+  check('inviting takes a pasted list, deduplicated case-insensitively', r.status === 201 && results.length === 4, JSON.stringify(results));
+  check('…flags a bad address and an existing member', by('not-an-email')?.status === 'invalid' && by('ada@example.com')?.status === 'already-member');
+  check('…emails each new invite', by('ben@example.com')?.emailed === 'sent' && sent.filter(m => m.to === 'ben@example.com').length === 1);
+  check('…and keeps only real teams', JSON.stringify(by('ben@example.com')?.invite?.teamIds) === JSON.stringify([team.team.id]));
+  const mail = sent.find(m => m.to === 'cara@example.com')!;
+  const link = by('cara@example.com')!.invite!.link;
+  check('the email carries the invite link and the inviter', mail.text.includes(link) && mail.subject.startsWith('Owner Person invited you'), mail.subject);
+  const info = await (await req(`/auth/invite/${new URL(link).searchParams.get('invite')}`)).json() as { state: string; inviter: string; email: string };
+  check('an invite link shows who sent it, with the address masked', info.state === 'valid' && info.inviter === 'Owner Person' && info.email === 'ca•••@example.com', JSON.stringify(info));
+  const list = await (await req('/api/invites', { cookie: ownerCookie })).json() as { invites: Array<{ email: string }> };
+  check('open invites are listed', list.invites.map(i => i.email).sort().join() === 'ben@example.com,cara@example.com');
+
+  const caraCode = new URL(link).searchParams.get('invite')!;
+  const wrong = await signIn({ sub: 'g-dan', email: 'dan@example.com', name: 'Dan' }, { invite: caraCode });
+  check('opening someone else\'s invite with another account says so', wrong.location.endsWith('?auth_error=invite-mismatch') && !wrong.session, wrong.location);
+  sent.length = 0;
+  const cara = await signIn({ sub: 'g-cara', email: 'Cara@Example.com', name: 'Cara Diaz' }, { invite: caraCode });
+  check('the invited account joins', !!cara.session, cara.location);
+  const caraUser = store.snapshot().users.find(u => u.email === 'cara@example.com')!;
+  check('…as a member of the invite\'s teams', !caraUser.admin && store.getTeam(team.team.id)!.memberIds.includes(caraUser.id));
+  check('…and the inviter hears about it', await new Promise(r => setTimeout(r, 10)).then(() => sent.some(m => m.to === OWNER && m.subject.startsWith('Cara Diaz accepted'))));
+  const after = await (await req('/api/invites', { cookie: ownerCookie })).json() as { invites: Array<{ email: string }> };
+  check('…and the invite is no longer open', !after.invites.some(i => i.email === 'cara@example.com'));
+  const reuse = await (await req(`/auth/invite/${caraCode}`)).json() as { state: string };
+  check('an accepted invite link reports as accepted', reuse.state === 'accepted');
+
+  const ben = by('ben@example.com')!.invite!;
+  await req(`/api/invites/${ben.id}`, { method: 'DELETE', cookie: ownerCookie, headers: { origin: ORIGIN } });
+  const revoked = await signIn({ sub: 'g-ben', email: 'ben@example.com', name: 'Ben' }, { invite: new URL(ben.link).searchParams.get('invite')! });
+  check('a revoked invite can\'t be used', revoked.location.endsWith('?auth_error=invite-expired') && !revoked.session, revoked.location);
+
+  const r2 = await req('/api/invites', { ...json({ emails: ['eve@example.com'] }), cookie: ownerCookie });
+  const eve = (await r2.json() as { results: Result[] }).results[0]!.invite!;
+  db.prepare("UPDATE invites SET expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(eve.id);
+  const late = await signIn({ sub: 'g-eve', email: 'eve@example.com', name: 'Eve' });
+  check('an expired invite doesn\'t let anyone in', late.location.endsWith('?auth_error=not-invited') && !late.session);
+  const resent = await (await req(`/api/invites/${eve.id}/resend`, { ...json({}), cookie: ownerCookie })).json() as { emailed: string; invite: { expired: boolean } };
+  check('resending renews the invite and emails it again', resent.emailed === 'sent' && !resent.invite.expired);
+  const eveIn = await signIn({ sub: 'g-eve', email: 'eve@example.com', name: 'Eve' });
+  check('…after which it works', !!eveIn.session);
+  const caraCookie = `__Host-baseline_session=${cara.session}`;
+  check('a member can\'t invite while only admins may', (await req('/api/invites', { ...json({ emails: 'x@example.com' }), cookie: caraCookie })).status === 403);
+  check('a member can\'t change who may join', (await patch('/api/security', { whoCanInvite: 'members' }, caraCookie)).status === 403);
+  await patch('/api/security', { whoCanInvite: 'members' }, ownerCookie);
+  check('once members may invite, they can', (await req('/api/invites', { ...json({ emails: 'x@example.com' }), cookie: caraCookie })).status === 201);
+  check('…but never as admins', (await req('/api/invites', { ...json({ emails: 'y@example.com', admin: true }), cookie: caraCookie })).status === 403);
+  const xInvite = (await (await req('/api/invites', { cookie: ownerCookie })).json() as { invites: Array<{ id: string; email: string }> }).invites.find(i => i.email === 'x@example.com')!;
+  const ownerSent = await (await req('/api/invites', { ...json({ emails: 'z@example.com' }), cookie: ownerCookie })).json() as { results: Result[] };
+  check('a member can revoke their own invite but not someone else\'s',
+    (await req(`/api/invites/${xInvite.id}`, { method: 'DELETE', cookie: caraCookie, headers: { origin: ORIGIN } })).status === 200
+    && (await req(`/api/invites/${ownerSent.results[0]!.invite!.id}`, { method: 'DELETE', cookie: caraCookie, headers: { origin: ORIGIN } })).status === 403);
+
+  // ---- approved domains (Google Workspace hd claim) ----
+  const sec = await (await patch('/api/security', { approvedDomains: ['@Acme.dev ', 'bad domain', 'acme.dev'], domainTeamIds: [team.team.id] }, ownerCookie)).json() as { security: { approvedDomains: string[] } };
+  check('approved domains are cleaned up and deduplicated', JSON.stringify(sec.security.approvedDomains) === '["acme.dev"]', JSON.stringify(sec.security));
+  const managed = await signIn({ sub: 'g-raj', email: 'raj@acme.dev', name: 'Raj', hd: 'acme.dev' });
+  const raj = store.snapshot().users.find(u => u.email === 'raj@acme.dev');
+  check('a Workspace account at an approved domain joins as a member of the default teams', !!managed.session && !!raj && !raj.admin && store.getTeam(team.team.id)!.memberIds.includes(raj.id));
+  const personal = await signIn({ sub: 'g-sam', email: 'sam@acme.dev', name: 'Sam' });
+  check('…but an account Google doesn\'t manage for that domain (no hd) doesn\'t', personal.location.endsWith('?auth_error=not-invited'));
+  const other = await signIn({ sub: 'g-kim', email: 'kim@other.com', name: 'Kim', hd: 'other.com' });
+  check('…nor does another Workspace domain', other.location.endsWith('?auth_error=not-invited'));
+
+  // ---- roles, suspension, teams ----
+  const ownerId = boot.currentUser.id;
+  const demoteSelf = await patch(`/api/members/${ownerId}`, { admin: false }, ownerCookie);
+  check('the last admin can\'t step down', demoteSelf.status === 400);
+  check('a member can\'t change roles', (await patch(`/api/members/${caraUser.id}`, { admin: true }, caraCookie)).status === 403);
+  check('an admin can make someone admin', (await patch(`/api/members/${caraUser.id}`, { admin: true }, ownerCookie)).status === 200 && store.snapshot().users.find(u => u.id === caraUser.id)!.admin);
+  check('…and with another admin around, can step down', (await patch(`/api/members/${ownerId}`, { admin: false }, ownerCookie)).status === 200);
+  await patch(`/api/members/${ownerId}`, { admin: true }, caraCookie);
+  check('nobody can suspend themselves', (await patch(`/api/members/${ownerId}`, { suspended: true }, ownerCookie)).status === 400);
+  const rajCookie = `__Host-baseline_session=${managed.session}`;
+  await patch(`/api/members/${raj!.id}`, { suspended: true }, ownerCookie);
+  check('suspending someone signs them out', (await req('/api/bootstrap', { cookie: rajCookie })).status === 401);
+  await patch(`/api/members/${raj!.id}`, { suspended: false }, ownerCookie);
+  check('…and reactivating lets them back in', !!(await signIn({ sub: 'g-raj', email: 'raj@acme.dev', name: 'Raj', hd: 'acme.dev' })).session);
+  const t2 = await (await req('/api/teams', { ...json({ key: 'OPS', name: 'Ops' }), cookie: caraCookie })).json() as { team: { id: string; memberIds: string[] } };
+  check('whoever creates a team is on it', JSON.stringify(t2.team.memberIds) === JSON.stringify([caraUser.id]));
+  await req(`/api/teams/${t2.team.id}/join`, { ...json({}), cookie: ownerCookie });
+  check('anyone can join a team', store.getTeam(t2.team.id)!.memberIds.includes(ownerId));
+  await req(`/api/teams/${t2.team.id}/leave`, { ...json({}), cookie: ownerCookie });
+  check('…and leave it', !store.getTeam(t2.team.id)!.memberIds.includes(ownerId));
+  await patch(`/api/members/${raj!.id}`, { teamIds: [t2.team.id] }, ownerCookie);
+  check('an admin can set someone\'s teams', !store.getTeam(team.team.id)!.memberIds.includes(raj!.id) && store.getTeam(t2.team.id)!.memberIds.includes(raj!.id));
+  await patch(`/api/users/${caraUser.id}`, { name: 'Cara <script>alert(1)</script>' }, caraCookie);
+  sent.length = 0;
+  await req('/api/invites', { ...json({ emails: 'q@example.com' }), cookie: caraCookie });
+  const html = sent[0]?.html ?? '';
+  check('names in email HTML are escaped', html.includes('Cara &lt;script&gt;') && !/<script/i.test(html), html.slice(0, 200));
 }
 
 // ---- sessions ----

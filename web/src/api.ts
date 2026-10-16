@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Invite, InviteResult, WorkspaceSecurity } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -13,7 +13,11 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401) window.dispatchEvent(new Event('baseline:signed-out'));
-  if (!res.ok) throw new ApiError(`${method} ${path} → ${res.status}`, res.status);
+  if (!res.ok) {
+    // the server's own sentence when it sent one ("The workspace needs at least one admin")
+    const said = await res.json().then((j: { error?: unknown }) => typeof j.error === 'string' ? j.error : null).catch(() => null);
+    throw new ApiError(said ?? `${method} ${path} → ${res.status}`, res.status);
+  }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
@@ -21,6 +25,20 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 export const api = {
   bootstrap: () => req<Snapshot>('GET', '/api/bootstrap'),
   logout: () => req<{ ok: true }>('POST', '/api/auth/logout'),
+  // people (hosted workspaces)
+  listInvites: () => req<{ invites: Invite[] }>('GET', '/api/invites'),
+  createInvites: (b: { emails: string; admin: boolean; teamIds: string[] }) => req<{ results: InviteResult[] }>('POST', '/api/invites', b),
+  resendInvite: (id: string) => req<{ invite: Invite; emailed?: InviteResult['emailed']; error?: string }>('POST', `/api/invites/${id}/resend`, {}),
+  revokeInvite: (id: string) => req<{ ok: true }>('DELETE', `/api/invites/${id}`),
+  updateMember: (id: string, b: { admin?: boolean; suspended?: boolean; teamIds?: string[] }) => req<{ ok: true }>('PATCH', `/api/members/${id}`, b),
+  joinTeam: (id: string) => req<{ ok: true }>('POST', `/api/teams/${id}/join`, {}),
+  leaveTeam: (id: string) => req<{ ok: true }>('POST', `/api/teams/${id}/leave`, {}),
+  updateSecurity: (b: Partial<WorkspaceSecurity>) => req<{ security: WorkspaceSecurity }>('PATCH', '/api/security', b),
+  /** what an invite link points at, before signing in (no session needed) */
+  inviteInfo: async (code: string) => {
+    const res = await fetch(`/auth/invite/${encodeURIComponent(code)}`);
+    return res.json().catch(() => ({ state: 'unknown' })) as Promise<{ state: 'valid' | 'expired' | 'accepted' | 'revoked' | 'unknown'; workspace?: string; inviter?: string | null; email?: string }>;
+  },
   createIssue: async (b: Partial<Issue> & { teamId: string; title: string }) => {
     const r = await req<{ issue: Issue }>('POST', '/api/issues', b);
     markCreated(r.issue.id);   // the row plays its enter + flash when it lands

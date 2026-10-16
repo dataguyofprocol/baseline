@@ -333,14 +333,21 @@ export function TeamsPage() {
         <div className="wtable">
           <div className="wt-head wt-teams"><span>Name</span><span>Description</span><span>Membership</span><span>Members</span><span>Cycle</span><span>Active projects</span></div>
           {list.map(t => {
-            const members = [...new Set(snap.issues.filter(i => i.teamId === t.id && i.assigneeId).map(i => i.assigneeId!))].map(id => snap.users.find(u => u.id === id)).filter(Boolean);
+            const members = t.memberIds.map(id => snap.users.find(u => u.id === id)).filter(Boolean);
+            const joined = t.memberIds.includes(snap.currentUser.id);
             const cur = snap.cycles.find(c => c.teamId === t.id && c.startsAt <= now && c.endsAt >= now);
             const active = snap.projects.filter(p => p.teamId === t.id && p.status === 'started').length;
             return (
               <div key={t.id} className="wt-row wt-teams" onClick={() => navigate(`/team/${t.key}/overview`)}>
                 <span className="wt-name">{teamDisplayIcon(t)}<span>{t.name}</span><span className="dim mono">{t.key}</span></span>
                 <span className="dim wt-clip">{t.description?.replace(/\s+/g, ' ') || '—'}</span>
-                <span><span className="plabel-chip"><IconCheck size={11} /> Joined</span></span>
+                <span>
+                  {/* join or leave right here; the row itself opens the team */}
+                  <button className={`plabel-chip team-join${joined ? ' joined' : ''}`} title={joined ? 'Leave team' : 'Join team'}
+                    onClick={async e => { e.stopPropagation(); await (joined ? api.leaveTeam(t.id) : api.joinTeam(t.id)); await useApp.getState().bootstrap(); }}>
+                    {joined ? <><IconCheck size={11} /> Joined</> : 'Join'}
+                  </button>
+                </span>
                 <span><AvatarStack size={18} people={members.slice(0, 5).map(u => ({ name: u!.name, initials: u!.initials, color: u!.color }))} /></span>
                 <span className="mono">{cur ? `#${cur.number}` : <span className="dim">—</span>}</span>
                 <span className="mono">{active}</span>
@@ -370,21 +377,23 @@ export function MembersPage() {
   }, [snap.activity]);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Members' }]} right={<button className="btn secondary" onClick={() => navigate('/settings/members')}><IconPlus size={13} /> Add member</button>} />
+      <TopBar crumbs={[{ label: 'Members' }]} right={<button className="btn secondary" onClick={() => navigate('/settings/members')}><IconPlus size={13} /> {snap.workspace.auth === 'google' ? 'Invite' : 'Add member'}</button>} />
       <div className="subnav"><div className="set-filter" style={{ border: 0, margin: 0, flex: 1 }}><IconSearch size={13} /><input placeholder="Find members…" value={q} onChange={e => setQ(e.target.value)} /></div></div>
       <div className="content">
         <div className="wtable">
           <div className="wt-head wt-members"><span>Name</span><span>Status</span><span>Joined</span><span>Teams</span><span>Last seen</span></div>
           {list.map(u => {
-            const teams = snap.teams.filter(t => snap.issues.some(i => i.teamId === t.id && (i.assigneeId === u.id || i.creatorId === u.id)));
+            const teams = snap.teams.filter(t => t.memberIds.includes(u.id));
+            const joinedAt = u.createdAt ?? firstSeen.get(u.id) ?? snap.workspace.createdAt;
+            const seenAt = u.lastSeenAt ?? lastSeen.get(u.id);
             const me = u.id === snap.currentUser.id;
             return (
               <div key={u.id} className="wt-row wt-members" onClick={() => navigate(`/my-issues`)}>
                 <span className="wt-name"><Avatar user={u} size={22} /><span className="wt-stack"><span>{u.name}</span><span className="dim">{u.email}</span></span></span>
-                <span>{u.kind === 'agent' ? <span className="plabel-chip">Agent</span> : u.admin ? <span className="plabel-chip admin">Admin</span> : <span className="plabel-chip">Member</span>}</span>
-                <span className="mono dim">{firstSeen.get(u.id) ? shortDate(firstSeen.get(u.id)!) : shortDate(snap.workspace.createdAt)}</span>
+                <span>{u.kind === 'agent' ? <span className="plabel-chip">Agent</span> : u.status === 'suspended' ? <span className="plabel-chip">Suspended</span> : u.admin ? <span className="plabel-chip admin">Admin</span> : <span className="plabel-chip">Member</span>}</span>
+                <span className="mono dim">{shortDate(joinedAt)}</span>
                 <span className="wt-teams-cell">{teams.map(t => <span key={t.id} className="plabel-chip">{t.key}</span>)}</span>
-                <span>{me ? <span className="online"><span className="online-dot" />Online</span> : <span className="dim mono">{lastSeen.get(u.id) ? relTime(lastSeen.get(u.id)!) : '—'}</span>}</span>
+                <span>{me ? <span className="online"><span className="online-dot" />Online</span> : <span className="dim mono">{seenAt ? relTime(seenAt) : '—'}</span>}</span>
               </div>
             );
           })}

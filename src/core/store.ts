@@ -12,7 +12,7 @@ import type {
   WorkflowState, WorkflowStateType, UpdateCadence, ProjectStatusDef, ProjectSubscription, ProjectLabel, DocTemplate, CustomEmoji,
   Customer, CustomerRequest, WorkspaceFeatures,
 } from './types.js';
-import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES } from './types.js';
+import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES, DEFAULT_SECURITY, type WorkspaceSecurity } from './types.js';
 
 interface TeamRow { id: string; key: string; name: string; icon: string; color: string; description: string; position: number; triage_enabled: number; auto_cycles: number; cycle_duration: number; cycle_cooldown: number; cycle_upcoming: number; cycle_rollover: number; estimate_scale: string }
 interface CommentRow { id: string; issue_id: string; user_id: string; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null; parent_id: string | null }
@@ -57,6 +57,7 @@ export class Store {
     triageEnabled: !!t.triage_enabled, autoCycles: !!t.auto_cycles, cycleDuration: t.cycle_duration ?? 2,
     cycleCooldown: t.cycle_cooldown ?? 0, cycleUpcoming: t.cycle_upcoming ?? 2, cycleRollover: t.cycle_rollover !== 0,
     estimateScale: (t.estimate_scale as EstimateScale) ?? 'fibonacci',
+    memberIds: (this.db.prepare('SELECT user_id FROM team_members WHERE team_id = ? ORDER BY created_at').all(t.id) as Array<{ user_id: string }>).map(r => r.user_id),
   });
   private mapComment = (c: CommentRow): Comment => ({
     id: c.id, issueId: c.issue_id, userId: c.user_id, body: c.body, createdAt: c.created_at, editedAt: c.edited_at,
@@ -84,9 +85,9 @@ export class Store {
   snapshot(): Snapshot {
     const rows = <T>(sql: string): T[] => this.db.prepare(sql).all() as unknown as T[];
     const projectLocs = this.projectLocationMap();
-    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string; avatar_url: string | null; status: string | null }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human', avatarUrl: u.avatar_url ?? '', status: u.status === 'suspended' ? 'suspended' as const : 'active' as const }));
+    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string; avatar_url: string | null; status: string | null; created_at: string | null; last_seen_at: string | null }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human', avatarUrl: u.avatar_url ?? '', status: u.status === 'suspended' ? 'suspended' as const : 'active' as const, createdAt: u.created_at, lastSeenAt: u.last_seen_at }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
-    const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig(), preferences: this.getPreferences(), features: this.getFeatures() };
+    const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig(), preferences: this.getPreferences(), features: this.getFeatures(), security: this.getSecurity() };
     const currentUser = users.find(u => u.id === this.actor()) ?? users[0];
     return {
       workspace, users, currentUser: currentUser!,
@@ -130,7 +131,7 @@ export class Store {
   createUser(name: string, email = '', admin = false, kind: User['kind'] = 'human'): User {
     const initials = name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
     const colors = ['#5e6ad2', '#c770f4', '#f2994a', '#4cb782', '#eb5757', '#307ec6'];
-    const user: User = { id: id('u'), name, email, initials, color: colors[Math.floor(Math.random() * colors.length)], admin, kind, avatarUrl: '', status: 'active' };
+    const user: User = { id: id('u'), name, email, initials, color: colors[Math.floor(Math.random() * colors.length)], admin, kind, avatarUrl: '', status: 'active', createdAt: ts(), lastSeenAt: null };
     this.db.prepare('INSERT INTO users (id, name, email, initials, color, admin, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(user.id, user.name, user.email, user.initials, user.color, admin ? 1 : 0, kind, ts());
     return user;
   }
@@ -146,7 +147,10 @@ export class Store {
       ['Done', 'completed', '#5e6ad2'], ['Canceled', 'canceled', '#7d8084'],
     ];
     defaults.forEach(([name2, type, color2], i) => this.createState(team.id, name2, type, color2, i + 1));
-    return team;
+    // whoever makes a team belongs to it (agents aren't members — they're assigned, not on teams)
+    const me = this.actor();
+    if (me && (this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'human'").get(me))) this.addTeamMember(tid, me);
+    return this.getTeam(tid)!;
   }
 
   listTeams(): Team[] { return this.snapshot().teams; }
@@ -175,6 +179,21 @@ export class Store {
       if (triage) this.deleteState(triage);
     }
     if (patch.autoCycles) this.scheduleCycles(teamId);
+  }
+  addTeamMember(teamId: string, userId: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO team_members (team_id, user_id, created_at) VALUES (?, ?, ?)').run(teamId, userId, ts());
+  }
+  removeTeamMember(teamId: string, userId: string): void {
+    this.db.prepare('DELETE FROM team_members WHERE team_id = ? AND user_id = ?').run(teamId, userId);
+  }
+  /** replace someone's teams with exactly these (unknown team ids are ignored) */
+  setUserTeams(userId: string, teamIds: string[]): void {
+    const known = new Set((this.db.prepare('SELECT id FROM teams').all() as Array<{ id: string }>).map(r => r.id));
+    const want = new Set(teamIds.filter(t => known.has(t)));
+    for (const r of this.db.prepare('SELECT team_id FROM team_members WHERE user_id = ?').all(userId) as Array<{ team_id: string }>) {
+      if (!want.has(r.team_id)) this.removeTeamMember(r.team_id, userId);
+    }
+    for (const t of want) this.addTeamMember(t, userId);
   }
   deleteTeam(teamId: string): void {
     this.db.prepare('DELETE FROM teams WHERE id = ?').run(teamId); // issues cascade
@@ -1008,6 +1027,21 @@ export class Store {
   }
   setFeatures(patch: Partial<WorkspaceFeatures>): void { setMeta(this.db, 'features', JSON.stringify({ ...this.getFeatures(), ...patch })); }
 
+  getSecurity(): WorkspaceSecurity {
+    try { return { ...DEFAULT_SECURITY, ...(JSON.parse(getMeta(this.db, 'security') ?? '{}') as Partial<WorkspaceSecurity>) }; } catch { return DEFAULT_SECURITY; }
+  }
+  setSecurity(patch: Partial<WorkspaceSecurity>): WorkspaceSecurity {
+    const cur = this.getSecurity();
+    const next: WorkspaceSecurity = {
+      // "@Acme.dev " and "acme.dev" are the same domain
+      approvedDomains: patch.approvedDomains ? [...new Set(patch.approvedDomains.map(d => d.trim().toLowerCase().replace(/^@/, '')).filter(d => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)))] : cur.approvedDomains,
+      domainTeamIds: patch.domainTeamIds ?? cur.domainTeamIds,
+      whoCanInvite: patch.whoCanInvite === 'members' || patch.whoCanInvite === 'admins' ? patch.whoCanInvite : cur.whoCanInvite,
+    };
+    setMeta(this.db, 'security', JSON.stringify(next));
+    return next;
+  }
+
   // ---------- project labels ----------
   createProjectLabel(input: { name: string; color?: string; description?: string; parentId?: string | null; isGroup?: boolean }): ProjectLabel {
     const l: ProjectLabel = { id: id('pl'), name: input.name.trim(), color: input.color ?? '#8a8f98', description: input.description ?? '', parentId: input.parentId ?? null, isGroup: !!input.isGroup, createdAt: ts() };
@@ -1258,6 +1292,11 @@ export class Store {
     if (cu?.id) setMeta(this.db, 'currentUser', cu.id);
     for (const t of arr<Record<string, unknown>>(data.teams)) insert('teams', ['id', 'key', 'name', 'icon', 'color', 'description', 'position', 'triage_enabled', 'auto_cycles', 'cycle_duration', 'cycle_cooldown', 'cycle_upcoming', 'cycle_rollover', 'estimate_scale'],
       { ...t, triage_enabled: t.triageEnabled ? 1 : 0, auto_cycles: t.autoCycles ? 1 : 0, cycle_duration: t.cycleDuration ?? 2, cycle_cooldown: t.cycleCooldown ?? 0, cycle_upcoming: t.cycleUpcoming ?? 2, cycle_rollover: t.cycleRollover === false ? 0 : 1, estimate_scale: t.estimateScale ?? 'fibonacci' });
+    // memberships travel on the teams; an export from before memberships puts every person on every team
+    const humans = arr<Record<string, unknown>>(data.users).filter(u => (u.kind ?? 'human') === 'human').map(u => String(u.id));
+    for (const t of arr<Record<string, unknown>>(data.teams)) for (const uid of Array.isArray(t.memberIds) ? t.memberIds as string[] : humans) {
+      if (humans.includes(uid)) this.addTeamMember(String(t.id), uid);
+    }
     for (const s of arr<Record<string, unknown>>(data.states)) insert('states', ['id', 'team_id', 'name', 'type', 'color', 'position'], { ...s, team_id: s.teamId });
     for (const l of arr<Record<string, unknown>>(data.labels)) insert('labels', ['id', 'team_id', 'name', 'color', 'description'], { ...l, team_id: l.teamId });
     for (const t of arr<Record<string, unknown>>(data.templates)) insert('issue_templates', ['id', 'team_id', 'name', 'title', 'description', 'position', 'created_at'], { ...t, team_id: t.teamId, title: t.title ?? '', description: t.description ?? '', position: t.position ?? 0, created_at: t.createdAt ?? ts() });
@@ -1306,7 +1345,7 @@ export class Store {
     migrateDirectoriesToLocations(this.db);
   }
   wipe(): void {
-    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'sessions', 'users', 'meta']) {
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
     ensureDefaults(this.db);

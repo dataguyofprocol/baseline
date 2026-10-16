@@ -241,7 +241,36 @@ function migrate(db: DatabaseSync): void {
       ip TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE TABLE IF NOT EXISTS invites (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      admin INTEGER NOT NULL DEFAULT 0,
+      team_ids TEXT NOT NULL DEFAULT '[]',
+      invited_by TEXT,
+      code TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      accepted_at TEXT,
+      accepted_user_id TEXT,
+      revoked_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
   `);
+  // team membership: who belongs to which team (drives "Your teams"; everyone can still open any team).
+  // Created once; existing people join every team so nothing changes for a workspace that predates it.
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'team_members'").get()) {
+    db.exec(`
+      CREATE TABLE team_members (
+        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (team_id, user_id)
+      );
+      CREATE INDEX idx_team_members_user ON team_members(user_id);
+      INSERT INTO team_members (team_id, user_id, created_at)
+        SELECT t.id, u.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM teams t, users u WHERE u.kind = 'human';
+    `);
+  }
 
   // threads, milestones on issues, creators, snoozed notifications, team automation
   if (!columns('comments').includes('parent_id')) db.exec('ALTER TABLE comments ADD COLUMN parent_id TEXT');

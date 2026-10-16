@@ -8,6 +8,7 @@ import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
 import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
+import { HostedMembersSettings, SecuritySettings } from './Members.js';
 import { ShortcutList } from './Palette.js';
 import { CADENCE_LABELS } from './actions.js';
 import { ProjectLabelsSettings, ProjectStatusesSettings, ProjectUpdatesSettings, DocumentsSettings, CustomerRequestsSettings, PulseSettings, EmojisSettings } from './SettingsMore.js';
@@ -19,7 +20,7 @@ const NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
   { sec: 'Issues', items: [['Labels', 'labels'], ['Templates', 'templates']] },
   { sec: 'Projects', items: [['Labels', 'project-labels'], ['Templates', 'project-templates'], ['Statuses', 'project-statuses'], ['Updates', 'project-updates']] },
   { sec: 'Features', items: [['Documents', 'documents'], ['Customer requests', 'customer-requests'], ['Pulse', 'pulse'], ['Emojis', 'emojis']] },
-  { sec: 'Administration', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Coding tools', 'handoff'], ['Import & export', 'data']] },
+  { sec: 'Administration', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Security', 'security'], ['Coding tools', 'handoff'], ['Import & export', 'data']] },
 ];
 
 const STATE_TYPES: Array<[WorkflowStateType, string]> = [
@@ -38,7 +39,8 @@ export function SettingsLayout() {
         {NAV.map(g => (
           <div key={g.sec}>
             <div className="sec">{g.sec}</div>
-            {g.items.map(([label, key]) => (
+            {/* Security is who may sign in — only a hosted workspace has sign-in */}
+            {g.items.filter(([, key]) => key !== 'security' || snap.workspace.auth === 'google').map(([label, key]) => (
               <NavLink key={key} to={`/settings/${key}`} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ height: 30 }}>
                 <span className="nav-label">{label}</span>
               </NavLink>
@@ -63,7 +65,8 @@ export function SettingsLayout() {
         {!teamKey && section === 'workspace' && <WorkspaceSettings />}
         {section === 'teams' && <TeamsSettings />}
         {section === 'new-team' && <NewTeamSettings />}
-        {section === 'members' && <MembersSettings />}
+        {section === 'members' && (snap.workspace.auth === 'google' ? <HostedMembersSettings /> : <MembersSettings />)}
+        {section === 'security' && snap.workspace.auth === 'google' && <SecuritySettings />}
         {section === 'labels' && <LabelsSettings />}
         {section === 'templates' && <TemplatesSettings />}
         {section === 'handoff' && <HandoffSettings />}
@@ -679,9 +682,7 @@ function MembersSettings() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const [name, setName] = useState('');
-  const hosted = snap.workspace.auth === 'google';
-  // hosted, people arrive through Google sign-in — only agent identities are added by hand
-  const [asAgent, setAsAgent] = useState(hosted);
+  const [asAgent, setAsAgent] = useState(false);
   const create = async () => {
     if (!name.trim()) return;
     await api.createUser({ name: name.trim(), kind: asAgent ? 'agent' : 'human' });
@@ -699,7 +700,7 @@ function MembersSettings() {
             <span style={{ flex: 1 }}>{u.name}{u.id === snap.currentUser.id ? <span style={{ color: 'var(--text-dim)' }}> (you)</span> : null}</span>
             {u.kind === 'agent' && <span className="kbd" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconAgent size={11} /> Agent</span>}
             {u.admin && <span className="kbd">Admin</span>}
-            {u.id !== snap.currentUser.id && snap.workspace.auth !== 'google' && (
+            {u.id !== snap.currentUser.id && (
               <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={async () => {
                 await api.updateWorkspace({ currentUserId: u.id });
                 await useApp.getState().bootstrap();
@@ -711,17 +712,17 @@ function MembersSettings() {
       </div>
       <div className="field-row" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
         <div>
-          <div className="field-label">{hosted ? 'Add agent' : 'Add member'}</div>
+          <div className="field-label">Add member</div>
           <div className="field-help">Agents (Claude, Codex, OpenCode…) can be assigned issues; their CLI writes land under their name when passed <code>--as "Name"</code>.</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <input className="text-input" placeholder={asAgent ? 'Agent name' : 'Full name'} value={name} onChange={e => setName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && create()} />
-          {!hosted && <div style={{ display: 'flex', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 4 }}>
             {(['human', 'agent'] as const).map(k => (
               <button key={k} className={`seg seg-fill ${asAgent === (k === 'agent') ? 'selected' : ''}`} style={{ textTransform: 'capitalize' }} onClick={() => setAsAgent(k === 'agent')}>{k}</button>
             ))}
-          </div>}
+          </div>
           <button className="btn primary" onClick={create}>Add</button>
         </div>
       </div>
