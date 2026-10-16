@@ -4,7 +4,7 @@ import { openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
-import type { Priority, Snapshot, WorkflowStateType, RelationType } from '../core/types.js';
+import { API_KEY_SCOPES, type ApiKey, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, resolve, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
@@ -35,7 +35,7 @@ const originHostOf = (c: Context): string | null => {
 export function createApp(dbPath: string) {
   const db = openDb(dbPath);
   const store = new Store(db);
-  const { planning, automation, git } = store.ext;
+  const { planning, automation, git, apiKeys } = store.ext;
   // Loops' "Open in Claude Code" action opens the same interactive session as the manual hand-off
   automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
   // the git integration polls gh / git log every two minutes while it's on
@@ -62,11 +62,60 @@ export function createApp(dbPath: string) {
     await next();
   });
 
+  // Personal API keys: a request may carry `Authorization: Bearer <key>` (or the bare key, as
+  // Linear accepts). A bad key is refused; a good one acts as its owner, within its permissions
+  // and teams. Requests without a key are the app's own, unless other devices must use one.
+  const keyOf = new WeakMap<Request, ApiKey>();
+  const actor = (c: Context) => keyOf.get(c.req.raw)?.userId ?? store.workspaceMeta().currentUser;
+  /** the app may act as anyone (agents, other members); a key always acts as its owner */
+  const who = (c: Context, given: unknown) => keyOf.has(c.req.raw) || typeof given !== 'string' ? actor(c) : given;
+  const isAdmin = (userId: string) => !!(db.prepare('SELECT admin FROM users WHERE id = ?').get(userId) as { admin: number } | undefined)?.admin;
+  app.use('/api/*', async (c, next) => {
+    const auth = c.req.header('authorization')?.trim();
+    if (!auth) {
+      if (LAN_OPEN && !isLoopback(hostOf(c)) && store.getFeatures().apiKeyRequiredRemote) return c.json({ error: 'Requests from other devices need an API key: send Authorization: Bearer <key>', code: 'unauthorized' }, 401);
+      return next();
+    }
+    const key = apiKeys.verify(auth.replace(/^Bearer\s+/i, ''));
+    if (!key) return c.json({ error: 'Invalid API key', code: 'unauthorized' }, 401);
+    const path = c.req.path;
+    if (path.startsWith('/api/api-keys')) return c.json({ error: 'API keys are managed in Settings › Security & access, not with an API key', code: 'forbidden' }, 403);
+    const missing = apiKeys.missingScope(key, c.req.method, path);
+    if (missing) return c.json({ error: `This API key doesn't have the “${API_KEY_SCOPES.find(([k]) => k === missing)?.[1]}” permission`, code: 'forbidden' }, 403);
+    const body = c.req.method !== 'GET' && c.req.method !== 'HEAD' && (c.req.header('content-type') ?? '').includes('application/json')
+      ? await c.req.json().catch(() => null) as Record<string, unknown> | null : null;
+    if (!apiKeys.teamAllowed(key, path, body)) return c.json({ error: 'This API key can’t access that team', code: 'forbidden' }, 403);
+    keyOf.set(c.req.raw, key);
+    await next();
+    if (key.teamIds && (c.res.headers.get('content-type') ?? '').includes('application/json')) {
+      const scoped = apiKeys.scopeResponse(key, await c.res.json());
+      c.res = new Response(JSON.stringify(scoped), { status: (scoped as { error?: string }).error ? 404 : c.res.status, headers: { 'content-type': 'application/json' } });
+    }
+  });
+
+  // ---------- API keys ----------
+  app.get('/api/api-keys', (c) => {
+    const me = actor(c);
+    if (c.req.query('all') && !isAdmin(me)) return c.json({ error: 'Only admins can see every API key', code: 'forbidden' }, 403);
+    return c.json({ keys: apiKeys.list(c.req.query('all') ? undefined : me) });
+  });
+  app.post('/api/api-keys', async (c) => {
+    const b = await c.req.json();
+    const me = actor(c);
+    if (store.getFeatures().apiKeyCreation === 'admins' && !isAdmin(me)) return c.json({ error: 'Only admins can create API keys in this workspace', code: 'forbidden' }, 403);
+    try { return c.json(apiKeys.create({ name: String(b.name ?? ''), userId: me, scopes: b.scopes ?? null, teamIds: b.teamIds ?? null }), 201); }
+    catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  });
+  const ownKey = (c: Context) => { const k = apiKeys.get(c.req.param('id')!); return k && (k.userId === actor(c) || isAdmin(actor(c))) ? k : null; };
+  app.patch('/api/api-keys/:id', async (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.rename(c.req.param('id'), String((await c.req.json()).name ?? '')); return c.json({ ok: true }); });
+  app.delete('/api/api-keys/:id', (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.revoke(c.req.param('id')); return c.json({ ok: true }); });
+
   // ---------- bootstrap ----------
   app.get('/api/bootstrap', (c) => {
     store.tick();
     const snap = store.snapshot();
     snap.workspace.homeDir = homedir();
+    if (LAN_OPEN) snap.workspace.lanHost = LISTEN_HOST;
     return c.json(snap);
   });
 
@@ -80,12 +129,12 @@ export function createApp(dbPath: string) {
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null, milestoneId: b.milestoneId ?? null,
       // omitted = a sub-issue inherits its parent's (nothing else is defaulted); null = explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
-    }, typeof b.actorId === 'string' ? b.actorId : undefined);
+    }, keyOf.has(c.req.raw) || typeof b.actorId === 'string' ? who(c, b.actorId) : undefined);
     return c.json({ issue }, 201);
   });
   app.patch('/api/issues/:id', async (c) => {
     const b = await c.req.json();
-    const issue = store.updateIssue(c.req.param('id'), b);
+    const issue = store.updateIssue(c.req.param('id'), b, keyOf.has(c.req.raw) ? actor(c) : undefined);
     if (!issue) return c.json({ error: 'not found' }, 404);
     return c.json({ issue });
   });
@@ -126,7 +175,7 @@ export function createApp(dbPath: string) {
   });
   app.post('/api/issues/:id/subscribe', async (c) => {
     const b = await c.req.json().catch(() => ({}));
-    const uid = b.userId ?? store.workspaceMeta().currentUser;
+    const uid = who(c, b.userId);
     if (b.subscribed === false) store.unsubscribe(c.req.param('id'), uid);
     else store.subscribe(c.req.param('id'), uid);
     return c.json({ ok: true });
@@ -203,12 +252,15 @@ export function createApp(dbPath: string) {
   const localOnly = async (c: Context, next: Next) => {
     const originHost = originHostOf(c);
     if (!isLoopback(hostOf(c)) || (originHost !== null && !isLoopback(originHost)) || !(c.req.header('content-type') ?? '').includes('application/json')) {
-      return c.json({ error: 'Launching Claude Code is only allowed from this machine', code: 'forbidden' }, 403);
+      return c.json({ error: 'Only this machine can do that', code: 'forbidden' }, 403);
     }
     await next();
   };
   app.use('/api/issues/:id/open-claude', localOnly);
   app.use('/api/directories/*', localOnly);
+  // PR and commit ingest move issues as the GitHub agent: same rule
+  app.use('/api/git/pull-requests', localOnly);
+  app.use('/api/git/commits', localOnly);
   app.post('/api/issues/:id/open-claude', async (c) => {
     const b = await c.req.json().catch(() => ({})) as { locationId?: string; directory?: string };
     try {
@@ -253,12 +305,12 @@ export function createApp(dbPath: string) {
   // ---------- comments ----------
   app.post('/api/issues/:id/comments', async (c) => {
     const b = await c.req.json();
-    const comment = store.addComment(c.req.param('id'), b.userId ?? store.workspaceMeta().currentUser, b.body, b.parentId ?? null);
+    const comment = store.addComment(c.req.param('id'), who(c, b.userId), b.body, b.parentId ?? null);
     return c.json({ comment }, 201);
   });
   app.patch('/api/comments/:id', async (c) => {
     const b = await c.req.json();
-    if (b.reaction) { store.toggleReaction(c.req.param('id'), b.reaction, b.userId ?? store.workspaceMeta().currentUser); return c.json({ ok: true }); }
+    if (b.reaction) { store.toggleReaction(c.req.param('id'), b.reaction, who(c, b.userId)); return c.json({ ok: true }); }
     if ('resolved' in b) { store.resolveComment(c.req.param('id'), !!b.resolved); return c.json({ ok: true }); }
     store.updateComment(c.req.param('id'), b.body);
     return c.json({ ok: true });
@@ -288,7 +340,7 @@ export function createApp(dbPath: string) {
   app.delete('/api/projects/:id', (c) => { store.deleteProject(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/projects/:id/updates', async (c) => {
     const b = await c.req.json();
-    const update = store.addProjectUpdate(c.req.param('id'), b.userId ?? store.workspaceMeta().currentUser, b.body, b.health);
+    const update = store.addProjectUpdate(c.req.param('id'), who(c, b.userId), b.body, b.health);
     return c.json({ update }, 201);
   });
   app.post('/api/projects/:id/links', async (c) => {
@@ -340,7 +392,7 @@ export function createApp(dbPath: string) {
 
   // ---------- documents & team links ----------
   app.post('/api/docs', async (c) => c.json({ doc: store.createDoc(await c.req.json()) }, 201));
-  app.patch('/api/docs/:id', async (c) => { store.updateDoc(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.patch('/api/docs/:id', async (c) => { const b = await c.req.json(); store.updateDoc(c.req.param('id'), b, keyOf.has(c.req.raw) || typeof b.actorId === 'string' ? who(c, b.actorId) : undefined); return c.json({ ok: true }); });
   app.delete('/api/docs/:id', (c) => { store.deleteDoc(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/teams/:id/links', async (c) => {
     const b = await c.req.json();
@@ -486,7 +538,7 @@ export function createApp(dbPath: string) {
   app.delete('/api/initiatives/:id', (c) => { planning.deleteInitiative(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/initiatives/:id/projects', async (c) => { const b = await c.req.json(); planning.addProject(c.req.param('id'), b.projectId); return c.json({ ok: true }, 201); });
   app.delete('/api/initiatives/:id/projects/:projectId', (c) => { planning.removeProject(c.req.param('id'), c.req.param('projectId')); return c.json({ ok: true }); });
-  app.post('/api/initiatives/:id/updates', async (c) => { const b = await c.req.json(); if (!b.body) return c.json({ error: 'body is required' }, 400); return c.json({ update: planning.addInitiativeUpdate(c.req.param('id'), b.userId ?? store.workspaceMeta().currentUser, b.body, b.health) }, 201); });
+  app.post('/api/initiatives/:id/updates', async (c) => { const b = await c.req.json(); if (!b.body) return c.json({ error: 'body is required' }, 400); return c.json({ update: planning.addInitiativeUpdate(c.req.param('id'), who(c, b.userId), b.body, b.health) }, 201); });
 
   // ---------- releases ----------
   app.post('/api/releases', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ release: planning.createRelease(b) }, 201); });
@@ -508,6 +560,7 @@ export function createApp(dbPath: string) {
   app.post('/api/loops', async (c) => { const b = await c.req.json(); if (!b.name || !b.trigger) return c.json({ error: 'name and trigger are required' }, 400); return c.json({ loop: automation.createLoop({ ...b, actions: b.actions ?? [] }) }, 201); });
   app.patch('/api/loops/:id', async (c) => { automation.updateLoop(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/loops/:id', (c) => { automation.deleteLoop(c.req.param('id')); return c.json({ ok: true }); });
+  app.put('/api/teams/:id/workflow', async (c) => c.json({ workflow: automation.setTeamWorkflow(c.req.param('id'), await c.req.json()) }));
   app.put('/api/teams/:id/subscription', async (c) => { automation.setTeamSubscription(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.post('/api/loops/:id/run', async (c) => { const b = await c.req.json().catch(() => ({})); try { return c.json({ run: automation.runLoop(c.req.param('id'), b.issueId ?? null) }); } catch (err) { return c.json({ error: (err as Error).message }, 400); } });
 
@@ -537,7 +590,7 @@ export function createApp(dbPath: string) {
   app.patch('/api/project-statuses/:id', async (c) => { store.updateProjectStatus(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/project-statuses/:id', (c) => store.deleteProjectStatus(c.req.param('id')) ? c.json({ ok: true }) : c.json({ error: 'A category keeps at least one status' }, 400));
   app.put('/api/projects/:id/subscription', async (c) => {
-    store.setProjectSubscription(c.req.param('id'), store.workspaceMeta().currentUser, await c.req.json());
+    store.setProjectSubscription(c.req.param('id'), actor(c), await c.req.json());
     return c.json({ ok: true });
   });
 
@@ -562,9 +615,23 @@ export function createApp(dbPath: string) {
     try { return c.json({ emoji: store.addEmoji(name, `/api/emoji-files/${dirId}/${encodeURIComponent(file)}`) }, 201); }
     catch (err) { return c.json({ error: (err as Error).message }, 400); }
   });
+  // Settings › Profile › Profile picture
+  app.post('/api/users/:id/avatar', async (c) => {
+    const buf = Buffer.from(await c.req.arrayBuffer());
+    if (!buf.length) { store.updateUser(c.req.param('id'), { avatarUrl: null }); return c.json({ avatarUrl: null }); }
+    if (buf.length > 4 * 1024 * 1024) return c.json({ error: 'Profile pictures are limited to 4 MB' }, 413);
+    const file = basename(c.req.query('file') || 'avatar.png').replace(/[^\w.\-]+/g, '_').slice(0, 80) || 'avatar.png';
+    const dirId = `avatar_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    mkdirSync(join(attachmentsDir, dirId), { recursive: true });
+    writeFileSync(join(attachmentsDir, dirId, file), buf);
+    writeFileSync(join(attachmentsDir, dirId, '.mime'), c.req.header('content-type') ?? 'image/png');
+    const avatarUrl = `/api/emoji-files/${dirId}/${encodeURIComponent(file)}`;
+    store.updateUser(c.req.param('id'), { avatarUrl });
+    return c.json({ avatarUrl }, 201);
+  });
   app.get('/api/emoji-files/:dir/:name', (c) => {
     const dir = basename(c.req.param('dir'));
-    if (!dir.startsWith('emoji_')) return c.json({ error: 'not found' }, 404);
+    if (!dir.startsWith('emoji_') && !dir.startsWith('avatar_')) return c.json({ error: 'not found' }, 404);
     const file = join(attachmentsDir, dir, basename(decodeURIComponent(c.req.param('name'))));
     if (!existsSync(file)) return c.json({ error: 'not found' }, 404);
     const mime = existsSync(join(attachmentsDir, dir, '.mime')) ? readFileSync(join(attachmentsDir, dir, '.mime'), 'utf8') : 'image/png';

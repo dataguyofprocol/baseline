@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import { flushSync } from 'react-dom';
 import { api } from './api.js';
 import { revealTheme } from './motion.js';
-import type { Snapshot, Issue, Priority } from '../../src/core/types.js';
+import { notifyCategory, type Snapshot, type Issue, type Priority } from '../../src/core/types.js';
 import type { PropKind } from './propertyMenus.js';
 
+export type PaletteScope = 'issue' | 'project' | 'view' | 'document' | 'cycle' | 'label' | 'user' | 'favorite' | 'settings' | 'document-new';
 export interface Toast {
   id: number;
   title: string;
@@ -22,9 +23,11 @@ interface AppState {
   resolvedTheme: 'dark' | 'light';
   toasts: Toast[];
   paletteOpen: boolean;
+  /** O then …: the palette opens as a picker of one kind (issue, project, view…) */
+  paletteScope: PaletteScope | null;
   /** left nav collapsed (⌘B / the nav toggle); persisted across reloads */
   sidebarCollapsed: boolean;
-  createModal: { open: boolean; teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated };
+  createModal: { open: boolean; expanded?: boolean; copyFrom?: string; teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated };
   shortcutsOpen: boolean;
   /** hovered/focused row quick-action menu, e.g. pressing S or P on a row */
   quickMenu: { issueIds: string[]; kind: PropKind; anchor: DOMRect } | null;
@@ -35,10 +38,10 @@ interface AppState {
   setTheme: (t: ThemePref) => void;
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: number) => void;
-  setPalette: (open: boolean) => void;
+  setPalette: (open: boolean, scope?: PaletteScope | null) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
-  openCreate: (opts?: { teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated }) => void;
+  openCreate: (opts?: { expanded?: boolean; copyFrom?: string; teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated }) => void;
   closeCreate: () => void;
   setShortcuts: (open: boolean) => void;
   setQuickMenu: (m: AppState['quickMenu']) => void;
@@ -67,6 +70,7 @@ export const useApp = create<AppState>((set, get) => ({
   resolvedTheme: resolveTheme(initialTheme),
   toasts: [],
   paletteOpen: false,
+  paletteScope: null,
   sidebarCollapsed: localStorage.getItem('baseline:sidebarCollapsed') === '1',
   createModal: { open: false },
   shortcutsOpen: false,
@@ -96,7 +100,7 @@ export const useApp = create<AppState>((set, get) => ({
     if (t.autoClose !== false) setTimeout(() => get().dismissToast(id), 5200);
   },
   dismissToast: (id) => set(s => ({ toasts: s.toasts.filter(x => x.id !== id) })),
-  setPalette: (open) => set({ paletteOpen: open }),
+  setPalette: (open, scope = null) => set({ paletteOpen: open, paletteScope: open ? scope : null }),
   setSidebarCollapsed: (collapsed) => {
     localStorage.setItem('baseline:sidebarCollapsed', collapsed ? '1' : '0');
     set({ sidebarCollapsed: collapsed });
@@ -229,10 +233,34 @@ export async function refresh() {
 // Agents write through the CLI straight to SQLite, so the server never tells us — poll while
 // the tab is visible (and on focus) and only swap the snapshot when something actually moved.
 let lastSnapJson = '';
+/* Settings › Notifications › Desktop: new inbox notifications become browser notifications
+   (the kinds you chose), also while the tab is in the background */
+let seenNotifications: Set<string> | null = null;
+function pushDesktop(snap: Snapshot) {
+  const ids = new Set(snap.notifications.map(n => n.id));
+  const before = seenNotifications;
+  seenNotifications = ids;
+  const push = snap.workspace.preferences.push;
+  if (!before || !push?.desktop || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  for (const n of snap.notifications) {
+    if (before.has(n.id) || n.readAt || (n.snoozedUntil && n.snoozedUntil > new Date().toISOString())) continue;
+    const cat = notifyCategory(n.type, n.body);
+    if (!cat || !push.types[cat]) continue;
+    const issue = n.issueId ? snap.issues.find(i => i.id === n.issueId) : undefined;
+    const key = issue ? `${snap.teams.find(t => t.id === issue.teamId)?.key}-${issue.number}` : '';
+    const actor = snap.users.find(u => u.id === n.actorId)?.name;
+    const note = new Notification(issue ? `${key} ${issue.title}` : 'Baseline', { body: [actor, n.body].filter(Boolean).join(': ').slice(0, 200), tag: n.id });
+    note.onclick = () => { window.focus(); location.hash = issue ? `#/issue/${key}` : '#/inbox'; note.close(); };
+  }
+}
+
 async function pollSnapshot() {
-  if (!useApp.getState().loaded || document.visibilityState !== 'visible') return;
+  const s = useApp.getState();
+  const background = document.visibilityState !== 'visible';
+  if (!s.loaded || (background && !s.snap?.workspace.preferences.push?.desktop)) return;
   try {
     const snap = await api.bootstrap();
+    pushDesktop(snap);
     const json = JSON.stringify(snap);
     if (json !== lastSnapJson) useApp.setState({ snap });
     lastSnapJson = json;

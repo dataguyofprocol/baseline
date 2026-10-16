@@ -84,10 +84,10 @@
       await t.nav('/inbox'); await t.click('.nav-section-add'); if (!(location.hash === '#/settings/new-team' && t.text().includes('Create a new team'))) t.fail(location.hash);
       await t.type(t.qa('.settings-content input')[0], 'Design Ops', 300); const ident = t.qa('.settings-content input')[1].value; return 'page opens; identifier derived: ' + ident;
     });
-    await t.run('1.7 G-chords I M A E B T C V P W X F S', async () => {
-      const want = { i: '/inbox', m: '/my-issues', a: '/all', e: '/active', b: '/backlog', t: '/triage', c: '/cycles', v: '/cycles/', p: '/projects', w: '/views', x: '/archive', f: '/search', s: '/settings' }; const bad = [];
+    await t.run('1.7 G-chords as Linear maps them: I M A(ctive) E(verything) B T C V W(upcoming) U(views) D(rafts) P X S', async () => {
+      const want = { i: '/inbox', m: '/my-issues', a: '/active', e: '/all', b: '/backlog', t: '/triage', c: '/cycles', v: '/cycles/', w: '/cycles/', u: '/views', d: '/drafts', p: '/projects', x: '/archive', s: '/settings' }; const bad = [];
       for (const [k, frag] of Object.entries(want)) { await t.nav('/team/CORE/all', 380); await t.press('g', {}, 120); await t.press(k, {}, 520); if (!location.hash.includes(frag)) bad.push(k + '→' + location.hash); }
-      if (bad.length) t.fail(bad.join(' ')); return '13 chords';
+      if (bad.length) t.fail(bad.join(' ')); return '14 chords';
     });
     await t.run('1.8 ⌘K palette is scoped to the open issue', async () => {
       await t.nav('/issue/CORE-1', 800); await t.press('k', { meta: true }, 500); const txt = t.q('.modal-palette')?.innerText ?? '';
@@ -95,7 +95,8 @@
     });
     await t.run('1.9 Search page (/) matches titles, IDs and comment text', async () => {
       await t.nav('/inbox', 400); await t.press('/', {}, 650); if (location.hash !== '#/search') t.fail('hash ' + location.hash);
-      const inp = t.qa('input').find(t.vis); await t.type(inp, 'light theme needs', 800); const c = t.rows(); await t.type(inp, 'CORE-3', 800); const k = t.rows(); await t.type(inp, 'Theme switching', 800); const ti = t.rows();
+      const hits = () => t.rows() + t.qa('[data-search-row="Issue"]').length;
+      const inp = t.qa('input').find(t.vis); await t.type(inp, 'light theme needs', 800); const c = hits(); await t.type(inp, 'CORE-3', 800); const k = hits(); await t.type(inp, 'Theme switching', 800); const ti = hits();
       if (!c || !k || !ti) t.fail(`comment ${c} key ${k} title ${ti}`); return `comment text ${c}, key ${k}, title ${ti}`;
     });
     await t.run('1.10 ⌘Z undoes a property change', async () => {
@@ -120,7 +121,7 @@
     await t.run('2.1 C opens the modal: team, title, rich description, properties, draft, create-more, ⌘↵', async () => {
       await t.nav('/team/CORE/all', 700); await t.press('c', {}, 650); const m = t.q('.cm-root'); if (!m) t.fail('no modal');
       await t.type(m.querySelector('input, textarea'), 'Harness: created from C', 300); const txt = m.innerText;
-      const miss = ['Core', 'Save draft', 'Create more', 'Create issue', 'Priority', 'Labels'].filter(x => !txt.includes(x)); if (miss.length) t.fail('missing ' + miss);
+      const miss = ['CORE', 'Save draft', 'Create more', 'Create issue', 'Priority', 'Labels'].filter(x => !txt.includes(x)); if (miss.length) t.fail('missing ' + miss);
       if (!m.querySelector('.ProseMirror')) t.fail('no rich description');
       await t.click(t.byText('Create more'), 200); t.key('Enter', { meta: true }); await sleep(1300);
       const s = await t.snap(); if (!s.issues.some(i => i.title === 'Harness: created from C')) t.fail('not created'); if (!t.q('.cm-root')) t.fail('create-more closed the modal');
@@ -163,8 +164,8 @@
     });
     await t.run('2.7 Cycle and Milestone pills in the create modal', async () => {
       const s = await t.snap(); const p = s.projects.find(x => s.milestones.some(m => m.projectId === x.id));
-      await t.nav('/projects/' + p.id, 800); await t.press('c', {}, 650); const pills = t.q('.cm-pills').innerText; if (!pills.includes('Milestone') || !pills.includes('Cycle')) t.fail(pills.replace(/\n/g, ' | '));
-      await t.click(t.qa('.cm-pills .prop-chip').find(b => b.innerText.includes('Cycle')), 400); const cm = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Cycle'), 400);
+      await t.nav('/projects/' + p.id, 800); await t.press('c', {}, 650); const pills = t.q('.cm-pills').innerText; if (!pills.includes('Milestone') || !t.q('.cm-pills [title="Cycle"]')) t.fail(pills.replace(/\n/g, ' | '));
+      await t.click(t.q('.cm-pills [title="Cycle"]'), 400); const cm = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Cycle'), 400);
       await t.type(t.q('.cm-root input, .cm-root textarea'), 'Harness: in a cycle', 200); t.key('Enter', { meta: true }); await sleep(1300);
       const made = (await t.snap()).issues.find(i => i.title === 'Harness: in a cycle'); if (!made?.cycleId) t.fail('cycle not set (⌘↵ after a pill menu)');
       return `pills shown; cycle menu: ${cm.replace(/\n/g, ' ').slice(0, 50)}; ⌘↵ after picking created it in a cycle`;
@@ -327,7 +328,9 @@
     await t.nav('/team/CORE/all', 900); await clear();
     await t.run('5.1 Filter menu lists every field', async () => {
       await t.nav('/team/CORE/all', 900); await t.press('f', {}, 500); const m = t.q('.menu:not(.closing)').innerText;
-      const miss = ['Status', 'Assignee', 'Creator', 'Priority', 'Estimate', 'Labels', 'Relations', 'Sub-issues', 'Due', 'Created', 'Updated', 'Project', 'Milestone', 'Cycle', 'Subscribers', 'Links', 'Content'].filter(x => !m.includes(x)); if (miss.length) t.fail('missing ' + miss); return '17 fields + Advanced filter';
+      const miss = ['Status', 'Assignee', 'Creator', 'Priority', 'Estimate', 'Labels', 'Relations', 'Sub-issues', 'Dates', 'Project', 'Milestone', 'Cycle', 'Subscribers', 'Links', 'Content'].filter(x => !m.includes(x));
+      await t.click(t.menuItem('Dates'), 400); const d = t.q('.menu:not(.closing)').innerText; await t.closeAll(); const dmiss = ['Due date', 'Created date', 'Updated date'].filter(x => !d.includes(x));
+      if (miss.length || dmiss.length) t.fail('missing ' + [...miss, ...dmiss]); return 'Linear’s groups; Dates › Due / Created / Updated; Advanced filter';
     });
     await t.run('5.2 Pills: field · operator · values · ×; is not; Clear; Save; hidden-by-filters footer', async () => {
       await t.nav('/team/CORE/all', 900); const n0 = t.rows(); await t.press('f', {}, 500); await t.click(t.menuItem('Priority'), 400); await t.click(t.menuItem('Urgent'), 400); await t.closeAll();
@@ -348,7 +351,7 @@
     });
     await t.run('5.5 Right-click menu', async () => {
       await t.nav('/team/CORE/all', 900); await t.ctx(t.q('[data-issue-row]')); const m = t.q('.menu:not(.closing)').innerText;
-      const miss = ['Status', 'Priority', 'Assignee', 'Labels', 'Create related', 'Mark as', 'Copy', 'Favorite', 'Remind', 'Delete', 'Convert to', 'subscribe'].filter(x => !new RegExp(x, 'i').test(m)); if (miss.length) t.fail('missing ' + miss); return m.split('\n').filter(x => x.length > 2).slice(0, 18).join(', ');
+      const miss = ['Status', 'Priority', 'Assignee', 'Labels', 'More properties', 'Create related', 'Mark as', 'Copy', 'Make a copy', 'Move', 'Open in', 'Favorite', 'Remind', 'Delete', 'Convert to'].filter(x => !new RegExp(x, 'i').test(m)); if (miss.length) t.fail('missing ' + miss); return m.split('\n').filter(x => x.length > 2).slice(0, 18).join(', ');
     });
     await t.run('5.6 Selection: X, ⇧-click, ⌘-click, ⌘A; bulk bar', async () => {
       await t.nav('/team/CORE/all', 900); await t.press('Escape', {}, 300); const r = () => t.qa('[data-issue-row]'); const n = () => t.qa('[data-issue-row].selected').length;
@@ -475,7 +478,7 @@
     });
     await t.run('7.3 Cycle automation settings: length, cooldown, upcoming, rollover', async () => {
       const core = (await t.snap()).teams.find(x => x.key === 'CORE'); await t.post(`/api/teams/${core.id}`, { autoCycles: true }, 'PATCH'); await t.sync();
-      await t.nav('/settings/team/CORE', 900); const txt = t.text(); const miss = ['Cycle length', 'Cooldown', 'Upcoming', 'Roll over'].filter(x => !new RegExp(x, 'i').test(txt));
+      await t.nav('/settings/team/CORE/cycles', 900); const txt = t.text(); const miss = ['Cycle duration', 'Cooldown', 'Upcoming', 'Roll over'].filter(x => !new RegExp(x, 'i').test(txt));
       await t.post(`/api/teams/${core.id}`, { autoCycles: false }, 'PATCH'); await t.sync(); if (miss.length) t.fail('missing ' + miss); return 'shown once automation is on';
     });
   });
@@ -515,11 +518,11 @@
   /* ================= 9. settings & workspace pages ================= */
   S('settings', async t => {
     await t.run('9.1 Settings nav mirrors Linear: Account · Issues · Projects · Features · Administration · Your teams', async () => {
-      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Documents', 'Customer requests', 'Pulse', 'Emojis', 'Administration', 'Members', 'Import & export'].filter(x => !nav.includes(x));
+      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Documents', 'Customer requests', 'Pulse', 'Emojis', 'Security & access', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
       if (miss.length) t.fail('missing ' + miss); return 'all sections';
     });
     await t.run('9.2 Account pages: Preferences, Profile, Notifications', async () => {
-      await t.nav('/settings/preferences', 700); const a = /home|week/i.test(t.text()); await t.nav('/settings/profile', 700); const b = /Name|Email/i.test(t.text()); await t.nav('/settings/notifications', 700); const c = /Mention|Assign/i.test(t.text());
+      await t.nav('/settings/preferences', 700); const a = /home|week/i.test(t.text()); await t.nav('/settings/profile', 700); const b = /Name|Email/i.test(t.text()); await t.nav('/settings/notifications', 700); const c = /Priority inbox/.test(t.text()) && /Desktop/.test(t.text());
       if (!a || !b || !c) t.fail(`${a} ${b} ${c}`); return 'all three render with their fields';
     });
     await t.run('9.3 Project statuses settings: add, rename, delete a custom status', async () => {
@@ -575,9 +578,25 @@
     await t.run('9.13 Per-team settings: triage, estimates, cycle automation, workflow, recurring', async () => {
       await t.nav('/settings/team/CORE', 900); const txt = t.text(); const miss = ['Triage', 'Estimate', 'Cycle', 'Workflow', 'Recurring'].filter(x => !new RegExp(x, 'i').test(txt)); if (miss.length) t.fail('missing ' + miss); return 'all sections';
     });
-    await t.run('9.14 Keyboard shortcuts reference (?) is searchable', async () => {
-      await t.nav('/inbox', 600); await t.press('?', {}, 600); const ov = t.q('.shortcuts-overlay, [class*=shortcut]'); const inp = ov?.querySelector('input'); if (!inp) t.fail('no overlay'); await t.type(inp, 'save as view', 400); const txt = ov.innerText;
-      if (!txt.includes('⌥V')) t.fail('search'); return 'search finds ⌥V Save as view';
+    await t.run('9.14 ? opens the help menu; ⌘/ opens the searchable shortcuts drawer', async () => {
+      await t.nav('/inbox', 600); await t.press('?', {}, 600); const help = t.q('.menu:not(.closing)')?.innerText ?? ''; await t.closeAll();
+      await t.press('/', { meta: true }, 600); const ov = t.q('.shortcuts-modal'); const inp = ov?.querySelector('input'); if (!inp) t.fail('no drawer'); await t.type(inp, 'save as view', 400); const txt = ov.innerText;
+      if (!help.includes('Keyboard shortcuts') || !txt.includes('Save as view') || txt.includes('Open command menu')) t.fail(`help ${help.slice(0, 30)} drawer ${txt.slice(0, 60)}`); return 'help menu; drawer search narrows to Save as view';
+    });
+    await t.run('9.15 Personal API keys: create a read-only key, call the API with it, revoke it', async () => {
+      await t.nav('/settings/security', 800); await t.click(t.byText('New API key'), 700); if (!location.hash.endsWith('/settings/security/new-api-key')) t.fail('form route ' + location.hash);
+      await t.type('#api-key-name', 'Harness key', 150); await t.click(t.qa('.radio-row').find(r => r.innerText.includes('Only select permissions')).querySelector('input'), 300);
+      await t.click(t.qa('.check-row').find(r => r.innerText.startsWith('Read')).querySelector('input'), 200); await t.click(t.byText('Create'), 900);
+      const token = t.q('[data-api-token]')?.textContent; if (!token?.startsWith('bl_api_')) t.fail('no token shown');
+      const h = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
+      const read = (await fetch('/api/bootstrap', { headers: h })).status; const write = (await fetch('/api/issues', { method: 'POST', headers: h, body: JSON.stringify({ teamId: (await t.snap()).teams[0].id, title: 'x' }) })).status;
+      const bad = (await fetch('/api/bootstrap', { headers: { Authorization: 'Bearer bl_api_nope' } })).status;
+      await t.click(t.byText('Done'), 700); const mine = () => t.qa('[data-api-key]').find(r => r.querySelector('input')?.value === 'Harness key'); const row = mine(); if (!row?.innerText.includes('Last used')) t.fail('row ' + row?.innerText);
+      await t.nav('/settings/api', 800); const issued = t.qa('[data-issued-keys] [data-api-key]').some(r => r.innerText.includes('Harness key'));
+      await t.nav('/settings/security', 700); const r2 = mine(); const rv = [...r2.querySelectorAll('button')].find(b => b.textContent === 'Revoke'); await t.click(rv, 300); await t.click([...r2.querySelectorAll('button')].find(b => /Revoke\?/.test(b.textContent)), 800);
+      const after = (await fetch('/api/bootstrap', { headers: h })).status;
+      if (read !== 200 || write !== 403 || bad !== 401 || !issued || after !== 401) t.fail(`read ${read} write ${write} bad ${bad} issued ${issued} after ${after}`);
+      return 'shown once; reads 200, writes 403, bad key 401; listed under Administration › API; revoked → 401';
     });
   });
 
@@ -648,6 +667,69 @@
     });
   });
 
+  /* ================= 12. second side-by-side pass ================= */
+  S('parity', async t => {
+    await t.run('12.1 Create modal: Linear chrome (team key chip, pill properties, no scrim), V opens it full screen', async () => {
+      await t.nav('/team/CORE/all', 600); await t.press('c', {}, 600); const head = t.q('.cm-header .cm-team')?.innerText.trim(); const scrim = getComputedStyle(t.q('.overlay')).backgroundColor; const pill = getComputedStyle(t.q('.cm-pills .prop-chip')).borderRadius; const assignee = t.qa('.cm-pills .prop-chip').map(b => b.innerText.trim()).find(x => /Assignee|Parth/.test(x));
+      await t.closeAll(); await t.press('v', {}, 600); const full = !!t.q('.modal-create.expanded'); await t.closeAll();
+      if (!head?.endsWith('CORE') || !/rgba\(0, 0, 0, 0\)|transparent/.test(scrim) || !pill.startsWith('9999') || assignee !== 'Assignee' || !full) t.fail(`head ${head} scrim ${scrim} pill ${pill} assignee ${assignee} full ${full}`);
+      return 'CORE chip; no scrim; pill chips; unassigned by default (Auto-assign off); V → full screen';
+    });
+    await t.run('12.2 ⌘K lists Linear’s groups; O then U / O then L open pickers; user and label pages', async () => {
+      await t.nav('/team/CORE/all', 500); await t.press('k', { meta: true }, 600); const heads = t.qa('.modal-palette .menu-header').map(h => h.innerText.trim()); await t.closeAll();
+      const miss = ['Issues', 'Projects', 'Documents', 'Views', 'Initiatives', 'Filter', 'Templates', 'Navigation', 'Miscellaneous', 'Help'].filter(x => !heads.includes(x));
+      await t.press('o', {}, 120); await t.press('u', {}, 600); const ph = t.q('.modal-palette input')?.placeholder; await t.press('Enter', {}, 900); const prof = location.hash.startsWith('#/profiles/') && t.text().includes('Assigned');
+      await t.nav('/team/CORE/all', 500); await t.press('o', {}, 120); await t.press('l', {}, 600); await t.press('Enter', {}, 900); const lab = location.hash.startsWith('#/labels/') && !!t.q('.topbar .crumb-menu');
+      if (miss.length || ph !== 'Open user…' || !prof || !lab) t.fail(`missing ${miss} ph ${ph} profile ${prof} label ${lab}`); return 'groups as Linear; O-pickers land on a profile and a label page';
+    });
+    await t.run('12.3 Filter menu folds dates into Dates; context menu matches Linear (More properties, Make a copy…, Move, Open in)', async () => {
+      await t.nav('/team/CORE/all', 600); await t.press('f', {}, 500); const fm = t.q('.menu:not(.closing)').innerText; const dates = fm.includes('Dates') && !fm.includes('Created date'); await t.closeAll();
+      await t.ctx(t.qa('[data-issue-row]')[2]); const cm = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Make a copy'), 700); const copy = !!t.q('.cm-title input')?.value; await t.closeAll();
+      const miss = ['More properties', 'Create related', 'Mark as', 'Copy', 'Convert to', 'Make a copy', 'Move', 'Open in', 'Favorite', 'Remind me', 'Delete'].filter(x => !cm.includes(x));
+      if (!dates || miss.length || !copy || cm.includes('Subscribe')) t.fail(`dates ${dates} missing ${miss} copy ${copy}`); return 'Dates submenu; Linear’s context menu; Make a copy prefills the create modal';
+    });
+    await t.run('12.4 Settings: Profile (picture, title, username), Notifications (priority + desktop), Preferences automations', async () => {
+      await t.nav('/settings/profile', 600); const pr = t.text(); await t.nav('/settings/notifications', 600); const no = t.text(); await t.nav('/settings/notifications/desktop', 600); const de = t.text(); await t.nav('/settings/preferences', 600); const pf = t.text();
+      const miss = [['Profile picture', pr], ['Title', pr], ['Username', pr], ['Priority inbox', no], ['Desktop', no], ['Reactions', de], ['Document changes', de], ['Auto-assign to self', pf], ['On move to started status', pf], ['Underline links', pf]].filter(([w, txt]) => !txt.includes(w)).map(([w]) => w);
+      if (miss.length) t.fail('missing ' + miss); return 'all present';
+    });
+    await t.run('12.5 Team settings hub links to General, Members, labels, templates, recurring, statuses, workflows, triage, cycles', async () => {
+      await t.nav('/settings/team/CORE', 700); const hub = t.text(); const pages = ['general', 'members', 'labels', 'templates', 'recurring', 'statuses', 'workflow', 'triage', 'cycles']; const bad = [];
+      for (const pg of pages) { await t.nav('/settings/team/CORE/' + pg, 450); if (t.text().length < 80) bad.push(pg); }
+      if (!hub.includes('Danger zone') || !hub.includes('Workflows & automations') || bad.length) t.fail('hub/pages ' + bad); return '9 subpages render';
+    });
+    await t.run('12.6 Workflows & automations: auto-close sub-issues when the parent closes', async () => {
+      const s = await t.snap(); const core = s.teams.find(x => x.key === 'CORE'); const done = s.states.find(x => x.teamId === core.id && x.type === 'completed');
+      await t.post(`/api/teams/${core.id}/workflow`, { closeSubIssues: true }, 'PUT');
+      const { issue: parent } = await t.post('/api/issues', { teamId: core.id, title: 'Harness parent' }); const { issue: kid } = await t.post('/api/issues', { teamId: core.id, title: 'Harness kid', parentId: parent.id });
+      await t.post(`/api/issues/${parent.id}`, { stateId: done.id }, 'PATCH'); const after = (await t.snap()).issues.find(i => i.id === kid.id);
+      await t.post(`/api/teams/${core.id}/workflow`, { closeSubIssues: false }, 'PUT');
+      if (after.stateId !== done.id) t.fail('sub-issue not closed'); return 'sub-issue moved to Done by the Automation agent';
+    });
+    await t.run('12.7 Search: one field, tabs for issues / projects / initiatives / documents', async () => {
+      await t.nav('/search', 600); await t.type(t.q('.search-top input'), 'agent', 600); const kinds = new Set(t.qa('[data-search-row]').map(r => r.dataset.searchRow)); const tabs = t.qa('.subnav .seg').map(b => b.innerText.replace(/\d+/g, '').trim());
+      await t.type(t.q('.search-top input'), '', 200);
+      if (!kinds.has('Issue') || !kinds.has('Project') || tabs.join() !== 'All,Issues,Projects,Initiatives,Documents') t.fail(`kinds ${[...kinds]} tabs ${tabs}`); return [...kinds].join(', ');
+    });
+    await t.run('12.8 Team archive has Issues / Cycles / Recently deleted issues; unknown pages say Not found', async () => {
+      await t.nav('/team/CORE/archive', 700); const tabs = t.qa('.subnav .seg').map(b => b.innerText.trim()).join(); await t.nav('/no-such-page', 500); const nf = t.text().includes('Not found');
+      if (tabs !== 'Issues,Cycles,Recently deleted issues' || !nf) t.fail(`tabs ${tabs} notfound ${nf}`); return 'tabs; Not found page';
+    });
+    await t.run('12.9 Project board cards and timeline header follow Linear', async () => {
+      await t.nav('/projects', 700);
+      await t.click(t.q('[title="Display options"]'), 400); await t.click(t.byText('Board'), 500); await t.closeAll(); const card = t.q('.pcard'); const props = !!card?.querySelector('.pcard-props') && /issue/.test(card?.innerText ?? '');
+      await t.click(t.q('[title="Display options"]'), 400); await t.click(t.byText('Timeline'), 600); await t.closeAll(); const today = t.q('.tl-today span')?.innerText ?? ''; const ctl = !!t.q('.tl-controls select');
+      await t.click(t.q('[title="Display options"]'), 400); await t.click(t.byText('List'), 500); await t.closeAll();
+      if (!props || !/^[A-Z]{3} \d+$/.test(today) || !ctl) t.fail(`card ${props} today ${today} controls ${ctl}`); return `cards with status/priority/lead + issue count; today pill ${today}`;
+    });
+    await t.run('12.10 Resting on a favorite project shows its preview card', async () => {
+      await t.nav('/inbox', 500); const link = t.qa('.sidebar a.nav-item').find(a => a.getAttribute('href')?.includes('/projects/') && a.innerText.includes('Agent Handoff')); if (!link) t.fail('no favorite');
+      link.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); await sleep(800);
+      const card = t.q('[data-hover-card]')?.innerText ?? ''; link.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); await sleep(200);
+      if (!card.includes('Agent Handoff') || !/% of \d+/.test(card)) t.fail('card ' + card.slice(0, 60)); return card.replace(/\n/g, ' · ').slice(0, 90);
+    });
+  });
+
   S('bell', async t => {
     await t.run('11.8 Team bell: toggles, and a teammate’s new issue notifies you', async () => {
       await t.nav('/team/CORE/all', 800); await t.click('[data-team-bell]', 500); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('An issue is added to the team'), 700); await t.closeAll();
@@ -665,7 +747,7 @@
       const s = await t.snap(); const p = s.projects[0].id; const d = s.docs[0].id; const c = s.customers[0].id; const cyc = s.cycles.find(x => x.teamId === s.teams[0].id).id;
       const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/pulse', '/customers', `/customers/${c}`, '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`), '/releases', ...s.releases.map(r => `/releases/${r.id}`), '/asks', ...s.askForms.map(f => `/asks/${f.id}`),
         '/team/CORE/all', '/team/CORE/active', '/team/CORE/backlog', '/team/CORE/overview', '/team/CORE/overview/documents', '/team/CORE/overview/members', '/team/CORE/cycles', `/team/CORE/cycles/${cyc}`, '/team/CORE/projects', '/team/CORE/views', '/team/CORE/views/projects', '/team/AGO/triage', '/team/CORE/archive', '/trash', '/search', `/docs/${d}`, '/issue/CORE-1',
-        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'customer-requests', 'pulse', 'emojis', 'slas', 'asks', 'loops', 'github', 'initiatives', 'releases', 'workspace', 'teams', 'members', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
+        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'customer-requests', 'pulse', 'emojis', 'slas', 'asks', 'loops', 'github', 'initiatives', 'releases', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
       const errs = []; const orig = console.error; console.error = (...a) => { errs.push(location.hash + ' ' + a.map(String).join(' ').slice(0, 120)); orig(...a); };
       for (const r of routes) { location.hash = '#' + r; await sleep(420); }
       console.error = orig; if (errs.length) t.fail(errs.slice(0, 4).join(' | ')); return routes.length + ' routes, no console errors';

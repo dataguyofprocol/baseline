@@ -500,6 +500,7 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
   });
   const displayMenu = useMenu();
   const [creating, setCreating] = useState(startWithCreate);
+  const [createStatus, setCreateStatus] = useState<ProjectStatus | undefined>(undefined);
   const closeCreate = () => { setCreating(false); if (startWithCreate) navigate('/projects', { replace: true }); };
   useListLayoutToggle({ layout: opts.layout === 'list' ? 'list' : 'board' } as ViewOptions, p => patch({ layout: p.layout === 'board' ? 'board' : 'list' }));
 
@@ -557,14 +558,14 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
             <div className="empty-actions"><button className="btn primary" onClick={() => setCreating(true)}>Create new project</button></div>
           </div>
         ) : opts.layout === 'board' ? (
-          <ProjectBoard groups={opts.groupBy === 'none' ? groupProjects(visible, 'status', snap) : groups} groupBy={opts.groupBy === 'none' ? 'status' : opts.groupBy} />
+          <ProjectBoard groups={opts.groupBy === 'none' ? groupProjects(visible, 'status', snap) : groups} groupBy={opts.groupBy === 'none' ? 'status' : opts.groupBy} onCreate={st => { setCreateStatus(st); setCreating(true); }} />
         ) : opts.layout === 'timeline' ? (
           <ProjectTimeline projects={visible} />
         ) : (
           <ProjectList groups={groups} display={opts.display} grouped={opts.groupBy !== 'none'} />
         )}
       </div>
-      <AnimatePresence>{creating && <NewProjectModal key="np" teamId={team?.id} onClose={closeCreate} />}</AnimatePresence>
+      <AnimatePresence>{creating && <NewProjectModal key="np" teamId={team?.id} initialStatus={createStatus} onClose={() => { setCreateStatus(undefined); closeCreate(); }} />}</AnimatePresence>
     </div>
   );
 }
@@ -707,7 +708,7 @@ function ProjectContextMenu(props: { project: Project; anchor: DOMRect; onClose:
 }
 
 /* ---------- board ---------- */
-function ProjectBoard(props: { groups: ProjGroup[]; groupBy: ProjOptions['groupBy'] }) {
+function ProjectBoard(props: { groups: ProjGroup[]; groupBy: ProjOptions['groupBy']; onCreate?: (status: ProjectStatus) => void }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const [dragId, setDragId] = useState<string | null>(null);
@@ -727,25 +728,28 @@ function ProjectBoard(props: { groups: ProjGroup[]; groupBy: ProjOptions['groupB
       {props.groups.map(g => (
         <div key={g.id} className={`board-col pcol${over === g.id ? ' drop-active' : ''}`}
           onDragOver={e => { e.preventDefault(); setOver(g.id); }} onDragLeave={() => setOver(o => o === g.id ? null : o)} onDrop={() => void drop(g.id)}>
-          <div className="board-col-header">{g.icon}<span className="bch-label">{g.label}</span><span className="count">{g.projects.length}</span></div>
+          <div className="board-col-header">{g.icon}<span className="bch-label">{g.label}</span><span className="count">{g.projects.length}</span>
+            <span style={{ flex: 1 }} />
+            {props.groupBy === 'status' && props.onCreate && <button className="icon-btn bch-add" title={`New project in ${g.label}`} onClick={() => props.onCreate!(g.id as ProjectStatus)}><IconPlus size={13} /></button>}
+          </div>
           <div className="board-col-body">
             {g.projects.map(p => {
               const prog = projectProgress(snap, p.id);
               const lead = snap.users.find(u => u.id === p.leadId);
               return (
                 <div key={p.id} className="board-card pcard" draggable onDragStart={() => setDragId(p.id)} onDragEnd={() => setDragId(null)} onClick={() => navigate(`/projects/${p.id}`)}>
-                  <div className="bc-head"><span className="proj-icon">{p.icon}</span><span className="bc-title">{p.name}</span>{lead && <Avatar user={lead} size={18} />}</div>
-                  {p.summary && <div className="pcard-summary">{p.summary}</div>}
-                  <div className="bc-chips">
-                    <span className="bc-chip"><ProgressRing pct={prog.pct} size={12} />{prog.pct}%</span>
-                    {p.priority > 0 && <span className="bc-chip icon"><PriorityIcon priority={p.priority} size={12} /></span>}
+                  {/* Linear's card: name, then status · priority · lead on the right; description; issue count */}
+                  <div className="bc-head"><span className="proj-icon">{p.icon}</span><span className="bc-title">{p.name}</span>
+                    <span className="pcard-props"><ProjectStatusIcon status={p.status} size={13} color={namedStatus(p, snap).color} /><PriorityIcon priority={p.priority} size={13} />{lead ? <Avatar user={lead} size={16} /> : <Avatar user={null} size={16} />}</span></div>
+                  {(p.summary || p.description) && <div className="pcard-summary">{p.summary || p.description.replace(/[#*_`>]/g, '').slice(0, 160)}</div>}
+                  <div className="bc-chips pcard-foot">
+                    <span className="pcard-count">{prog.total} issue{prog.total === 1 ? '' : 's'}</span>
                     {p.targetDate && <span className="bc-chip"><IconCalendar size={12} />{shortDate(p.targetDate.slice(0, 10) + 'T12:00')}</span>}
                     {snap.projectUpdates.some(u => u.projectId === p.id) && <span className="bc-chip"><span className="health-dot" style={{ background: healthColor(p.health) }} />{healthLabel(p.health)}</span>}
                   </div>
                 </div>
               );
             })}
-            {g.projects.length === 0 && <div className="lane-empty"><span>No projects</span></div>}
           </div>
         </div>
       ))}
@@ -761,12 +765,14 @@ function ProjectTimeline(props: { projects: Project[] }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const DAY = 86400000;
-  const [zoom, setZoom] = useState<'week' | 'month' | 'quarter'>('month');
-  const pxPerDay = zoom === 'week' ? 28 : zoom === 'month' ? 8 : 3;
+  const [zoom, setZoom] = useState<'week' | 'month' | 'quarter' | 'year'>(() => (localStorage.getItem('baseline:tlZoom') as 'month') || 'month');
+  useEffect(() => { try { localStorage.setItem('baseline:tlZoom', zoom); } catch { /* ignore */ } }, [zoom]);
+  const pxPerDay = zoom === 'week' ? 28 : zoom === 'month' ? 8 : zoom === 'quarter' ? 3 : 1.4;
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const dates = props.projects.flatMap(p => [p.startDate, p.targetDate].filter(Boolean) as string[]).map(d => new Date(d.slice(0, 10) + 'T00:00').getTime());
-  const min = Math.min(today.getTime() - 30 * DAY, ...dates);
-  const max = Math.max(today.getTime() + 120 * DAY, ...dates.map(d => d + 30 * DAY));
+  const span = zoom === 'year' ? 240 : zoom === 'quarter' ? 120 : 60;
+  const min = Math.min(today.getTime() - span * DAY, ...dates);
+  const max = Math.max(today.getTime() + span * 2 * DAY, ...dates.map(d => d + 30 * DAY));
   const start = new Date(min); start.setDate(1);
   const startMs = start.getTime();
   const totalDays = Math.ceil((max - startMs) / DAY);
@@ -775,8 +781,13 @@ function ProjectTimeline(props: { projects: Project[] }) {
   const months: Array<{ label: string; left: number; width: number }> = [];
   for (let d = new Date(start); d.getTime() < max; d.setMonth(d.getMonth() + 1)) {
     const next = new Date(d); next.setMonth(next.getMonth() + 1);
-    months.push({ label: d.toLocaleDateString('en-US', { month: 'short', year: d.getMonth() === 0 ? 'numeric' : undefined }), left: x(d.getTime()), width: x(next.getTime()) - x(d.getTime()) });
+    months.push({ label: d.toLocaleDateString('en-US', { month: 'short', year: d.getMonth() === 0 ? 'numeric' : undefined }).toUpperCase(), left: x(d.getTime()), width: x(next.getTime()) - x(d.getTime()) });
   }
+  // the day numbers under the months: every day zoomed in, Mondays by month, every other Monday further out
+  const ticks: Array<{ label: string; left: number }> = [];
+  const step = zoom === 'week' ? 1 : zoom === 'month' ? 7 : 14;
+  const firstMonday = new Date(start); while (step > 1 && firstMonday.getDay() !== 1) firstMonday.setDate(firstMonday.getDate() + 1);
+  for (let d = new Date(firstMonday); d.getTime() < max; d.setDate(d.getDate() + step)) ticks.push({ label: String(d.getDate()), left: x(d.getTime()) });
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => { if (scroller.current) scroller.current.scrollLeft = Math.max(0, x(today.getTime()) - 200); }, [zoom]); // eslint-disable-line react-hooks/exhaustive-deps
   const [drag, setDrag] = useState<{ id: string; mode: 'move' | 'start' | 'end'; originX: number; s: number; e: number; dx: number } | null>(null);
@@ -801,23 +812,29 @@ function ProjectTimeline(props: { projects: Project[] }) {
   return (
     <div className="timeline">
       <div className="tl-left">
-        <div className="tl-left-head">
-          <span>Projects</span>
-          <span className="seg-pair">
-            {(['week', 'month', 'quarter'] as const).map(z => <button key={z} className={`seg${zoom === z ? ' selected' : ''}`} onClick={() => setZoom(z)}>{z[0].toUpperCase() + z.slice(1)}</button>)}
-          </span>
-        </div>
-        {props.projects.map(p => (
-          <div key={p.id} className="tl-name" onClick={() => navigate(`/projects/${p.id}`)}>
-            <ProjectStatusIcon status={p.status} /><span className="proj-icon">{p.icon}</span><span className="tl-title">{p.name}</span>
-          </div>
-        ))}
+        <div className="tl-left-head" />
+        {props.projects.map(p => {
+          const lead = snap.users.find(u => u.id === p.leadId);
+          return (
+            <div key={p.id} className="tl-name" onClick={() => navigate(`/projects/${p.id}`)}>
+              <span className="proj-icon">{p.icon}</span><span className="tl-title">{p.name}</span>
+              <span className="tl-props"><ProjectStatusIcon status={p.status} size={13} color={namedStatus(p, snap).color} /><PriorityIcon priority={p.priority} size={13} />{lead ? <Avatar user={lead} size={16} /> : <Avatar user={null} size={16} />}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="tl-controls">
+        <button className="btn secondary sm" title="Center the timeline on today’s date" onClick={() => { if (scroller.current) scroller.current.scrollTo({ left: Math.max(0, x(today.getTime()) - scroller.current.clientWidth / 2), behavior: 'smooth' }); }}>Today</button>
+        <select className="text-input tl-zoom" aria-label="Timeline zoom" value={zoom} onChange={e => setZoom(e.target.value as typeof zoom)}>
+          <option value="week">Week</option><option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option>
+        </select>
       </div>
       <div className="tl-scroll" ref={scroller}>
         <div className="tl-canvas" style={{ width: totalDays * pxPerDay }}>
           <div className="tl-months">{months.map((m, i) => <div key={i} className="tl-month" style={{ left: m.left, width: m.width }}>{m.label}</div>)}</div>
+          <div className="tl-ticks">{ticks.map((t, i) => <span key={i} style={{ left: t.left }}>{t.label}</span>)}</div>
           {months.map((m, i) => <div key={i} className="tl-gridline" style={{ left: m.left }} />)}
-          <div className="tl-today" style={{ left: x(today.getTime()) }}><span>Today</span></div>
+          <div className="tl-today" style={{ left: x(today.getTime()) }}><span>{today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}</span></div>
           {props.projects.map((p, row) => {
             const has = !!(p.startDate || p.targetDate);
             const s0 = p.startDate ? new Date(p.startDate.slice(0, 10) + 'T00:00').getTime() : p.targetDate ? new Date(p.targetDate.slice(0, 10) + 'T00:00').getTime() - 14 * DAY : today.getTime();
@@ -870,14 +887,14 @@ function ProjectTimeline(props: { projects: Project[] }) {
 }
 
 /* ================= new project ================= */
-export function NewProjectModal({ onClose, teamId }: { onClose: () => void; teamId?: string }) {
+export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: () => void; teamId?: string; initialStatus?: ProjectStatus }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
   const [icon, setIcon] = useState('🧊');
-  const [status, setStatus] = useState<ProjectStatus>('planned');
+  const [status, setStatus] = useState<ProjectStatus>(initialStatus ?? 'planned');
   const [statusId, setStatusId] = useState<string | null>(null);
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [priority, setPriority] = useState<Priority>(0);

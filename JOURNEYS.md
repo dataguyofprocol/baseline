@@ -17,9 +17,9 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | "+" beside Your teams → Create a new team | ✅ | 1.6 | identifier derived from the name |
 | Customize sidebar: badge style; Always show / Show when badged / Don't show; hidden items in More | ✅ | 9.11 | More › Customize sidebar |
 | Teams and Members directory pages | ✅ | 9.10 | |
-| G-chords | ✅ | 1.7 | G then I · M · A · E · B · T · C · V · P · W · X · F · S |
+| G-chords, mapped as Linear does | ✅ | 1.7 | G then I · M · A (active) · E (all) · B · T · C · V (current) · W (upcoming) · U (views) · D (drafts) · N · P · X · S; N then P / I / D creates; O then I · P · F · C · L · U · V · D · S opens a picker |
 | ⌘K palette scoped to the open / peeked / hovered issue | ✅ | 1.8 | |
-| Search page (`/`): titles, IDs and comment text | ✅ | 1.9 | |
+| Search page (`/`): one field, tabs for All · Issues · Projects · Initiatives · Documents; titles, IDs, descriptions, comments; archived issues included | ✅ | 1.9, 12.7 | |
 | ⌘Z undo | ✅ | 1.10 | every property change, archive, delete, team move |
 | `[` toggles the sidebar, ⌘B flips list ↔ board | ✅ | 1.11 | |
 | Issue shortcuts only act on the page you're on | ✅ | 1.12 | a list left behind can't be edited from a project page |
@@ -125,6 +125,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Administration pages | ✅ | 9.12 | |
 | Per-team settings | ✅ | 9.13 | |
 | Keyboard shortcuts reference, searchable | ✅ | 9.14 | |
+| Personal API keys (Security & access): name, Full access or Read / Write / Create issues / Create comments / Admin, all or some teams; shown once; last used; revoke. Administration › API: who may create keys, every issued key | ✅ | 9.15 | keys are sha256-hashed; a key acts as its owner; `Authorization: Bearer <key>` or the bare key, as Linear accepts; `baseline api-key` on the CLI; can be required for other devices when `BASELINE_HOST` opens Baseline to the network |
 | Every route renders without console errors | ✅ | 10.1 | |
 
 ## 10. Plan and automate at scale
@@ -137,6 +138,23 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Loops: issue created / label added / status changed / schedule → comment, assign, label, move, file an issue, Claude Code | ✅ | 11.6 | actions run as the Automation agent |
 | GitHub: Linear's linking rules and magic words, per-team PR automations with branch rules, In Review, PR + commit rows, PR filter, branch format | ✅ | 11.7 | also run for real: `gh` pulled 50 PRs from `cli/cli` (all four states) and `git log` 225 commits |
 | Team bell: notify on issues added, closed, or sent to triage | ✅ | 11.8 | |
+
+## 11. Second side-by-side pass
+| Journey | Status | Check | How it works |
+|---|---|---|---|
+| Create modal: team-key chip, pill properties, no dimming, unassigned unless Auto-assign is on, V for full screen | ✅ | 12.1 | |
+| ⌘K: Linear's groups and wording (Issues · Projects · Documents · Views · Initiatives · Team · Filter · Templates · Favorite · Navigation · Miscellaneous · Export · Settings · Teams · Help); O-pickers; user (profile) and label pages | ✅ | 12.2 | Export issues as CSV downloads the list on screen |
+| Filter menu groups dates under Dates; menus open below their button; right-click menus open at the pointer | ✅ | 12.3 | |
+| Issue context menu: More properties (milestone, add link, rename), Create related, Mark as, Copy (+ title as link, everything as Markdown), Convert to, Make a copy…, Move, Open in (Claude Code, Configure coding tools), Favorite, Remind me, Delete | ✅ | 12.3 | |
+| Display options: pill chips, ordering direction | ✅ | — | checked by eye side by side |
+| Preferences: Underline links, Auto-assign to self, On move to started status assign to yourself | ✅ | 12.4 | assign-on-start checked on a scratch database |
+| Profile: picture upload, Title, Username (used by `{username}` in branch names) | ✅ | 12.4 | |
+| Notifications: Priority inbox + Priority notifications, Desktop push by category (browser notifications, also from a background tab) | ✅ | 12.4 | reaction and document-change notifications added so every category has a source |
+| Team settings: hub with General (name, identifier, description, estimates incl. zero / extended / count unestimated), Members, Issue labels, Templates, Recurring issues, Issue statuses, Workflows & automations, Triage, Cycles, Danger zone | ✅ | 12.5 | |
+| Workflows & automations: auto-close parent / sub-issues, auto-close stale issues, auto-archive closed issues, re-order on status change | ✅ | 12.6 | stale + archive sweeps checked on a scratch database |
+| `?` help menu, ⌘/ keyboard-shortcuts drawer with Linear's groups | ✅ | 9.14 | |
+| Team archive: Issues · Cycles · Recently deleted issues; Not found page | ✅ | 12.8 | |
+| Project board cards (status · priority · lead, issue count, + per column) and timeline (caps months, day ticks, today pill, Today / zoom incl. Year) | ✅ | 12.9 | |
 
 ## Side-by-side with Linear
 Each main page was screenshotted in the live Linear workspace and in Baseline at the same
@@ -152,17 +170,28 @@ window size, and every difference that showed was fixed:
 | Sidebar | underline on the current page | filled row |
 | Settings | no search, no icons, "Account", bare rows and native selects; four preferences missing | search, icons, "Personal", carded rows with button-style menus; display names, emoticons, send comments on, font size, pointer cursors, app sidebar |
 | Triage | team crumb and a tab row | "Triage ☆" with filter / display; "Nothing to triage" + Create triage issue |
+| Create modal | heavy blurred backdrop, team name chip, filled square chips, assignee preset, grey disabled button with ⌘↵ | no backdrop, `CORE` chip, outlined pills, cycle as an icon chip, unassigned by default, purple-style pill button |
+| ⌘K palette | recent issues first, search icon, footer bar, 32px rows, Linear's commands missing | Linear's command list and grouping, multi-key hints (`N then P`), 46px rows, no footer; issues and projects appear as you type |
+| Filter / display / context menus | filter menu jumped above the button; dates as three items; bordered property chips; context menu at the row's edge with Milestone, Subscribe and Move to team at top level | below the button; Dates submenu; pill chips + ordering arrow; at the pointer, Linear's items and order |
+| Preferences, Profile, Notifications | three automation prefs, picture / title / username, the Inbox + Desktop structure were missing; four inbox-type toggles Linear doesn't have | added; inbox gets everything, as Linear says; push categories decide what reaches the desktop |
+| Team settings | one long page | hub + subpages, as Linear |
+| Search, shortcuts, archive, drafts, members, teams | issue-only search under a "Search" crumb; centered shortcuts modal on `?`; archive without tabs; serif empty-state titles; pills for Joined / teams | query in the header with tabs; `?` help menu + ⌘/ drawer; archive tabs; plain empty-state titles; plain Joined, team icons, cycle / project counts |
+| Project board and timeline | progress chip, "No projects" placeholders; red Today line, segmented zoom on the left | Linear's card props + issue count, + per column; brand Today pill, Today button and zoom select on the right |
+| Initiatives | no filter or display options | filter by health / owner; ordering; nest sub-initiatives |
+| Releases | — | Linear's workspace has no Releases page (it returns Not found), so there was nothing to compare against |
+| Security & access, Create API key, Administration › API | page was missing | same sections, form, permission list and team limits; Linear's Passkeys, Commit signing key and Authorized applications sections are left out (no sign-in, no OAuth apps) |
 
 ## Not built
-- **Hosted integrations** (Slack, connected accounts, SSO, billing, API keys): they need accounts and a public server. The GitHub integration reads GitHub through your own `gh` login instead; a hosted GitHub App can feed the same ingest functions (planned in TEAM_PLAN.md on `team/identity-sessions`).
+Asked about on 2026-10-16; you chose API keys and left these out:
+- **Slack notifications**, **connected accounts**, **SSO / passkeys / security policies**, **billing and usage**, **OAuth applications and webhooks**: they need accounts or a public server. The GitHub integration reads GitHub through your own `gh` login instead; a hosted GitHub App can feed the same ingest functions (planned in TEAM_PLAN.md on `team/identity-sessions`).
 - **AI (Agent, AI & agents)**: Baseline hands work to Claude Code instead (Open in Claude Code, Loops).
 
 ## Last full run
-**98 of 98 checks passed** on 2026-10-16 in one run from a fresh sample workspace (7 min,
-78 routes visited with no console errors), plus check 11.8 (team bell), run on its own right after.
-Every check also passed in earlier runs, except 4.6 and 4.17: they failed once, in a run where
-the app hot-reloaded mid-check because a source file changed. Both passed when re-run by hand
-and in the clean run above. The CLI suite (174 checks), typecheck and production build pass.
+**110 of 110 checks passed** on 2026-10-16 in one run from a freshly seeded sample workspace
+(6.9 min, 81 routes visited with no console errors), including the second side-by-side pass
+(section 11, checks 12.1–12.10). Check 4.6 (comment threads) has failed intermittently before
+and did once in an earlier run today; it passed on its own straight after and in the clean
+run above. The CLI suite (179 checks), typecheck and production build pass.
 
 The harness is `scripts/journey-harness.js`. To re-run it: reseed the dev sandbox
 (`npm run seed`), open the dev app, load the script in the browser console (paste it, or

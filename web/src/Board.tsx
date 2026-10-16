@@ -14,7 +14,7 @@ import { IconPlus, IconMore, IconCopy, IconFocus, IconCycle, IconEstimate, IconC
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { groupsFor, issuesOfGroup, orderIssues, subIssueProgress, SubIssueProgress, IssueContextMenu, estimateLabel, DEFAULT_DISPLAY, type DisplayProps } from './IssueViews.js';
 import { useLanding } from './motion.js';
-import type { Issue, GroupBy } from '../../src/core/types.js';
+import { pointsOf, type Issue, type GroupBy } from '../../src/core/types.js';
 
 /* card internals — shared by the sortable card and the drag overlay. Linear's layout:
    the key (and parent, for a sub-issue) with the avatar, then status + title, then a row
@@ -143,6 +143,7 @@ export function Board(props: {
   subgroupBy?: GroupBy | 'none';
   /** 'manual' keeps drag order; any other ordering sorts cards inside columns */
   orderBy?: string;
+  orderReversed?: boolean;
   display?: Partial<DisplayProps>;
   showEmpty?: boolean;
   createDefaults?: { projectId?: string | null; cycleId?: string | null };
@@ -194,12 +195,12 @@ export function Board(props: {
       const lane = subgroupBy === 'none' ? lanes[0] : lanes.find(l => issuesOfGroup(subgroupBy, [i], l.id).length > 0);
       if (col && lane) m.get(lane.id)!.get(col.id)!.push(i);
     }
-    for (const row of m.values()) for (const [id, arr] of row) row.set(id, props.orderBy && props.orderBy !== 'manual' ? orderIssues(arr, props.orderBy) : arr.sort((a, b) => a.sortOrder - b.sortOrder));
+    for (const row of m.values()) for (const [id, arr] of row) row.set(id, props.orderBy && props.orderBy !== 'manual' ? orderIssues(arr, props.orderBy, false, props.orderReversed) : arr.sort((a, b) => a.sortOrder - b.sortOrder));
     return m;
   }, [props.issues, props.orderBy, columns, lanes, groupBy, subgroupBy]);
 
   const colTotal = (colId: string) => [...cells.values()].reduce((a, row) => a + (row.get(colId)?.length ?? 0), 0);
-  const colPoints = (colId: string) => [...cells.values()].reduce((a, row) => a + (row.get(colId) ?? []).reduce((x, i) => x + (i.estimate ?? 0), 0), 0);
+  const colPoints = (colId: string) => [...cells.values()].reduce((a, row) => a + (row.get(colId) ?? []).reduce((x, i) => x + pointsOf(i, snap.teams), 0), 0);
 
   // keyboard order: lane by lane, column by column
   const flat = useMemo(() => {

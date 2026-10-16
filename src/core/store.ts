@@ -14,7 +14,7 @@ import type {
 import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES } from './types.js';
 import { createExtensions, type Extensions } from './extensions.js';
 
-interface TeamRow { id: string; key: string; name: string; icon: string; color: string; description: string; position: number; triage_enabled: number; auto_cycles: number; cycle_duration: number; cycle_cooldown: number; cycle_upcoming: number; cycle_rollover: number; estimate_scale: string }
+interface TeamRow { id: string; key: string; name: string; icon: string; color: string; description: string; position: number; triage_enabled: number; auto_cycles: number; cycle_duration: number; cycle_cooldown: number; cycle_upcoming: number; cycle_rollover: number; estimate_scale: string; estimate_zero?: number; estimate_extended?: number; estimate_count_unestimated?: number }
 interface CommentRow { id: string; issue_id: string; user_id: string; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null; parent_id: string | null }
 interface AttachmentRow { id: string; issue_id: string; user_id: string; kind: string; url: string; title: string; mime: string; size: number; created_at: string }
 const DAY = 86400000;
@@ -64,6 +64,7 @@ export class Store {
     triageEnabled: !!t.triage_enabled, autoCycles: !!t.auto_cycles, cycleDuration: t.cycle_duration ?? 2,
     cycleCooldown: t.cycle_cooldown ?? 0, cycleUpcoming: t.cycle_upcoming ?? 2, cycleRollover: t.cycle_rollover !== 0,
     estimateScale: (t.estimate_scale as EstimateScale) ?? 'fibonacci',
+    estimateZero: !!t.estimate_zero, estimateExtended: !!t.estimate_extended, estimateCountUnestimated: !!t.estimate_count_unestimated,
   });
   private mapComment = (c: CommentRow): Comment => ({
     id: c.id, issueId: c.issue_id, userId: c.user_id, body: c.body, createdAt: c.created_at, editedAt: c.edited_at,
@@ -91,7 +92,7 @@ export class Store {
   snapshot(): Snapshot {
     const rows = <T>(sql: string): T[] => this.db.prepare(sql).all() as unknown as T[];
     const projectLocs = this.projectLocationMap();
-    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human' }));
+    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string; title: string | null; username: string | null; avatar_url: string | null }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human', title: u.title ?? '', username: u.username ?? '', avatarUrl: u.avatar_url ?? null }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
     const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig(), preferences: this.getPreferences(), features: this.getFeatures() };
     const currentUser = users.find(u => u.id === (getMeta(this.db, 'currentUser') ?? '')) ?? users[0];
@@ -162,13 +163,14 @@ export class Store {
     const row = this.db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as TeamRow | undefined;
     return row ? this.mapTeam(row) : undefined;
   }
-  updateTeam(teamId: string, patch: Partial<Pick<Team, 'key' | 'name' | 'icon' | 'color' | 'description' | 'position' | 'triageEnabled' | 'autoCycles' | 'cycleDuration' | 'cycleCooldown' | 'cycleUpcoming' | 'cycleRollover' | 'estimateScale'>>): void {
+  updateTeam(teamId: string, patch: Partial<Pick<Team, 'key' | 'name' | 'icon' | 'color' | 'description' | 'position' | 'triageEnabled' | 'autoCycles' | 'cycleDuration' | 'cycleCooldown' | 'cycleUpcoming' | 'cycleRollover' | 'estimateScale' | 'estimateZero' | 'estimateExtended' | 'estimateCountUnestimated'>>): void {
     const col: Record<string, string> = {
       triageEnabled: 'triage_enabled', autoCycles: 'auto_cycles', cycleDuration: 'cycle_duration', cycleCooldown: 'cycle_cooldown',
       cycleUpcoming: 'cycle_upcoming', cycleRollover: 'cycle_rollover', estimateScale: 'estimate_scale',
+      estimateZero: 'estimate_zero', estimateExtended: 'estimate_extended', estimateCountUnestimated: 'estimate_count_unestimated',
     };
     const sets: string[] = []; const vals: (string | number)[] = [];
-    for (const [k, v] of sqlPairs(patch, ['key', 'name', 'icon', 'color', 'description', 'position', 'triageEnabled', 'autoCycles', 'cycleDuration', 'cycleCooldown', 'cycleUpcoming', 'cycleRollover', 'estimateScale'])) {
+    for (const [k, v] of sqlPairs(patch, ['key', 'name', 'icon', 'color', 'description', 'position', 'triageEnabled', 'autoCycles', 'cycleDuration', 'cycleCooldown', 'cycleUpcoming', 'cycleRollover', 'estimateScale', 'estimateZero', 'estimateExtended', 'estimateCountUnestimated'])) {
       sets.push(`${col[k] ?? k} = ?`);
       vals.push(typeof v === 'boolean' ? (v ? 1 : 0) : k === 'key' ? String(v).toUpperCase() : v as string | number);
     }
@@ -189,13 +191,14 @@ export class Store {
   }
 
   // ---------- users ----------
-  updateUser(userId: string, patch: Partial<Pick<User, 'name' | 'email' | 'color' | 'admin'>>): void {
+  updateUser(userId: string, patch: Partial<Pick<User, 'name' | 'email' | 'color' | 'admin' | 'title' | 'username' | 'avatarUrl'>>): void {
     const cur = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as { name: string; email: string } | undefined;
     if (!cur) return;
     const name = patch.name ?? cur.name;
     const initials = patch.name ? name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() : undefined;
-    const sets: string[] = []; const vals: (string | number)[] = [];
-    for (const [k, v] of sqlPairs(patch, ['name', 'email', 'color', 'admin'])) { sets.push(`${k} = ?`); vals.push(k === 'admin' ? (v ? 1 : 0) : v as string | number); }
+    const sets: string[] = []; const vals: (string | number | null)[] = [];
+    for (const [k, v] of sqlPairs(patch, ['name', 'email', 'color', 'admin', 'title', 'username'])) { sets.push(`${k} = ?`); vals.push(k === 'admin' ? (v ? 1 : 0) : k === 'username' ? String(v).trim().split(/\s+/)[0] ?? '' : v as string | number); }
+    if ('avatarUrl' in patch) { sets.push('avatar_url = ?'); vals.push(patch.avatarUrl ?? null); }
     if (initials) { sets.push('initials = ?'); vals.push(initials); }
     if (!sets.length) return;
     vals.push(userId);
@@ -270,7 +273,7 @@ export class Store {
     if (!issue) return undefined;
     const snap = this.snapshot();
     const template = getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
-    return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels, branchFormat: snap.workspace.features.branchFormat, username: snap.currentUser?.name }, template);
+    return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels, branchFormat: snap.workspace.features.branchFormat, username: snap.currentUser?.username || snap.currentUser?.name }, template);
   }
   getHandoffTemplate(): string {
     return getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
@@ -435,6 +438,11 @@ export class Store {
       const st = this.db.prepare('SELECT type FROM states WHERE id = ?').get(patch.stateId) as { type: WorkflowStateType };
       next.completedAt = st.type === 'completed' ? now : null;
       next.canceledAt = st.type === 'canceled' ? now : null;
+      // Preferences › On move to started status, assign to yourself
+      const me = getMeta(this.db, 'currentUser');
+      if (st.type === 'started' && !next.assigneeId && patch.assigneeId === undefined && me && (actorId ?? me) === me && this.getPreferences().assignOnStart) {
+        next.assigneeId = me; patch.assigneeId = me;
+      }
     }
     this.db.prepare(`UPDATE issues SET title=?, description=?, state_id=?, priority=?, assignee_id=?, project_id=?, cycle_id=?, parent_id=?, location_id=?, milestone_id=?, estimate=?, due_date=?, sort_order=?, labels=?, updated_at=?, completed_at=?, canceled_at=?, archived_at=? WHERE id=?`)
       .run(next.title, next.description, next.stateId, next.priority, next.assigneeId, next.projectId, next.cycleId, next.parentId, next.locationId, next.milestoneId, next.estimate, next.dueDate, next.sortOrder, JSON.stringify(next.labelIds), now, next.completedAt, next.canceledAt, next.archivedAt, issueId);
@@ -610,7 +618,7 @@ export class Store {
       // a mention outranks a reply, which outranks the plain comment notification — never raise two
       const threadAuthors = threadId ? (this.db.prepare('SELECT DISTINCT user_id FROM comments WHERE id = ? OR parent_id = ?').all(threadId, threadId) as Array<{ user_id: string }>).map(r => r.user_id) : [];
       if (mentioned.includes(me)) this.notifyMention(issueId, me, userId, body);
-      else if (threadAuthors.includes(me)) { if (this.getPreferences().notify.comments) this.notify('issueReplied', { actorId: userId, issueId, body: body.slice(0, 140), createdAt: now }); }
+      else if (threadAuthors.includes(me)) { this.notify('issueReplied', { actorId: userId, issueId, body: body.slice(0, 140), createdAt: now }); }
       else this.notifySubscribed(issueId, 'issueCommented', userId, body.slice(0, 140), 'comments');
     }
     return c;
@@ -662,6 +670,10 @@ export class Store {
     r[emoji] = arr.includes(userId) ? arr.filter(u => u !== userId) : [...arr, userId];
     if (r[emoji].length === 0) delete r[emoji];
     this.db.prepare('UPDATE comments SET reactions = ? WHERE id = ?').run(JSON.stringify(r), commentId);
+    // someone else reacting to your comment reaches your inbox (Notifications › Reactions)
+    const c = this.db.prepare('SELECT issue_id, user_id, body FROM comments WHERE id = ?').get(commentId) as { issue_id: string; user_id: string; body: string };
+    const me = getMeta(this.db, 'currentUser');
+    if (!arr.includes(userId) && me && c.user_id === me && userId !== me) this.notify('commentReacted', { actorId: userId, issueId: c.issue_id, body: `${emoji} ${c.body.slice(0, 120)}` });
   }
 
   // ---------- relations ----------
@@ -737,10 +749,18 @@ export class Store {
     if (d.projectId) this.logActivity({ projectId: d.projectId, type: 'projectUpdated', data: { fields: ['document'] } }, actorId);
     return d;
   }
-  updateDoc(docId: string, patch: Partial<Pick<Doc, 'title' | 'content' | 'icon'>>): void {
+  updateDoc(docId: string, patch: Partial<Pick<Doc, 'title' | 'content' | 'icon'>>, actorId?: string): void {
     const pairs = sqlPairs(patch, ['title', 'content', 'icon']);
     if (!pairs.length) return;
     this.db.prepare(`UPDATE documents SET ${pairs.map(([k]) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...(pairs.map(([, v]) => v) as string[]), ts(), docId);
+    // someone else (an agent, a teammate) changing a document you wrote reaches your inbox
+    const d = this.db.prepare('SELECT title, creator_id, project_id FROM documents WHERE id = ?').get(docId) as { title: string; creator_id: string | null; project_id: string | null } | undefined;
+    const me = getMeta(this.db, 'currentUser');
+    if (d && me && actorId && actorId !== me && d.creator_id === me) {
+      // one notification per document per hour, not one per keystroke
+      const recent = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'docChanged' AND body LIKE ? AND created_at > ?").get(`${docId}|%`, new Date(Date.now() - 3600_000).toISOString());
+      if (!recent) this.notify('docChanged', { actorId, projectId: d.project_id, body: `${docId}|${d.title || 'Untitled document'}` });
+    }
   }
   deleteDoc(docId: string): void { this.db.prepare('DELETE FROM documents WHERE id = ?').run(docId); }
   addTeamLink(teamId: string, url: string, title?: string): void {
@@ -984,15 +1004,16 @@ export class Store {
     return hit;
   }
   /** notifications are this install's person's: raise one when they follow the issue and
-   *  someone else acted, if their preferences want that kind */
-  private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, pref: keyof Preferences['notify']): void {
+   *  someone else acted. Everything lands in the inbox, as in Linear; Settings › Notifications
+   *  only chooses what is pushed to the desktop and what counts as priority. */
+  private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, _pref: keyof Preferences['notify']): void {
     const me = getMeta(this.db, 'currentUser');
-    if (!me || (actorId ?? me) === me || !this.isSubscribed(issueId, me) || !this.getPreferences().notify[pref]) return;
+    if (!me || (actorId ?? me) === me || !this.isSubscribed(issueId, me)) return;
     this.notify(type, { actorId: actorId ?? null, issueId, body });
   }
   private notifyMention(issueId: string, userId: string, actorId: string | undefined, body: string): void {
     const me = getMeta(this.db, 'currentUser');
-    if (userId !== me || (actorId ?? me) === me || !this.getPreferences().notify.mentions) return;
+    if (userId !== me || (actorId ?? me) === me) return;
     this.notify('issueMentioned', { actorId: actorId ?? null, issueId, body: body.slice(0, 140) });
   }
   listNotifications(): Notification[] { return this.snapshot().notifications; }
@@ -1014,12 +1035,12 @@ export class Store {
   getPreferences(): Preferences {
     try {
       const raw = JSON.parse(getMeta(this.db, 'preferences') ?? '{}') as Partial<Preferences>;
-      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } } };
+      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, push: { ...DEFAULT_PREFERENCES.push, ...(raw.push ?? {}), types: { ...DEFAULT_PREFERENCES.push.types, ...(raw.push?.types ?? {}) } }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } } };
     } catch { return DEFAULT_PREFERENCES; }
   }
   setPreferences(patch: Partial<Preferences>): void {
     const cur = this.getPreferences();
-    setMeta(this.db, 'preferences', JSON.stringify({ ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } } }));
+    setMeta(this.db, 'preferences', JSON.stringify({ ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, push: { ...cur.push, ...(patch.push ?? {}), types: { ...cur.push.types, ...(patch.push?.types ?? {}) } }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } } }));
   }
 
   getFeatures(): WorkspaceFeatures {
@@ -1266,12 +1287,12 @@ export class Store {
     const insert = (table: string, cols: string[], row: Record<string, unknown>) => {
       this.db.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map(c => row[c] as string | number | null));
     };
-    for (const u of arr<Record<string, unknown>>(data.users)) insert('users', ['id', 'name', 'email', 'initials', 'color', 'admin', 'kind'], { ...u, admin: u.admin ? 1 : 0, kind: u.kind ?? 'human' });
+    for (const u of arr<Record<string, unknown>>(data.users)) insert('users', ['id', 'name', 'email', 'initials', 'color', 'admin', 'kind', 'title', 'username', 'avatar_url'], { ...u, admin: u.admin ? 1 : 0, kind: u.kind ?? 'human', title: u.title ?? '', username: u.username ?? '', avatar_url: u.avatarUrl ?? null });
     if (ws?.agentUserId && arr<{ id: string }>(data.users).some(u => u.id === ws.agentUserId)) setMeta(this.db, 'agentUserId', ws.agentUserId);
     const cu = data.currentUser as { id?: string } | undefined;
     if (cu?.id) setMeta(this.db, 'currentUser', cu.id);
-    for (const t of arr<Record<string, unknown>>(data.teams)) insert('teams', ['id', 'key', 'name', 'icon', 'color', 'description', 'position', 'triage_enabled', 'auto_cycles', 'cycle_duration', 'cycle_cooldown', 'cycle_upcoming', 'cycle_rollover', 'estimate_scale'],
-      { ...t, triage_enabled: t.triageEnabled ? 1 : 0, auto_cycles: t.autoCycles ? 1 : 0, cycle_duration: t.cycleDuration ?? 2, cycle_cooldown: t.cycleCooldown ?? 0, cycle_upcoming: t.cycleUpcoming ?? 2, cycle_rollover: t.cycleRollover === false ? 0 : 1, estimate_scale: t.estimateScale ?? 'fibonacci' });
+    for (const t of arr<Record<string, unknown>>(data.teams)) insert('teams', ['id', 'key', 'name', 'icon', 'color', 'description', 'position', 'triage_enabled', 'auto_cycles', 'cycle_duration', 'cycle_cooldown', 'cycle_upcoming', 'cycle_rollover', 'estimate_scale', 'estimate_zero', 'estimate_extended', 'estimate_count_unestimated'],
+      { ...t, estimate_zero: t.estimateZero ? 1 : 0, estimate_extended: t.estimateExtended ? 1 : 0, estimate_count_unestimated: t.estimateCountUnestimated ? 1 : 0, triage_enabled: t.triageEnabled ? 1 : 0, auto_cycles: t.autoCycles ? 1 : 0, cycle_duration: t.cycleDuration ?? 2, cycle_cooldown: t.cycleCooldown ?? 0, cycle_upcoming: t.cycleUpcoming ?? 2, cycle_rollover: t.cycleRollover === false ? 0 : 1, estimate_scale: t.estimateScale ?? 'fibonacci' });
     for (const s of arr<Record<string, unknown>>(data.states)) insert('states', ['id', 'team_id', 'name', 'type', 'color', 'position'], { ...s, team_id: s.teamId });
     for (const l of arr<Record<string, unknown>>(data.labels)) insert('labels', ['id', 'team_id', 'name', 'color', 'description'], { ...l, team_id: l.teamId });
     for (const t of arr<Record<string, unknown>>(data.templates)) insert('issue_templates', ['id', 'team_id', 'name', 'title', 'description', 'position', 'created_at'], { ...t, team_id: t.teamId, title: t.title ?? '', description: t.description ?? '', position: t.position ?? 0, created_at: t.createdAt ?? ts() });

@@ -1,7 +1,8 @@
 import { Component, useEffect, useRef } from 'react';
 import { MotionConfig } from 'framer-motion';
 import { HashRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
-import { useApp, useCursor, useSelection, visibleList } from './store.js';
+import { IconSearch } from './icons.js';
+import { useApp, useCursor, useSelection, visibleList, copyText } from './store.js';
 import { undoLast, setIssueProps, assignToMe, toggleSubscription, toggleFavoriteIssue, archiveIssues, deleteIssues } from './actions.js';
 import { sortedStatesOf, type PropKind } from './propertyMenus.js';
 import { handoffActions } from './CodingTools.js';
@@ -14,7 +15,7 @@ import { CommandPalette, ShortcutsOverlay, recordRecentIssue } from './Palette.j
 import { QuickMenus, SelectionBar } from './IssueViews.js';
 import { Toasts, Tooltips } from './ui.js';
 import {
-  TeamPage, MyIssuesPage, ViewsIndexPage, SavedViewPage,
+  TeamPage, MyIssuesPage, ViewsIndexPage, SavedViewPage, LabelPage, ProfilePage,
 } from './Views.js';
 import { SettingsLayout } from './Settings.js';
 import { TriagePage, ArchivePage, TrashPage, SearchPage } from './TeamPages.js';
@@ -39,9 +40,9 @@ function KeyboardManager() {
   const location = useLocation();
 
   useEffect(() => {
-    let chord: 'g' | 'm' | null = null;
+    let chord: 'g' | 'm' | 'n' | 'o' | null = null;
     let chordTimer: ReturnType<typeof setTimeout>;
-    const startChord = (c: 'g' | 'm') => { chord = c; clearTimeout(chordTimer); chordTimer = setTimeout(() => { chord = null; }, 1200); };
+    const startChord = (c: 'g' | 'm' | 'n' | 'o') => { chord = c; clearTimeout(chordTimer); chordTimer = setTimeout(() => { chord = null; }, 1200); };
     const onKey = (e: KeyboardEvent) => {
       if (!e.key || e.isComposing) return;
       const target = e.target as HTMLElement | null;
@@ -76,11 +77,29 @@ function KeyboardManager() {
         const c = chord; chord = null; clearTimeout(chordTimer);
         if (c === 'g') {
           const to: Record<string, string> = {
-            i: '/inbox', m: '/my-issues', p: '/projects', s: '/settings/workspace', n: '/initiatives',
-            a: `/team/${teamKey}/all`, e: `/team/${teamKey}/active`, b: `/team/${teamKey}/backlog`,
-            t: `/team/${teamKey}/triage`, c: `/team/${teamKey}/cycles`, v: `/team/${teamKey}/cycles/current`, w: '/views', x: `/team/${teamKey}/archive`, f: '/search',
+            // Linear's map: A active, E all (“everything”), W upcoming cycle, U views, D drafts
+            i: '/inbox', m: '/my-issues', p: '/projects', s: '/settings/workspace', n: '/initiatives', d: '/drafts',
+            a: `/team/${teamKey}/active`, e: `/team/${teamKey}/all`, b: `/team/${teamKey}/backlog`,
+            t: `/team/${teamKey}/triage`, c: `/team/${teamKey}/cycles`, v: `/team/${teamKey}/cycles/current`, w: `/team/${teamKey}/cycles/upcoming`, u: '/views', x: `/team/${teamKey}/archive`, f: '/search',
           };
           if (to[k]) { e.preventDefault(); navigate(to[k]); }
+          return;
+        }
+        // N then …: create a project / initiative / document / view
+        if (c === 'n') {
+          const to: Record<string, () => void> = {
+            p: () => navigate('/projects/new'),
+            i: () => navigate('/initiatives', { state: { create: true } }),
+            d: () => s.setPalette(true, 'document-new'),
+            v: () => window.dispatchEvent(new CustomEvent('baseline:save-view', { cancelable: true })),
+          };
+          if (to[k]) { e.preventDefault(); to[k](); }
+          return;
+        }
+        // O then …: open a picker of one kind
+        if (c === 'o') {
+          const scope = ({ i: 'issue', p: 'project', f: 'favorite', c: 'cycle', l: 'label', u: 'user', v: 'view', d: 'document', s: 'settings' } as const)[k as 'i'];
+          if (scope) { e.preventDefault(); s.setPalette(true, scope); }
           return;
         }
         if (c === 'm') {
@@ -91,6 +110,14 @@ function KeyboardManager() {
         }
       }
       if (plain && k === 'g' && !e.shiftKey) { startChord('g'); return; }
+      if (plain && (k === 'n' || k === 'o') && !e.shiftKey && !pageIssue()) { startChord(k); return; }
+      // V: create an issue in the full-screen editor
+      if (plain && k === 'v' && !e.shiftKey && !pageIssue() && !useSelection.getState().ids.length) {
+        e.preventDefault();
+        const team = s.snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase());
+        s.openCreate({ teamId: team?.id, expanded: true });
+        return;
+      }
 
       if (plain && k === 'c' && !e.shiftKey) {
         e.preventDefault();
@@ -102,7 +129,8 @@ function KeyboardManager() {
         s.openCreate({ teamId: team?.id, ...(proj && proj !== 'new' ? { projectId: proj } : {}), ...(cyc ? { cycleId: cyc } : {}), ...(triage ? { stateId: triage.id } : {}) });
         return;
       }
-      if (e.key === '?') { e.preventDefault(); s.setShortcuts(true); return; }
+      // ?: the help menu (shortcuts live behind ⌘/), as in Linear
+      if (e.key === '?') { e.preventDefault(); window.dispatchEvent(new CustomEvent('baseline:help-menu')); return; }
       if (plain && (e.key === '/' )) { e.preventDefault(); navigate('/search'); return; }
       if (plain && k === 'f' && !e.shiftKey) { e.preventDefault(); window.dispatchEvent(new CustomEvent('baseline:focus-filter')); return; }
       if (plain && e.key === '[') { e.preventDefault(); s.toggleSidebar(); return; }
@@ -202,6 +230,14 @@ function KeyboardManager() {
         e.stopPropagation();
         const s = useApp.getState();
         s.setPalette(!s.paletteOpen);
+      } else if (e.key === '/') {
+        // ⌘/ keyboard shortcuts
+        e.preventDefault(); e.stopPropagation();
+        const s = useApp.getState(); s.setShortcuts(!s.shortcutsOpen);
+      } else if (k === 'c' && e.shiftKey && !document.getSelection()?.toString()) {
+        // ⌘⇧C copies the page's URL
+        e.preventDefault(); e.stopPropagation();
+        void copyText(window.location.href).then(ok => ok && useApp.getState().toast({ title: 'Copied page URL' }));
       } else if (k === 'b' && !e.shiftKey) {
         // Linear: ⌘B flips the current view between list and board
         e.preventDefault();
@@ -309,6 +345,19 @@ function InboxRedirect() {
   return null;
 }
 
+/** an address that leads nowhere, as Linear words it */
+function NotFoundPage() {
+  const navigate = useNavigate();
+  return (
+    <div className="content"><div className="empty-state">
+      <div className="empty-mark"><IconSearch size={28} /></div>
+      <div className="empty-title">Not found</div>
+      <div className="empty-desc">We could not find the page you were looking for</div>
+      <div className="empty-actions"><button className="btn secondary" onClick={() => navigate('/inbox')}>Go to inbox</button></div>
+    </div></div>
+  );
+}
+
 export function App() {
   const loaded = useApp(s => s.loaded);
   const bootstrap = useApp(s => s.bootstrap);
@@ -322,7 +371,8 @@ export function App() {
   // Preferences › Font size and Use pointer cursors apply to the whole app
   const fontSize = useApp(s => s.snap?.workspace.preferences.fontSize ?? 'default');
   const pointer = useApp(s => !!s.snap?.workspace.preferences.pointerCursors);
-  useEffect(() => { document.documentElement.dataset.fontSize = fontSize; document.documentElement.classList.toggle('pointer-cursors', pointer); }, [fontSize, pointer]);
+  const underline = useApp(s => !!s.snap?.workspace.preferences.underlineLinks);
+  useEffect(() => { document.documentElement.dataset.fontSize = fontSize; document.documentElement.classList.toggle('pointer-cursors', pointer); document.documentElement.classList.toggle('underline-links', underline); }, [fontSize, pointer, underline]);
 
   if (!loaded) {
     // Boot: the app appears as an object here, so it is the tile — large cut at 28
@@ -381,6 +431,9 @@ export function App() {
                 <Route path="/teams" element={<TeamsPage />} />
                 <Route path="/members" element={<MembersPage />} />
                 <Route path="/drafts" element={<DraftsPage />} />
+                <Route path="/labels/:labelId" element={<LabelPage />} />
+                <Route path="/profiles/:userId" element={<ProfilePage />} />
+                <Route path="/profiles/:userId/:tab" element={<ProfilePage />} />
                 <Route path="/team/:teamKey/overview" element={<TeamHomePage />} />
                 <Route path="/team/:teamKey/overview/:tab" element={<TeamHomePage />} />
                 <Route path="/team/:teamKey" element={<TeamPage />} />
@@ -395,8 +448,11 @@ export function App() {
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/issue/:issueKey" element={<IssuePageRoute />} />
                 <Route path="/settings/team/:teamKey" element={<SettingsLayout />} />
+                <Route path="/settings/team/:teamKey/:page" element={<SettingsLayout />} />
+                <Route path="/settings/:section/:sub" element={<SettingsLayout />} />
                 <Route path="/settings/:section" element={<SettingsLayout />} />
                 <Route path="/settings" element={<SettingsLayout />} />
+                <Route path="*" element={<NotFoundPage />} />
               </Routes>
               </PageHost>
             </div>

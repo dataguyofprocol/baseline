@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope } from '../../src/core/types.js';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -126,6 +126,11 @@ export const api = {
   gitAutomation: (teamId: string) => req<PrAutomation>('GET', `/api/git/automation/${teamId}`),
   setGitAutomation: (teamId: string, b: Partial<PrAutomation>) => req<{ ok: true }>('PUT', `/api/git/automation/${teamId}`, b),
   unlinkPr: (issueId: string, prId: string) => req<{ ok: true }>('POST', '/api/git/unlink', { issueId, prId }),
+  apiKeys: (all = false) => req<{ keys: ApiKey[] }>('GET', `/api/api-keys${all ? '?all=1' : ''}`),
+  createApiKey: (b: { name: string; scopes: ApiKeyScope[] | null; teamIds: string[] | null }) => req<{ key: ApiKey; token: string }>('POST', '/api/api-keys', b),
+  renameApiKey: (id: string, name: string) => req<{ ok: true }>('PATCH', `/api/api-keys/${id}`, { name }),
+  revokeApiKey: (id: string) => req<{ ok: true }>('DELETE', `/api/api-keys/${id}`),
+  setTeamWorkflow: (teamId: string, patch: Record<string, unknown>) => req<{ workflow: unknown }>('PUT', `/api/teams/${teamId}/workflow`, patch),
   setFeatures: (patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', '/api/features', patch),
   createProjectLabel: (b: Record<string, unknown>) => req<{ label: ProjectLabel }>('POST', '/api/project-labels', b),
   updateProjectLabel: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/project-labels/${id}`, b),
@@ -141,6 +146,11 @@ export const api = {
     const res = await fetch(`/api/emojis?name=${encodeURIComponent(name)}&file=${encodeURIComponent(file.name || 'emoji.png')}`, { method: 'POST', headers: { 'Content-Type': file.type || 'image/png' }, body: file });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
     return res.json() as Promise<{ emoji: CustomEmoji }>;
+  },
+  uploadAvatar: async (userId: string, file: File | null) => {
+    const res = await fetch(`/api/users/${userId}/avatar${file ? `?file=${encodeURIComponent(file.name || 'avatar.png')}` : ''}`, { method: 'POST', headers: { 'Content-Type': file?.type || 'image/png' }, body: file ?? '' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
+    return res.json() as Promise<{ avatarUrl: string | null }>;
   },
   deleteEmoji: (id: string) => req<{ ok: true }>('DELETE', `/api/emojis/${id}`),
   createCustomer: (b: Record<string, unknown>) => req<{ customer: Customer }>('POST', '/api/customers', b),

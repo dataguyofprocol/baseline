@@ -8,7 +8,7 @@ import { GroupedList, FilterBar, DisplayOptionsMenu, useViewPrefs, DEFAULT_VIEW_
 import { Board } from './Board.js';
 import { ProjectsPage, countProjectView, describeProjectView } from './Projects.js';
 import { LogoMark } from './Logo.js';
-import { StateIcon, teamDisplayIcon } from './pickers.js';
+import { StateIcon, teamDisplayIcon, Avatar } from './pickers.js';
 import { IconFilter, IconDisplay, IconStar, IconMore, IconTrash, IconEdit, IconViews, IconBell, IconCheck } from './icons.js';
 import type { SavedView, ViewFilters, Issue } from '../../src/core/types.js';
 
@@ -113,6 +113,7 @@ export function IssueListBody(props: {
             groupBy={opts.groupBy}
             subgroupBy={opts.subgroupBy}
             orderBy={opts.orderBy}
+            orderReversed={opts.orderReversed}
             display={opts.display}
             showEmpty={opts.showEmpty}
             createDefaults={props.createDefaults}
@@ -577,6 +578,72 @@ function IssueViewPage() {
       <IssueListBody issues={issues} opts={opts} patch={patch} teamId={view.teamId ?? undefined} multiTeam={!view.teamId}
         displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close} onSaveView={null}
         emptyTitle={view.name} emptyDesc="No issues match this view right now." />
+    </div>
+  );
+}
+
+/* ================= label page (O then L) and profile page (O then U), as in Linear ================= */
+export function LabelPage() {
+  const { labelId = '' } = useParams();
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  const displayBtn = useMenu();
+  const switcher = useMenu();
+  const label = snap.labels.find(l => l.id === labelId);
+  const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:label:${labelId}`, { ...TEAM_DEFAULT_OPTS });
+  const issues = useMemo(() => snap.issues.filter(i => i.labelIds.includes(labelId)), [snap.issues, labelId]);
+  if (!label) return <div className="empty-state"><div className="es-title">Label not found</div></div>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <TopBar
+        crumbs={[{ label: label.name, icon: <span className="label-dot" style={{ background: label.color }} />, onClick: switcher.open }]}
+        favoriteRef={{ type: 'view', refId: `label-${label.id}` }}
+        right={<ListToolbar opts={opts} onDisplay={displayBtn.open} />}
+      />
+      {switcher.anchor && (
+        <Menu anchor={switcher.anchor} onClose={switcher.close} width={220}>
+          {snap.labels.map(l => <MenuItem key={l.id} icon={<span className="label-dot" style={{ background: l.color }} />} label={l.name} selected={l.id === label.id} onClick={() => { switcher.close(); navigate(`/labels/${l.id}`); }} />)}
+        </Menu>
+      )}
+      <IssueListBody issues={issues} opts={opts} patch={patch} reset={reset} multiTeam
+        displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close}
+        emptyTitle="No matching issues" emptyDesc={`Issues labelled ${label.name} show up here.`} emptyHideCreate />
+    </div>
+  );
+}
+
+export function ProfilePage() {
+  const { userId = '', tab: rawTab } = useParams();
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  const displayBtn = useMenu();
+  const switcher = useMenu();
+  const user = snap.users.find(u => u.id === userId);
+  const tab = rawTab === 'created' ? 'created' : 'assigned';
+  const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:profile:${tab}`, { ...TEAM_DEFAULT_OPTS });
+  const issues = useMemo(() => snap.issues.filter(i => (tab === 'created' ? i.creatorId : i.assigneeId) === userId), [snap.issues, userId, tab]);
+  if (!user) return <div className="empty-state"><div className="es-title">User not found</div></div>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <TopBar crumbs={[{ label: user.name, icon: <Avatar user={user} size={16} />, onClick: switcher.open }]} />
+      {switcher.anchor && (
+        <Menu anchor={switcher.anchor} onClose={switcher.close} width={220}>
+          {snap.users.map(u => <MenuItem key={u.id} icon={<Avatar user={u} size={16} />} label={u.name} selected={u.id === user.id} onClick={() => { switcher.close(); navigate(`/profiles/${u.id}/${tab}`); }} />)}
+        </Menu>
+      )}
+      <div className="subnav">
+        {(['assigned', 'created'] as const).map(t => (
+          <button key={t} className={`seg ${tab === t ? 'selected' : ''}`} onClick={() => navigate(`/profiles/${user.id}/${t}`)}>
+            {t === 'assigned' ? 'Assigned' : 'Created'}
+            {tab === t && <RegisterMark group="profile-tabs" />}
+          </button>
+        ))}
+        <span style={{ flex: 1 }} />
+        <ListToolbar opts={opts} onDisplay={displayBtn.open} />
+      </div>
+      <IssueListBody issues={issues} opts={opts} patch={patch} reset={reset} multiTeam
+        displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close}
+        emptyTitle={tab === 'created' ? `No issues created by ${user.name}` : `No issues assigned to ${user.name}`} emptyDesc="" emptyHideCreate />
     </div>
   );
 }

@@ -20,7 +20,7 @@ type Snap = Snapshot;
    (or for every issue when the team doesn't estimate). */
 function pointsOf(i: Issue, snap: Snap): number {
   const team = snap.teams.find(t => t.id === i.teamId);
-  return team?.estimateScale === 'none' ? 1 : i.estimate ?? 1;
+  return team?.estimateScale === 'none' ? 1 : i.estimate ?? (team?.estimateCountUnestimated === false ? 0 : 1);
 }
 
 /** an issue's workflow-state type at time t, replayed from its status changes */

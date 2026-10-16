@@ -3,6 +3,7 @@ import type { Store } from './store.js';
 import { Planning } from './planning.js';
 import { Automation } from './automation.js';
 import { GitSync } from './git.js';
+import { ApiKeys } from './apikeys.js';
 
 /* Areas added after the core tracker — initiatives, releases, SLAs, asks, loops and the git
    integration. Each lives in its own module with its own tables, and plugs into the store
@@ -12,6 +13,7 @@ export interface Extensions {
   planning: Planning;
   automation: Automation;
   git: GitSync;
+  apiKeys: ApiKeys;
   /** extra snapshot fields */
   snapshot(): ReturnType<Planning['snapshot']> & ReturnType<Automation['snapshot']> & ReturnType<GitSync['snapshot']>;
   /** tables wipe() clears (children first) */
@@ -81,6 +83,10 @@ function migrateExtensions(db: DatabaseSync): void {
       sha TEXT NOT NULL REFERENCES commits(sha) ON DELETE CASCADE,
       PRIMARY KEY (issue_id, sha)
     );
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, hint TEXT NOT NULL,
+      scopes TEXT, team_ids TEXT, created_at TEXT NOT NULL, last_used_at TEXT
+    );
   `);
 }
 
@@ -89,10 +95,12 @@ export function createExtensions(store: Store, db: DatabaseSync): Extensions {
   const planning = new Planning(store, db);
   const automation = new Automation(store, db);
   const git = new GitSync(store, db);
+  const apiKeys = new ApiKeys(store, db);
   return {
-    planning, automation, git,
+    planning, automation, git, apiKeys,
     snapshot: () => ({ ...planning.snapshot(), ...automation.snapshot(), ...git.snapshot() }),
-    tables: ['issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'releases', 'initiative_updates', 'initiative_projects', 'initiatives'],
+    // api_keys are not exported or imported: only their hashes exist
+    tables: ['api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'releases', 'initiative_updates', 'initiative_projects', 'initiatives'],
     importData(data, insert) {
       const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : []);
       for (const x of arr<Record<string, unknown>>(data.initiatives)) {

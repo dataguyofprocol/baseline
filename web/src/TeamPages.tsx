@@ -225,24 +225,61 @@ function StaticIssueRow(props: { issue: Issue; when: string; actions: React.Reac
 export function ArchivePage() {
   const { teamKey = '' } = useParams();
   const team = teamFromKey(teamKey);
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<'issues' | 'cycles' | 'deleted'>('issues');
   const { issues } = useServerList(() => api.archivedIssues(team?.id), [team?.id]);
+  const { issues: deleted, reload } = useServerList(() => api.deletedIssues(), []);
   if (!team) return null;
+  const now = new Date().toISOString();
+  const cycles = snap.cycles.filter(c => c.teamId === team.id && c.endsAt < now).sort((a, b) => b.endsAt.localeCompare(a.endsAt));
+  const gone = (deleted ?? []).filter(i => i.teamId === team.id);
+  const title = tab === 'issues' ? 'Archived issues' : tab === 'cycles' ? 'Archived cycles' : 'Recently deleted issues';
+  const count = tab === 'issues' ? issues?.length ?? 0 : tab === 'cycles' ? cycles.length : gone.length;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: team.name, to: `/team/${team.key}/all`, muted: true }, { label: 'Archive' }]} />
+      <TopBar crumbs={[{ label: title }]} right={<span className="set-meta">{count || ''}</span>} />
+      <div className="subnav">
+        {([['issues', 'Issues'], ['cycles', 'Cycles'], ['deleted', 'Recently deleted issues']] as const).map(([k, l]) => (
+          <button key={k} className={`seg ${tab === k ? 'selected' : ''}`} onClick={() => setTab(k)}>{l}</button>
+        ))}
+      </div>
       <div className="content">
-        {issues === null ? null : issues.length === 0 ? (
-          <div className="empty-state"><div className="empty-mark"><IconArchive size={26} /></div><div className="empty-title">No archived issues</div><div className="empty-desc">Issues you archive in {team.name} (E) are kept here and can be brought back at any time.</div></div>
+        {tab === 'issues' && (issues === null ? null : issues.length === 0 ? (
+          <div className="empty-state"><div className="empty-mark"><IconArchive size={26} /></div><div className="empty-title">No archived issues</div><div className="empty-desc">Issues you archive in {team.name} (E) — and closed issues the team’s auto-archive picks up — are kept here and can be brought back at any time.</div></div>
         ) : (
           <div className="static-list">
-            <div className="static-head">{issues.length} archived issue{issues.length === 1 ? '' : 's'}</div>
             {issues.map(i => (
               <StaticIssueRow key={i.id} issue={i} when={`Archived ${shortDate(i.archivedAt!)}`} actions={
                 <button className="btn secondary sm" onClick={async () => { await api.unarchiveIssue(i.id); await useApp.getState().bootstrap(); useApp.getState().toast({ title: 'Issue restored' }); }}><IconRestore size={12} /> Unarchive</button>
               } />
             ))}
           </div>
-        )}
+        ))}
+        {tab === 'cycles' && (cycles.length === 0 ? (
+          <div className="empty-state"><div className="empty-title">No archived cycles</div><div className="empty-desc">Cycles move here once they end.</div></div>
+        ) : (
+          <div className="static-list">
+            {cycles.map(c => (
+              <button key={c.id} className="sr-row" onClick={() => navigate(`/team/${team.key}/cycles/${c.id}`)}>
+                <span className="sr-icon">#{c.number}</span><span className="sr-title">{c.name || `Cycle ${c.number}`}</span>
+                <span className="sr-right">{shortDate(c.startsAt)} – {shortDate(c.endsAt)}</span>
+              </button>
+            ))}
+          </div>
+        ))}
+        {tab === 'deleted' && (deleted === null ? null : gone.length === 0 ? (
+          <div className="empty-state"><div className="empty-mark"><IconTrash size={26} /></div><div className="empty-title">Nothing deleted recently</div><div className="empty-desc">Deleted issues stay here until you restore them or delete them for good.</div></div>
+        ) : (
+          <div className="static-list">
+            {gone.map(i => (
+              <StaticIssueRow key={i.id} issue={i} when={`Deleted ${relTime(i.deletedAt!)}`} actions={<>
+                <button className="btn secondary sm" onClick={async () => { await api.restoreIssue(i.id); await useApp.getState().bootstrap(); reload(); useApp.getState().toast({ title: 'Issue restored' }); }}><IconRestore size={12} /> Restore</button>
+                <ConfirmButton className="btn ghost sm" label="Delete forever" confirmLabel="Click to confirm" onConfirm={async () => { await api.purgeIssue(i.id); reload(); }} />
+              </>} />
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -281,50 +318,85 @@ export function TrashPage() {
 /* ================= search =================
    Linear's search page: one field, results update as you type, filters and display
    options apply on top. Matches titles, descriptions, IDs and comments. */
+type SearchTab = 'all' | 'issues' | 'projects' | 'initiatives' | 'documents';
+/** the matched words in bold, as Linear's results show them */
+function Bolded({ text, words }: { text: string; words: string[] }) {
+  if (!words.length) return <>{text}</>;
+  const re = new RegExp(`(${words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
+  return <>{text.split(re).map((part, i) => words.some(w => w.toLowerCase() === part.toLowerCase()) ? <b key={i}>{part}</b> : <span key={i}>{part}</span>)}</>;
+}
+
 export function SearchPage() {
   const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
   const [q, setQ] = useState(() => sessionStorage.getItem('baseline:search') ?? '');
+  const [tab, setTab] = useState<SearchTab>(() => (sessionStorage.getItem('baseline:searchTab') as SearchTab) || 'all');
+  const [archived, setArchived] = useState<Issue[]>([]);
   const [opts, patch, reset] = useViewPrefs<ViewOptions>('baseline:view:search', { ...DEFAULT_VIEW_OPTIONS, groupBy: 'none', orderBy: 'updated', filters: {}, showTriage: true });
   const displayBtn = useMenu();
   const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
-  useEffect(() => { try { sessionStorage.setItem('baseline:search', q); } catch { /* ignore */ } }, [q]);
-  const results = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return [];
-    const words = s.split(/\s+/);
+  useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); void api.archivedIssues().then(r => setArchived(r.issues)).catch(() => {}); }, []);
+  useEffect(() => { try { sessionStorage.setItem('baseline:search', q); sessionStorage.setItem('baseline:searchTab', tab); } catch { /* ignore */ } }, [q, tab]);
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = (hay: string) => words.length > 0 && words.every(w => hay.toLowerCase().includes(w));
+  // Linear searches archived issues too
+  const issues = useMemo(() => {
+    if (!words.length) return [];
     const commentText = new Map<string, string>();
-    for (const c of snap.comments) commentText.set(c.issueId, (commentText.get(c.issueId) ?? '') + ' ' + c.body.toLowerCase());
-    return snap.issues.filter(i => {
-      const key = `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`.toLowerCase();
-      const hay = `${key} ${i.title.toLowerCase()} ${i.description.toLowerCase()} ${commentText.get(i.id) ?? ''}`;
-      return words.every(w => hay.includes(w));
+    for (const c of snap.comments) commentText.set(c.issueId, (commentText.get(c.issueId) ?? '') + ' ' + c.body);
+    const seen = new Set<string>();
+    return [...snap.issues, ...archived].filter(i => {
+      if (seen.has(i.id)) return false; seen.add(i.id);
+      const key = `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
+      return hit(`${key} ${i.title} ${i.description} ${commentText.get(i.id) ?? ''}`);
     });
-  }, [q, snap.issues, snap.comments, snap.teams]);
-  const projects = q.trim() ? snap.projects.filter(p => p.name.toLowerCase().includes(q.trim().toLowerCase())) : [];
-  const navigate = useNavigate();
+  }, [q, snap.issues, snap.comments, snap.teams, archived]); // eslint-disable-line react-hooks/exhaustive-deps
+  const projects = words.length ? snap.projects.filter(p => hit(`${p.name} ${p.description} ${p.summary ?? ''}`)) : [];
+  const initiatives = words.length ? snap.initiatives.filter(i => hit(`${i.name} ${i.description}`)) : [];
+  const docs = words.length ? snap.docs.filter(d => hit(`${d.title} ${d.content}`)) : [];
+  const counts: Record<SearchTab, number> = { all: issues.length + projects.length + initiatives.length + docs.length, issues: issues.length, projects: projects.length, initiatives: initiatives.length, documents: docs.length };
+  const keyOf = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
+  type Row = { id: string; kind: string; icon: React.ReactNode; title: string; right: React.ReactNode; at: string; to: string };
+  const rows: Row[] = [
+    ...(tab === 'all' || tab === 'issues' ? issues.map(i => { const st = snap.states.find(s => s.id === i.stateId); const team = snap.teams.find(t => t.id === i.teamId); return { id: i.id, kind: 'Issue', icon: st ? <StateIcon type={st.type} color={st.color} size={14} /> : null, title: i.title, right: team && <span className="sr-team"><span className="ws-avatar" style={{ background: team.color, borderRadius: 3, fontSize: 7, width: 13, height: 13 }}>{team.key[0]}</span>{team.name}</span>, at: i.updatedAt, to: `/issue/${keyOf(i)}` }; }) : []),
+    ...(tab === 'all' || tab === 'projects' ? projects.map(p => ({ id: p.id, kind: 'Project', icon: <span>{p.icon}</span>, title: p.name, right: null, at: p.updatedAt ?? p.createdAt, to: `/projects/${p.id}` })) : []),
+    ...(tab === 'all' || tab === 'initiatives' ? initiatives.map(i => ({ id: i.id, kind: 'Initiative', icon: <span>{i.icon}</span>, title: i.name, right: null, at: i.updatedAt, to: `/initiatives/${i.id}` })) : []),
+    ...(tab === 'all' || tab === 'documents' ? docs.map(d => ({ id: d.id, kind: 'Document', icon: <span>{d.icon || '📄'}</span>, title: d.title || 'Untitled document', right: null, at: d.updatedAt, to: `/docs/${d.id}` })) : []),
+  ].sort((a, b) => b.at.localeCompare(a.at));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Search' }]} />
-      <div className="search-bar">
-        <IconSearch size={16} />
-        <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search issues by title, description, ID or comment…" spellCheck={false}
+      <div className="topbar search-top">
+        <IconSearch size={14} />
+        <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search issues, projects, and documents…" spellCheck={false} aria-label="Search"
           onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); (e.target as HTMLInputElement).blur(); } if (e.key === 'ArrowDown' || e.key === 'Enter') { (e.target as HTMLInputElement).blur(); useCursor.setState({ index: 0 }); } }} />
         {q && <button className="icon-btn" title="Clear" onClick={() => { setQ(''); inputRef.current?.focus(); }}><IconClose size={13} /></button>}
-        <span style={{ flex: 1 }} />
-        {q.trim() && <ListToolbar opts={opts} onDisplay={displayBtn.open} />}
       </div>
-      {projects.length > 0 && (
-        <div className="search-projects">
-          {projects.map(p => <button key={p.id} className="proj-chip" onClick={() => navigate(`/projects/${p.id}`)}>{p.icon} {p.name}</button>)}
-        </div>
-      )}
-      {q.trim() ? (
-        <IssueListBody issues={results} opts={opts} patch={patch} reset={reset} multiTeam
+      <div className="subnav">
+        {(['all', 'issues', 'projects', 'initiatives', 'documents'] as const).map(t => (
+          <button key={t} className={`seg ${tab === t ? 'selected' : ''}`} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}{words.length > 0 && counts[t] > 0 && t !== 'all' ? <span className="seg-count">{counts[t]}</span> : null}</button>
+        ))}
+        <span style={{ flex: 1 }} />
+        {tab === 'issues' && words.length > 0 && <ListToolbar opts={opts} onDisplay={displayBtn.open} />}
+      </div>
+      {!words.length ? (
+        <div className="content"><div className="empty-state"><div className="empty-mark"><IconSearch size={26} /></div><div className="empty-title">Search</div><div className="empty-desc">Find issues, projects, initiatives, and documents</div></div></div>
+      ) : tab === 'issues' ? (
+        <IssueListBody issues={issues} opts={opts} patch={patch} reset={reset} multiTeam
           displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close} emptyHideCreate
           emptyTitle="No results" emptyDesc={`Nothing matches “${q.trim()}”.`} />
       ) : (
-        <div className="content"><div className="empty-state"><div className="empty-mark"><IconSearch size={26} /></div><div className="empty-title">Search</div><div className="empty-desc">Find any issue by its title, description, ID or what was said in its comments.</div></div></div>
+        <div className="content search-results">
+          {rows.map(r => (
+            <button key={`${r.kind}-${r.id}`} className="sr-row" data-search-row={r.kind} onClick={() => navigate(r.to)}>
+              <span className="sr-kind">{r.kind}</span>
+              <span className="sr-icon">{r.icon}</span>
+              <span className="sr-title"><Bolded text={r.title} words={words} /></span>
+              <span className="sr-right">{r.right}</span>
+              <span className="sr-at">{relTime(r.at).replace(/ ago$/, "")}</span>
+            </button>
+          ))}
+          {!rows.length && <div className="empty-state"><div className="empty-title">No results</div><div className="empty-desc">Nothing matches “{q.trim()}”.</div></div>}
+        </div>
       )}
     </div>
   );

@@ -159,8 +159,12 @@ baseline customer request "Acme" CORE-12 -b "what they said" [--important]   # o
 baseline doc list [--project "Name"] [--team CORE] [--json]
 baseline doc show "Hand-off spec" [--json]    # by id or title
 baseline doc create "API spec" --project "Name" --content "## Goals…"   # or --team CORE; --content - reads stdin
-baseline doc update "API spec" --append "- new decision"   # --title / --content (replace) / --append
+baseline doc update "API spec" --append "- new decision"   # --title / --content (replace) / --append; --as "Agent" notifies the doc's author
 baseline doc delete "API spec"
+
+# personal API keys for scripts calling the REST API (curl -H "Authorization: Bearer <key>" localhost:7770/api/bootstrap)
+baseline api-key create "CI" [-s read createIssues] [-t CORE]   # prints the token once; no -s = full access
+baseline api-key list [--all] [--json] / baseline api-key revoke "CI"
 
 # labels & workspace backup
 baseline label create "Flaky" -t CORE -c "#eb5757" -d "description" / label update / label delete

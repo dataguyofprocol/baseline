@@ -278,6 +278,13 @@ check  "user add human"        "Created user"    user add "Ada Clone"
 if b user list 2>/dev/null | grep -q '^Codex.*agent'; then PASS=$((PASS+1)); else echo "FAIL  agent kind marker on user list"; FAIL=$((FAIL+1)); fi
 if b user list 2>/dev/null | grep -q '^Ada Clone' && ! b user list 2>/dev/null | grep -q '^Ada Clone.*agent'; then PASS=$((PASS+1)); else echo "FAIL  human user not marked agent"; FAIL=$((FAIL+1)); fi
 
+echo "=== personal API keys ==="
+check  "api-key create prints token" "bl_api_"     api-key create "CLI test" -s read -t CORE
+check  "api-key list shows scopes"   "read · teams CORE" api-key list
+check_rc "api-key bad scope"  1                    api-key create "bad" -s fly
+check  "api-key revoke"              "Revoked CLI test" api-key revoke "CLI test"
+check  "api-key list empty"          "No API keys"  api-key list
+
 echo "=== issue handoff ==="
 BRANCH="$(echo "$KEY" | tr '[:upper:]' '[:lower:]')-renamed-issue"
 check  "handoff includes title"  "renamed issue"  issue handoff "$KEY"

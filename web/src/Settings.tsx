@@ -5,7 +5,7 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconRelease, IconAsk, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive } from './icons.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconRelease, IconAsk, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
 import { ShortcutList } from './Palette.js';
@@ -13,21 +13,23 @@ import { CADENCE_LABELS } from './actions.js';
 import { SlaSettings, AsksSettings, LoopsSettings } from './AutomationUI.js';
 import { GitHubSettings, PrAutomationSettings } from './GitHubUI.js';
 import { CustomizeSidebar } from './Workspace.js';
+import { SecuritySettings, NewApiKey, ApiAdminSettings } from './ApiKeysUI.js';
 import { ProjectLabelsSettings, ProjectStatusesSettings, ProjectUpdatesSettings, DocumentsSettings, CustomerRequestsSettings, PulseSettings, EmojisSettings } from './SettingsMore.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
-import { TERMINAL_APPS, type WorkflowStateType, type Priority, type TerminalApp } from '../../src/core/types.js';
+import { TERMINAL_APPS, NOTIFY_CATEGORIES, type NotifyCategory, type WorkflowStateType, type Priority, type TerminalApp } from '../../src/core/types.js';
+import { readInboxPrefs, writeInboxPrefs, DEFAULT_PRIORITY_CATS } from './Inbox.js';
 
-const NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
-  { sec: 'Personal', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Keyboard shortcuts', 'shortcuts']] },
+export const SETTINGS_NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
+  { sec: 'Personal', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Security & access', 'security'], ['Keyboard shortcuts', 'shortcuts']] },
   { sec: 'Issues', items: [['Labels', 'labels'], ['Templates', 'templates'], ['SLAs', 'slas']] },
   { sec: 'Projects', items: [['Labels', 'project-labels'], ['Templates', 'project-templates'], ['Statuses', 'project-statuses'], ['Updates', 'project-updates']] },
   { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Documents', 'documents'], ['Customer requests', 'customer-requests'], ['Releases', 'releases'], ['Pulse', 'pulse'], ['Asks', 'asks'], ['Loops', 'loops'], ['Emojis', 'emojis']] },
   { sec: 'Integrations', items: [['GitHub', 'github']] },
-  { sec: 'Administration', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Coding tools', 'handoff'], ['Import & export', 'data']] },
+  { sec: 'Administration', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['API', 'api'], ['Coding tools', 'handoff'], ['Import & export', 'data']] },
 ];
 
 const SETTINGS_ICONS: Record<string, React.ReactNode> = {
-  preferences: <IconSliders size={14} />, profile: <IconUser size={14} />, notifications: <IconBell size={14} />, shortcuts: <IconKeyboard size={14} />,
+  preferences: <IconSliders size={14} />, profile: <IconUser size={14} />, notifications: <IconBell size={14} />, security: <IconShieldUser size={14} />, api: <IconCode size={14} />, shortcuts: <IconKeyboard size={14} />,
   labels: <IconTag size={14} />, templates: <IconDoc size={14} />, slas: <IconSla size={14} />,
   'project-labels': <IconTag size={14} />, 'project-templates': <IconDoc size={14} />, 'project-statuses': <IconStatusRing size={14} />, 'project-updates': <IconPulse size={14} />,
   initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />, 'customer-requests': <IconCustomers size={14} />, releases: <IconRelease size={14} />,
@@ -42,7 +44,7 @@ const STATE_COLORS = ['#95a2b3', '#8a8f98', '#f2c94c', '#5e6ad2', '#7d8084', '#4
 const LABEL_COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
 
 export function SettingsLayout() {
-  const { section = 'workspace', teamKey } = useParams();
+  const { section = 'workspace', teamKey, sub } = useParams();
   const snap = useApp(s => s.snap)!;
   const [q, setQ] = useState('');
   const match = (label: string, sec: string) => !q.trim() || `${label} ${sec}`.toLowerCase().includes(q.trim().toLowerCase());
@@ -51,7 +53,7 @@ export function SettingsLayout() {
       <nav className="settings-nav">
         <Link to="/" className="back"><IconBack size={14} /> Back to app</Link>
         <div className="settings-search"><IconSearch size={13} /><input placeholder="Search…" value={q} onChange={e => setQ(e.target.value)} /></div>
-        {NAV.map(g => {
+        {SETTINGS_NAV.map(g => {
           const items = g.items.filter(([label]) => match(label, g.sec));
           if (!items.length) return null;
           return (
@@ -80,7 +82,9 @@ export function SettingsLayout() {
         {teamKey && <TeamSettingsPage teamKey={teamKey} />}
         {!teamKey && section === 'preferences' && <PreferencesSettings />}
         {!teamKey && section === 'profile' && <ProfileSettings />}
-        {!teamKey && section === 'notifications' && <NotificationSettings />}
+        {!teamKey && section === 'notifications' && <NotificationSettings key={sub ?? ''} />}
+        {section === 'security' && (sub === 'new-api-key' ? <NewApiKey /> : <SecuritySettings />)}
+        {section === 'api' && <ApiAdminSettings />}
         {!teamKey && section === 'workspace' && <WorkspaceSettings />}
         {section === 'teams' && <TeamsSettings />}
         {section === 'new-team' && <NewTeamSettings />}
@@ -213,66 +217,176 @@ function NewTeamSettings() {
 }
 
 function TeamSettingsPage(props: { teamKey: string }) {
+  const { page } = useParams();
+  const navigate = useNavigate();
   const snap = useApp(s => s.snap)!;
+  const toast = useApp(s => s.toast);
   const team = snap.teams.find(t => t.key.toLowerCase() === props.teamKey.toLowerCase());
+  const [name, setName] = useState(team?.name ?? '');
+  const [key, setKey] = useState(team?.key ?? '');
+  const [desc, setDesc] = useState(team?.description ?? '');
+  useEffect(() => { setName(team?.name ?? ''); setKey(team?.key ?? ''); setDesc(team?.description ?? ''); }, [team?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!team) return <div className="settings-card"><h1>Team not found</h1></div>;
   const patch = async (p: Record<string, unknown>) => { await api.updateTeam(team.id, p); await useApp.getState().bootstrap(); };
+  const wf = snap.teamWorkflows?.[team.id];
+  const setWf = async (p: Record<string, unknown>) => { await api.setTeamWorkflow(team.id, p); await useApp.getState().bootstrap(); };
   const triageCount = snap.issues.filter(i => snap.states.find(s => s.id === i.stateId)?.type === 'triage' && i.teamId === team.id).length;
+  const states = snap.states.filter(s => s.teamId === team.id).sort((a, b) => a.position - b.position);
+  const base = `/settings/team/${team.key}`;
+  const back = <Link to={page ? base : '/settings/teams'} className="settings-crumb"><IconBack size={13} /> {page ? <><span className="ws-avatar" style={{ background: team.color, borderRadius: 3, fontSize: 7, width: 13, height: 13 }}>{team.key[0]}</span>{team.name}</> : 'Teams'}</Link>;
+  const link = (to: string, icon: React.ReactNode, label: string, help: string, right: React.ReactNode) => (
+    <button className="set-row notif-row notif-link" onClick={() => navigate(`${base}/${to}`)}>
+      <span className="notif-icon">{icon}</span>
+      <div style={{ flex: 1, textAlign: 'left' }}><div className="field-label">{label}</div><div className="field-help">{help}</div></div>
+      <span className="set-meta">{right}</span><IconChevronRight size={12} />
+    </button>
+  );
+  const scaleNote: Record<string, string> = { none: 'Not in use', exponential: 'Exponential (1, 2, 4, 8, 16 Points)', fibonacci: 'Fibonacci (1, 2, 3, 5, 8 Points)', linear: 'Linear (1, 2, 3, 4, 5 Points)', tshirt: 'T-shirt (XS, S, M, L, XL)' };
+
+  if (page === 'general') return (
+    <div className="settings-card">
+      {back}
+      <h1>General</h1>
+      <div className="card set-list">
+        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Name</div></div>
+          <span className="ws-avatar" style={{ background: team.color, borderRadius: 4, fontSize: 9, width: 20, height: 20 }}>{team.key[0]}</span>
+          <input className="text-input" aria-label="Team name" value={name} onChange={e => setName(e.target.value)} onBlur={() => name.trim() && name !== team.name && void patch({ name: name.trim() })} /></div>
+        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Identifier</div><div className="field-help">Used in issue IDs</div></div>
+          <input className="text-input" aria-label="Team identifier" value={key} onChange={e => setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7))} onBlur={async () => { if (key && key !== team.key) { await patch({ key }); navigate(`/settings/team/${key}/general`, { replace: true }); } }} /></div>
+      </div>
+      <div className="settings-h2">Description</div>
+      <div className="field-help" style={{ marginBottom: 8 }}>A short summary shown on the team page</div>
+      <textarea className="text-input team-desc" aria-label="Team description" placeholder="e.g. Builds and maintains core platform infrastructure" value={desc} onChange={e => setDesc(e.target.value)} onBlur={() => desc !== team.description && void patch({ description: desc })} />
+      <div className="settings-h2">Estimates</div>
+      <div className="field-help" style={{ marginBottom: 8 }}>Used to estimate issue complexity and plan cycle capacity.</div>
+      <div className="card set-list">
+        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Issue estimation</div></div>
+          <select className="text-input" style={{ width: 240 }} aria-label="Issue estimation" value={team.estimateScale} onChange={e => void patch({ estimateScale: e.target.value })}>
+            {Object.entries(scaleNote).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select></div>
+        {team.estimateScale !== 'none' && <>
+          <div className="set-row notif-row sub"><div style={{ flex: 1 }}><div className="field-label">Allow zero estimates</div><div className="field-help">When enabled, issues can be estimated with zero points. This is useful if, for example, you don’t want to count parent issues towards the total estimate.</div></div><SettingSwitch on={!!team.estimateZero} onChange={v => void patch({ estimateZero: v })} /></div>
+          <div className="set-row notif-row sub"><div style={{ flex: 1 }}><div className="field-label">Extended estimate scale</div><div className="field-help">When enabled, the estimate scale is extended. This is normally not recommended, as large estimates usually mean that an issue should be broken up into smaller issues.</div></div><SettingSwitch on={!!team.estimateExtended} onChange={v => void patch({ estimateExtended: v })} /></div>
+          <div className="set-row notif-row sub"><div style={{ flex: 1 }}><div className="field-label">Count unestimated issues</div><div className="field-help">When enabled, issues that have not been estimated will count as 1 estimate point. When disabled, unestimated issues count as 0 estimate points.</div></div><SettingSwitch on={team.estimateCountUnestimated !== false} onChange={v => void patch({ estimateCountUnestimated: v })} /></div>
+        </>}
+      </div>
+    </div>
+  );
+  if (page === 'members') return (
+    <div className="settings-card">
+      {back}
+      <h1>Members</h1>
+      <div className="field-help" style={{ marginBottom: 12 }}>Everyone in this workspace can work in every team. Add people and agent identities in Administration › Members.</div>
+      <div className="card set-list">
+        {snap.users.map(u => <div key={u.id} className="set-row notif-row"><Avatar user={u} size={22} /><div style={{ flex: 1 }}><div className="field-label">{u.name}</div><div className="field-help">{u.kind === 'agent' ? 'Agent' : u.email || (u.admin ? 'Admin' : 'Member')}</div></div><span className="set-meta">{u.admin ? 'Admin' : u.kind === 'agent' ? 'Agent' : 'Member'}</span></div>)}
+      </div>
+    </div>
+  );
+  if (page === 'labels') return <div>{back}<LabelsSettings onlyTeamId={team.id} /></div>;
+  if (page === 'templates') return <div>{back}<TemplatesSettings onlyTeamId={team.id} /></div>;
+  if (page === 'recurring') return <div className="settings-card">{back}<h1>Recurring issues</h1><RecurringIssues teamId={team.id} /></div>;
+  if (page === 'statuses') return <div className="settings-card">{back}<h1>Issue statuses</h1><div className="field-help" style={{ marginBottom: 12 }}>Customize the statuses issues go through. Number keys 1–9 pick a status in that order.</div><TeamEditor teamId={team.id} part="states" /></div>;
+  if (page === 'triage') return (
+    <div className="settings-card">
+      {back}
+      <h1>Triage</h1>
+      <div className="field-help" style={{ marginBottom: 12 }}>Streamline how you handle requests from outside your team</div>
+      <div className="card set-list">
+        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Enable triage</div><div className="field-help">Issues that agents, Asks and teammates outside the team file land in a Triage queue for review before they reach the backlog.{triageCount ? ` ${triageCount} issue${triageCount === 1 ? ' is' : 's are'} waiting now.` : ''}</div></div>
+          <SettingSwitch on={team.triageEnabled} onChange={v => void patch({ triageEnabled: v })} /></div>
+      </div>
+    </div>
+  );
+  if (page === 'cycles') return (
+    <div className="settings-card">
+      {back}
+      <h1>Cycles</h1>
+      <div className="field-help" style={{ marginBottom: 12 }}>Focus your team over short, time-boxed windows</div>
+      <div className="card set-list">
+        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Enable cycles</div><div className="field-help">Keep the current cycle and upcoming ones scheduled, laid end to end.</div></div><SettingSwitch on={team.autoCycles} onChange={v => void patch({ autoCycles: v })} /></div>
+        {team.autoCycles && <>
+          <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Cycle duration</div></div>
+            <select className="text-input" style={{ width: 160 }} aria-label="Cycle duration" value={team.cycleDuration} onChange={e => void patch({ cycleDuration: Number(e.target.value) })}>{[1, 2, 3, 4, 5, 6, 7, 8].map(w => <option key={w} value={w}>{w} week{w === 1 ? '' : 's'}</option>)}</select></div>
+          <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Cooldown</div><div className="field-help">Weeks off between cycles.</div></div>
+            <select className="text-input" style={{ width: 160 }} aria-label="Cooldown" value={team.cycleCooldown} onChange={e => void patch({ cycleCooldown: Number(e.target.value) })}>{[0, 1, 2].map(w => <option key={w} value={w}>{w ? `${w} week${w === 1 ? '' : 's'}` : 'No cooldown'}</option>)}</select></div>
+          <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Upcoming cycles</div><div className="field-help">How many future cycles to keep created.</div></div>
+            <select className="text-input" style={{ width: 160 }} aria-label="Upcoming cycles" value={team.cycleUpcoming} onChange={e => void patch({ cycleUpcoming: Number(e.target.value) })}>{[1, 2, 3, 4, 6].map(n => <option key={n} value={n}>{n}</option>)}</select></div>
+        </>}
+        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Roll over unfinished work</div><div className="field-help">When a cycle ends, its open issues move into the next cycle.</div></div><SettingSwitch on={team.cycleRollover} onChange={v => void patch({ cycleRollover: v })} /></div>
+      </div>
+      <div className="settings-h2">All cycles</div>
+      <TeamEditor teamId={team.id} part="cycles" />
+    </div>
+  );
+  if (page === 'workflow') return (
+    <div className="settings-card">
+      {back}
+      <h1>Workflows &amp; automations</h1>
+      <div className="field-help" style={{ marginBottom: 4 }}>Manage issue automations, git workflows and other workflows.</div>
+      <PrAutomationSettings teamId={team.id} />
+      {wf && <>
+        <div className="settings-h2">Auto-close automations</div>
+        <div className="field-help" style={{ marginBottom: 8 }}>Automate closing issues based on status changes to related issues, staleness, etc.</div>
+        <div className="card set-list">
+          <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Auto-close parent issues</div><div className="field-help">Automatically close an open parent issue when its last sub-issue is closed</div></div><SettingSwitch on={wf.closeParent} onChange={v => void setWf({ closeParent: v })} /></div>
+          <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Auto-close sub-issues</div><div className="field-help">Automatically close all sub-issues when their parent issue is closed</div></div><SettingSwitch on={wf.closeSubIssues} onChange={v => void setWf({ closeSubIssues: v })} /></div>
+          <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Auto-close stale issues</div><div className="field-help">Automatically close issues that haven’t been completed, canceled, or updated in a while</div></div><SettingSwitch on={wf.closeStale} onChange={v => void setWf({ closeStale: v })} /></div>
+          {wf.closeStale && <>
+            <div className="set-row notif-row sub"><div style={{ flex: 1 }}><div className="field-label">Close after being stale for</div></div>
+              <select className="text-input" style={{ width: 160 }} aria-label="Close after being stale for" value={wf.staleMonths} onChange={e => void setWf({ staleMonths: Number(e.target.value) })}>{[1, 3, 6, 9, 12].map(m => <option key={m} value={m}>{m} month{m === 1 ? '' : 's'}</option>)}</select></div>
+            <div className="set-row notif-row sub"><div style={{ flex: 1 }}><div className="field-label">When closing stale issues, set status to</div></div>
+              <select className="text-input" style={{ width: 160 }} aria-label="Stale status" value={wf.staleStateId ?? ''} onChange={e => void setWf({ staleStateId: e.target.value || null })}>
+                <option value="">{states.find(s => s.type === 'canceled')?.name ?? 'Canceled'}</option>
+                {states.filter(s => s.type === 'canceled' || s.type === 'completed').slice(1).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select></div>
+          </>}
+        </div>
+        <div className="settings-h2">Auto-archive closed issues</div>
+        <div className="field-help" style={{ marginBottom: 8 }}>Closed (completed or canceled) issues are archived after the set time period. Issues in a project also wait until the project has been completed or canceled for that period. Changes apply within an hour.</div>
+        <div className="card set-list">
+          <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Auto-archive closed items after</div></div>
+            <select className="text-input" style={{ width: 160 }} aria-label="Auto-archive after" value={wf.archiveMonths} onChange={e => void setWf({ archiveMonths: Number(e.target.value) })}>{[[1, '1 month'], [3, '3 months'], [6, '6 months'], [9, '9 months'], [12, '12 months'], [0, 'Never']].map(([m, l]) => <option key={m} value={m}>{l}</option>)}</select></div>
+        </div>
+        <div className="settings-h2">Re-order issues when moved to a new status</div>
+        <div className="field-help" style={{ marginBottom: 8 }}>Define how issues should be ordered as they progress. Unless no action is chosen, issues moving to a previous status are always placed at the top of that status. This affects manual ordering.</div>
+        <div className="card set-list">
+          <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">When progressing status, place issues…</div></div>
+            <select className="text-input" style={{ width: 160 }} aria-label="Re-order on status change" value={wf.reorder} onChange={e => void setWf({ reorder: e.target.value })}><option value="first">First</option><option value="last">Last</option><option value="none">No action</option></select></div>
+        </div>
+      </>}
+    </div>
+  );
+
+  const recurringCount = snap.recurring.filter(r => r.teamId === team.id).length;
+  const labelCount = snap.labels.filter(l => l.teamId === team.id).length;
+  const templateCount = snap.templates.filter(t => t.teamId === team.id).length;
   return (
     <div className="settings-card">
-      <h1>{team.name}</h1>
-      <div className="settings-h2">Triage</div>
-      <div className="field-row">
-        <div><div className="field-label">Enable triage</div><div className="field-help">Issues that agents and teammates file through the CLI land in a Triage queue for review before they reach the backlog.{triageCount ? ` ${triageCount} issue(s) are waiting now.` : ''}</div></div>
-        <SettingSwitch on={team.triageEnabled} onChange={v => void patch({ triageEnabled: v })} />
+      {back}
+      <div className="team-hub-head"><h1>{team.name}</h1><Link to={`/team/${team.key}/overview`} className="set-meta team-hub-link">Team overview <IconChevronRight size={11} /></Link></div>
+      <div className="field-help" style={{ margin: '-16px 0 16px' }}>Accessible to all workspace members</div>
+      <div className="card set-list">
+        {link('general', <IconSettings size={14} />, 'General', 'Name, identifier, description and estimates', '')}
+        {link('members', <IconUsers size={14} />, 'Members', 'Manage team members', `${snap.users.length} member${snap.users.length === 1 ? '' : 's'}`)}
       </div>
-      <div className="settings-h2">Estimates</div>
-      <div className="field-row">
-        <div><div className="field-label">Issue estimation</div><div className="field-help">The scale offered when estimating issues (⇧E). Off hides estimates for this team.</div></div>
-        <select className="text-input" style={{ width: 220 }} value={team.estimateScale} onChange={e => void patch({ estimateScale: e.target.value })}>
-          <option value="none">Not in use</option>
-          <option value="exponential">Exponential (1, 2, 4, 8, 16)</option>
-          <option value="fibonacci">Fibonacci (0, 1, 2, 3, 5, 8, 13, 21)</option>
-          <option value="linear">Linear (1, 2, 3, 4, 5)</option>
-          <option value="tshirt">T-shirt (XS, S, M, L, XL)</option>
-        </select>
+      <div className="settings-h2">Issues, projects, and documents</div>
+      <div className="card set-list">
+        {link('labels', <IconTag size={14} />, 'Issue labels', 'Labels available to this team’s issues', labelCount || 'None')}
+        {link('templates', <IconDoc size={14} />, 'Templates', 'Pre-filled templates for issues', templateCount || 'None')}
+        {link('recurring', <IconCycle size={14} />, 'Recurring issues', 'Automatically create issues on a schedule', recurringCount || 'None')}
       </div>
-      <div className="settings-h2">Cycles</div>
-      <div className="field-row">
-        <div><div className="field-label">Automate cycles</div><div className="field-help">Keep the current cycle and upcoming ones scheduled, laid end to end.</div></div>
-        <SettingSwitch on={team.autoCycles} onChange={v => void patch({ autoCycles: v })} />
+      <div className="settings-h2">Workflow</div>
+      <div className="card set-list">
+        {link('statuses', <IconStatusRing size={14} />, 'Issue statuses', 'Customize the statuses issues go through', `${states.length} statuses`)}
+        {link('workflow', <IconLoop size={14} />, 'Workflows & automations', 'Manage issue automations, git workflows and other workflows', '')}
+        {link('triage', <IconTriage size={14} />, 'Triage', 'Streamline how you handle requests from outside your team', team.triageEnabled ? 'Enabled' : 'Off')}
+        {link('cycles', <IconCycle size={14} />, 'Cycles', 'Focus your team over short, time-boxed windows', team.autoCycles ? `Every ${team.cycleDuration === 1 ? 'week' : `${team.cycleDuration} weeks`}` : 'Off')}
       </div>
-      {team.autoCycles && (
-        <>
-          <div className="field-row">
-            <div><div className="field-label">Cycle length</div><div className="field-help">How long each cycle runs.</div></div>
-            <select className="text-input" style={{ width: 160 }} value={team.cycleDuration} onChange={e => void patch({ cycleDuration: Number(e.target.value) })}>
-              {[1, 2, 3, 4, 5, 6, 7, 8].map(w => <option key={w} value={w}>{w} week{w === 1 ? '' : 's'}</option>)}
-            </select>
-          </div>
-          <div className="field-row">
-            <div><div className="field-label">Cooldown</div><div className="field-help">Weeks off between cycles.</div></div>
-            <select className="text-input" style={{ width: 160 }} value={team.cycleCooldown} onChange={e => void patch({ cycleCooldown: Number(e.target.value) })}>
-              {[0, 1, 2].map(w => <option key={w} value={w}>{w ? `${w} week${w === 1 ? '' : 's'}` : 'No cooldown'}</option>)}
-            </select>
-          </div>
-          <div className="field-row">
-            <div><div className="field-label">Upcoming cycles</div><div className="field-help">How many future cycles to keep created.</div></div>
-            <select className="text-input" style={{ width: 160 }} value={team.cycleUpcoming} onChange={e => void patch({ cycleUpcoming: Number(e.target.value) })}>
-              {[1, 2, 3, 4, 6].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </div>
-        </>
-      )}
-      <div className="field-row">
-        <div><div className="field-label">Roll over unfinished work</div><div className="field-help">When a cycle ends, its open issues move into the next cycle.</div></div>
-        <SettingSwitch on={team.cycleRollover} onChange={v => void patch({ cycleRollover: v })} />
+      <div className="settings-h2">Danger zone</div>
+      <div className="card set-list">
+        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Delete team</div><div className="field-help">Permanently delete this team and all its issues</div></div>
+          <ConfirmButton className="btn ghost sm" label="Delete…" confirmLabel="Delete team?" onConfirm={async () => { await api.deleteTeam(team.id); await useApp.getState().bootstrap(); toast({ title: `${team.name} deleted` }); navigate('/settings/teams'); }} /></div>
       </div>
-      <div className="settings-h2">Recurring issues</div>
-      <RecurringIssues teamId={team.id} />
-      <PrAutomationSettings teamId={team.id} />
-      <div className="settings-h2">Workflow and cycles</div>
-      <TeamEditor teamId={team.id} />
     </div>
   );
 }
@@ -385,12 +499,25 @@ function PreferencesSettings() {
         <SettingSwitch on={prefs.pointerCursors} onChange={v => void save({ pointerCursors: v })} />
       </div>
       <div className="field-row">
+        <div><div className="field-label">Underline links</div><div className="field-help">Always underline links in text content.</div></div>
+        <SettingSwitch on={prefs.underlineLinks} onChange={v => void save({ underlineLinks: v })} />
+      </div>
+      <div className="field-row">
         <div><div className="field-label">Theme</div><div className="field-help">System follows your device appearance; light and dark override it.</div></div>
         <div style={{ display: 'flex', gap: 6 }}>
           {(['system', 'light', 'dark'] as const).map(t => (
             <button key={t} className={`seg seg-fill ${theme === t ? 'selected' : ''}`} style={{ textTransform: 'capitalize' }} onClick={() => setTheme(t)}>{t}</button>
           ))}
         </div>
+      </div>
+      <div className="settings-h2">Automations and workflows</div>
+      <div className="field-row">
+        <div><div className="field-label">Auto-assign to self</div><div className="field-help">When creating new issues, always assign them to yourself by default.</div></div>
+        <SettingSwitch on={prefs.autoAssign} onChange={v => void save({ autoAssign: v })} />
+      </div>
+      <div className="field-row">
+        <div><div className="field-label">On move to started status, assign to yourself</div><div className="field-help">When you move an unassigned issue to started, it will be automatically assigned to you.</div></div>
+        <SettingSwitch on={prefs.assignOnStart} onChange={v => void save({ assignOnStart: v })} />
       </div>
       <AnimatePresence>{customizing && <CustomizeSidebar key="cs" onClose={() => setCustomizing(false)} />}</AnimatePresence>
     </div>
@@ -402,57 +529,124 @@ function ProfileSettings() {
   const me = snap.currentUser;
   const [name, setName] = useState(me.name);
   const [email, setEmail] = useState(me.email);
+  const [title, setTitle] = useState(me.title ?? '');
+  const [username, setUsername] = useState(me.username ?? '');
+  const [err, setErr] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
   const colors = ['#5e6ad2', '#c770f4', '#f2994a', '#4cb782', '#eb5757', '#307ec6', '#26b5ce', '#8a8f98'];
   const save = async (p: Record<string, unknown>) => { await api.updateUser(me.id, p); await useApp.getState().bootstrap(); };
+  const upload = async (f: File | null) => { try { await api.uploadAvatar(me.id, f); setErr(''); await useApp.getState().bootstrap(); } catch (e) { setErr((e as Error).message); } };
   return (
     <div className="settings-card">
       <h1>Profile</h1>
       <div className="field-row">
-        <div><div className="field-label">Avatar</div><div className="field-help">Your initials on a colour of your choice.</div></div>
+        <div><div className="field-label">Profile picture</div>{err ? <div className="field-help" style={{ color: 'var(--danger, #e5484d)' }}>{err}</div> : !me.avatarUrl && <div className="field-help">Or your initials on a colour of your choice.</div>}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Avatar user={me} size={32} />
-          <div style={{ display: 'flex', gap: 4 }}>
+          {!me.avatarUrl && <div style={{ display: 'flex', gap: 4 }}>
             {colors.map(c => <button key={c} className="label-dot" title={c} style={{ background: c, width: 16, height: 16, outline: me.color === c ? '2px solid var(--brand)' : 'none', outlineOffset: 2 }} onClick={() => void save({ color: c })} />)}
-          </div>
+          </div>}
+          {me.avatarUrl && <button className="btn ghost sm" onClick={() => void upload(null)}>Remove</button>}
+          <button className="avatar-upload" title="Upload a picture" aria-label="Upload profile picture" onClick={() => fileRef.current?.click()}><Avatar user={me} size={32} /></button>
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = ''; }} />
         </div>
+      </div>
+      <div className="field-row">
+        <div><div className="field-label">Email</div><div className="field-help">Shown to agents in hand-off prompts.</div></div>
+        <input className="text-input" value={email} onChange={e => setEmail(e.target.value)} onBlur={() => email !== me.email && void save({ email })} />
       </div>
       <div className="field-row">
         <div><div className="field-label">Full name</div></div>
         <input className="text-input" value={name} onChange={e => setName(e.target.value)} onBlur={() => name.trim() && name !== me.name && void save({ name: name.trim() })} />
       </div>
       <div className="field-row">
-        <div><div className="field-label">Email</div><div className="field-help">Shown to agents in hand-off prompts.</div></div>
-        <input className="text-input" value={email} onChange={e => setEmail(e.target.value)} onBlur={() => email !== me.email && void save({ email })} />
+        <div><div className="field-label">Title</div><div className="field-help">Your job title or role</div></div>
+        <input className="text-input" placeholder="Software engineer" value={title} onChange={e => setTitle(e.target.value)} onBlur={() => title !== (me.title ?? '') && void save({ title: title.trim() })} />
+      </div>
+      <div className="field-row">
+        <div><div className="field-label">Username</div><div className="field-help">One word, like a nickname or first name</div></div>
+        <input className="text-input" aria-label="Username" placeholder={me.name.split(' ')[0].toLowerCase()} value={username} onChange={e => setUsername(e.target.value.replace(/\s+/g, ''))} onBlur={() => username !== (me.username ?? '') && void save({ username })} />
       </div>
     </div>
   );
 }
 
 function NotificationSettings() {
+  const { sub } = useParams();
+  const navigate = useNavigate();
   const snap = useApp(s => s.snap)!;
-  const n = snap.workspace.preferences.notify;
-  const save = async (k: string, v: boolean) => { await api.updatePreferences({ notify: { ...n, [k]: v } }); await useApp.getState().bootstrap(); };
-  const rows: Array<[keyof typeof n, string, string]> = [
-    ['assigned', 'Assignments', 'Someone assigns an issue to you.'],
-    ['statusChanged', 'Status changes', 'An issue you subscribe to changes status — an agent finishing work, for example.'],
-    ['comments', 'Comments and replies', 'Someone comments on an issue you subscribe to, or replies in your thread.'],
-    ['mentions', 'Mentions', 'Someone @mentions you in an issue or comment.'],
-  ];
-  return (
-    <div className="settings-card">
-      <h1>Notifications</h1>
-      <div className="field-help" style={{ marginBottom: 12 }}>What lands in your inbox. You're subscribed to issues you create, are assigned, comment on or are mentioned in — toggle any issue with ⇧S.</div>
-      {rows.map(([k, label, help]) => (
-        <div key={k} className="field-row">
-          <div><div className="field-label">{label}</div><div className="field-help">{help}</div></div>
-          <SettingSwitch on={n[k]} onChange={v => void save(k, v)} />
+  const push = snap.workspace.preferences.push;
+  const [inbox, setInbox] = useState(readInboxPrefs);
+  const patchInbox = (p: Parameters<typeof writeInboxPrefs>[0]) => { writeInboxPrefs(p); setInbox(readInboxPrefs()); };
+  const priorityCats = inbox.priorityCats ?? DEFAULT_PRIORITY_CATS;
+  const savePush = async (p: Partial<typeof push>) => { await api.updatePreferences({ push: { ...push, ...p } }); await useApp.getState().bootstrap(); };
+  const [perm, setPerm] = useState(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
+  const back = <Link to="/settings/notifications" className="settings-crumb"><IconBack size={13} /> Notifications</Link>;
+  const catRows = (on: (c: NotifyCategory) => boolean, set: (c: NotifyCategory, v: boolean) => void, disabled = false) => (
+    <div className="card set-list">
+      {NOTIFY_CATEGORIES.map(([c, label, help]) => (
+        <div key={c} className={`set-row notif-row${disabled ? ' dim' : ''}`}>
+          <div style={{ flex: 1 }}><div className="field-label">{label}</div><div className="field-help">{help}</div></div>
+          <SettingSwitch on={on(c)} onChange={v => set(c, v)} />
         </div>
       ))}
     </div>
   );
+  if (sub === 'priority') return (
+    <div className="settings-card">
+      {back}
+      <h1>Priority notifications</h1>
+      <div className="field-help" style={{ marginBottom: 16 }}>With Priority inbox on, these kinds sit above everything else in your inbox.</div>
+      {catRows(c => priorityCats.includes(c), (c, v) => patchInbox({ priorityCats: v ? [...priorityCats, c] : priorityCats.filter(x => x !== c) }))}
+    </div>
+  );
+  if (sub === 'desktop') return (
+    <div className="settings-card">
+      {back}
+      <h1>Desktop</h1>
+      <div className="field-help" style={{ marginBottom: 16 }}>Notifications from this browser while Baseline is open in a tab, even in the background</div>
+      <div className="card set-list">
+        <div className="set-row notif-row">
+          <div style={{ flex: 1 }}><div className="field-label">Enable desktop notifications</div><div className="field-help">{perm === 'unsupported' ? 'This browser doesn’t support notifications.' : perm === 'denied' ? 'Notifications are blocked for this site — allow them in your browser’s site settings.' : perm === 'granted' ? 'Allowed in this browser.' : 'Your browser will ask for permission.'}</div></div>
+          <SettingSwitch on={push.desktop && perm === 'granted'} onChange={async v => {
+            if (v && perm !== 'granted' && typeof Notification !== 'undefined') { const r = await Notification.requestPermission(); setPerm(r); if (r !== 'granted') return; }
+            await savePush({ desktop: v });
+          }} />
+        </div>
+      </div>
+      <div className="settings-h2">General notifications</div>
+      {catRows(c => push.types[c], (c, v) => void savePush({ types: { ...push.types, [c]: v } }), !push.desktop)}
+    </div>
+  );
+  const enabledCount = Object.values(push.types).filter(Boolean).length;
+  return (
+    <div className="settings-card">
+      <h1>Notifications</h1>
+      <div className="settings-h2">Inbox</div>
+      <div className="field-help" style={{ marginBottom: 8 }}>Manage how notifications are organized in your inbox</div>
+      <div className="card set-list">
+        <div className="set-row notif-row">
+          <div style={{ flex: 1 }}><div className="field-label">Priority inbox</div><div className="field-help">Separate important notifications from the rest of your inbox</div></div>
+          <SettingSwitch on={!!inbox.priority} onChange={v => patchInbox({ priority: v })} />
+        </div>
+        <button className={`set-row notif-row notif-link${inbox.priority ? '' : ' dim'}`} onClick={() => navigate('/settings/notifications/priority')}>
+          <div style={{ flex: 1, textAlign: 'left' }}><div className="field-label">Priority notifications</div><div className="field-help">Choose which notifications are treated as priority</div></div>
+          <span className="set-meta">{priorityCats.length} types</span><IconChevronRight size={12} />
+        </button>
+      </div>
+      <div className="settings-h2">Push notifications</div>
+      <div className="field-help" style={{ marginBottom: 8 }}>Choose which notifications are pushed to your devices. All notifications will still appear in your inbox.</div>
+      <div className="card set-list">
+        <button className="set-row notif-row notif-link" onClick={() => navigate('/settings/notifications/desktop')}>
+          <span className="notif-icon"><IconPanel size={14} /></span>
+          <div style={{ flex: 1, textAlign: 'left' }}><div className="field-label">Desktop</div><div className="field-help"><span className={`notif-dot${push.desktop && perm === 'granted' ? ' on' : ''}`} />{push.desktop && perm === 'granted' ? (enabledCount === NOTIFY_CATEGORIES.length ? 'Enabled for all notifications' : `Enabled for ${enabledCount} types`) : 'Disabled'}</div></div>
+          <IconChevronRight size={12} />
+        </button>
+      </div>
+    </div>
+  );
 }
 
-function TeamEditor(props: { teamId: string }) {
+function TeamEditor(props: { teamId: string; part?: 'states' | 'cycles' }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const moreMenu = useMenu();
@@ -490,7 +684,7 @@ function TeamEditor(props: { teamId: string }) {
 
   return (
     <div style={{ marginBottom: 28 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      {!props.part && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span className="ws-avatar" style={{ background: team.color, borderRadius: 4 }}>{team.key.slice(0, 2)}</span>
         {editingName ? (
           <input className="text-input" style={{ height: 26, width: 180 }} autoFocus value={nameDraft}
@@ -503,7 +697,7 @@ function TeamEditor(props: { teamId: string }) {
         <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{team.key}</span>
         <span style={{ flex: 1 }} />
         <button className="icon-btn" title="More team actions" onClick={moreMenu.open}><IconClose size={0} /><span style={{ fontSize: 13 }}>…</span></button>
-      </div>
+      </div>}
       {moreMenu.anchor && (
         <Menu anchor={moreMenu.anchor} onClose={moreMenu.close}>
           <div className="menu-header"><span>{team.key}</span></div>
@@ -521,7 +715,7 @@ function TeamEditor(props: { teamId: string }) {
         </Menu>
       )}
 
-      <div className="card" style={{ padding: '8px 10px' }}>
+      {props.part !== 'cycles' && <div className="card" style={{ padding: '8px 10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '4px 0' }}>
           <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Workflow states</span>
           <span style={{ flex: 1 }} />
@@ -547,9 +741,9 @@ function TeamEditor(props: { teamId: string }) {
         {states.map((s, i) => (
           <StateRow key={s.id} stateId={s.id} onMove={dir => moveState(s.id, dir)} canUp={i > 0} canDown={i < states.length - 1} />
         ))}
-      </div>
+      </div>}
 
-      <div className="card" style={{ padding: '8px 10px', marginTop: 8 }}>
+      {props.part !== 'states' && <div className="card" style={{ padding: '8px 10px', marginTop: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '4px 0' }}>
           <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Cycles</span>
           <span style={{ flex: 1 }} />
@@ -567,7 +761,7 @@ function TeamEditor(props: { teamId: string }) {
           </div>
         ))}
         {cycles.length === 0 && !addingCycle && <div style={{ color: 'var(--text-dim)', padding: '4px 0', fontSize: 12 }}>No cycles yet.</div>}
-      </div>
+      </div>}
     </div>
   );
 }
@@ -798,12 +992,13 @@ function MembersSettings() {
 }
 
 /* ---------------- labels CRUD ---------------- */
-function LabelsSettings() {
+function LabelsSettings(props: { onlyTeamId?: string } = {}) {
   const snap = useApp(s => s.snap)!;
+  const teams = props.onlyTeamId ? snap.teams.filter(t => t.id === props.onlyTeamId) : snap.teams;
   const toast = useApp(s => s.toast);
   const [name, setName] = useState('');
   const [color, setColor] = useState(LABEL_COLORS[0]);
-  const [teamId, setTeamId] = useState(snap.teams[0]?.id ?? '');
+  const [teamId, setTeamId] = useState(props.onlyTeamId ?? snap.teams[0]?.id ?? '');
   const [editing, setEditing] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editColor, setEditColor] = useState('#8a8f98');
@@ -816,7 +1011,7 @@ function LabelsSettings() {
   return (
     <div className="settings-card">
       <h1>Labels</h1>
-      {snap.teams.map(t => (
+      {teams.map(t => (
         <div key={t.id} style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>{t.name}</div>
           <div className="card" style={{ padding: '6px 10px' }}>
@@ -868,7 +1063,7 @@ function LabelsSettings() {
         <div><div className="field-label">Create label</div></div>
         <div className="label-form">
           <select className="text-input" value={teamId} onChange={e => setTeamId(e.target.value)}>
-            {snap.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <div style={{ display: 'flex', gap: 3 }}>
             {LABEL_COLORS.map(c => (
@@ -979,10 +1174,11 @@ function ClaudeCodeSettings() {
 }
 
 /* ---------------- issue templates ---------------- */
-function TemplatesSettings() {
+function TemplatesSettings(props: { onlyTeamId?: string } = {}) {
   const snap = useApp(s => s.snap)!;
+  const teams = props.onlyTeamId ? snap.teams.filter(t => t.id === props.onlyTeamId) : snap.teams;
   const toast = useApp(s => s.toast);
-  const [teamId, setTeamId] = useState(snap.teams[0]?.id ?? '');
+  const [teamId, setTeamId] = useState(props.onlyTeamId ?? snap.teams[0]?.id ?? '');
   const [name, setName] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState({ name: '', title: '', description: '' });
@@ -1010,7 +1206,7 @@ function TemplatesSettings() {
       <div className="field-help" style={{ marginBottom: 12 }}>
         Starter text for new issues. Templates are offered in the create modal and make hand-off prompts consistently rich.
       </div>
-      {snap.teams.map(t => {
+      {teams.map(t => {
         const tpls = snap.templates.filter(x => x.teamId === t.id);
         return (
           <div key={t.id} style={{ marginBottom: 14 }}>
@@ -1056,7 +1252,7 @@ function TemplatesSettings() {
         <div><div className="field-label">Create template</div><div className="field-help">Add the body from the template’s edit view after creating.</div></div>
         <div style={{ display: 'flex', gap: 6 }}>
           <select className="text-input" value={teamId} onChange={e => setTeamId(e.target.value)}>
-            {snap.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <input className="text-input" placeholder="Template name" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} />
           <button className="btn primary" onClick={create}>Create</button>

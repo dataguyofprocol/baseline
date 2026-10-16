@@ -216,3 +216,6 @@ export const IconCommit = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="2.3" 
 export const IconSliders = (p: P) => <S {...p}><path d="M2.5 4.5h10M2.5 10.5h10" {...stroke} /><circle cx="5.5" cy="4.5" r="1.5" {...stroke} fill="var(--bg-main, #fff)" /><circle cx="9.5" cy="10.5" r="1.5" {...stroke} fill="var(--bg-main, #fff)" /></S>;
 export const IconKeyboard = (p: P) => <S {...p}><rect x="1.8" y="3.8" width="11.4" height="7.4" rx="1.4" {...stroke} /><path d="M4.2 6.3h.1M6.4 6.3h.1M8.6 6.3h.1M10.8 6.3h.1M4.8 8.8h5.4" {...stroke} /></S>;
 export const IconStatusRing = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.3" {...stroke} /><path d="M7.5 2.2a5.3 5.3 0 0 1 0 10.6z" fill="currentColor" /></S>;
+export const IconShieldUser = (p: P) => <S {...p}><path d="M7.5 1.8 12.4 3.6v3.6c0 2.9-2 5-4.9 6-2.9-1-4.9-3.1-4.9-6V3.6L7.5 1.8Z" {...stroke} /><circle cx="7.5" cy="6.3" r="1.5" {...stroke} /><path d="M5.2 10.2c.5-1.1 1.3-1.7 2.3-1.7s1.8.6 2.3 1.7" {...stroke} /></S>;
+export const IconCode = (p: P) => <S {...p}><path d="M5.2 4.4 2.1 7.5l3.1 3.1M9.8 4.4l3.1 3.1-3.1 3.1" {...stroke} /></S>;
+export const IconSortDir = (p: P) => <S {...p}><path d="M3 4h6M3 7.5h4.2M3 11h2.4M11.5 3.5v8M9.6 9.6l1.9 1.9 1.9-1.9" {...stroke} /></S>;

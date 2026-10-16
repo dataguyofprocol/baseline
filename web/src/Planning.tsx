@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useApp, shortDate, relTime } from './store.js';
 import { api } from './api.js';
@@ -12,7 +12,7 @@ import { LogoMark } from './Logo.js';
 import { ProjectStatusIcon, projectProgress, namedStatus } from './Projects.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueViews.js';
 import { IssueListBody, ListToolbar } from './Views.js';
-import { IconPlus, IconClose, IconTrash, IconCalendar, IconUser, IconInitiative, IconRelease, IconCheck } from './icons.js';
+import { IconPlus, IconClose, IconTrash, IconCalendar, IconUser, IconInitiative, IconRelease, IconCheck, IconFilter, IconDisplay } from './icons.js';
 import type { Initiative, InitiativeStatus, ProjectHealth, ReleaseStage } from '../../src/core/types.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
@@ -44,8 +44,20 @@ export function InitiativesPage() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const { tab = 'active' } = useParams();
-  const [creating, setCreating] = useState(false);
-  const list = snap.initiatives.filter(i => !i.parentId && (tab === 'all' || i.status === tab));
+  const location = useLocation();
+  // N then I lands here with the create dialog open
+  const [creating, setCreating] = useState(() => !!(location.state as { create?: boolean } | null)?.create);
+  // filter and display, as on Linear's initiatives list (kept in this browser)
+  const [prefs, setPrefs] = useState<{ health: string[]; owners: string[]; order: 'manual' | 'name' | 'target' | 'created'; subs: boolean }>(() => {
+    try { return { health: [], owners: [], order: 'manual', subs: true, ...JSON.parse(localStorage.getItem('baseline:iniPrefs') ?? '{}') }; } catch { return { health: [], owners: [], order: 'manual', subs: true }; }
+  });
+  const patchPrefs = (p: Partial<typeof prefs>) => setPrefs(cur => { const n = { ...cur, ...p }; try { localStorage.setItem('baseline:iniPrefs', JSON.stringify(n)); } catch { /* ignore */ } return n; });
+  const filterMenu = useMenu(); const displayMenu = useMenu();
+  const order = (a: Initiative, b: Initiative) => prefs.order === 'name' ? a.name.localeCompare(b.name) : prefs.order === 'target' ? (a.targetDate ?? '9999').localeCompare(b.targetDate ?? '9999') : prefs.order === 'created' ? b.createdAt.localeCompare(a.createdAt) : a.position - b.position;
+  const list = snap.initiatives.filter(i => (prefs.subs ? !i.parentId : true) && (tab === 'all' || i.status === tab)
+    && (!prefs.health.length || prefs.health.includes(i.health ?? 'none')) && (!prefs.owners.length || prefs.owners.includes(i.ownerId ?? 'none'))).sort(order);
+  const toggle = (arr: string[], v: string) => arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
+  const filtered = prefs.health.length + prefs.owners.length;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={[{ label: 'Initiatives' }]} right={<button className="btn secondary" onClick={() => setCreating(true)}><IconPlus size={13} /> New initiative</button>} />
@@ -53,16 +65,40 @@ export function InitiativesPage() {
         {([['active', 'Active'], ['planned', 'Planned'], ['all', 'All initiatives']] as const).map(([k, l]) => (
           <button key={k} className={`seg ${tab === k ? 'selected' : ''}`} onClick={() => navigate(`/initiatives/view/${k}`)}>{l}{tab === k && <RegisterMark group="ini-tabs" />}</button>
         ))}
+        <span style={{ flex: 1 }} />
+        <button className={`icon-btn${filtered ? " on" : ""}`} title="Filter" onClick={filterMenu.open}><IconFilter size={15} /></button>
+        <button className="icon-btn" title="Display options" onClick={displayMenu.open}><IconDisplay size={15} /></button>
       </div>
+      {filterMenu.anchor && (
+        <Menu anchor={filterMenu.anchor} onClose={filterMenu.close} width={220}>
+          <div className="menu-header"><span>Health</span></div>
+          {[...HEALTH.map(h => [h[0], h[1]] as [string, string]), ['none', 'No updates'] as [string, string]].map(([k, l]) => <MenuItem key={k} label={l} selected={prefs.health.includes(k)} onClick={() => patchPrefs({ health: toggle(prefs.health, k) })} />)}
+          <MenuSep />
+          <div className="menu-header"><span>Owner</span></div>
+          {snap.users.filter(u => snap.initiatives.some(i => i.ownerId === u.id)).map(u => <MenuItem key={u.id} icon={<Avatar user={u} size={16} />} label={u.name} selected={prefs.owners.includes(u.id)} onClick={() => patchPrefs({ owners: toggle(prefs.owners, u.id) })} />)}
+          {filtered > 0 && <><MenuSep /><MenuItem label="Clear filters" onClick={() => patchPrefs({ health: [], owners: [] })} /></>}
+        </Menu>
+      )}
+      {displayMenu.anchor && (
+        <Menu anchor={displayMenu.anchor} onClose={displayMenu.close} width={260}>
+          <div className="dopts">
+            <div className="dopts-row"><span>Ordering</span>
+              <select className="text-input" style={{ width: 130, minWidth: 0 }} aria-label="Initiative ordering" value={prefs.order} onChange={e => patchPrefs({ order: e.target.value as typeof prefs.order })}>
+                <option value="manual">Manual</option><option value="name">Name</option><option value="target">Target date</option><option value="created">Created</option>
+              </select></div>
+            <div className="dopts-row"><span>Nest sub-initiatives</span><button className={`switch${prefs.subs ? ' on' : ''}`} role="switch" aria-checked={prefs.subs} onClick={() => patchPrefs({ subs: !prefs.subs })}><span /></button></div>
+          </div>
+        </Menu>
+      )}
       <div className="content">
         {!snap.initiatives.length ? (
           <div className="empty-state"><div className="empty-mark"><IconInitiative size={28} /></div><div className="empty-title">Initiatives</div>
             <div className="empty-desc">Initiatives are larger, strategic product efforts that set the direction of your company. They are comprised of all projects that align with the goals of the initiative and allow you to monitor their progress at scale.</div>
-            <div className="empty-actions"><button className="btn primary" onClick={() => setCreating(true)}>Create new initiative</button></div></div>
+            <div className="empty-actions"><button className="btn primary" onClick={() => setCreating(true)}>Create new initiative <span className="btn-keys"><span className="kbd">N</span>then<span className="kbd">I</span></span></button></div></div>
         ) : (
           <div className="wtable">
             <div className="wt-head wt-ini"><span>Name</span><span>Health</span><span>Owner</span><span>Target date</span><span className="num">Projects</span><span>Progress</span></div>
-            {list.map(i => <InitiativeRow key={i.id} ini={i} depth={0} />)}
+            {list.map(i => <InitiativeRow key={i.id} ini={i} depth={0} nest={prefs.subs} />)}
             {!list.length && <div className="set-empty">No {tab === 'all' ? '' : tab} initiatives</div>}
           </div>
         )}
@@ -72,7 +108,7 @@ export function InitiativesPage() {
   );
 }
 
-function InitiativeRow({ ini, depth }: { ini: Initiative; depth: number }) {
+function InitiativeRow({ ini, depth, nest = true }: { ini: Initiative; depth: number; nest?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const owner = snap.users.find(u => u.id === ini.ownerId);
@@ -89,7 +125,7 @@ function InitiativeRow({ ini, depth }: { ini: Initiative; depth: number }) {
         <span className="num mono">{prog.projects}</span>
         <span className="ini-prog"><span className="cy-bar" style={{ width: 80 }}><span className="cy-done" style={{ width: `${prog.pct}%` }} /></span><span className="mono">{prog.pct}%</span></span>
       </div>
-      {kids.map(k => <InitiativeRow key={k.id} ini={k} depth={depth + 1} />)}
+      {nest && kids.map(k => <InitiativeRow key={k.id} ini={k} depth={depth + 1} />)}
     </>
   );
 }

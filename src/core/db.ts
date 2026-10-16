@@ -222,6 +222,9 @@ function migrate(db: DatabaseSync): void {
   // the background runner was removed — its switch and bookkeeping go with it
   db.prepare("DELETE FROM meta WHERE key IN ('agentRunner', 'agentNudges')").run();
   if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
+  for (const [col, def] of [['title', "TEXT NOT NULL DEFAULT ''"], ['username', "TEXT NOT NULL DEFAULT ''"], ['avatar_url', 'TEXT']] as const) {
+    if (!columns('users').includes(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`);
+  }
 
   // threads, milestones on issues, creators, snoozed notifications, team automation
   if (!columns('comments').includes('parent_id')) db.exec('ALTER TABLE comments ADD COLUMN parent_id TEXT');
@@ -376,6 +379,11 @@ function migrate(db: DatabaseSync): void {
     ['cycle_upcoming', 'INTEGER NOT NULL DEFAULT 2'], ['cycle_rollover', 'INTEGER NOT NULL DEFAULT 1'],
     ['estimate_scale', "TEXT NOT NULL DEFAULT 'fibonacci'"],
   ] as const) if (!teamCols.includes(col)) db.exec(`ALTER TABLE teams ADD COLUMN ${col} ${def}`);
+  // Linear's estimate options; teams from before keep the 0 and 13/21 their Fibonacci scale offered
+  if (!teamCols.includes('estimate_zero')) {
+    db.exec('ALTER TABLE teams ADD COLUMN estimate_zero INTEGER NOT NULL DEFAULT 0; ALTER TABLE teams ADD COLUMN estimate_extended INTEGER NOT NULL DEFAULT 0; ALTER TABLE teams ADD COLUMN estimate_count_unestimated INTEGER NOT NULL DEFAULT 1');
+    db.exec("UPDATE teams SET estimate_zero = 1, estimate_extended = 1 WHERE estimate_scale = 'fibonacci'");
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,

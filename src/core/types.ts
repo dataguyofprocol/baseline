@@ -17,6 +17,12 @@ export interface User {
   color: string;
   admin: boolean;
   kind: 'human' | 'agent';
+  /** job title or role (Settings › Profile) */
+  title?: string;
+  /** one word, like a nickname — used for {username} in branch names */
+  username?: string;
+  /** uploaded profile picture */
+  avatarUrl?: string | null;
 }
 
 export interface Team {
@@ -40,6 +46,12 @@ export interface Team {
   /** unfinished issues move into the next cycle when a cycle ends */
   cycleRollover: boolean;
   estimateScale: EstimateScale;
+  /** issues can be estimated with zero points */
+  estimateZero?: boolean;
+  /** the scale goes further (13, 21… / 32, 64…) */
+  estimateExtended?: boolean;
+  /** unestimated issues count as 1 point in totals */
+  estimateCountUnestimated?: boolean;
 }
 
 export type EstimateScale = 'none' | 'linear' | 'exponential' | 'fibonacci' | 'tshirt';
@@ -48,9 +60,26 @@ export const ESTIMATE_SCALES: Record<EstimateScale, Array<{ value: number; label
   none: [],
   linear: [1, 2, 3, 4, 5].map(v => ({ value: v, label: String(v) })),
   exponential: [1, 2, 4, 8, 16].map(v => ({ value: v, label: String(v) })),
-  fibonacci: [0, 1, 2, 3, 5, 8, 13, 21].map(v => ({ value: v, label: String(v) })),
+  fibonacci: [1, 2, 3, 5, 8].map(v => ({ value: v, label: String(v) })),
   tshirt: [[1, 'XS'], [2, 'S'], [3, 'M'], [5, 'L'], [8, 'XL']].map(([v, l]) => ({ value: v as number, label: l as string })),
 };
+const EXTENDED: Record<EstimateScale, Array<{ value: number; label: string }>> = {
+  none: [],
+  linear: [6, 7, 8, 9, 10].map(v => ({ value: v, label: String(v) })),
+  exponential: [32, 64].map(v => ({ value: v, label: String(v) })),
+  fibonacci: [13, 21].map(v => ({ value: v, label: String(v) })),
+  tshirt: [[13, 'XXL'], [21, 'XXXL']].map(([v, l]) => ({ value: v as number, label: l as string })),
+};
+/** the points a team offers, with its zero / extended options applied */
+export function teamScale(team: Pick<Team, 'estimateScale' | 'estimateZero' | 'estimateExtended'> | undefined): Array<{ value: number; label: string }> {
+  const scale = team?.estimateScale ?? 'fibonacci';
+  if (scale === 'none') return [];
+  return [...(team?.estimateZero ? [{ value: 0, label: '0' }] : []), ...ESTIMATE_SCALES[scale], ...(team?.estimateExtended ? EXTENDED[scale] : [])];
+}
+/** an issue's weight in point totals: unestimated counts as 1 where the team says so */
+export function pointsOf(issue: { estimate: number | null; teamId: string }, teams: Array<Pick<Team, 'id' | 'estimateCountUnestimated'>>): number {
+  return issue.estimate ?? (teams.find(t => t.id === issue.teamId)?.estimateCountUnestimated ? 1 : 0);
+}
 
 export interface WorkflowState {
   id: string;
@@ -255,6 +284,47 @@ export interface IssuePr { issueId: string; prId: string; kind: 'closing' | 'ref
 export interface Commit { sha: string; repo: string; message: string; author: string; branch: string; committedAt: string }
 export interface IssueCommit { issueId: string; sha: string }
 export interface TeamSubscription { issueAdded: boolean; issueClosed: boolean; triage: boolean }
+/** a team's Workflows & automations (Linear's auto-close, auto-archive and re-order settings) */
+export interface TeamWorkflow {
+  /** close an open parent when its last sub-issue closes */
+  closeParent: boolean;
+  /** close the open sub-issues when their parent closes */
+  closeSubIssues: boolean;
+  /** close issues nobody has touched in `staleMonths` */
+  closeStale: boolean;
+  staleMonths: number;
+  /** the status stale issues move to (null: the team's first canceled status) */
+  staleStateId: string | null;
+  /** archive closed issues this many months after they closed (0: never) */
+  archiveMonths: number;
+  /** where an issue lands in its new status column when its status moves forward */
+  reorder: 'first' | 'last' | 'none';
+}
+export const DEFAULT_TEAM_WORKFLOW: TeamWorkflow = { closeParent: false, closeSubIssues: false, closeStale: false, staleMonths: 6, staleStateId: null, archiveMonths: 6, reorder: 'first' };
+export type ApiKeyScope = 'read' | 'write' | 'createIssues' | 'createComments' | 'admin';
+/** a personal API key; the token itself is shown once and never stored */
+export interface ApiKey {
+  id: string;
+  name: string;
+  userId: string;
+  /** last four characters of the token */
+  hint: string;
+  /** null = full access */
+  scopes: ApiKeyScope[] | null;
+  /** null = every team */
+  teamIds: string[] | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export const API_KEY_SCOPES: Array<[ApiKeyScope, string, string]> = [
+  ['read', 'Read', 'Read all workspace data available to you'],
+  ['write', 'Write', 'Read and write all workspace data available to you'],
+  ['createIssues', 'Create issues', 'Create and update issues'],
+  ['createComments', 'Create comments', 'Create issue comments'],
+  ['admin', 'Admin', 'Access admin-only API features'],
+];
+
 export type PrEvent = 'draft' | 'opened' | 'review' | 'ready' | 'merged';
 /** per team: which workflow state each PR event moves a closing-linked issue to (null = no action) */
 export type PrAutomation = Record<PrEvent, string | null> & { branchRules: Array<{ pattern: string; event: PrEvent; stateId: string | null }> };
@@ -296,8 +366,12 @@ export interface WorkspaceFeatures {
   githubEnabled: boolean;
   /** branch name format for "Copy git branch": {issueIdentifier} {issueTitle} {username} */
   branchFormat: string;
+  /** who may create personal API keys */
+  apiKeyCreation: 'all' | 'admins';
+  /** when BASELINE_HOST opens Baseline to the network, requests from other devices need an API key */
+  apiKeyRequiredRemote: boolean;
 }
-export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null, initiativesEnabled: true, releasesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}' };
+export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null, initiativesEnabled: true, releasesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
 
 /** a directory on this machine that coding agents can work in — usually a git repo */
 export interface Location {
@@ -501,6 +575,10 @@ export type NotificationType =
   | 'loopFailed'
   /** team bell: an issue was added to a team you follow, closed, or landed in its triage */
   | 'teamActivity'
+  /** someone reacted to your comment */
+  | 'commentReacted'
+  /** someone else changed a document you wrote; body is "<docId>|<title>" */
+  | 'docChanged'
   /** raised by the app itself — no human actor, so the inbox row signs with the tile */
   | 'systemUpdate';
 
@@ -548,6 +626,8 @@ export interface Workspace {
   agentUserId: string | null;
   /** the server's home directory, so the web app can show paths as ~/… (server memory) */
   homeDir?: string;
+  /** set when BASELINE_HOST opens the server to other devices */
+  lanHost?: string;
   preferences: Preferences;
   features: WorkspaceFeatures;
 }
@@ -574,17 +654,57 @@ export interface Preferences {
   fontSize: 'small' | 'default' | 'large';
   /** show the hand cursor on clickable things */
   pointerCursors: boolean;
+  /** always underline links in text content */
+  underlineLinks: boolean;
+  /** new issues start assigned to you */
+  autoAssign: boolean;
+  /** moving an unassigned issue to a started status assigns it to you */
+  assignOnStart: boolean;
+  /** Settings › Notifications › Desktop: browser notifications, and which kinds */
+  push: { desktop: boolean; types: Record<NotifyCategory, boolean> };
   /** Customize sidebar: badge style, and when each item shows (hidden ones move to More) */
   sidebar: { badgeStyle: 'count' | 'dot' | 'none'; items: Record<string, SidebarVisibility> };
 }
 export type SidebarVisibility = 'show' | 'badged' | 'hide';
+/** the kinds Linear's notification settings speak in */
+export type NotifyCategory = 'assignments' | 'statusChanges' | 'comments' | 'mentions' | 'reactions' | 'subscriptions' | 'documents' | 'updates' | 'reminders' | 'loops' | 'triage';
+export const NOTIFY_CATEGORIES: Array<[NotifyCategory, string, string]> = [
+  ['assignments', 'Assignments', 'Assignments, unassignments, and membership changes'],
+  ['statusChanges', 'Status changes', 'Changes to the status, priority, and blocking relationships of issues'],
+  ['comments', 'Comments and replies', 'Comments, replies, and thread resolutions'],
+  ['mentions', 'Mentions', 'Mentions in comments or content'],
+  ['reactions', 'Reactions', 'Emoji reactions to your content'],
+  ['subscriptions', 'Subscriptions', 'Issues, projects, teams, and pull requests you’re subscribed to'],
+  ['documents', 'Document changes', 'Changes to document content, location, and subscriptions'],
+  ['updates', 'Updates', 'New project & initiative updates and reminders to post an update'],
+  ['reminders', 'Reminders and deadlines', 'Reminders, due dates, and SLA updates'],
+  ['loops', 'Loops', 'Messages, responses, and failures from loops'],
+  ['triage', 'Triage', 'Issues added to triage'],
+];
+export function notifyCategory(type: NotificationType, body = ''): NotifyCategory | null {
+  switch (type) {
+    case 'issueAssignedToYou': case 'issueAssigned': return 'assignments';
+    case 'issueStatusChanged': return 'statusChanges';
+    case 'issueCommented': case 'issueReplied': return 'comments';
+    case 'issueMentioned': return 'mentions';
+    case 'commentReacted': return 'reactions';
+    case 'docChanged': return 'documents';
+    case 'projectIssueAdded': case 'projectIssueClosed': case 'projectChanged': case 'prActivity': return 'subscriptions';
+    case 'teamActivity': return /triage/i.test(body) ? 'triage' : 'subscriptions';
+    case 'projectUpdate': case 'projectUpdateReminder': case 'pulseDigest': return 'updates';
+    case 'issueReminder': case 'slaBreached': return 'reminders';
+    case 'loopFailed': return 'loops';
+    default: return null;
+  }
+}
 export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', releases: 'show', asks: 'hide', pulse: 'show', customers: 'show', teams: 'hide', members: 'hide' };
 
 export const DEFAULT_PREFERENCES: Preferences = {
   homeView: 'inbox', firstDayOfWeek: 1,
   notify: { assigned: true, statusChanged: true, comments: true, mentions: true },
   sidebar: { badgeStyle: 'count', items: {} },
-  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false,
+  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false,
+  push: { desktop: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
 };
 
 /** macOS terminals interactive sessions can open in, by app name (`open -a <name>`) */
@@ -635,6 +755,7 @@ export interface Snapshot {
   issueCommits: IssueCommit[];
   /** the team bell: which team events reach your inbox */
   teamSubscriptions: Record<string, TeamSubscription>;
+  teamWorkflows: Record<string, TeamWorkflow>;
   recurring: RecurringIssue[];
   locations: Location[];
   projectUpdates: ProjectUpdate[];

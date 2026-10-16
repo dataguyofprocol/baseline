@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Store } from './store.js';
 import { getMeta, setMeta } from './db.js';
 import { id } from './util.js';
-import type { AskField, AskForm, Issue, Loop, LoopAction, LoopRun, LoopTrigger, Priority, SlaRule, TeamSubscription, WorkflowStateType } from './types.js';
+import { DEFAULT_TEAM_WORKFLOW, type AskField, type AskForm, type Issue, type Loop, type LoopAction, type LoopRun, type LoopTrigger, type Priority, type SlaRule, type TeamSubscription, type TeamWorkflow, type WorkflowStateType } from './types.js';
 
 const ts = () => new Date().toISOString();
 const HOUR = 3600_000;
@@ -21,8 +21,8 @@ export class Automation {
   private running = false;
 
   constructor(private store: Store, private db: DatabaseSync) {
-    store.issueHooks.push((before, after, actorId) => { this.applySla(after); this.notifyTeam(before, after, actorId); if (!this.running) this.fireIssueLoops(before, after, actorId); });
-    store.tickHooks.push(now => { this.checkBreaches(now); this.runScheduledLoops(now); });
+    store.issueHooks.push((before, after, actorId) => { this.applySla(after); this.notifyTeam(before, after, actorId); this.applyWorkflow(before, after); if (!this.running) this.fireIssueLoops(before, after, actorId); });
+    store.tickHooks.push(now => { this.checkBreaches(now); this.runScheduledLoops(now); this.sweepWorkflows(now); });
   }
 
   private rows<T>(sql: string, ...args: Array<string | number | null>): T[] { return this.db.prepare(sql).all(...args) as unknown as T[]; }
@@ -38,7 +38,83 @@ export class Automation {
       .map(l => ({ id: l.id, name: l.name, teamId: l.team_id, trigger: JSON.parse(l.trigger), actions: JSON.parse(l.actions), enabled: !!l.enabled, lastRunAt: l.last_run_at, createdAt: l.created_at }));
     const loopRuns: LoopRun[] = this.rows<{ id: string; loop_id: string; issue_id: string | null; ok: number; detail: string; created_at: string }>('SELECT * FROM loop_runs ORDER BY created_at DESC LIMIT 200')
       .map(r => ({ id: r.id, loopId: r.loop_id, issueId: r.issue_id, ok: !!r.ok, detail: r.detail, createdAt: r.created_at }));
-    return { slaRules, askForms, loops, loopRuns, teamSubscriptions: this.teamSubscriptions() };
+    return { slaRules, askForms, loops, loopRuns, teamSubscriptions: this.teamSubscriptions(), teamWorkflows: this.teamWorkflows() };
+  }
+
+  // ================= team workflows & automations =================
+  teamWorkflows(): Record<string, TeamWorkflow> {
+    let saved: Record<string, Partial<TeamWorkflow>> = {};
+    try { saved = JSON.parse(getMeta(this.db, 'teamWorkflows') ?? '{}'); } catch { /* defaults */ }
+    const out: Record<string, TeamWorkflow> = {};
+    for (const t of this.rows<{ id: string }>('SELECT id FROM teams')) out[t.id] = { ...DEFAULT_TEAM_WORKFLOW, ...(saved[t.id] ?? {}) };
+    return out;
+  }
+  setTeamWorkflow(teamId: string, patch: Partial<TeamWorkflow>): TeamWorkflow {
+    let saved: Record<string, Partial<TeamWorkflow>> = {};
+    try { saved = JSON.parse(getMeta(this.db, 'teamWorkflows') ?? '{}'); } catch { /* start over */ }
+    saved[teamId] = { ...DEFAULT_TEAM_WORKFLOW, ...(saved[teamId] ?? {}), ...patch };
+    setMeta(this.db, 'teamWorkflows', JSON.stringify(saved));
+    return saved[teamId] as TeamWorkflow;
+  }
+  private wfRunning = false;
+  private closed = (stateId: string) => { const t = this.stateType(stateId); return t === 'completed' || t === 'canceled'; };
+  /** auto-close parents / sub-issues and re-order on status changes, as the Automation agent */
+  private applyWorkflow(before: Issue | null, after: Issue): void {
+    if (!before || before.stateId === after.stateId || this.wfRunning) return;
+    const wf = this.teamWorkflows()[after.teamId];
+    if (!wf) return;
+    this.wfRunning = true;
+    try {
+      const bot = () => agentUser(this.store, this.db, 'Automation');
+      const type = this.stateType(after.stateId);
+      // re-order: an issue moving forward lands at the top (or bottom) of its new status; a hand-placed drop wins
+      if (wf.reorder !== 'none' && before.sortOrder === after.sortOrder) {
+        const order = ['triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled'];
+        const forward = order.indexOf(type ?? '') >= order.indexOf(this.stateType(before.stateId) ?? '');
+        const edge = this.db.prepare(`SELECT ${wf.reorder === 'last' && forward ? 'MAX' : 'MIN'}(sort_order) v FROM issues WHERE team_id = ? AND state_id = ? AND id != ?`).get(after.teamId, after.stateId, after.id) as { v: number | null };
+        if (edge.v != null) this.store.updateIssue(after.id, { sortOrder: wf.reorder === 'last' && forward ? edge.v + 1024 : edge.v - 1024 });
+      }
+      if (!this.closed(after.stateId) || this.closed(before.stateId)) return;
+      if (wf.closeSubIssues) {
+        for (const child of this.rows<{ id: string; team_id: string; state_id: string }>('SELECT id, team_id, state_id FROM issues WHERE parent_id = ? AND deleted_at IS NULL', after.id)) {
+          if (this.closed(child.state_id)) continue;
+          const target = this.firstStateOfType(child.team_id, type as WorkflowStateType);
+          if (target) this.store.updateIssue(child.id, { stateId: target }, bot());
+        }
+      }
+      if (wf.closeParent && after.parentId) {
+        const parent = this.store.getIssue(after.parentId);
+        const open = this.rows<{ state_id: string }>('SELECT state_id FROM issues WHERE parent_id = ? AND deleted_at IS NULL', after.parentId).some(c => !this.closed(c.state_id));
+        const target = parent && this.firstStateOfType(parent.teamId, 'completed');
+        if (parent && !open && !this.closed(parent.stateId) && target) this.store.updateIssue(parent.id, { stateId: target }, bot());
+      }
+    } finally { this.wfRunning = false; }
+  }
+  /** hourly: close stale issues and archive long-closed ones */
+  private sweepWorkflows(now: Date): void {
+    const last = getMeta(this.db, 'workflowSweepAt');
+    if (last && now.getTime() - Date.parse(last) < HOUR) return;
+    setMeta(this.db, 'workflowSweepAt', now.toISOString());
+    const monthsAgo = (m: number) => { const d = new Date(now); d.setMonth(d.getMonth() - m); return d.toISOString(); };
+    for (const [teamId, wf] of Object.entries(this.teamWorkflows())) {
+      if (wf.closeStale && wf.staleMonths > 0) {
+        const target = (wf.staleStateId && this.stateType(wf.staleStateId) ? wf.staleStateId : null) ?? this.firstStateOfType(teamId, 'canceled');
+        const stale = this.rows<{ id: string; state_id: string }>("SELECT id, state_id FROM issues WHERE team_id = ? AND deleted_at IS NULL AND archived_at IS NULL AND updated_at < ?", teamId, monthsAgo(wf.staleMonths));
+        for (const i of stale) if (target && !this.closed(i.state_id) && this.stateType(i.state_id) !== 'triage') this.store.updateIssue(i.id, { stateId: target }, agentUser(this.store, this.db, 'Automation'));
+      }
+      if (wf.archiveMonths > 0) {
+        const cutoff = monthsAgo(wf.archiveMonths);
+        const done = this.rows<{ id: string; project_id: string | null }>('SELECT id, project_id FROM issues WHERE team_id = ? AND deleted_at IS NULL AND archived_at IS NULL AND COALESCE(completed_at, canceled_at) < ?', teamId, cutoff);
+        for (const i of done) {
+          // an issue in a project waits until the project itself has been closed that long
+          if (i.project_id) {
+            const p = this.db.prepare('SELECT status, completed_at FROM projects WHERE id = ?').get(i.project_id) as { status: string; completed_at: string | null } | undefined;
+            if (p && !((p.status === 'completed' || p.status === 'canceled') && (p.completed_at ?? '') < cutoff)) continue;
+          }
+          this.store.updateIssue(i.id, { archivedAt: now.toISOString() }, agentUser(this.store, this.db, 'Automation'));
+        }
+      }
+    }
   }
 
   // ================= team bell =================

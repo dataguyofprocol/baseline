@@ -7,8 +7,8 @@ import { createApp, serve } from '../server/index.js';
 import { isDirectory, LaunchError, openInClaudeCode } from '../server/launch.js';
 import { resolveDbPath } from '../core/db.js';
 import { seedWorkspace } from '../core/seed.js';
-import { issueKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS } from '../core/types.js';
-import type { Priority, RelationType, Snapshot, Team, User, WorkflowState, Label, Project, Issue, Location } from '../core/types.js';
+import { issueKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS, API_KEY_SCOPES } from '../core/types.js';
+import type { Priority, RelationType, Snapshot, Team, User, WorkflowState, Label, Project, Issue, Location, ApiKeyScope } from '../core/types.js';
 
 const program = new Command();
 program.name('baseline').description('Local issue & project tracker with a Linear-quality UI').version('0.1.0');
@@ -1290,6 +1290,31 @@ withDb(release.command('update <release>')).description('Change a release (stage
     console.log(`Updated release ${r.name}`); process.exit(0);
   });
 
+// ---------- personal API keys ----------
+const apiKey = program.command('api-key').description('Personal API keys for the REST API (Authorization: Bearer <key>)');
+withDb(apiKey.command('list')).description('List your API keys').option('--all', 'every member\'s keys', false).option('--json', 'output as JSON', false).action((opts: { db?: string; all?: boolean; json?: boolean }) => {
+  const store = storeFor(opts.db); const snap = store.snapshot();
+  const keys = store.ext.apiKeys.list(opts.all ? undefined : snap.currentUser.id);
+  if (opts.json) console.log(JSON.stringify(keys, null, 2));
+  else if (!keys.length) console.log('No API keys');
+  else for (const k of keys) console.log(`${k.id}  ${k.name.padEnd(20)} …${k.hint}  ${k.scopes ? k.scopes.join(',') : 'full access'}${k.teamIds ? ` · teams ${k.teamIds.map(t => snap.teams.find(x => x.id === t)?.key ?? t).join(',')}` : ''}  ${k.lastUsedAt ? `used ${k.lastUsedAt.slice(0, 10)}` : 'never used'}`);
+  process.exit(0);
+});
+withDb(apiKey.command('create <name>')).description('Create a key; prints the token once')
+  .option('-s, --scope <scopes...>', `limit permissions: ${API_KEY_SCOPES.map(([k]) => k).join('|')}`).option('-t, --team <keys...>', 'limit to these teams')
+  .action((name: string, opts: { db?: string; scope?: string[]; team?: string[] }) => {
+    const store = storeFor(opts.db); const snap = store.snapshot();
+    for (const sc of opts.scope ?? []) if (!API_KEY_SCOPES.some(([k]) => k === sc)) fail(`Unknown permission "${sc}"`);
+    const teamIds = opts.team?.map(k => snap.teams.find(t => t.key.toLowerCase() === k.toLowerCase())?.id ?? fail(`Unknown team "${k}"`));
+    const { token } = store.ext.apiKeys.create({ name, userId: snap.currentUser.id, scopes: (opts.scope as ApiKeyScope[] | undefined) ?? null, teamIds: teamIds ?? null });
+    console.log(token); process.exit(0);
+  });
+withDb(apiKey.command('revoke <id>')).description('Revoke a key by id or name').action((ref: string, opts: { db?: string }) => {
+  const store = storeFor(opts.db);
+  const k = store.ext.apiKeys.list().find(x => x.id === ref || x.name === ref) ?? fail(`Unknown API key "${ref}"`);
+  store.ext.apiKeys.revoke(k.id); console.log(`Revoked ${k.name}`); process.exit(0);
+});
+
 // ---------- SLAs, asks, loops, git ----------
 const sla = program.command('sla').description('SLA rules: deadlines for matching issues');
 withDb(sla.command('list')).description('List SLA rules and breached issues').action((opts: { db?: string }) => {
@@ -1438,11 +1463,11 @@ withAs(withDb(doc.command('create <title>'))).description('Create a document on 
     console.log(`Created document ${d.id} "${d.title}"`);
     process.exit(0);
   });
-withDb(doc.command('update <doc>')).description('Change a document\'s title or content')
+withAs(withDb(doc.command('update <doc>'))).description('Change a document\'s title or content')
   .option('--title <text>', 'new title')
   .option('--content <markdown>', 'replace the body (Markdown); use - to read stdin')
   .option('--append <markdown>', 'add to the end of the body')
-  .action(async (ref: string, opts: { db?: string; title?: string; content?: string; append?: string }) => {
+  .action(async (ref: string, opts: { db?: string; title?: string; content?: string; append?: string; as?: string }) => {
     const store = storeFor(opts.db);
     const d = resolveDoc(store.snapshot(), ref);
     const patch: { title?: string; content?: string } = {};
@@ -1450,7 +1475,7 @@ withDb(doc.command('update <doc>')).description('Change a document\'s title or c
     if (opts.content !== undefined) patch.content = opts.content === '-' ? await readStdin() : opts.content;
     if (opts.append !== undefined) patch.content = `${(patch.content ?? d.content).replace(/\s+$/, '')}\n\n${opts.append}`;
     if (!Object.keys(patch).length) fail('Nothing to change — pass --title, --content or --append');
-    store.updateDoc(d.id, patch);
+    store.updateDoc(d.id, patch, actorId(store.snapshot(), opts.as));
     console.log(`Updated document "${patch.title ?? d.title}"`);
     process.exit(0);
   });

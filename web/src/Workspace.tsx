@@ -9,7 +9,7 @@ import { Avatar, StateIcon, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { Markdown } from './Markdown.js';
 import { LogoMark } from './Logo.js';
-import { IconPlus, IconSearch, IconTrash, IconClose, IconStar, IconCheck, IconEdit, IconPulse, IconCustomers } from './icons.js';
+import { IconPlus, IconSearch, IconTrash, IconClose, IconStar, IconCheck, IconEdit, IconPulse, IconCustomers, IconCycle, IconBox } from './icons.js';
 import { SIDEBAR_DEFAULTS, type SidebarVisibility } from '../../src/core/types.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
@@ -343,11 +343,11 @@ export function TeamsPage() {
             return (
               <div key={t.id} className="wt-row wt-teams" onClick={() => navigate(`/team/${t.key}/overview`)}>
                 <span className="wt-name">{teamDisplayIcon(t)}<span>{t.name}</span><span className="dim mono">{t.key}</span></span>
-                <span className="dim wt-clip">{t.description?.replace(/\s+/g, ' ') || '—'}</span>
-                <span><span className="plabel-chip"><IconCheck size={11} /> Joined</span></span>
+                <span className="dim wt-clip">{t.description?.replace(/\s+/g, ' ') || ''}</span>
+                <span className="wt-joined"><IconCheck size={12} /> Joined</span>
                 <span><AvatarStack size={18} people={members.slice(0, 5).map(u => ({ name: u!.name, initials: u!.initials, color: u!.color }))} /></span>
-                <span className="mono">{cur ? `#${cur.number}` : <span className="dim">—</span>}</span>
-                <span className="mono">{active}</span>
+                <span className="wt-iconnum">{cur ? <><IconCycle size={12} />{cur.number}</> : null}</span>
+                <span className="wt-iconnum"><IconBox size={12} />{active}</span>
               </div>
             );
           })}
@@ -378,16 +378,16 @@ export function MembersPage() {
       <div className="subnav"><div className="set-filter" style={{ border: 0, margin: 0, flex: 1 }}><IconSearch size={13} /><input placeholder="Find members…" value={q} onChange={e => setQ(e.target.value)} /></div></div>
       <div className="content">
         <div className="wtable">
-          <div className="wt-head wt-members"><span>Name</span><span>Status</span><span>Joined</span><span>Teams</span><span>Last seen</span></div>
+          <div className="wt-head wt-members"><span>Name ↓</span><span>Status</span><span>Joined</span><span>Teams</span><span>Last seen</span></div>
           {list.map(u => {
             const teams = snap.teams.filter(t => snap.issues.some(i => i.teamId === t.id && (i.assigneeId === u.id || i.creatorId === u.id)));
             const me = u.id === snap.currentUser.id;
             return (
-              <div key={u.id} className="wt-row wt-members" onClick={() => navigate(`/my-issues`)}>
-                <span className="wt-name"><Avatar user={u} size={22} /><span className="wt-stack"><span>{u.name}</span><span className="dim">{u.email}</span></span></span>
+              <div key={u.id} className="wt-row wt-members" onClick={() => navigate(`/profiles/${u.id}`)}>
+                <span className="wt-name"><Avatar user={u} size={22} /><span className="wt-stack"><span>{u.name}</span><span className="dim">{u.username || u.email}</span></span></span>
                 <span>{u.kind === 'agent' ? <span className="plabel-chip">Agent</span> : u.admin ? <span className="plabel-chip admin">Admin</span> : <span className="plabel-chip">Member</span>}</span>
                 <span className="mono dim">{firstSeen.get(u.id) ? shortDate(firstSeen.get(u.id)!) : shortDate(snap.workspace.createdAt)}</span>
-                <span className="wt-teams-cell">{teams.map(t => <span key={t.id} className="plabel-chip">{t.key}</span>)}</span>
+                <span className="wt-teams-cell">{teams.map(t => <span key={t.id} className="wt-team"><span className="ws-avatar" style={{ background: t.color, borderRadius: 3, fontSize: 7, width: 13, height: 13 }}>{t.key[0]}</span>{t.key}</span>)}</span>
                 <span>{me ? <span className="online"><span className="online-dot" />Online</span> : <span className="dim mono">{lastSeen.get(u.id) ? relTime(lastSeen.get(u.id)!) : '—'}</span>}</span>
               </div>
             );

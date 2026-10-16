@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from './store.js';
 import { api } from './api.js';
@@ -10,7 +11,7 @@ import { CustomizeSidebar, sidebarVisibility, useDrafts } from './Workspace.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues, IconCycle, IconTeam, IconHelp, IconCaret,
   IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
-  IconTriage, IconArchive, IconTrash, IconLink, IconPlus, IconPulse, IconCustomers, IconDrafts, IconMembers, IconHome, IconInitiative, IconRelease, IconAsk,
+  IconTriage, IconArchive, IconTrash, IconLink, IconPlus, IconPulse, IconCustomers, IconDrafts, IconMembers, IconHome, IconInitiative, IconRelease, IconAsk, IconKeyboard,
 } from './icons.js';
 
 /** Panel-with-a-left-rail glyph: the standard "toggle the nav" affordance. */
@@ -39,6 +40,14 @@ function useSectionState(): [Record<string, boolean>, (id: string, fallback?: bo
 export function Sidebar() {
   const snap = useApp(s => s.snap);
   const resolvedTheme = useApp(s => s.resolvedTheme);
+  // ? opens the help menu from anywhere
+  const helpMenu = useMenu();
+  const helpRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const open = () => { const r = helpRef.current?.getBoundingClientRect(); if (r) helpMenu.setAnchor(r); };
+    window.addEventListener('baseline:help-menu', open);
+    return () => window.removeEventListener('baseline:help-menu', open);
+  }, [helpMenu.setAnchor]);
   const workspaceMenu = useMenu();
   const moreMenu = useMenu();
   const collapsed = useApp(s => s.sidebarCollapsed);
@@ -99,6 +108,9 @@ export function Sidebar() {
             return { id: f.id, label, icon: <IconIssues size={14} />, to: `/team/${t.key}/${filter}` };
           }
         }
+        const labelMatch = /^label-(.+)$/.exec(f.refId);
+        const l = labelMatch && snap.labels.find(x => x.id === labelMatch[1]);
+        if (l) return { id: f.id, label: l.name, icon: <span className="label-dot" style={{ background: l.color }} />, to: `/labels/${l.id}` };
         return null;
       }
       if (f.type === 'initiative') {
@@ -174,7 +186,9 @@ export function Sidebar() {
             <SectionHeader label="Favorites" open={isOpen('favorites')} onToggle={() => toggleSection('favorites')} />
             {isOpen('favorites') && (
               <div className="nav-group">
-                {favorites.map(f => <Nav key={f.id} to={f.to} icon={f.icon} label={f.label} title={f.title} />)}
+                {favorites.map(f => f.to.startsWith('/projects/')
+                  ? <ProjectHoverCard key={f.id} projectId={f.to.slice('/projects/'.length)}><Nav to={f.to} icon={f.icon} label={f.label} title="" /></ProjectHoverCard>
+                  : <Nav key={f.id} to={f.to} icon={f.icon} label={f.label} title={f.title} />)}
               </div>
             )}
           </>
@@ -238,9 +252,17 @@ export function Sidebar() {
       )}
 
       <div className="sidebar-footer">
-        <button className="footer-help" title="Keyboard shortcuts (?)" onClick={() => useApp.getState().setShortcuts(true)}>
+        <button className="footer-help" title="Help (?)" ref={helpRef} onClick={helpMenu.open}>
           <IconHelp size={15} />
         </button>
+        {helpMenu.anchor && (
+          <Menu anchor={helpMenu.anchor} onClose={helpMenu.close} width={230}>
+            <MenuItem icon={<IconKeyboard size={14} />} label="Keyboard shortcuts" right={<span className="mi-kbd">⌘/</span>} onClick={() => useApp.getState().setShortcuts(true)} />
+            <MenuItem icon={<IconSearch size={14} />} label="Command menu" right={<span className="mi-kbd">⌘K</span>} onClick={() => useApp.getState().setPalette(true)} />
+            <MenuItem icon={<IconSettings size={14} />} label="Settings" right={<span className="mi-kbd">G then S</span>} onClick={() => navigate('/settings/workspace')} />
+            <MenuItem icon={<IconArchive size={14} />} label="Import & export" onClick={() => navigate('/settings/data')} />
+          </Menu>
+        )}
         <span style={{ flex: 1 }} />
         <button
           className="icon-btn footer-btn"
@@ -266,6 +288,38 @@ function SectionHeader(props: { label: string; open: boolean; onToggle: () => vo
     </button>
   );
   return props.action ? <div className="nav-section-row">{btn}{props.action}</div> : btn;
+}
+
+/* Linear's sidebar preview: rest on a favorite project and its card appears beside it */
+function ProjectHoverCard(props: { projectId: string; children: React.ReactNode }) {
+  const snap = useApp(s => s.snap)!;
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const p = snap.projects.find(x => x.id === props.projectId);
+  if (!p) return <>{props.children}</>;
+  const issues = snap.issues.filter(i => i.projectId === p.id);
+  const done = issues.filter(i => ['completed', 'canceled'].includes(snap.states.find(s => s.id === i.stateId)?.type ?? '')).length;
+  const pct = issues.length ? Math.round((done / issues.length) * 100) : 0;
+  const team = snap.teams.find(t => t.id === p.teamId);
+  const status = snap.projectStatuses.find(s => s.id === p.statusId)?.name ?? p.status;
+  const lead = snap.users.find(u => u.id === p.leadId);
+  return (
+    <div onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); clearTimeout(timer.current); timer.current = setTimeout(() => setPos({ x: r.right + 6, y: r.top }), 450); }}
+      onMouseLeave={() => { clearTimeout(timer.current); setPos(null); }}>
+      {props.children}
+      {pos && createPortal(
+        <div className="hover-card" style={{ left: pos.x, top: Math.min(pos.y, window.innerHeight - 170) }} data-hover-card>
+          <div className="hc-title"><span>{p.icon}</span>{p.name}</div>
+          {(p.summary || p.description) && <div className="hc-desc">{p.summary || p.description.replace(/[#*_`>]/g, '').slice(0, 140)}</div>}
+          <div className="hc-props">
+            <span>{status.charAt(0).toUpperCase() + status.slice(1)}</span>
+            {team && <span><span className="ws-avatar" style={{ background: team.color, borderRadius: 3, fontSize: 7, width: 13, height: 13 }}>{team.key[0]}</span>{team.name}</span>}
+            {lead && <span>{lead.name}</span>}
+            <span>{pct}% of {issues.length}</span>
+          </div>
+        </div>, document.body)}
+    </div>
+  );
 }
 
 function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: number; end?: boolean; title?: string; isActive?: (loc: { pathname: string }) => boolean }) {
@@ -299,7 +353,7 @@ function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: 
 
 /* ---------------- top bar ---------------- */
 export function TopBar(props: {
-  crumbs: Array<{ label: string; icon?: React.ReactNode; to?: string; muted?: boolean }>;
+  crumbs: Array<{ label: string; icon?: React.ReactNode; to?: string; muted?: boolean; onClick?: (e: React.MouseEvent) => void }>;
   right?: React.ReactNode;
   favoriteRef?: { type: string; refId: string };
   more?: React.ReactNode;
@@ -327,7 +381,9 @@ export function TopBar(props: {
         {props.crumbs.map((c, i) => (
           <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {i > 0 && <span className="crumb-sep">›</span>}
-            {c.to
+            {c.onClick
+              ? <button className={`crumb crumb-menu ${c.muted ? 'muted' : ''}`} onClick={c.onClick}>{c.icon}<span className="crumb-label">{c.label}</span><IconChevronDown size={11} style={{ color: 'var(--text-dim)' }} /></button>
+              : c.to
               ? <Link to={c.to} className={`crumb ${c.muted ? 'muted' : ''}`}>{c.icon}<span className="crumb-label">{c.label}</span></Link>
               : <span className={`crumb ${c.muted ? 'muted' : ''}`}>{c.icon}<span className="crumb-label">{c.label}</span></span>}
           </span>
@@ -335,6 +391,7 @@ export function TopBar(props: {
         {props.favoriteRef && (
           <button
             className="icon-btn" style={{ marginLeft: 4, width: 22, height: 22, color: faved ? 'var(--brand)' : undefined }}
+            data-favorite-star
             title={faved ? 'Remove from favorites' : 'Add to favorites'}
             onClick={async () => {
               await api.toggleFavorite(props.favoriteRef!.type, props.favoriteRef!.refId);

@@ -99,7 +99,8 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Project saved views: Views has Issues | Projects tabs; a project view keeps filters, grouping, ordering, layout and properties; ⌥V saves whatever list is on screen
 
 ## 7. Command palette (⌘K)
-- ✅ Fuzzy subsequence search with scoring; sections: Navigation, Actions, Teams, Projects, Views, Issues
+- ✅ Linear's default command list and grouping, multi-key hints; O then I · P · F · C · L · U · V · D · S pickers; N then P · I · D; V creates full screen; Export issues as CSV; user (profile) and label pages; `?` help menu; ⌘/ shortcuts drawer; ⌘⇧C copies the page URL; Not found page
+- ✅ Fuzzy subsequence search with scoring over commands, issues, projects, views and documents
 - ✅ Commands: go to inbox/my issues/projects/views/settings pages, per-team home/cycles, create issue, create project, switch theme, shortcuts overlay, copy as prompt (when an issue is in view)
 - ✅ Acts on the open / peeked / hovered issue when nothing is selected: assign to me, relations, remind, move team, subscribe, copy ID/URL/title/branch/Markdown/prompt; navigation to triage, archive, current cycle, search, trash, settings pages
 
@@ -115,6 +116,11 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Import & export: export JSON, import JSON (full restore), reset sample workspace
 - ✅ Account: Preferences (home view, first day of week, theme), Profile (name, email, avatar colour), Notifications (per kind)
 - ✅ Recurring issues per team (daily / weekly / every 2 weeks / monthly); any issue converts to one, or to a template, or to a project
+- ✅ Preferences: Underline links, Auto-assign to self (off by default, as in Linear), On move to started status assign to yourself
+- ✅ Profile: picture upload, title, username (feeds `{username}` in branch names)
+- ✅ Notifications: Priority inbox + which kinds count as priority; Desktop push by category through browser notifications (also from a background tab); reaction and document-change notifications
+- ✅ Team settings hub (Linear's layout): General (name, identifier, description, estimates with zero / extended / count-unestimated), Members, Issue labels, Templates, Recurring issues, Issue statuses, Workflows & automations (PR automations, auto-close parent / sub-issues / stale issues, auto-archive, re-order on status change), Triage, Cycles, Danger zone
+- ✅ Security & access: personal API keys (name, permissions, team limits, shown once, last used, revoke); Administration › API: who may create keys, every issued key, require a key from other devices
 - ✅ Per-team page: triage, estimate scale (none / exponential / fibonacci / linear / t-shirt), cycle automation (length, cooldown, upcoming, rollover), workflow, cycles
 
 ## 9. Inbox & notifications
@@ -144,8 +150,8 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ ? opens the searchable cheatsheet (also in Settings › Keyboard shortcuts), one source for both
 
 ## 12. Non-UI (agentic core)
-- ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution for agent identities; JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
+- ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution for agent identities; personal API keys for the REST API (`Authorization: Bearer <key>`, `baseline api-key create|list|revoke`); JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
 
 ## Known gaps (deliberate)
-- Initiatives (removed from the model earlier), customer requests, integrations, SSO, billing
+- Slack, SSO, billing, OAuth apps and webhooks (declined; see JOURNEYS.md › Not built)
 - See JOURNEYS.md for the journey-by-journey comparison with Linear
