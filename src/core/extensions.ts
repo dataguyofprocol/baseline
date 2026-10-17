@@ -23,6 +23,14 @@ export interface Extensions {
   importData(data: Record<string, unknown>, insert: (table: string, cols: string[], row: Record<string, unknown>) => void): void;
 }
 
+/** initiatives made before sequential ids (or imported from an older backup) get theirs in creation order */
+function numberInitiatives(db: DatabaseSync): void {
+  const unnumbered = db.prepare('SELECT id FROM initiatives WHERE number IS NULL ORDER BY created_at, position').all() as Array<{ id: string }>;
+  if (!unnumbered.length) return;
+  let n = (db.prepare('SELECT COALESCE(MAX(number), 0) n FROM initiatives').get() as { n: number }).n;
+  for (const r of unnumbered) db.prepare('UPDATE initiatives SET number = ? WHERE id = ?').run(++n, r.id);
+}
+
 function migrateExtensions(db: DatabaseSync): void {
   const columns = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map(c => c.name);
   const issueCols = columns('issues');
@@ -43,6 +51,13 @@ function migrateExtensions(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS initiative_updates (
       id TEXT PRIMARY KEY, initiative_id TEXT NOT NULL REFERENCES initiatives(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL, body TEXT NOT NULL, health TEXT, created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS initiative_labels (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#5e6ad2', description TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS initiative_links (
+      id TEXT PRIMARY KEY, initiative_id TEXT NOT NULL REFERENCES initiatives(id) ON DELETE CASCADE,
+      url TEXT NOT NULL, title TEXT NOT NULL, created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS releases (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', stage TEXT NOT NULL DEFAULT 'planned',
@@ -91,9 +106,14 @@ function migrateExtensions(db: DatabaseSync): void {
     );
   `);
   const iniCols = columns('initiatives');
-  for (const [col, def] of [['summary', "TEXT NOT NULL DEFAULT ''"], ['target_resolution', 'TEXT']] as const) {
+  for (const [col, def] of [['summary', "TEXT NOT NULL DEFAULT ''"], ['target_resolution', 'TEXT'], ['number', 'INTEGER'], ['priority', 'INTEGER NOT NULL DEFAULT 0'],
+    ['labels', "TEXT NOT NULL DEFAULT '[]'"], ['team_id', 'TEXT'], ['update_cadence', 'TEXT']] as const) {
     if (!iniCols.includes(col)) db.exec(`ALTER TABLE initiatives ADD COLUMN ${col} ${def}`);
   }
+  numberInitiatives(db);
+  if (!columns('initiative_updates').includes('reactions')) db.exec("ALTER TABLE initiative_updates ADD COLUMN reactions TEXT NOT NULL DEFAULT '{}'");
+  // documents can live on an initiative too (its Resources)
+  if (!columns('documents').includes('initiative_id')) db.exec('ALTER TABLE documents ADD COLUMN initiative_id TEXT');
 }
 
 export function createExtensions(store: Store, db: DatabaseSync): Extensions {
@@ -108,15 +128,19 @@ export function createExtensions(store: Store, db: DatabaseSync): Extensions {
     planning, automation, git, apiKeys, webhooks,
     snapshot: () => ({ ...planning.snapshot(), ...automation.snapshot(), ...git.snapshot() }),
     // api_keys are not exported or imported: only their hashes exist
-    tables: ['github_issue_imports', 'github_deliveries', 'api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'releases', 'initiative_updates', 'initiative_projects', 'initiatives'],
+    tables: ['github_issue_imports', 'github_deliveries', 'api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'releases', 'initiative_links', 'initiative_updates', 'initiative_projects', 'initiatives', 'initiative_labels'],
     importData(data, insert) {
       const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : []);
       for (const x of arr<Record<string, unknown>>(data.initiatives)) {
-        insert('initiatives', ['id', 'name', 'description', 'summary', 'icon', 'color', 'status', 'health', 'owner_id', 'target_date', 'target_resolution', 'parent_id', 'position', 'created_at', 'updated_at'],
-          { ...x, description: x.description ?? '', summary: x.summary ?? '', icon: x.icon ?? '🎯', color: x.color ?? '#5e6ad2', status: x.status ?? 'planned', health: x.health ?? null, owner_id: x.ownerId ?? null, target_date: x.targetDate ?? null, target_resolution: x.targetResolution ?? null, parent_id: x.parentId ?? null, position: x.position ?? 0, created_at: x.createdAt, updated_at: x.updatedAt ?? x.createdAt });
+        insert('initiatives', ['id', 'name', 'description', 'summary', 'icon', 'color', 'status', 'health', 'owner_id', 'target_date', 'target_resolution', 'parent_id', 'position', 'created_at', 'updated_at', 'number', 'priority', 'labels', 'team_id', 'update_cadence'],
+          { ...x, description: x.description ?? '', summary: x.summary ?? '', icon: x.icon ?? '🎯', color: x.color ?? '#5e6ad2', status: x.status ?? 'planned', health: x.health ?? null, owner_id: x.ownerId ?? null, target_date: x.targetDate ?? null, target_resolution: x.targetResolution ?? null, parent_id: x.parentId ?? null, position: x.position ?? 0, created_at: x.createdAt, updated_at: x.updatedAt ?? x.createdAt,
+            number: x.number ?? null, priority: x.priority ?? 0, labels: JSON.stringify(x.labelIds ?? []), team_id: x.teamId ?? null, update_cadence: x.updateCadence ?? null });
         for (const pid of arr<string>(x.projectIds)) insert('initiative_projects', ['initiative_id', 'project_id'], { initiative_id: x.id, project_id: pid });
       }
-      for (const x of arr<Record<string, unknown>>(data.initiativeUpdates)) insert('initiative_updates', ['id', 'initiative_id', 'user_id', 'body', 'health', 'created_at'], { ...x, initiative_id: x.initiativeId, user_id: x.userId, health: x.health ?? null, created_at: x.createdAt });
+      numberInitiatives(db);
+      for (const x of arr<Record<string, unknown>>(data.initiativeLabels)) insert('initiative_labels', ['id', 'name', 'color', 'description', 'created_at'], { ...x, description: x.description ?? '', created_at: x.createdAt });
+      for (const x of arr<Record<string, unknown>>(data.initiativeUpdates)) insert('initiative_updates', ['id', 'initiative_id', 'user_id', 'body', 'health', 'created_at', 'reactions'], { ...x, initiative_id: x.initiativeId, user_id: x.userId, health: x.health ?? null, created_at: x.createdAt, reactions: JSON.stringify(x.reactions ?? {}) });
+      for (const x of arr<Record<string, unknown>>(data.initiativeLinks)) insert('initiative_links', ['id', 'initiative_id', 'url', 'title', 'created_at'], { ...x, initiative_id: x.initiativeId, created_at: x.createdAt });
       for (const x of arr<Record<string, unknown>>(data.releases)) insert('releases', ['id', 'name', 'description', 'stage', 'team_id', 'target_date', 'released_at', 'created_at'], { ...x, description: x.description ?? '', team_id: x.teamId ?? null, target_date: x.targetDate ?? null, released_at: x.releasedAt ?? null, created_at: x.createdAt });
       for (const x of arr<Record<string, unknown>>(data.slaRules)) insert('sla_rules', ['id', 'name', 'team_id', 'priorities', 'labels', 'hours', 'enabled', 'created_at'], { ...x, team_id: x.teamId ?? null, priorities: JSON.stringify(x.priorities ?? []), labels: JSON.stringify(x.labelIds ?? []), enabled: x.enabled === false ? 0 : 1, created_at: x.createdAt });
       for (const x of arr<Record<string, unknown>>(data.askForms)) insert('ask_forms', ['id', 'name', 'description', 'team_id', 'fields', 'labels', 'priority', 'enabled', 'created_at'], { ...x, description: x.description ?? '', team_id: x.teamId, fields: JSON.stringify(x.fields ?? []), labels: JSON.stringify(x.labelIds ?? []), priority: x.priority ?? 0, enabled: x.enabled === false ? 0 : 1, created_at: x.createdAt });

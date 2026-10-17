@@ -14,7 +14,7 @@ import { SlaSettings, AsksSettings, LoopsSettings } from './AutomationUI.js';
 import { GitHubSettings, PrAutomationSettings } from './GitHubUI.js';
 import { CustomizeSidebar } from './Workspace.js';
 import { SecuritySettings, NewApiKey, ApiAdminSettings } from './ApiKeysUI.js';
-import { ProjectLabelsSettings, ProjectStatusesSettings, ProjectUpdatesSettings, DocumentsSettings, CustomerRequestsSettings, PulseSettings, EmojisSettings } from './SettingsMore.js';
+import { InitiativesSettings, ProjectLabelsSettings, ProjectStatusesSettings, ProjectUpdatesSettings, DocumentsSettings, CustomerRequestsSettings, PulseSettings, EmojisSettings } from './SettingsMore.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
 import { TERMINAL_APPS, NOTIFY_CATEGORIES, type NotifyCategory, type WorkflowStateType, type Priority, type TerminalApp } from '../../src/core/types.js';
 import { readInboxPrefs, writeInboxPrefs, DEFAULT_PRIORITY_CATS } from './Inbox.js';
@@ -107,7 +107,7 @@ export function SettingsLayout() {
         {section === 'asks' && <AsksSettings />}
         {section === 'loops' && <LoopsSettings />}
         {section === 'github' && <GitHubSettings />}
-        {section === 'initiatives' && <FeatureToggle title="Initiatives" flag="initiativesEnabled" help="Initiatives are larger, strategic efforts made of projects. They get their own status, owner, target date, health and updates, and can nest as sub-initiatives." link={['/initiatives', 'Open initiatives']} />}
+        {section === 'initiatives' && <InitiativesSettings />}
         {section === 'releases' && <FeatureToggle title="Releases" flag="releasesEnabled" help="Track which issues ship in each release: give issues a Release, move releases from Planned to In progress to Released." link={['/releases', 'Open releases']} />}
       </div>
     </div>

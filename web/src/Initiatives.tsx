@@ -11,15 +11,18 @@ import { useApp, shortDate, relTime, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, Modal, useMenu } from './ui.js';
-import { Avatar, CalendarGrid, StateIcon } from './pickers.js';
+import { Avatar, CalendarGrid, StateIcon, PriorityIcon, teamDisplayIcon } from './pickers.js';
 import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
 import { Markdown } from './Markdown.js';
-import { ProjectStatusIcon, projectProgress, namedStatus, ProgressRing } from './Projects.js';
+import { ProjectStatusIcon, projectProgress, namedStatus, ProgressRing, ProjectBoard, ProjectTimeline, groupProjects } from './Projects.js';
+import { Resources } from './Docs.js';
+import { ReactionChips, EmojiGlyph, REACTION_SET } from './IssueDetail.js';
 import { Illustration } from './illustrations.js';
 import {
   IconPlus, IconClose, IconTrash, IconCalendar, IconUser, IconInitiative, IconCheck, IconFilter, IconDisplay, IconLink, IconEdit, IconChevronDown,
+  IconTag, IconTeam, IconEmoji, IconClock, IconCopyId, IconList, IconBoard, IconTimeline, IconSettings,
 } from './icons.js';
-import type { DateResolution, Initiative, InitiativeStatus, ProjectHealth, Project } from '../../src/core/types.js';
+import { initiativeKey, PRIORITY_LABELS, UPDATE_CADENCE_LABELS, type DateResolution, type Initiative, type InitiativeStatus, type InitiativeUpdate, type Priority, type ProjectHealth, type Project, type UpdateCadence } from '../../src/core/types.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 const refresh = () => useApp.getState().bootstrap();
@@ -202,16 +205,61 @@ function ActivityGlyph({ level }: { level: 0 | 1 | 2 | 3 }) {
 }
 
 /* ================= list ================= */
-type Col = 'owner' | 'target' | 'health' | 'projects' | 'active' | 'activity' | 'status' | 'progress';
+type Col = 'id' | 'priority' | 'labels' | 'team' | 'owner' | 'target' | 'health' | 'projects' | 'active' | 'activity' | 'status' | 'progress';
 const COLS: Array<[Col, string, string]> = [
+  ['id', 'ID', '44px'], ['priority', 'Priority', '52px'], ['labels', 'Labels', '128px'], ['team', 'Team', '100px'],
   ['owner', 'Owner', '56px'], ['target', 'Target', '84px'], ['health', 'Health', '138px'], ['projects', 'Projects', '76px'],
   ['active', 'Active projects', '128px'], ['activity', 'Activity', '58px'], ['status', 'Status', '104px'], ['progress', 'Progress', '104px'],
 ];
-interface IniPrefs { health: string[]; owners: string[]; statuses: string[]; order: 'manual' | 'name' | 'target' | 'created'; subs: boolean; summaries: boolean; cols: Record<Col, boolean>; collapsed: string[] }
+interface IniPrefs { health: string[]; owners: string[]; statuses: string[]; priorities: number[]; labels: string[]; order: 'manual' | 'name' | 'priority' | 'target' | 'created'; subs: boolean; summaries: boolean; cols: Record<Col, boolean>; collapsed: string[] }
 const DEFAULT_PREFS: IniPrefs = {
-  health: [], owners: [], statuses: [], order: 'manual', subs: true, summaries: true, collapsed: [],
-  cols: { owner: true, target: true, health: true, projects: true, active: true, activity: true, status: false, progress: false },
+  health: [], owners: [], statuses: [], priorities: [], labels: [], order: 'manual', subs: true, summaries: true, collapsed: [],
+  cols: { id: true, priority: true, labels: true, team: false, owner: true, target: true, health: true, projects: true, active: true, activity: true, status: false, progress: false },
 };
+const CLEAR_FILTERS: Partial<IniPrefs> = { health: [], owners: [], statuses: [], priorities: [], labels: [] };
+/** urgent first, no priority last (as Linear sorts priority) */
+const priorityRank = (p: Priority) => (p === 0 ? 5 : p);
+
+/* ---------- priority, labels, lead team ---------- */
+export function InitiativeLabelChips({ ini, max = 2 }: { ini: Pick<Initiative, 'labelIds'>; max?: number }) {
+  const snap = useApp(s => s.snap)!;
+  const labels = snap.initiativeLabels.filter(l => ini.labelIds.includes(l.id));
+  if (!labels.length) return null;
+  return <span className="plabel-chips">{labels.slice(0, max).map(l => <span key={l.id} className="plabel-chip"><span className="label-dot" style={{ background: l.color }} />{l.name}</span>)}{labels.length > max && <span className="plabel-chip">+{labels.length - max}</span>}</span>;
+}
+function PriorityMenuItems({ value, onPick }: { value: Priority; onPick: (p: Priority) => void }) {
+  return <>{([0, 1, 2, 3, 4] as Priority[]).map((v, n) => <MenuItem key={v} icon={<PriorityIcon priority={v} size={14} />} label={PRIORITY_LABELS[v]} selected={value === v} right={<span className="kbd">{n}</span>} onClick={() => onPick(v)} />)}</>;
+}
+/** toggle labels on an initiative; type a name that doesn't exist to create it */
+function LabelMenuBody({ ini, onChange }: { ini: Pick<Initiative, 'labelIds'>; onChange: (labelIds: string[]) => void }) {
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  const [q, setQ] = useState('');
+  const list = snap.initiativeLabels.filter(l => l.name.toLowerCase().includes(q.trim().toLowerCase()));
+  const exact = snap.initiativeLabels.some(l => l.name.toLowerCase() === q.trim().toLowerCase());
+  const toggle = (id: string) => onChange(ini.labelIds.includes(id) ? ini.labelIds.filter(x => x !== id) : [...ini.labelIds, id]);
+  return (
+    <>
+      <div className="menu-input menu-filter" onClick={e => e.stopPropagation()}><input autoFocus placeholder="Add labels…" value={q} onChange={e => setQ(e.target.value)} /></div>
+      {list.map(l => { const on = ini.labelIds.includes(l.id); return (
+        <button key={l.id} className="menu-item" onClick={e => { e.stopPropagation(); toggle(l.id); }}>
+          <span className={`mi-check${on ? ' on' : ''}`}>{on && <IconCheck size={11} />}</span><span className="mi-icon"><span className="label-dot" style={{ background: l.color }} /></span><span className="mi-label">{l.name}</span>
+        </button>
+      ); })}
+      {q.trim() && !exact && <MenuItem icon={<IconPlus size={13} />} label={`Create label “${q.trim()}”`} onClick={async () => {
+        await api.createInitiativeLabel({ name: q.trim(), color: INITIATIVE_COLORS[1 + (snap.initiativeLabels.length % (INITIATIVE_COLORS.length - 1))] });
+        await refresh(); const made = useApp.getState().snap?.initiativeLabels.find(l => l.name === q.trim()); if (made) onChange([...ini.labelIds, made.id]);
+      }} />}
+      {!snap.initiativeLabels.length && !q && <div className="menu-empty">No initiative labels yet — type to create one.</div>}
+      <MenuSep />
+      <MenuItem icon={<IconSettings size={13} />} label="Manage labels" onClick={() => navigate('/settings/initiatives')} />
+    </>
+  );
+}
+function TeamMenuItems({ value, onPick }: { value: string | null; onPick: (teamId: string | null) => void }) {
+  const snap = useApp(s => s.snap)!;
+  return <>{snap.teams.map(t => <MenuItem key={t.id} icon={teamDisplayIcon(t)} label={t.name} selected={value === t.id} onClick={() => onPick(t.id)} />)}<MenuSep /><MenuItem label="No lead team" selected={!value} onClick={() => onPick(null)} /></>;
+}
 
 export function InitiativesPage() {
   const snap = useApp(s => s.snap)!;
@@ -222,19 +270,21 @@ export function InitiativesPage() {
   const [creating, setCreating] = useState(() => !!(location.state as { create?: boolean } | null)?.create);
   useEffect(() => { if ((location.state as { create?: boolean } | null)?.create) setCreating(true); }, [location.state]);
   const [prefs, setPrefs] = useState<IniPrefs>(() => {
-    try { const p = JSON.parse(localStorage.getItem('baseline:iniPrefs') ?? '{}'); return { ...DEFAULT_PREFS, ...p, cols: { ...DEFAULT_PREFS.cols, ...(p.cols ?? {}) }, statuses: p.statuses ?? [], collapsed: p.collapsed ?? [] }; } catch { return DEFAULT_PREFS; }
+    try { const p = JSON.parse(localStorage.getItem('baseline:iniPrefs') ?? '{}'); return { ...DEFAULT_PREFS, ...p, cols: { ...DEFAULT_PREFS.cols, ...(p.cols ?? {}) }, statuses: p.statuses ?? [], priorities: p.priorities ?? [], labels: p.labels ?? [], collapsed: p.collapsed ?? [] }; } catch { return DEFAULT_PREFS; }
   });
   const patchPrefs = (p: Partial<IniPrefs>) => setPrefs(cur => { const n = { ...cur, ...p }; try { localStorage.setItem('baseline:iniPrefs', JSON.stringify(n)); } catch { /* ignore */ } return n; });
   const filterMenu = useMenu(); const displayMenu = useMenu();
-  const order = (a: Initiative, b: Initiative) => prefs.order === 'name' ? a.name.localeCompare(b.name) : prefs.order === 'target' ? (a.targetDate ?? '9999').localeCompare(b.targetDate ?? '9999') : prefs.order === 'created' ? b.createdAt.localeCompare(a.createdAt) : a.position - b.position;
+  const order = (a: Initiative, b: Initiative) => prefs.order === 'name' ? a.name.localeCompare(b.name) : prefs.order === 'priority' ? priorityRank(a.priority) - priorityRank(b.priority) || a.position - b.position : prefs.order === 'target' ? (a.targetDate ?? '9999').localeCompare(b.targetDate ?? '9999') : prefs.order === 'created' ? b.createdAt.localeCompare(a.createdAt) : a.position - b.position;
   const matches = (i: Initiative) => (tab === 'all' || i.status === tab)
     && (!prefs.statuses.length || prefs.statuses.includes(i.status))
-    && (!prefs.health.length || prefs.health.includes(i.health ?? 'none')) && (!prefs.owners.length || prefs.owners.includes(i.ownerId ?? 'none'));
+    && (!prefs.health.length || prefs.health.includes(i.health ?? 'none')) && (!prefs.owners.length || prefs.owners.includes(i.ownerId ?? 'none'))
+    && (!prefs.priorities.length || prefs.priorities.includes(i.priority))
+    && (!prefs.labels.length || prefs.labels.some(l => l === 'none' ? !i.labelIds.length : i.labelIds.includes(l)));
   // nested: a root shows when it, or anything under it, matches; children render as a tree beneath it
   const roots = snap.initiatives.filter(i => !prefs.subs || !i.parentId || !snap.initiatives.some(p => p.id === i.parentId))
     .filter(i => matches(i) || (prefs.subs && descendants(snap, i.id).some(matches))).sort(order);
-  const toggle = (arr: string[], v: string) => arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
-  const filtered = prefs.health.length + prefs.owners.length + prefs.statuses.length;
+  const toggle = <T,>(arr: T[], v: T) => arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
+  const filtered = prefs.health.length + prefs.owners.length + prefs.statuses.length + prefs.priorities.length + prefs.labels.length;
   const cols = COLS.filter(([k]) => prefs.cols[k]);
   const grid = `minmax(200px, 1fr) ${cols.map(c => c[2]).join(' ')}`;
   const counts = { active: snap.initiatives.filter(i => i.status === 'active').length, planned: snap.initiatives.filter(i => i.status === 'planned').length, all: snap.initiatives.length };
@@ -250,7 +300,7 @@ export function InitiativesPage() {
       {snap.initiatives.length > 0 && (
         <div className="ini-toolbar">
           <button className={`btn ghost sm${filtered ? ' on' : ''}`} onClick={filterMenu.open}><IconFilter size={13} /> Filter{filtered ? <span className="pill-count">{filtered}</span> : null}</button>
-          {filtered > 0 && <button className="btn ghost sm dim" onClick={() => patchPrefs({ health: [], owners: [], statuses: [] })}>Clear</button>}
+          {filtered > 0 && <button className="btn ghost sm dim" onClick={() => patchPrefs(CLEAR_FILTERS)}>Clear</button>}
           <span style={{ flex: 1 }} />
           <button className="btn ghost sm" onClick={displayMenu.open}><IconDisplay size={13} /> Display</button>
         </div>
@@ -259,6 +309,13 @@ export function InitiativesPage() {
         <Menu anchor={filterMenu.anchor} onClose={filterMenu.close} width={230}>
           <MenuSub icon={<StateIcon type="started" color="var(--text-secondary)" size={13} />} label="Status" right={prefs.statuses.length ? <span className="dim">{prefs.statuses.length}</span> : undefined}>
             {INITIATIVE_STATUS.map(([k, l]) => <MenuItem key={k} icon={<InitiativeStatusIcon status={k} />} label={l} selected={prefs.statuses.includes(k)} onClick={() => patchPrefs({ statuses: toggle(prefs.statuses, k) })} />)}
+          </MenuSub>
+          <MenuSub icon={<PriorityIcon priority={2} size={13} />} label="Priority" right={prefs.priorities.length ? <span className="dim">{prefs.priorities.length}</span> : undefined}>
+            {([1, 2, 3, 4, 0] as Priority[]).map(v => <MenuItem key={v} icon={<PriorityIcon priority={v} size={14} />} label={PRIORITY_LABELS[v]} selected={prefs.priorities.includes(v)} onClick={() => patchPrefs({ priorities: toggle(prefs.priorities, v) })} />)}
+          </MenuSub>
+          <MenuSub icon={<IconTag size={13} />} label="Labels" right={prefs.labels.length ? <span className="dim">{prefs.labels.length}</span> : undefined}>
+            {snap.initiativeLabels.map(l => <MenuItem key={l.id} icon={<span className="label-dot" style={{ background: l.color }} />} label={l.name} selected={prefs.labels.includes(l.id)} onClick={() => patchPrefs({ labels: toggle(prefs.labels, l.id) })} />)}
+            <MenuItem label="No labels" selected={prefs.labels.includes('none')} onClick={() => patchPrefs({ labels: toggle(prefs.labels, 'none') })} />
           </MenuSub>
           <MenuSub icon={<HealthIcon health="onTrack" size={13} />} label="Health" right={prefs.health.length ? <span className="dim">{prefs.health.length}</span> : undefined}>
             {[...HEALTH.map(h => [h[0], h[1]] as [string, string]), ['none', 'No updates'] as [string, string]].map(([k, l]) => <MenuItem key={k} icon={<HealthIcon health={k as ProjectHealth} />} label={l} selected={prefs.health.includes(k)} onClick={() => patchPrefs({ health: toggle(prefs.health, k) })} />)}
@@ -274,7 +331,7 @@ export function InitiativesPage() {
           <div className="dopts" onClick={e => e.stopPropagation()}>
             <div className="dopts-row"><span>Ordering</span>
               <select className="text-input" style={{ width: 130, minWidth: 0 }} aria-label="Initiative ordering" value={prefs.order} onChange={e => patchPrefs({ order: e.target.value as IniPrefs['order'] })}>
-                <option value="manual">Manual</option><option value="name">Name</option><option value="target">Target date</option><option value="created">Created</option>
+                <option value="manual">Manual</option><option value="name">Name</option><option value="priority">Priority</option><option value="target">Target date</option><option value="created">Created</option>
               </select></div>
             <div className="dopts-row"><span>Nest sub-initiatives</span><button className={`switch${prefs.subs ? ' on' : ''}`} role="switch" aria-checked={prefs.subs} onClick={() => patchPrefs({ subs: !prefs.subs })}><span /></button></div>
             <div className="dopts-row"><span>Show summaries</span><button className={`switch${prefs.summaries ? ' on' : ''}`} role="switch" aria-checked={prefs.summaries} onClick={() => patchPrefs({ summaries: !prefs.summaries })}><span /></button></div>
@@ -304,7 +361,7 @@ export function InitiativesPage() {
               <div className="ini-none">
                 <Illustration name="initiatives" small />
                 <div>No {tab === 'all' ? '' : `${tab} `}initiatives{filtered ? ' match these filters' : ''}</div>
-                {filtered > 0 ? <button className="btn secondary sm" onClick={() => patchPrefs({ health: [], owners: [], statuses: [] })}>Clear filters</button>
+                {filtered > 0 ? <button className="btn secondary sm" onClick={() => patchPrefs(CLEAR_FILTERS)}>Clear filters</button>
                   : <button className="btn secondary sm" onClick={() => setCreating(true)}><IconPlus size={12} /> New initiative</button>}
               </div>
             )}
@@ -337,8 +394,13 @@ function InitiativeRows(props: { ini: Initiative; depth: number; prefs: IniPrefs
   const iconY = summary ? 18 : 22;
   const x = (d: number) => 12 + d * 24 + 8; // icon centre at a depth
   const st = INITIATIVE_STATUS.find(s => s[0] === ini.status)!;
+  const team = snap.teams.find(t => t.id === ini.teamId);
   const cell = (c: Col): React.ReactNode => {
     switch (c) {
+      case 'id': return <span className="ini-key">{initiativeKey(ini)}</span>;
+      case 'priority': return <span title={PRIORITY_LABELS[ini.priority]} style={{ display: 'inline-flex' }}><PriorityIcon priority={ini.priority} size={14} /></span>;
+      case 'labels': return <InitiativeLabelChips ini={ini} />;
+      case 'team': return team ? <span className="ini-team">{teamDisplayIcon(team)}<span className="wt-clip">{team.name}</span></span> : <span className="ini-dash">—</span>;
       case 'owner': return owner ? <Avatar user={owner} size={18} /> : <span className="ini-dash">—</span>;
       case 'target': return ini.targetDate ? <span className="ini-target">{formatTarget(ini.targetDate, ini.targetResolution)}</span> : <span className="ini-dash">—</span>;
       case 'health': return latest
@@ -430,11 +492,15 @@ function InitiativeContextMenu({ ini, anchor, onClose }: { ini: Initiative; anch
       <MenuSub icon={<InitiativeStatusIcon status={ini.status} size={13} />} label="Status">
         {INITIATIVE_STATUS.map(([v, l]) => <MenuItem key={v} icon={<InitiativeStatusIcon status={v} />} label={l} selected={ini.status === v} onClick={() => void patch({ status: v })} />)}
       </MenuSub>
+      <MenuSub icon={<PriorityIcon priority={ini.priority} size={13} />} label="Priority"><PriorityMenuItems value={ini.priority} onPick={v => void patch({ priority: v })} /></MenuSub>
       <MenuSub icon={<IconUser size={13} />} label="Owner">
         {snap.users.filter(u => u.kind !== 'agent').map(u => <MenuItem key={u.id} icon={<Avatar user={u} size={16} />} label={u.name} selected={ini.ownerId === u.id} onClick={() => void patch({ ownerId: u.id })} />)}
       </MenuSub>
+      <MenuSub icon={<IconTag size={13} />} label="Labels" width={240}><LabelMenuBody ini={ini} onChange={labelIds => void patch({ labelIds })} /></MenuSub>
+      <MenuSub icon={<IconTeam size={13} />} label="Lead team"><TeamMenuItems value={ini.teamId} onPick={teamId => void patch({ teamId })} /></MenuSub>
       <MenuItem icon={<IconEdit size={14} />} label="Write update" onClick={() => navigate(`/initiatives/${ini.id}/updates`, { state: { compose: true } })} />
       <MenuItem icon={<IconLink size={14} />} label="Copy link" right={<span className="kbd">⌘⇧,</span>} onClick={async () => { if (await copyText(`${location.origin}/#/initiatives/${ini.id}`)) toast('Copied initiative link'); }} />
+      <MenuItem icon={<IconCopyId size={14} />} label="Copy ID" onClick={async () => { if (await copyText(initiativeKey(ini))) toast(`Copied ${initiativeKey(ini)}`); }} />
       <MenuSep />
       <MenuItem icon={<IconTrash size={14} />} danger label="Delete initiative" onClick={async () => { await api.deleteInitiative(ini.id); await refresh(); toast(`Deleted ${ini.name}`); }} />
     </Menu>
@@ -451,11 +517,15 @@ function NewInitiativeModal(props: { onClose: () => void; onCreated?: (id: strin
   const [color, setColor] = useState(() => INITIATIVE_COLORS[1 + Math.floor(Math.random() * (INITIATIVE_COLORS.length - 1))]);
   const [status, setStatus] = useState<InitiativeStatus>(props.initialStatus ?? 'planned');
   const [ownerId, setOwnerId] = useState<string | null>(snap.currentUser?.id ?? null);
-  const iconMenu = useMenu(); const statusMenu = useMenu(); const ownerMenu = useMenu();
+  const [priority, setPriority] = useState<Priority>(0);
+  const [labelIds, setLabelIds] = useState<string[]>([]);
+  const [teamId, setTeamId] = useState<string | null>(null);
+  const iconMenu = useMenu(); const statusMenu = useMenu(); const ownerMenu = useMenu(); const prioMenu = useMenu(); const labelMenu = useMenu(); const teamMenu = useMenu();
   const owner = snap.users.find(u => u.id === ownerId);
+  const team = snap.teams.find(t => t.id === teamId);
   const create = async () => {
     if (!name.trim()) return;
-    const { initiative } = await api.createInitiative({ name: name.trim(), summary, description, icon, color, ownerId, parentId: props.parentId ?? null, status });
+    const { initiative } = await api.createInitiative({ name: name.trim(), summary, description, icon, color, ownerId, parentId: props.parentId ?? null, status, priority, labelIds, teamId });
     await refresh(); props.onClose(); props.onCreated?.(initiative.id);
   };
   const parent = snap.initiatives.find(i => i.id === props.parentId);
@@ -471,13 +541,19 @@ function NewInitiativeModal(props: { onClose: () => void; onCreated?: (id: strin
         <input className="ini-modal-summary" placeholder="Add a short summary…" value={summary} onChange={e => setSummary(e.target.value)} />
         <div className="ini-modal-chips">
           <button className="prop-chip boxed" onClick={statusMenu.open}><InitiativeStatusIcon status={status} size={13} />{INITIATIVE_STATUS.find(s => s[0] === status)?.[1]}</button>
+          <button className="prop-chip boxed" onClick={prioMenu.open}><PriorityIcon priority={priority} size={13} />{priority ? PRIORITY_LABELS[priority] : 'Priority'}</button>
           <button className="prop-chip boxed" onClick={ownerMenu.open}>{owner ? <><Avatar user={owner} size={16} />{owner.name}</> : <><IconUser size={13} />Owner</>}</button>
+          <button className="prop-chip boxed" onClick={teamMenu.open}>{team ? <>{teamDisplayIcon(team)}{team.name}</> : <><IconTeam size={13} />Lead team</>}</button>
+          <button className="prop-chip boxed" onClick={labelMenu.open}>{labelIds.length ? <InitiativeLabelChips ini={{ labelIds }} /> : <><IconTag size={13} />Labels</>}</button>
         </div>
         <textarea className="ini-modal-desc" placeholder="Write a description, a goal or a plan…" value={description} onChange={e => setDescription(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void create(); }} />
       </div>
       <div className="sm-foot"><button className="btn ghost" onClick={props.onClose}>Cancel</button><button className="btn primary" disabled={!name.trim()} onClick={create}>Create initiative</button></div>
       {iconMenu.anchor && <Menu anchor={iconMenu.anchor} onClose={iconMenu.close} width={292}><IconPicker value={icon} color={color} onPick={p => { if (p.icon) setIcon(p.icon); if (p.color) setColor(p.color); }} /></Menu>}
       {statusMenu.anchor && <Menu anchor={statusMenu.anchor} onClose={statusMenu.close} width={200}>{INITIATIVE_STATUS.map(([v, l]) => <MenuItem key={v} icon={<InitiativeStatusIcon status={v} />} label={l} selected={status === v} onClick={() => setStatus(v)} />)}</Menu>}
+      {prioMenu.anchor && <Menu anchor={prioMenu.anchor} onClose={prioMenu.close} width={200}><PriorityMenuItems value={priority} onPick={setPriority} /></Menu>}
+      {teamMenu.anchor && <Menu anchor={teamMenu.anchor} onClose={teamMenu.close} width={220}><TeamMenuItems value={teamId} onPick={setTeamId} /></Menu>}
+      {labelMenu.anchor && <Menu anchor={labelMenu.anchor} onClose={labelMenu.close} width={240}><LabelMenuBody ini={{ labelIds }} onChange={setLabelIds} /></Menu>}
       {ownerMenu.anchor && <Menu anchor={ownerMenu.anchor} onClose={ownerMenu.close} width={220}>{snap.users.filter(u => u.kind !== 'agent').map(u => <MenuItem key={u.id} icon={<Avatar user={u} size={16} />} label={u.name} selected={ownerId === u.id} onClick={() => setOwnerId(u.id)} />)}<MenuSep /><MenuItem label="No owner" onClick={() => setOwnerId(null)} /></Menu>}
     </Modal>
   );
@@ -490,7 +566,8 @@ export function InitiativePage() {
   const navigate = useNavigate();
   const routeState = useLocation().state as { compose?: boolean } | null;
   const tab = rawTab === 'projects' || rawTab === 'updates' ? rawTab : 'overview';
-  const ini = snap.initiatives.find(i => i.id === initiativeId);
+  // /initiatives/I-12 works as well as the id
+  const ini = snap.initiatives.find(i => i.id === initiativeId) ?? (/^i-\d+$/i.test(initiativeId) ? snap.initiatives.find(i => i.number === Number(initiativeId.slice(2))) : undefined);
   useEffect(() => {
     if (!ini) return;
     const onKey = (e: KeyboardEvent) => {
@@ -511,6 +588,11 @@ export function InitiativePage() {
         right={<button className="icon-btn" title="Copy link · ⌘⇧," onClick={async () => { if (await copyText(link)) toast('Copied initiative link'); }}><IconLink size={15} /></button>}
         more={<>
           <MenuItem icon={<IconLink size={14} />} label="Copy link" onClick={async () => { if (await copyText(link)) toast('Copied initiative link'); }} />
+          <MenuItem icon={<IconCopyId size={14} />} label="Copy ID" right={<span className="dim">{initiativeKey(ini)}</span>} onClick={async () => { if (await copyText(initiativeKey(ini))) toast(`Copied ${initiativeKey(ini)}`); }} />
+          <MenuSub icon={<IconClock size={14} />} label="Update reminders" width={260}>
+            <MenuItem label={`Workspace default (${UPDATE_CADENCE_LABELS[snap.workspace.features.initiativeUpdateCadence].toLowerCase()})`} selected={!ini.updateCadence} onClick={async () => { await api.updateInitiative(ini.id, { updateCadence: null }); await refresh(); }} />
+            {(Object.keys(UPDATE_CADENCE_LABELS) as UpdateCadence[]).map(c => <MenuItem key={c} label={UPDATE_CADENCE_LABELS[c]} selected={ini.updateCadence === c} onClick={async () => { await api.updateInitiative(ini.id, { updateCadence: c }); await refresh(); }} />)}
+          </MenuSub>
           <MenuSep />
           <MenuItem icon={<IconTrash size={14} />} danger label="Delete initiative" onClick={async () => { await api.deleteInitiative(ini.id); await refresh(); navigate('/initiatives'); toast(`Deleted ${ini.name}`); }} />
         </>} />
@@ -539,10 +621,11 @@ function InitiativeOverview({ ini }: { ini: Initiative }) {
   const [summary, setSummary] = useState(ini.summary);
   useEffect(() => { setName(ini.name); setSummary(ini.summary); }, [ini.id, ini.name, ini.summary]);
   const menu = useMenu();
-  const [kind, setKind] = useState<'icon' | 'status' | 'owner' | 'target' | 'parent' | null>(null);
+  const [kind, setKind] = useState<'icon' | 'status' | 'priority' | 'owner' | 'team' | 'labels' | 'target' | 'parent' | null>(null);
   const open = (k: typeof kind) => (e: React.MouseEvent) => { setKind(k); menu.open(e); };
   const owner = snap.users.find(u => u.id === ini.ownerId);
   const parent = snap.initiatives.find(i => i.id === ini.parentId);
+  const team = snap.teams.find(t => t.id === ini.teamId);
   const prog = initiativeProgress(snap, ini);
   const latest = snap.initiativeUpdates.find(u => u.initiativeId === ini.id);
   const below = new Set(descendants(snap, ini.id).map(d => d.id));
@@ -557,10 +640,14 @@ function InitiativeOverview({ ini }: { ini: Initiative }) {
 
       <div className="proj-props-row">
         <span className="ppr-label">Properties</span>
+        <button className="prop-chip ghost ini-key-chip" title="Copy ID" onClick={async () => { if (await copyText(initiativeKey(ini))) toast(`Copied ${initiativeKey(ini)}`); }}>{initiativeKey(ini)}</button>
         <button className="prop-chip ghost" data-iprop="status" onClick={open('status')}><InitiativeStatusIcon status={ini.status} size={13} />{st[1]}</button>
+        <button className={`prop-chip ghost${ini.priority ? '' : ' dim'}`} data-iprop="priority" onClick={open('priority')}><PriorityIcon priority={ini.priority} size={13} />{ini.priority ? PRIORITY_LABELS[ini.priority] : 'Priority'}</button>
         <button className="prop-chip ghost" onClick={open('owner')}>{owner ? <><Avatar user={owner} size={16} />{owner.name}</> : <><IconUser size={13} />Owner</>}</button>
+        <button className={`prop-chip ghost${team ? '' : ' dim'}`} data-iprop="team" onClick={open('team')}>{team ? <>{teamDisplayIcon(team)}{team.name}</> : <><IconTeam size={13} />Lead team</>}</button>
         <button className="prop-chip ghost" onClick={open('target')}><IconCalendar size={13} />{ini.targetDate ? formatTarget(ini.targetDate, ini.targetResolution) : 'Target date'}</button>
         <button className={`prop-chip ghost${parent ? '' : ' dim'}`} onClick={open('parent')}>{parent ? <><InitiativeIcon ini={parent} size={13} />{parent.name}</> : <><IconInitiative size={13} />Parent initiative</>}</button>
+        <button className={`prop-chip ghost${ini.labelIds.length ? '' : ' dim'}`} data-iprop="labels" onClick={open('labels')}>{ini.labelIds.length ? <InitiativeLabelChips ini={ini} max={4} /> : <><IconTag size={13} />Labels</>}</button>
       </div>
       <div className="proj-props-row">
         <span className="ppr-label">Progress</span>
@@ -568,7 +655,10 @@ function InitiativeOverview({ ini }: { ini: Initiative }) {
         <span className="prop-chip ghost static"><ProjectsGlyph size={13} />{prog.projects} project{prog.projects === 1 ? '' : 's'}</span>
       </div>
 
+      <Resources initiativeId={ini.id} />
+
       <InitiativeUpdateCard ini={ini} latest={latest} />
+      <InitiativeUpdateDue ini={ini} />
 
       <div className="proj-section-label">Description</div>
       <div className="proj-desc"><RichEditor key={ini.id} value={ini.description} uploadTo={`initiative:${ini.id}`} placeholder="Add a description — the goal, why it matters, how you'll know it worked…" onBlur={md => md !== ini.description && void patch({ description: md })} /></div>
@@ -577,7 +667,10 @@ function InitiativeOverview({ ini }: { ini: Initiative }) {
       <InitiativeProjects ini={ini} />
 
       {menu.anchor && kind && (
-        <Menu anchor={menu.anchor} onClose={menu.close} width={kind === 'target' ? 300 : kind === 'icon' ? 292 : 240}>
+        <Menu anchor={menu.anchor} onClose={menu.close} width={kind === 'target' ? 300 : kind === 'icon' ? 292 : kind === 'priority' ? 200 : 240}>
+          {kind === 'priority' && <PriorityMenuItems value={ini.priority} onPick={v => void patch({ priority: v })} />}
+          {kind === 'team' && <TeamMenuItems value={ini.teamId} onPick={teamId => void patch({ teamId })} />}
+          {kind === 'labels' && <LabelMenuBody ini={ini} onChange={labelIds => void patch({ labelIds })} />}
           {kind === 'icon' && <IconPicker value={ini.icon} color={ini.color} onPick={p => void patch(p)} />}
           {kind === 'status' && INITIATIVE_STATUS.map(([v, l], n) => <MenuItem key={v} icon={<InitiativeStatusIcon status={v} />} label={l} selected={ini.status === v} right={<span className="kbd">{n + 1}</span>} onClick={() => void patch({ status: v })} />)}
           {kind === 'owner' && <>{snap.users.filter(u => u.kind !== 'agent').map(u => <MenuItem key={u.id} icon={<Avatar user={u} size={16} />} label={u.name} selected={ini.ownerId === u.id} onClick={() => void patch({ ownerId: u.id })} />)}<MenuSep /><MenuItem label="No owner" onClick={() => void patch({ ownerId: null })} /></>}
@@ -603,6 +696,42 @@ function UpdateComposer({ ini, onDone }: { ini: Initiative; onDone: () => void }
   );
 }
 
+/** the update schedule's next due date, under the update card (mirrors a project's) */
+function InitiativeUpdateDue({ ini }: { ini: Initiative }) {
+  const snap = useApp(s => s.snap)!;
+  const cadence = ini.updateCadence ?? snap.workspace.features.initiativeUpdateCadence;
+  const days = cadence === 'weekly' ? 7 : cadence === 'biweekly' ? 14 : cadence === 'monthly' ? 30 : 0;
+  if (!days || ini.status === 'completed' || ini.status === 'canceled') return null;
+  const last = snap.initiativeUpdates.find(u => u.initiativeId === ini.id)?.createdAt ?? ini.createdAt;
+  const due = new Date(new Date(last).getTime() + days * 86400000);
+  const overdue = due.getTime() < Date.now();
+  const owner = snap.users.find(u => u.id === ini.ownerId);
+  return <div className={`update-due${overdue ? ' overdue' : ''}`}>{overdue ? `Update overdue since ${shortDate(due.toISOString())}` : `Next update due ${shortDate(due.toISOString())}`} · {UPDATE_CADENCE_LABELS[cadence].toLowerCase()}{owner ? ` · ${owner.id === snap.currentUser.id ? 'you get' : `${owner.name} gets`} a reminder` : ''}</div>;
+}
+
+/** reactions on an initiative update, with the add-reaction button */
+function UpdateReactions({ update }: { update: InitiativeUpdate }) {
+  const snap = useApp(s => s.snap)!;
+  const menu = useMenu();
+  const toggle = async (emoji: string) => { await api.toggleInitiativeUpdateReaction(update.id, emoji); await refresh(); };
+  return (
+    <>
+      <ReactionChips reactions={update.reactions} onToggle={e => void toggle(e)}>
+        <button className="reaction-chip add" title="Add reaction" onClick={menu.open}><IconEmoji size={13} /></button>
+      </ReactionChips>
+      {menu.anchor && (
+        <Menu anchor={menu.anchor} onClose={menu.close} width={196}>
+          <div className="reaction-grid">
+            {[...REACTION_SET, ...snap.emojis.map(e => `:${e.name}:`)].map(emoji => (
+              <button key={emoji} className="reaction-pick" title={emoji} onClick={async () => { await toggle(emoji); menu.close(); }}><EmojiGlyph value={emoji} /></button>
+            ))}
+          </div>
+        </Menu>
+      )}
+    </>
+  );
+}
+
 function InitiativeUpdateCard({ ini, latest }: { ini: Initiative; latest?: Snap['initiativeUpdates'][number] }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -621,6 +750,7 @@ function InitiativeUpdateCard({ ini, latest }: { ini: Initiative; latest?: Snap[
         <button className="btn secondary sm" onClick={() => setComposing(true)}><IconEdit size={12} /> New update</button>
       </div>
       <Markdown text={latest.body} />
+      <UpdateReactions update={latest} />
     </div>
   );
 }
@@ -632,6 +762,10 @@ function InitiativeProjects({ ini, full = false }: { ini: Initiative; full?: boo
   const menu = useMenu();
   const [q, setQ] = useState('');
   const [sub, setSub] = useState(false);
+  // the Projects tab lays its projects out as Linear does: a list, a board by status, or a timeline
+  const [layout, setLayout] = useState<'list' | 'board' | 'timeline'>(() => { try { return (localStorage.getItem('baseline:iniProjectsLayout') as 'board') || 'list'; } catch { return 'list'; } });
+  const pickLayout = (l: typeof layout) => { setLayout(l); try { localStorage.setItem('baseline:iniProjectsLayout', l); } catch { /* ignore */ } };
+  const shown = full ? layout : 'list';
   const groups: Array<[Initiative, Project[]]> = [ini, ...descendants(snap, ini.id)].map(i => [i, snap.projects.filter(p => i.projectIds.includes(p.id))]);
   const kids = snap.initiatives.filter(i => i.parentId === ini.id);
   const row = (p: Project, owner: Initiative) => {
@@ -653,11 +787,21 @@ function InitiativeProjects({ ini, full = false }: { ini: Initiative; full?: boo
   };
   return (
     <div className={`ini-projects-sec${full ? ' full' : ''}`}>
-      <div className="proj-section-label">Projects <span className="dim">{groups.reduce((n, [, l]) => n + l.length, 0)}</span><span style={{ flex: 1 }} />
+      <div className="proj-section-label">Projects <span className="dim">{groups.reduce((n, [, l]) => n + l.length, 0)}</span>
+        {full && (
+          <span className="pill-tabs ini-layouts">
+            {([['list', 'List', <IconList key="l" size={13} />], ['board', 'Board', <IconBoard key="b" size={13} />], ['timeline', 'Timeline', <IconTimeline key="t" size={13} />]] as const).map(([k, l, ic]) => (
+              <button key={k} className={`pill-tab${layout === k ? ' on' : ''}`} onClick={() => pickLayout(k)}>{ic}{l}</button>
+            ))}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
         <button className="btn ghost sm" onClick={e => { setQ(''); menu.open(e); }}><IconPlus size={12} /> Add project</button>
         <button className="btn ghost sm" onClick={() => setSub(true)}><IconPlus size={12} /> Sub-initiative</button>
       </div>
-      <div className={`ini-proj-table${full ? ' full' : ''}`}>
+      {shown === 'board' && <div className="ini-proj-board"><ProjectBoard groups={groupProjects(rollupProjects(snap, ini), 'status', snap)} groupBy="status" /></div>}
+      {shown === 'timeline' && <div className="ini-proj-timeline">{rollupProjects(snap, ini).length ? <ProjectTimeline projects={rollupProjects(snap, ini)} /> : <button className="ini-proj-empty" onClick={e => { setQ(''); menu.open(e); }}><IconPlus size={13} /> Add the projects that move this initiative forward</button>}</div>}
+      {shown === 'list' && <div className={`ini-proj-table${full ? ' full' : ''}`}>
         {groups.map(([g, list]) => (g.id !== ini.id && !list.length) ? null : (
           <div key={g.id}>
             {g.id !== ini.id && <button className="ini-proj-group" onClick={() => navigate(`/initiatives/${g.id}`)}><InitiativeIcon ini={g} size={14} />{g.name}<span className="dim">{list.length}</span></button>}
@@ -665,7 +809,7 @@ function InitiativeProjects({ ini, full = false }: { ini: Initiative; full?: boo
             {g.id === ini.id && !list.length && <button className="ini-proj-empty" onClick={e => { setQ(''); menu.open(e); }}><IconPlus size={13} /> Add the projects that move this initiative forward</button>}
           </div>
         ))}
-      </div>
+      </div>}
       {kids.length > 0 && !full && (
         <>
           <div className="proj-section-label">Sub-initiatives <span className="dim">{kids.length}</span></div>
@@ -765,8 +909,8 @@ function InitiativeUpdatesTab({ ini, compose }: { ini: Initiative; compose: bool
   const [withProjects, setWithProjects] = useState(() => localStorage.getItem('baseline:iniUpdatesProjects') !== '0');
   const projects = rollupProjects(snap, ini);
   const items = [
-    ...snap.initiativeUpdates.filter(u => u.initiativeId === ini.id).map(u => ({ key: u.id, at: u.createdAt, userId: u.userId, body: u.body, health: u.health, project: null as Project | null })),
-    ...(withProjects ? snap.projectUpdates.filter(u => projects.some(p => p.id === u.projectId)).map(u => ({ key: u.id, at: u.createdAt, userId: u.userId, body: u.body, health: u.health, project: projects.find(p => p.id === u.projectId)! })) : []),
+    ...snap.initiativeUpdates.filter(u => u.initiativeId === ini.id).map(u => ({ key: u.id, at: u.createdAt, userId: u.userId, body: u.body, health: u.health, project: null as Project | null, update: u as InitiativeUpdate | null })),
+    ...(withProjects ? snap.projectUpdates.filter(u => projects.some(p => p.id === u.projectId)).map(u => ({ key: u.id, at: u.createdAt, userId: u.userId, body: u.body, health: u.health, project: projects.find(p => p.id === u.projectId)!, update: null })) : []),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (
     <div className="ini-page">
@@ -778,6 +922,7 @@ function InitiativeUpdatesTab({ ini, compose }: { ini: Initiative; compose: bool
         </label>
       </div>
       {composing && <UpdateComposer ini={ini} onDone={() => setComposing(false)} />}
+      {!composing && <InitiativeUpdateDue ini={ini} />}
       {!items.length && !composing && (
         <div className="ini-none tall"><Illustration name="updates" small /><div>No updates yet</div><div className="dim">Updates keep everyone aligned on how the initiative is going.</div></div>
       )}
@@ -790,6 +935,7 @@ function InitiativeUpdatesTab({ ini, compose }: { ini: Initiative; compose: bool
               <span style={{ flex: 1 }} /><Avatar user={a} size={16} /><span className="dim">{a?.name} · {relTime(u.at)}</span>
             </header>
             <div className="ini-upd-body"><Markdown text={u.body} /></div>
+            {u.update && <UpdateReactions update={u.update} />}
           </article>
         ); })}
       </div>

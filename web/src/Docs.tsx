@@ -15,21 +15,26 @@ import type { Doc } from '../../src/core/types.js';
 /* Documents: markdown pages (edited as rich text) that live on a project or a team —
    specs, briefs, runbooks. They show up as resources next to links. */
 
-export async function newDoc(owner: { projectId?: string; teamId?: string }, navigate: (to: string) => void, template?: { title: string; content: string }) {
+export async function newDoc(owner: { projectId?: string; teamId?: string; initiativeId?: string }, navigate: (to: string) => void, template?: { title: string; content: string }) {
   const { doc } = await api.createDoc({ ...owner, title: template?.title ?? '', content: template?.content ?? '' });
   await useApp.getState().bootstrap();
   navigate(`/docs/${doc.id}`);
 }
 
-/** Resources: documents and links on a project or team, with "Add document or link" */
-export function Resources(props: { projectId?: string; teamId?: string; label?: boolean }) {
+/** Resources: documents and links on a project, team or initiative, with "Add document or link" */
+export function Resources(props: { projectId?: string; teamId?: string; initiativeId?: string; label?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const menu = useMenu();
   const [linking, setLinking] = useState<DOMRect | null>(null);
-  const docs = snap.docs.filter(d => (props.projectId && d.projectId === props.projectId) || (props.teamId && d.teamId === props.teamId));
-  const links = props.projectId ? snap.projectLinks.filter(l => l.projectId === props.projectId) : snap.teamLinks.filter(l => l.teamId === props.teamId);
-  const removeLink = async (id: string) => { if (props.projectId) await api.deleteProjectLink(id); else await api.deleteTeamLink(id); await useApp.getState().bootstrap(); };
+  const owner = props.projectId ? { projectId: props.projectId } : props.initiativeId ? { initiativeId: props.initiativeId } : { teamId: props.teamId };
+  const docs = snap.docs.filter(d => (props.projectId && d.projectId === props.projectId) || (props.teamId && d.teamId === props.teamId) || (props.initiativeId && d.initiativeId === props.initiativeId));
+  const links = props.projectId ? snap.projectLinks.filter(l => l.projectId === props.projectId)
+    : props.initiativeId ? snap.initiativeLinks.filter(l => l.initiativeId === props.initiativeId) : snap.teamLinks.filter(l => l.teamId === props.teamId);
+  const removeLink = async (id: string) => {
+    if (props.projectId) await api.deleteProjectLink(id); else if (props.initiativeId) await api.deleteInitiativeLink(id); else await api.deleteTeamLink(id);
+    await useApp.getState().bootstrap();
+  };
   return (
     <div className="proj-props-row">
       {props.label !== false && <span className="ppr-label">Resources</span>}
@@ -48,16 +53,18 @@ export function Resources(props: { projectId?: string; teamId?: string; label?: 
       {props.projectId && <CustomerRequests projectId={props.projectId} asButton />}
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={210}>
-          <MenuItem icon={<IconDoc size={14} />} label="New document" onClick={() => void newDoc(props.projectId ? { projectId: props.projectId } : { teamId: props.teamId }, navigate)} />
+          <MenuItem icon={<IconDoc size={14} />} label="New document" onClick={() => void newDoc(owner, navigate)} />
           {snap.docTemplates.length > 0 && <div className="menu-header"><span>From template</span></div>}
           {snap.docTemplates.map(t => (
-            <MenuItem key={t.id} icon={<IconDoc size={14} />} label={t.name} onClick={() => void newDoc(props.projectId ? { projectId: props.projectId } : { teamId: props.teamId }, navigate, t)} />
+            <MenuItem key={t.id} icon={<IconDoc size={14} />} label={t.name} onClick={() => void newDoc(owner, navigate, t)} />
           ))}
           <MenuItem icon={<IconLink size={14} />} label="Add link…" onClick={() => setLinking(menu.anchor)} />
         </Menu>
       )}
       {linking && <AddLink anchor={linking} onClose={() => setLinking(null)} onAdd={async (url, title) => {
-        if (props.projectId) await api.addProjectLink(props.projectId, url, title); else if (props.teamId) await api.addTeamLink(props.teamId, url, title);
+        if (props.projectId) await api.addProjectLink(props.projectId, url, title);
+        else if (props.initiativeId) await api.addInitiativeLink(props.initiativeId, url, title);
+        else if (props.teamId) await api.addTeamLink(props.teamId, url, title);
         await useApp.getState().bootstrap();
       }} />}
     </div>
@@ -94,10 +101,12 @@ export function DocumentPage() {
   if (!doc) return <div className="empty-state"><div className="empty-title">Document not found</div></div>;
   const project = snap.projects.find(p => p.id === doc.projectId);
   const team = snap.teams.find(t => t.id === doc.teamId);
+  const initiative = snap.initiatives.find(i => i.id === doc.initiativeId);
   const author = snap.users.find(u => u.id === doc.creatorId);
   const save = async (patch: Partial<Pick<Doc, 'title' | 'content'>>) => { await api.updateDoc(doc.id, patch); await useApp.getState().bootstrap(); };
   const crumbs = project
     ? [{ label: 'Projects', to: '/projects', muted: true }, { label: project.name, icon: <span className="crumb-emoji">{project.icon}</span>, to: `/projects/${project.id}`, muted: true }, { label: doc.title || 'Untitled' }]
+    : initiative ? [{ label: 'Initiatives', to: '/initiatives', muted: true }, { label: initiative.name, to: `/initiatives/${initiative.id}`, muted: true }, { label: doc.title || 'Untitled' }]
     : team ? [{ label: team.name, to: `/team/${team.key}/overview`, muted: true }, { label: 'Documents', to: `/team/${team.key}/overview/documents`, muted: true }, { label: doc.title || 'Untitled' }]
     : [{ label: doc.title || 'Untitled' }];
   return (
@@ -105,7 +114,7 @@ export function DocumentPage() {
       <TopBar crumbs={crumbs} more={<>
         <MenuItem icon={<IconLink size={14} />} label="Copy link" onClick={async () => { if (await copyText(`${location.origin}/#/docs/${doc.id}`)) useApp.getState().toast({ title: 'Copied link' }); }} />
         <MenuSep />
-        <MenuItem icon={<IconTrash size={14} />} danger label="Delete document" onClick={async () => { await api.deleteDoc(doc.id); await useApp.getState().bootstrap(); navigate(project ? `/projects/${project.id}` : team ? `/team/${team.key}/overview` : '/'); useApp.getState().toast({ title: 'Document deleted' }); }} />
+        <MenuItem icon={<IconTrash size={14} />} danger label="Delete document" onClick={async () => { await api.deleteDoc(doc.id); await useApp.getState().bootstrap(); navigate(project ? `/projects/${project.id}` : initiative ? `/initiatives/${initiative.id}` : team ? `/team/${team.key}/overview` : '/'); useApp.getState().toast({ title: 'Document deleted' }); }} />
       </>} />
       <div className="content">
         <div className="doc-page">

@@ -103,10 +103,10 @@ function useActivityText() {
   };
 }
 
-const REACTION_SET = ['👍', '👎', '❤️', '🎉', '🚀', '😄', '👀', '🙏'];
+export const REACTION_SET = ['👍', '👎', '❤️', '🎉', '🚀', '😄', '👀', '🙏'];
 
 /** a reaction key: a unicode emoji, or :name: for a custom emoji */
-function EmojiGlyph({ value }: { value: string }) {
+export function EmojiGlyph({ value }: { value: string }) {
   const emojis = useApp(s => s.snap?.emojis ?? []);
   const m = /^:([a-z0-9_-]+):$/.exec(value);
   const custom = m && emojis.find(e => e.name === m[1]);
@@ -115,18 +115,23 @@ function EmojiGlyph({ value }: { value: string }) {
 
 /* ---------------- comments & threads ---------------- */
 function Reactions(props: { comment: Comment }) {
+  return <ReactionChips reactions={props.comment.reactions} onToggle={async emoji => { await api.toggleReaction(props.comment.id, emoji); await useApp.getState().bootstrap(); }} />;
+}
+/** emoji reaction chips (a comment's, an initiative update's): click one to add or remove yours */
+export function ReactionChips(props: { reactions: Record<string, string[]>; onToggle: (emoji: string) => void; children?: React.ReactNode }) {
   const snap = useApp(s => s.snap)!;
-  const entries = Object.entries(props.comment.reactions);
-  if (!entries.length) return null;
+  const entries = Object.entries(props.reactions);
+  if (!entries.length && !props.children) return null;
   return (
     <div className="reactions">
       {entries.map(([emoji, userIds]) => (
         <button key={emoji} className={`reaction-chip ${userIds.includes(snap.currentUser.id) ? 'mine' : ''}`}
           title={userIds.map(id => snap.users.find(u => u.id === id)?.name ?? '?').join(', ')}
-          onClick={async () => { await api.toggleReaction(props.comment.id, emoji); await useApp.getState().bootstrap(); }}>
+          onClick={() => props.onToggle(emoji)}>
           <EmojiGlyph value={emoji} /> {userIds.length}
         </button>
       ))}
+      {props.children}
     </div>
   );
 }
