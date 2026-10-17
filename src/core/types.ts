@@ -270,8 +270,28 @@ export interface Initiative {
   /** targetDate is the last day of this period (null = a plain day) */
   targetResolution: DateResolution | null;
   parentId: string | null; projectIds: string[]; position: number; createdAt: string; updatedAt: string;
+  /** sequential number, shown as I-12 */
+  number: number;
+  /** 0 = no priority, 1 = urgent … 4 = low (same scale as projects) */
+  priority: Priority;
+  /** initiative labels (Settings › Initiatives) */
+  labelIds: string[];
+  /** the team that leads the initiative */
+  teamId: string | null;
+  /** how often the owner is expected to post an update; null follows the workspace schedule */
+  updateCadence: UpdateCadence | null;
 }
-export interface InitiativeUpdate { id: string; initiativeId: string; userId: string; body: string; health: ProjectHealth | null; createdAt: string }
+/** an initiative's key: I-12 */
+export const initiativeKey = (ini: Pick<Initiative, 'number'>) => `I-${ini.number}`;
+export interface InitiativeUpdate {
+  id: string; initiativeId: string; userId: string; body: string; health: ProjectHealth | null; createdAt: string;
+  /** emoji -> user ids */
+  reactions: Record<string, string[]>;
+}
+/** workspace initiative label (Settings › Initiatives) */
+export interface InitiativeLabel { id: string; name: string; color: string; description: string; createdAt: string }
+/** a resource link on an initiative */
+export interface InitiativeLink { id: string; initiativeId: string; url: string; title: string; createdAt: string }
 
 /* ---------- releases ---------- */
 export type ReleaseStage = 'planned' | 'started' | 'released' | 'canceled';
@@ -385,6 +405,8 @@ export interface CustomerRequest { id: string; customerId: string; issueId: stri
 export interface WorkspaceFeatures {
   /** default project update schedule */
   updateCadence: UpdateCadence;
+  /** default initiative update schedule (Settings › Initiatives) */
+  initiativeUpdateCadence: UpdateCadence;
   pulseEnabled: boolean;
   /** Pulse summary notifications */
   pulseSchedule: 'daily' | 'weekly' | 'never';
@@ -402,7 +424,7 @@ export interface WorkspaceFeatures {
   /** when BASELINE_HOST opens Baseline to the network, requests from other devices need an API key */
   apiKeyRequiredRemote: boolean;
 }
-export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null, initiativesEnabled: true, releasesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
+export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null, initiativesEnabled: true, releasesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
 
 /** a directory on this machine that coding agents can work in — usually a git repo */
 export interface Location {
@@ -431,6 +453,7 @@ export interface Doc {
   content: string;
   projectId: string | null;
   teamId: string | null;
+  initiativeId: string | null;
   creatorId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -595,6 +618,8 @@ export type NotificationType =
   | 'projectIssueClosed'
   | 'projectChanged'
   /** you lead a project whose update is due */
+  /** you own an initiative whose update is due; body is `<initiativeId>|<text>` */
+  | 'initiativeUpdateReminder'
   | 'projectUpdateReminder'
   /** Pulse summary of recent project updates */
   | 'pulseDigest'
@@ -740,7 +765,7 @@ export function notifyCategory(type: NotificationType, body = ''): NotifyCategor
     case 'docChanged': return 'documents';
     case 'projectIssueAdded': case 'projectIssueClosed': case 'projectChanged': case 'prActivity': return 'subscriptions';
     case 'teamActivity': return /triage/i.test(body) ? 'triage' : 'subscriptions';
-    case 'projectUpdate': case 'projectUpdateReminder': case 'pulseDigest': return 'updates';
+    case 'projectUpdate': case 'projectUpdateReminder': case 'initiativeUpdateReminder': case 'pulseDigest': return 'updates';
     case 'issueReminder': case 'slaBreached': return 'reminders';
     case 'loopFailed': return 'loops';
     default: return null;
@@ -794,6 +819,8 @@ export interface Snapshot {
   customerRequests: CustomerRequest[];
   initiatives: Initiative[];
   initiativeUpdates: InitiativeUpdate[];
+  initiativeLabels: InitiativeLabel[];
+  initiativeLinks: InitiativeLink[];
   releases: Release[];
   slaRules: SlaRule[];
   askForms: AskForm[];

@@ -7,7 +7,7 @@ import { createApp, serve } from '../server/index.js';
 import { isDirectory, LaunchError, openInClaudeCode } from '../server/launch.js';
 import { resolveDbPath } from '../core/db.js';
 import { seedWorkspace } from '../core/seed.js';
-import { issueKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS, API_KEY_SCOPES } from '../core/types.js';
+import { issueKey, initiativeKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS, API_KEY_SCOPES } from '../core/types.js';
 import type { Priority, RelationType, Snapshot, Team, User, WorkflowState, Label, Project, Issue, Location, ApiKeyScope } from '../core/types.js';
 
 const program = new Command();
@@ -1257,27 +1257,68 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof stor
 
 // ---------- initiatives & releases ----------
 const initiative = program.command('initiative').description('Initiatives: strategic efforts made of projects');
-const findInitiative = (snap: Snapshot, ref: string) => snap.initiatives.find(i => i.id === ref) ?? snap.initiatives.find(i => i.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown initiative "${ref}"`);
+const findInitiative = (snap: Snapshot, ref: string) => snap.initiatives.find(i => i.id === ref) ?? snap.initiatives.find(i => /^i-\d+$/i.test(ref) && i.number === Number(ref.slice(2)))
+  ?? snap.initiatives.find(i => i.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown initiative "${ref}"`);
+/** initiative labels by name, created on the fly like project labels */
+const initiativeLabelIds = (store: ReturnType<typeof storeFor>, snap: Snapshot, names: string[]) => names.flatMap(n => n.split(',')).map(n => n.trim()).filter(Boolean)
+  .map(n => (snap.initiativeLabels.find(l => l.name.toLowerCase() === n.toLowerCase()) ?? store.ext.planning.createLabel({ name: n })).id);
+const UPDATE_SCHEDULES = ['none', 'weekly', 'biweekly', 'monthly', 'default'];
 withDb(initiative.command('list')).description('List initiatives with progress').option('--json', 'output as JSON', false).action((opts: { db?: string; json?: boolean }) => {
   const store = storeFor(opts.db); const snap = store.snapshot();
-  const rows = snap.initiatives.map(i => ({ name: i.name, status: i.status, health: i.health, owner: snap.users.find(u => u.id === i.ownerId)?.name ?? null, targetDate: i.targetDate, parent: snap.initiatives.find(x => x.id === i.parentId)?.name ?? null, projects: i.projectIds.map(pid => snap.projects.find(p => p.id === pid)?.name) }));
-  if (opts.json) console.log(JSON.stringify(rows, null, 2)); else for (const r of rows) console.log(`${r.name.padEnd(30)} ${r.status.padEnd(10)} ${(r.health ?? '-').padEnd(9)} ${r.projects.join(', ')}`);
+  const rows = snap.initiatives.map(i => ({
+    key: initiativeKey(i), name: i.name, status: i.status, health: i.health, priority: PRIORITY_LABELS[i.priority], labels: i.labelIds.map(l => snap.initiativeLabels.find(x => x.id === l)?.name).filter(Boolean) as string[],
+    owner: snap.users.find(u => u.id === i.ownerId)?.name ?? null, team: snap.teams.find(t => t.id === i.teamId)?.key ?? null, targetDate: i.targetDate, parent: snap.initiatives.find(x => x.id === i.parentId)?.name ?? null,
+    updateSchedule: i.updateCadence ?? snap.workspace.features.initiativeUpdateCadence, updateDueAt: store.ext.planning.updateDueAt(i),
+    projects: i.projectIds.map(pid => snap.projects.find(p => p.id === pid)?.name),
+  }));
+  if (opts.json) console.log(JSON.stringify(rows, null, 2));
+  else for (const r of rows) console.log(`${r.key.padEnd(6)} ${r.name.padEnd(30)} ${r.status.padEnd(10)} ${(r.health ?? '-').padEnd(9)} ${r.priority.padEnd(11)} ${r.labels.length ? `[${r.labels.join(', ')}] ` : ''}${r.projects.join(', ')}`);
   process.exit(0);
 });
 withDb(initiative.command('create <name>')).description('Create an initiative').option('-d, --description <text>').option('--status <status>', 'proposed|planned|active|completed|canceled').option('--target <date>').option('--parent <initiative>').option('--project <name...>', 'projects to include')
-  .action((name: string, opts: { db?: string; description?: string; status?: string; target?: string; parent?: string; project?: string[] }) => {
+  .option('-p, --priority <level>', 'none|urgent|high|medium|low').option('--label <name...>', 'initiative labels (created if new)').option('-t, --team <key>', 'lead team')
+  .action((name: string, opts: { db?: string; description?: string; status?: string; target?: string; parent?: string; project?: string[]; priority?: string; label?: string[]; team?: string }) => {
     const store = storeFor(opts.db); const snap = store.snapshot();
-    const ini = store.ext.planning.createInitiative({ name, description: opts.description, status: opts.status as 'planned' | undefined, targetDate: opts.target ?? null, parentId: opts.parent ? findInitiative(snap, opts.parent).id : null, projectIds: (opts.project ?? []).map(n => resolveProject(snap, n)!.id) });
-    console.log(`Created initiative "${ini.name}"`); process.exit(0);
+    const ini = store.ext.planning.createInitiative({ name, description: opts.description, status: opts.status as 'planned' | undefined, targetDate: opts.target ?? null, parentId: opts.parent ? findInitiative(snap, opts.parent).id : null, projectIds: (opts.project ?? []).map(n => resolveProject(snap, n)!.id),
+      priority: priorityNum(opts.priority), labelIds: initiativeLabelIds(store, snap, opts.label ?? []), teamId: resolveTeam(snap, opts.team, { required: true })?.id ?? null });
+    console.log(`Created initiative ${initiativeKey(ini)} "${ini.name}"`); process.exit(0);
   });
-withDb(initiative.command('update <initiative>')).description('Update an initiative').option('--status <status>').option('--target <date>').option('--add-project <name>').option('--remove-project <name>')
-  .action((ref: string, opts: { db?: string; status?: string; target?: string; addProject?: string; removeProject?: string }) => {
+withDb(initiative.command('update <initiative>')).description('Update an initiative (by name or I-12)').option('--status <status>').option('--target <date>').option('--add-project <name>').option('--remove-project <name>')
+  .option('-p, --priority <level>', 'none|urgent|high|medium|low').option('--label <name...>', 'add initiative labels (created if new)').option('--remove-label <name...>', 'remove initiative labels')
+  .option('-t, --team <key>', 'lead team ("none" to clear)').option('--updates <cadence>', 'update reminders: none|weekly|biweekly|monthly|default')
+  .action((ref: string, opts: { db?: string; status?: string; target?: string; addProject?: string; removeProject?: string; priority?: string; label?: string[]; removeLabel?: string[]; team?: string; updates?: string }) => {
     const store = storeFor(opts.db); const snap = store.snapshot(); const ini = findInitiative(snap, ref);
-    store.ext.planning.updateInitiative(ini.id, { ...(opts.status ? { status: opts.status as 'active' } : {}), ...(opts.target ? { targetDate: opts.target === 'none' ? null : opts.target } : {}) });
+    if (opts.updates && !UPDATE_SCHEDULES.includes(opts.updates)) fail(`Invalid --updates — use ${UPDATE_SCHEDULES.join('|')}`);
+    let labelIds: string[] | undefined;
+    if (opts.label || opts.removeLabel) {
+      const drop = new Set((opts.removeLabel ?? []).flatMap(n => n.split(',')).map(n => snap.initiativeLabels.find(l => l.name.toLowerCase() === n.trim().toLowerCase())?.id));
+      labelIds = [...new Set([...ini.labelIds, ...initiativeLabelIds(store, snap, opts.label ?? [])])].filter(l => !drop.has(l));
+    }
+    store.ext.planning.updateInitiative(ini.id, {
+      ...(opts.status ? { status: opts.status as 'active' } : {}), ...(opts.target ? { targetDate: opts.target === 'none' ? null : opts.target } : {}),
+      ...(opts.priority ? { priority: priorityNum(opts.priority)! } : {}), ...(labelIds ? { labelIds } : {}),
+      ...(opts.team ? { teamId: opts.team.toLowerCase() === 'none' ? null : resolveTeam(snap, opts.team, { required: true })!.id } : {}),
+      ...(opts.updates ? { updateCadence: opts.updates === 'default' ? null : opts.updates as 'weekly' } : {}),
+    });
     if (opts.addProject) store.ext.planning.addProject(ini.id, resolveProject(snap, opts.addProject)!.id);
     if (opts.removeProject) store.ext.planning.removeProject(ini.id, resolveProject(snap, opts.removeProject)!.id);
-    console.log(`Updated initiative "${ini.name}"`); process.exit(0);
+    console.log(`Updated initiative ${initiativeKey(ini)} "${ini.name}"`); process.exit(0);
   });
+const initiativeLabel = initiative.command('label').description('Initiative labels (Settings › Initiatives)');
+withDb(initiativeLabel.command('list')).description('List initiative labels').option('--json', 'output as JSON', false).action((opts: { db?: string; json?: boolean }) => {
+  const snap = storeFor(opts.db).snapshot();
+  const rows = snap.initiativeLabels.map(l => ({ name: l.name, color: l.color, initiatives: snap.initiatives.filter(i => i.labelIds.includes(l.id)).length }));
+  if (opts.json) console.log(JSON.stringify(rows, null, 2)); else for (const r of rows) console.log(`${r.name.padEnd(24)} ${r.color}  ${r.initiatives} initiative${r.initiatives === 1 ? '' : 's'}`);
+  process.exit(0);
+});
+withDb(initiativeLabel.command('create <name>')).description('Create an initiative label').option('--color <hex>').action((name: string, opts: { db?: string; color?: string }) => {
+  const l = storeFor(opts.db).ext.planning.createLabel({ name, color: opts.color });
+  console.log(`Created initiative label "${l.name}"`); process.exit(0);
+});
+withDb(initiativeLabel.command('delete <name>')).description('Delete an initiative label').action((name: string, opts: { db?: string }) => {
+  const store = storeFor(opts.db); const l = store.snapshot().initiativeLabels.find(x => x.name.toLowerCase() === name.toLowerCase()) ?? fail(`Unknown initiative label "${name}"`);
+  store.ext.planning.deleteLabel(l.id); console.log(`Deleted initiative label "${l.name}"`); process.exit(0);
+});
 withAs(withDb(initiative.command('note <initiative> <body>'))).description('Post an initiative update').option('--health <health>', 'onTrack|atRisk|offTrack')
   .action((ref: string, body: string, opts: { db?: string; health?: string; as?: string }) => {
     const store = storeFor(opts.db); const snap = store.snapshot();

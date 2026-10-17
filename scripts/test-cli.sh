@@ -383,6 +383,28 @@ echo "=== seed ==="
 DB3=$(newdb 3)
 checkon "$DB3" "seed --reset" "Seeded:" seed --reset
 
+echo "=== initiatives: ids, priority, labels, lead team ==="
+checkon "$DB3" "initiative list shows I- ids" "I-1 " initiative list
+checkon "$DB3" "initiative update by I- id sets priority and labels" "Updated initiative I-3" initiative update I-3 --priority urgent --label Docs "Q1 bet"
+BASELINE_DB="$DB3" $BIN initiative list --json > "$WORK/ini.json"
+check_json "priority and labels stored" "$WORK/ini.json" "d.find(i=>i.key==='I-3').priority==='Urgent'&&['Docs','Q1 bet'].every(l=>d.find(i=>i.key==='I-3').labels.includes(l))"
+checkon "$DB3" "remove a label" "Updated" initiative update "Developer love" --remove-label Docs --team CORE --updates weekly
+BASELINE_DB="$DB3" $BIN initiative list --json > "$WORK/ini.json"
+check_json "label removed, team and schedule set" "$WORK/ini.json" "(i=>!i.labels.includes('Docs')&&i.labels.includes('Q1 bet')&&i.team==='CORE'&&i.updateSchedule==='weekly'&&!!i.updateDueAt)(d.find(i=>i.key==='I-3'))"
+checkon "$DB3" "create with priority, labels and team" "Created initiative I-4" initiative create "Self-serve" -p high --label Growth -t AGO
+checkon "$DB3" "initiative label list" "Q1 bet" initiative label list
+checkon "$DB3" "initiative label create" "Created initiative label" initiative label create Platform --color "#4ea7fc"
+BASELINE_DB="$DB3" $BIN initiative list --json > "$WORK/ini.json"
+check_json "seeded labels are reused, not duplicated" "$WORK/ini.json" "d.find(i=>i.key==='I-4').labels.join()==='Growth'&&d.find(i=>i.key==='I-4').priority==='High'"
+BASELINE_DB="$DB3" $BIN initiative label list --json > "$WORK/il.json"
+check_json "one Growth label" "$WORK/il.json" "d.filter(l=>l.name==='Growth').length===1&&d.find(l=>l.name==='Growth').initiatives===3"
+check_rc "bad priority fails" 1 initiative update I-1 --priority huge --db "$DB3"
+BASELINE_DB="$DB3" $BIN export --out "$WORK/ini-export.json"
+DB6=$(newdb 6)
+checkon "$DB6" "import with initiative fields" "Imported:" import "$WORK/ini-export.json"
+BASELINE_DB="$DB6" $BIN initiative list --json > "$WORK/ini6.json"
+check_json "initiative fields round-trip" "$WORK/ini6.json" "d.find(i=>i.key==='I-4').labels.join()==='Growth'&&d.find(i=>i.key==='I-3').team==='CORE'&&d.find(i=>i.key==='I-1').priority==='Urgent'"
+
 echo "=== explicit --db flag path ==="
 DB4="$WORK/db4.db"
 check  "explicit --db flag"   "CORE"            team list --db "$DB4"
@@ -685,6 +707,28 @@ check "git webhook shows setup" "Payload URL" git webhook
 check "git webhook --rotate prints a secret once" "Secret (shown once)" git webhook --rotate
 check_rc "git webhook --url refuses plain http" 1 git webhook --url http://example.com
 check_rc "git import-issues refuses a malformed repo" 1 git import-issues not-a-repo -t CORE
+
+echo "=== initiatives: update reminders and reactions ==="
+nodecheck "initiative owners get one reminder when an update is due" '
+import { createRequire } from "node:module";
+const require = createRequire(process.cwd() + "/");
+const { createApp } = require("./dist/server/index.js");
+const { store } = createApp(process.argv[1]);
+const me = store.workspaceMeta().currentUser;
+const pl = store.ext.planning;
+const ini = pl.createInitiative({ name: "Remind me", ownerId: me, updateCadence: "weekly" });
+const reminders = () => { store.tick(); return store.snapshot().notifications.filter(n => n.type === "initiativeUpdateReminder" && n.body.startsWith(ini.id + "|")); };
+if (reminders().length) throw new Error("reminded before the update was due");
+store.db.prepare("UPDATE initiatives SET created_at = ? WHERE id = ?").run(new Date(Date.now() - 9 * 86400000).toISOString(), ini.id);
+if (reminders().length !== 1) throw new Error("no reminder once due");
+if (reminders().length !== 1) throw new Error("reminded twice for one due date");
+const u = pl.addInitiativeUpdate(ini.id, me, "On it", "onTrack");
+if (pl.updateDueAt(store.snapshot().initiatives.find(i => i.id === ini.id)) <= new Date().toISOString()) throw new Error("posting an update did not move the due date");
+pl.toggleUpdateReaction(u.id, "🎉", me);
+if (store.snapshot().initiativeUpdates.find(x => x.id === u.id).reactions["🎉"]?.[0] !== me) throw new Error("reaction not stored");
+pl.toggleUpdateReaction(u.id, "🎉", me);
+if (Object.keys(store.snapshot().initiativeUpdates.find(x => x.id === u.id).reactions).length) throw new Error("reaction not removed");
+' "$WORK/ini-remind.db"
 
 echo "=== user update --github ==="
 check "user update sets a GitHub username" "github:ada-gh" user update Ada --github ada-gh

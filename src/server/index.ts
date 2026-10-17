@@ -584,6 +584,12 @@ export function createApp(dbPath: string, opts: { blank?: boolean } = {}) {
   app.post('/api/initiatives/:id/projects', async (c) => { const b = await c.req.json(); planning.addProject(c.req.param('id'), b.projectId); return c.json({ ok: true }, 201); });
   app.delete('/api/initiatives/:id/projects/:projectId', (c) => { planning.removeProject(c.req.param('id'), c.req.param('projectId')); return c.json({ ok: true }); });
   app.post('/api/initiatives/:id/updates', async (c) => { const b = await c.req.json(); if (!b.body) return c.json({ error: 'body is required' }, 400); return c.json({ update: planning.addInitiativeUpdate(c.req.param('id'), who(c, b.userId), b.body, b.health) }, 201); });
+  app.patch('/api/initiative-updates/:id', async (c) => { const b = await c.req.json(); if (!b.reaction) return c.json({ error: 'reaction is required' }, 400); planning.toggleUpdateReaction(c.req.param('id'), String(b.reaction), who(c, b.userId)); return c.json({ ok: true }); });
+  app.post('/api/initiatives/:id/links', async (c) => { const b = await c.req.json(); if (!b.url) return c.json({ error: 'url is required' }, 400); return c.json({ link: planning.addLink(c.req.param('id'), String(b.url), b.title) }, 201); });
+  app.delete('/api/initiative-links/:id', (c) => { planning.deleteLink(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/initiative-labels', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ label: planning.createLabel(b) }, 201); });
+  app.patch('/api/initiative-labels/:id', async (c) => { planning.updateLabel(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/initiative-labels/:id', (c) => { planning.deleteLabel(c.req.param('id')); return c.json({ ok: true }); });
 
   // ---------- releases ----------
   app.post('/api/releases', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ release: planning.createRelease(b) }, 201); });

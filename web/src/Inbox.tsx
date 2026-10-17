@@ -10,6 +10,7 @@ import { AvatarStack } from './AvatarStack.js';
 import { parseReminder } from './propertyMenus.js';
 import { Markdown } from './Markdown.js';
 import { PrIcon, prStateOfNotice } from './GitHubUI.js';
+import { InitiativeIcon } from './Initiatives.js';
 import {
   IconAssignArrow, IconComment, IconMention, IconCycle, IconFilter, IconDisplay, IconCheck, IconTrash,
   IconClock, IconSettings, IconReply, IconBell, IconClose, IconPulse, IconPlus, IconEdit,
@@ -33,7 +34,7 @@ export function writeInboxPrefs(p: Partial<InboxPrefs>) { try { localStorage.set
 const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
   issueAssignedToYou: 'Assignments', issueCommented: 'Comments', issueReplied: 'Replies', issueMentioned: 'Mentions', commentReacted: 'Reactions',
   issueStatusChanged: 'Status changes', issueReminder: 'Reminders', systemUpdate: 'Updates',
-  projectUpdate: 'Project updates', projectIssueAdded: 'Project activity', projectUpdateReminder: 'Update reminders', pulseDigest: 'Pulse',
+  projectUpdate: 'Project updates', projectIssueAdded: 'Project activity', projectUpdateReminder: 'Update reminders', initiativeUpdateReminder: 'Initiative update reminders', pulseDigest: 'Pulse',
   slaBreached: 'SLA breaches', prActivity: 'Pull requests', loopFailed: 'Loops', teamActivity: 'Team activity',
 };
 /* one filter value covers several kinds */
@@ -199,6 +200,7 @@ export function InboxPage() {
       case 'projectIssueClosed': return { icon: <IconCheck size={12} />, what: n.body.startsWith('Canceled') ? 'canceled an issue in the project' : 'completed an issue in the project' };
       case 'projectChanged': return { icon: <IconEdit size={12} />, what: 'changed the project description' };
       case 'projectUpdateReminder': return { icon: <IconClock size={12} />, what: 'Project update due' };
+      case 'initiativeUpdateReminder': return { icon: <IconClock size={12} />, what: 'Initiative update due' };
       case 'pulseDigest': return { icon: <IconPulse size={12} />, what: 'Pulse summary' };
       case 'slaBreached': return { icon: <IconClock size={12} />, what: 'SLA breached' };
       case 'prActivity': return { icon: <PrIcon state={prStateOfNotice(n.body)} size={14} title="Pull request" />, what: n.body };
@@ -249,7 +251,8 @@ export function InboxPage() {
             const st = issue ? snap.states.find(s => s.id === issue.stateId) : undefined;
             const project = !issue && n.projectId ? snap.projects.find(p => p.id === n.projectId) : undefined;
             const doc = n.type === 'docChanged' ? { id: n.body.split('|')[0], title: n.body.split('|').slice(1).join('|') } : null;
-            const projTitle = doc ? `📄 ${doc.title}` : project ? `${project.icon} ${project.name}` : n.type === 'pulseDigest' ? 'Pulse' : '';
+            const ini = n.type === 'initiativeUpdateReminder' ? snap.initiatives.find(i => i.id === n.body.split('|')[0]) : undefined;
+            const projTitle = doc ? `📄 ${doc.title}` : ini ? ini.name : project ? `${project.icon} ${project.name}` : n.type === 'pulseDigest' ? 'Pulse' : '';
             const snoozed = n.snoozedUntil && n.snoozedUntil > now;
             return (
               <div key={n.id}>
@@ -257,10 +260,10 @@ export function InboxPage() {
               <div
                 className={`inbox-row${row.unread ? ' unread' : ''}${isSel || openRow?.lead.id === n.id ? ' selected' : ''}${idx < 0 ? ' static' : ''}${snoozed ? ' snoozed' : ''}`}
                 onClick={() => { if (idx >= 0) { useCursor.setState({ index: idx }); setOpenRow(null); } else { setOpenRow(row); if (row.unread) void markRead(row, true); } }}
-                onDoubleClick={() => { const k = keyOf(n); if (doc) navigate(`/docs/${doc.id}`); else if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); else if (n.type === 'pulseDigest') navigate('/pulse'); }}
+                onDoubleClick={() => { const k = keyOf(n); if (doc) navigate(`/docs/${doc.id}`); else if (ini) navigate(`/initiatives/${ini.id}`); else if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); else if (n.type === 'pulseDigest') navigate('/pulse'); }}
                 onContextMenu={e => { setMenuRow(row); rowMenu.open(e); }}>
                 <span className="inbox-lead">
-                  {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' || n.type === 'prActivity' ? <span className="inbox-sys">{d.icon}</span>
+                  {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'initiativeUpdateReminder' || n.type === 'pulseDigest' || n.type === 'prActivity' ? <span className="inbox-sys">{d.icon}</span>
                     : actors.length > 1 ? <AvatarStack size={20} people={actors.map(a => ({ name: a.name, initials: a.initials, color: a.color }))} />
                     : actors.length === 1 ? <Avatar user={actors[0]} size={20} />
                     : <span className="inbox-sys">{d.icon}</span>}
@@ -274,7 +277,7 @@ export function InboxPage() {
                   <div className="inbox-line2">
                     {keyOf(n) && <span className="inbox-key">{keyOf(n)}</span>}
                     <span className="inbox-what">
-                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? n.body : <>{actors[0] ? <>{nameOf(actors[0])}{actors.length > 1 ? ` +${actors.length - 1}` : ''} </> : null}{d.what}</>}
+                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? n.body : n.type === 'initiativeUpdateReminder' ? n.body.split('|').slice(1).join('|') : <>{actors[0] ? <>{nameOf(actors[0])}{actors.length > 1 ? ` +${actors.length - 1}` : ''} </> : null}{d.what}</>}
                       {(n.type === 'projectIssueAdded' || n.type === 'projectIssueClosed' || n.type === 'projectUpdate') && n.body && <>: <span className="inbox-excerpt">{n.body.replace(/^(Completed|Canceled): /, '')}</span></>}
                       {excerpt && <>: <span className="inbox-excerpt">{excerpt}</span></>}
                     </span>
@@ -374,6 +377,20 @@ function ProjectNotice({ n }: { n: Notification }) {
         <div className="pn-title"><span>📄</span>{rest.join('|')}</div>
         <div className="pn-body">{snap.users.find(u => u.id === n.actorId)?.name ?? 'Someone'} edited this document{p ? ` in ${p.name}` : ''}.</div>
         <div style={{ display: 'flex', gap: 8 }}><button className="btn primary sm" onClick={() => navigate(`/docs/${docId}`)}>Open document</button></div>
+      </div>
+    );
+  }
+  if (n.type === 'initiativeUpdateReminder') {
+    const [iniId, ...rest] = n.body.split('|');
+    const ini = snap.initiatives.find(i => i.id === iniId);
+    return (
+      <div className="proj-notice">
+        <div className="pn-title">{ini ? <><InitiativeIcon ini={ini} size={16} />{ini.name}</> : 'Initiative'}</div>
+        <div className="pn-body">{rest.join('|')}</div>
+        {ini && <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn primary sm" onClick={() => navigate(`/initiatives/${ini.id}/updates`, { state: { compose: true } })}>Write update</button>
+          <button className="btn secondary sm" onClick={() => navigate(`/initiatives/${ini.id}`)}>Open initiative</button>
+        </div>}
       </div>
     );
   }

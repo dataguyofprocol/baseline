@@ -570,8 +570,8 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
   );
 }
 
-interface ProjGroup { id: string; label: string; icon: React.ReactNode; projects: Project[] }
-function groupProjects(list: Project[], groupBy: ProjOptions['groupBy'], snap: Snap): ProjGroup[] {
+export interface ProjGroup { id: string; label: string; icon: React.ReactNode; projects: Project[] }
+export function groupProjects(list: Project[], groupBy: ProjOptions['groupBy'], snap: Snap): ProjGroup[] {
   switch (groupBy) {
     case 'status': return PROJECT_STATUS.map(([v, l]) => ({ id: v, label: l, icon: <ProjectStatusIcon status={v} />, projects: list.filter(p => p.status === v) }));
     case 'priority': return [1, 2, 3, 4, 0].map(v => ({ id: String(v), label: PRIORITY_LABEL[v], icon: <PriorityIcon priority={v as Priority} size={14} />, projects: list.filter(p => p.priority === v) }));
@@ -708,7 +708,7 @@ function ProjectContextMenu(props: { project: Project; anchor: DOMRect; onClose:
 }
 
 /* ---------- board ---------- */
-function ProjectBoard(props: { groups: ProjGroup[]; groupBy: ProjOptions['groupBy']; onCreate?: (status: ProjectStatus) => void }) {
+export function ProjectBoard(props: { groups: ProjGroup[]; groupBy: ProjOptions['groupBy']; onCreate?: (status: ProjectStatus) => void }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const [dragId, setDragId] = useState<string | null>(null);
@@ -761,7 +761,7 @@ function ProjectBoard(props: { groups: ProjGroup[]; groupBy: ProjOptions['groupB
    Months across the top, one row per project, a bar from start to target. Drag a bar to
    move it, drag its ends to change the start or target date. Projects without dates get a
    faint two-week bar from today that you can drag into place. */
-function ProjectTimeline(props: { projects: Project[] }) {
+export function ProjectTimeline(props: { projects: Project[] }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const DAY = 86400000;
