@@ -696,6 +696,20 @@ export interface Preferences {
   push: { desktop: boolean; types: Record<NotifyCategory, boolean> };
   /** Customize sidebar: badge style, and when each item shows (hidden ones move to More) */
   sidebar: { badgeStyle: 'count' | 'dot' | 'none'; items: Record<string, SidebarVisibility> };
+  /** the first-run flow and the help menu's Getting started checklist */
+  gettingStarted: GettingStarted;
+}
+/** a preferences change: nested groups merge, so a patch names only what it changes */
+export type PreferencesPatch = Partial<Omit<Preferences, 'gettingStarted'>> & { gettingStarted?: Partial<GettingStarted> };
+export interface GettingStarted {
+  /** 'pending' keeps the first-run flow up (from `step`) until it ends on the first issue */
+  onboarding: 'pending' | 'done';
+  step: number;
+  /** when the flow ended: issues and projects made after it count toward the checklist */
+  since: string | null;
+  usedPalette: boolean;
+  /** the checklist was closed from the help menu */
+  dismissed?: boolean;
 }
 export type SidebarVisibility = 'show' | 'badged' | 'hide';
 /** the kinds Linear's notification settings speak in */
@@ -735,6 +749,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   homeView: 'inbox', firstDayOfWeek: 1,
   notify: { assigned: true, statusChanged: true, comments: true, mentions: true },
   sidebar: { badgeStyle: 'count', items: {} },
+  gettingStarted: { onboarding: 'done', step: 0, since: null, usedPalette: false },
   displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false, startOnBranchCopy: true, startOnHandoff: true,
   push: { desktop: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
 };

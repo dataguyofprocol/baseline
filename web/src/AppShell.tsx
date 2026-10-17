@@ -9,6 +9,7 @@ import { teamDisplayIcon } from './pickers.js';
 import { AnimatePresence } from 'framer-motion';
 import { CustomizeSidebar, sidebarVisibility, useDrafts } from './Workspace.js';
 import { InitiativeIcon } from './Initiatives.js';
+import { GettingStartedMenu } from './GettingStarted.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues, IconCycle, IconTeam, IconHelp, IconCaret,
   IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
@@ -258,6 +259,7 @@ export function Sidebar() {
         </button>
         {helpMenu.anchor && (
           <Menu anchor={helpMenu.anchor} onClose={helpMenu.close} width={230}>
+            <GettingStartedMenu />
             <MenuItem icon={<IconKeyboard size={14} />} label="Keyboard shortcuts" right={<span className="mi-kbd">⌘/</span>} onClick={() => useApp.getState().setShortcuts(true)} />
             <MenuItem icon={<IconSearch size={14} />} label="Command menu" right={<span className="mi-kbd">⌘K</span>} onClick={() => useApp.getState().setPalette(true)} />
             <MenuItem icon={<IconSettings size={14} />} label="Settings" right={<span className="mi-kbd">G then S</span>} onClick={() => navigate('/settings/workspace')} />

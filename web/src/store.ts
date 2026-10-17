@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { flushSync } from 'react-dom';
 import { api } from './api.js';
 import { revealTheme } from './motion.js';
-import { notifyCategory, type Snapshot, type Issue, type Priority } from '../../src/core/types.js';
+import { notifyCategory, type Snapshot, type Issue, type Priority, type GettingStarted } from '../../src/core/types.js';
 import type { PropKind } from './propertyMenus.js';
 
 export type PaletteScope = 'issue' | 'project' | 'view' | 'document' | 'cycle' | 'label' | 'user' | 'favorite' | 'settings' | 'document-new';
@@ -104,7 +104,10 @@ export const useApp = create<AppState>((set, get) => ({
     if (t.autoClose !== false) setTimeout(() => get().dismissToast(id), 5200);
   },
   dismissToast: (id) => set(s => ({ toasts: s.toasts.filter(x => x.id !== id) })),
-  setPalette: (open, scope = null) => set({ paletteOpen: open, paletteScope: open ? scope : null }),
+  setPalette: (open, scope = null) => {
+    set({ paletteOpen: open, paletteScope: open ? scope : null });
+    if (open && get().snap?.workspace.preferences.gettingStarted.usedPalette === false) setGettingStarted({ usedPalette: true });
+  },
   setSidebarCollapsed: (collapsed) => {
     localStorage.setItem('baseline:sidebarCollapsed', collapsed ? '1' : '0');
     set({ sidebarCollapsed: collapsed });
@@ -230,6 +233,16 @@ export async function copyText(text: string): Promise<boolean> {
       return false;
     }
   }
+}
+
+/** first-run progress and the Getting started checklist: applied here at once, saved behind */
+export function setGettingStarted(patch: Partial<GettingStarted>): Promise<unknown> {
+  const s = useApp.getState().snap;
+  if (s) {
+    const prefs = s.workspace.preferences;
+    useApp.setState({ snap: { ...s, workspace: { ...s.workspace, preferences: { ...prefs, gettingStarted: { ...prefs.gettingStarted, ...patch } } } } });
+  }
+  return api.updatePreferences({ gettingStarted: patch }).catch(() => {});
 }
 
 export async function refresh() {

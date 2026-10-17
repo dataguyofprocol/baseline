@@ -29,9 +29,10 @@ port 7770. Override anything with `BASELINE_DB`, `BASELINE_PORT`, or `BASELINE_U
 The server only listens on this machine (127.0.0.1 and ::1) and rejects requests addressed to any other host or sent cross-site from another origin; set `BASELINE_HOST=0.0.0.0` to open it to your network (launching Claude Code stays local-only either way).
 
 **Production data:** the work DB was wiped of all seed/demo data on 2026-08-29 — the workspace
-starts empty (create your team in Settings) and only real work lives there now. The app auto-seeds
-any database whose `meta` table is empty, so never point dev tools or experiments at
-`~/.baseline/baseline.db`; deleting or resetting that file would resurrect the sample data.
+starts empty (create your team in Settings) and only real work lives there now. A database whose
+`meta` table is empty starts blank in the web app (a first-run flow names your team and offers
+the sample data) and seeded from the CLI, so never point dev tools or experiments at
+`~/.baseline/baseline.db`; deleting or resetting that file would lose your work.
 Pre-wipe backups: `~/.baseline/backups/`.
 
 ## What's inside

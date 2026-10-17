@@ -68,8 +68,10 @@ sqlite3 ~/.baseline/baseline.db ".restore '$HOME/.baseline/backups/baseline-YYYY
 2. Dev commands (`npm run cli`, `npm run seed`, `npm run dev:server`) are sandboxed to
    `baseline-dev.db`. Bare commands are production: `node bin/baseline.js`, `npm run mcp`,
    anything serving :7770.
-3. The app auto-seeds any database whose `meta` table is empty. Deleting `baseline.db`
-   resurrects demo data — restore from a backup instead of deleting.
+3. A database whose `meta` table is empty is set up on first open: the web server (`serve`,
+   `dev:server`) starts it blank and runs the first-run flow (`serve --seed` loads the sample
+   instead); CLI commands still seed the sample workspace. Deleting `baseline.db` loses your
+   work either way — restore from a backup instead of deleting.
 4. Restart servers only between batches of work; agents may be writing concurrently.
 
 ## When something looks broken
@@ -80,5 +82,5 @@ sqlite3 ~/.baseline/baseline.db ".restore '$HOME/.baseline/backups/baseline-YYYY
 - **Server won't start:** read the log — `~/.baseline/work-server.log` or
   `~/.baseline/dev-server.log`. Port squatted? `lsof -ti tcp:7770` names the pid.
 - **"Team not found" or an empty page after a reset:** stale tab state; the app
-  self-heals unknown team routes on load — refresh. Zero teams shows the onboarding screen.
+  self-heals unknown team routes on load — refresh. Zero teams shows the first-run flow at its team step.
 - **Dependency errors after an update:** `cd ~/sideones/baseline-work && npm ci`.

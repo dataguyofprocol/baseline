@@ -5,7 +5,7 @@ import { getMeta, migrateDirectoriesToLocations, setMeta, ensureDefaults } from 
 import { id, nowIso, midSort } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import type {
-  ActivityItem, ActivityType, Attachment, RecurringIssue, ProjectTemplate, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, EstimateScale,
+  ActivityItem, ActivityType, Attachment, RecurringIssue, ProjectTemplate, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, PreferencesPatch, EstimateScale,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType, UpdateCadence, ProjectStatusDef, ProjectSubscription, ProjectLabel, DocTemplate, CustomEmoji,
@@ -1048,12 +1048,12 @@ export class Store {
   getPreferences(): Preferences {
     try {
       const raw = JSON.parse(getMeta(this.db, 'preferences') ?? '{}') as Partial<Preferences>;
-      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, push: { ...DEFAULT_PREFERENCES.push, ...(raw.push ?? {}), types: { ...DEFAULT_PREFERENCES.push.types, ...(raw.push?.types ?? {}) } }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } } };
+      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, push: { ...DEFAULT_PREFERENCES.push, ...(raw.push ?? {}), types: { ...DEFAULT_PREFERENCES.push.types, ...(raw.push?.types ?? {}) } }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } }, gettingStarted: { ...DEFAULT_PREFERENCES.gettingStarted, ...(raw.gettingStarted ?? {}) } };
     } catch { return DEFAULT_PREFERENCES; }
   }
-  setPreferences(patch: Partial<Preferences>): void {
+  setPreferences(patch: PreferencesPatch): void {
     const cur = this.getPreferences();
-    setMeta(this.db, 'preferences', JSON.stringify({ ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, push: { ...cur.push, ...(patch.push ?? {}), types: { ...cur.push.types, ...(patch.push?.types ?? {}) } }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } } }));
+    setMeta(this.db, 'preferences', JSON.stringify({ ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, push: { ...cur.push, ...(patch.push ?? {}), types: { ...cur.push.types, ...(patch.push?.types ?? {}) } }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } }, gettingStarted: { ...cur.gettingStarted, ...(patch.gettingStarted ?? {}) } }));
   }
 
   getFeatures(): WorkspaceFeatures {

@@ -159,8 +159,9 @@ program
   .option('-p, --port <port>', 'port (default: $BASELINE_PORT or 7770)')
   .option('-d, --db <path>', 'database path')
   .option('--open', 'open browser', false)
+  .option('--seed', 'a new database starts with the sample workspace instead of the first-run flow', false)
   .action((opts) => {
-    void serve({ port: opts.port ? Number(opts.port) : undefined, dbPath: opts.db, open: opts.open });
+    void serve({ port: opts.port ? Number(opts.port) : undefined, dbPath: opts.db, open: opts.open, seedIfEmpty: opts.seed });
   });
 
 program

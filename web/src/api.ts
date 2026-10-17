@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope } from '../../src/core/types.js';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -185,13 +185,15 @@ export const api = {
   deleteNotification: (id: string) => req<{ ok: true }>('DELETE', `/api/notifications/${id}`),
   deleteReadNotifications: () => req<{ ok: true }>('POST', '/api/notifications/delete-read'),
   snoozeNotification: (id: string, until: string | null) => req<{ ok: true }>('POST', `/api/notifications/${id}/snooze`, { until }),
-  updatePreferences: (patch: Partial<Preferences>) => req<{ ok: true }>('PATCH', '/api/preferences', patch),
+  updatePreferences: (patch: PreferencesPatch) => req<{ ok: true }>('PATCH', '/api/preferences', patch),
   updateUser: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/users/${id}`, patch),
   updateCycle: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/cycles/${id}`, patch),
   updateWorkspace: (b: Record<string, unknown>) => req<{ ok: true }>('PATCH', '/api/workspace', b),
   importWorkspace: (json: string) => req<{ ok: true }>('POST', '/api/import', { json }),
   search: (q: string) => req<{ issues: Issue[]; projects: Project[] }>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   reseed: () => req<{ ok: true }>('POST', '/api/seed', {}),
+  /** the sample workspace, added next to what's already here (once per workspace) */
+  loadSampleData: () => req<{ ok: true; already?: boolean }>('POST', '/api/seed', { into: true }),
 };
 
 export type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate };

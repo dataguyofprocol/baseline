@@ -364,7 +364,8 @@ export function App() {
   const loaded = useApp(s => s.loaded);
   const bootstrap = useApp(s => s.bootstrap);
   const resolvedTheme = useApp(s => s.resolvedTheme);
-  const hasTeam = useApp(s => (s.snap?.teams.length ?? 0) > 0);
+  // a new workspace (or one with no teams left) runs the first-run flow before any route
+  const onboarding = useApp(s => !!s.snap && (!s.snap.teams.length || s.snap.workspace.preferences.gettingStarted.onboarding === 'pending'));
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
@@ -388,8 +389,7 @@ export function App() {
     );
   }
 
-  if (!hasTeam) {
-    // fresh workspace: issues need a team, so onboarding comes before any route
+  if (onboarding) {
     return <Onboarding />;
   }
 

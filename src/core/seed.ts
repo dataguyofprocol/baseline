@@ -1,33 +1,62 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { setMeta } from './db.js';
+import { execFileSync } from 'node:child_process';
+import { userInfo } from 'node:os';
+import { getMeta, setMeta } from './db.js';
 import { id, nowIso } from './util.js';
 import { Store } from './store.js';
 import type { Priority } from './types.js';
 
-export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string } = {}): void {
+/** who you are on a fresh machine: git's user.name, else the login name */
+function localUserName(): string {
+  try { const n = execFileSync('git', ['config', '--global', 'user.name'], { encoding: 'utf8', timeout: 2000 }).trim(); if (n) return n; } catch { /* no git or no name */ }
+  try { const n = userInfo().username; return n.charAt(0).toUpperCase() + n.slice(1); } catch { return 'You'; }
+}
+
+/** A workspace with nothing in it but you and Claude Code — the web app's first run, where
+ *  onboarding names the first team and offers the sample data. */
+export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string } = {}): void {
   const store = new Store(db);
   store.wipe();
+  setMeta(db, 'workspaceId', id('w'));
+  setMeta(db, 'workspaceName', opts.workspaceName ?? 'Baseline');
+  setMeta(db, 'workspaceCreatedAt', nowIso());
+  const me = store.createUser(opts.userName ?? localUserName(), '', true);
+  setMeta(db, 'currentUser', me.id);
+  store.claudeCodeUserId();
+  store.setPreferences({ gettingStarted: { onboarding: 'pending', step: 0, since: null, usedPalette: false } });
+}
+
+/** The sample workspace. `into` adds it to the workspace as it stands — your teams, locations
+ *  and settings stay, and you are the sample's "me" — instead of wiping first. */
+export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string; into?: boolean } = {}): void {
+  const store = new Store(db);
+  if (!opts.into) store.wipe();
 
   const now = Date.now();
   const iso = (offsetDays: number) => new Date(now + offsetDays * 86400_000).toISOString();
 
-  const workspaceName = opts.workspaceName ?? 'Baseline';
-  setMeta(db, 'workspaceId', id('w'));
-  setMeta(db, 'workspaceName', workspaceName);
-  setMeta(db, 'workspaceCreatedAt', iso(-30));
+  if (!opts.into) {
+    const workspaceName = opts.workspaceName ?? 'Baseline';
+    setMeta(db, 'workspaceId', id('w'));
+    setMeta(db, 'workspaceName', workspaceName);
+    setMeta(db, 'workspaceCreatedAt', iso(-30));
+  }
   setMeta(db, 'seededAt', iso(0));
 
   // members
-  const me = store.createUser(opts.userName ?? 'Parth Batra', 'parth@local', true);
+  const current = opts.into ? store.snapshot().users.find(u => u.id === getMeta(db, 'currentUser')) : undefined;
+  const me = current ?? store.createUser(opts.userName ?? 'Parth Batra', 'parth@local', true);
   const ada = store.createUser('Ada Osei', 'ada@local');
   const jun = store.createUser('Jun Watanabe', 'jun@local');
   const agent = store.createUser('Agent', 'agent@local', false, 'agent');
   store.updateUser(agent.id, { color: '#4cb782' });
   setMeta(db, 'currentUser', me.id);
 
-  // teams with default workflow states
-  const core = store.createTeam('CORE', 'Core', '◆', '#5e6ad2');
-  const agents = store.createTeam('AGO', 'Agent Surface', '🤖', '#c770f4');
+  // teams with default workflow states (a key you already use gets a number)
+  const taken = new Set(store.snapshot().teams.map(t => t.key));
+  const freeKey = (k: string) => { let n = 2, key = k; while (taken.has(key)) key = `${k}${n++}`; taken.add(key); return key; };
+  const core = store.createTeam(freeKey('CORE'), 'Core', '◆', '#5e6ad2');
+  const agents = store.createTeam(freeKey('AGO'), 'Agent Surface', '🤖', '#c770f4');
 
   // labels (Linear default trio per team + extras)
   const coreBug = store.createLabel(core.id, 'Bug', '#eb5757');

@@ -1,8 +1,8 @@
 import { Hono, type Context, type Next } from 'hono';
 import { serve as nodeServe, type ServerType } from '@hono/node-server';
-import { openDb, resolveDbPath } from '../core/db.js';
+import { getMeta, openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
-import { seedWorkspace } from '../core/seed.js';
+import { blankWorkspace, seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
 import { API_KEY_SCOPES, type ApiKey, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
 import { FileError, FileService, MAX_EMOJI_BYTES, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
@@ -33,7 +33,8 @@ const originHostOf = (c: Context): string | null => {
   try { return new URL(origin).hostname; } catch { return '?'; }
 };
 
-export function createApp(dbPath: string) {
+/** `blank`: a new database starts empty for the web app's first-run flow instead of seeded */
+export function createApp(dbPath: string, opts: { blank?: boolean } = {}) {
   const db = openDb(dbPath);
   const store = new Store(db);
   const { planning, automation, git, apiKeys } = store.ext;
@@ -49,8 +50,11 @@ export function createApp(dbPath: string) {
   // seed on first run
   const hasWorkspace = db.prepare('SELECT COUNT(*) AS n FROM meta').get() as { n: number };
   if (Number(hasWorkspace.n) === 0) {
-    seedWorkspace(db);
-    console.error('[baseline] seeded a sample workspace — run `baseline seed --reset` to reseed');
+    if (opts.blank) blankWorkspace(db);
+    else {
+      seedWorkspace(db);
+      console.error('[baseline] seeded a sample workspace — run `baseline seed --reset` to reseed');
+    }
   }
 
   const app = new Hono();
@@ -713,7 +717,12 @@ export function createApp(dbPath: string) {
   });
   app.post('/api/seed', async (c) => {
     const b = await c.req.json().catch(() => ({}));
-    seedWorkspace(db, { workspaceName: b.workspaceName });
+    if (b.into) {
+      // onboarding's "Load sample data": once per workspace, alongside what you already set up
+      if (getMeta(db, 'seededAt')) return c.json({ ok: true, already: true });
+      seedWorkspace(db, { into: true });
+      if (store.getFeatures().githubEnabled) git.ensureInReview();
+    } else seedWorkspace(db, { workspaceName: b.workspaceName });
     return c.json({ ok: true });
   });
 
@@ -736,7 +745,8 @@ export function createApp(dbPath: string) {
 export function serve(opts: ServeOptions = {}): { server: ServerType; port: number } {
   const dbPath = resolveDbPath(opts.dbPath);
   const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7770);
-  const { app } = createApp(dbPath);
+  // the browser is where a new workspace gets set up, so a new database starts blank (--seed: sample data)
+  const { app } = createApp(dbPath, { blank: !opts.seedIfEmpty });
   // loopback by default: IPv4 and IPv6 each get a listener, since `localhost` may resolve to either
   const server = nodeServe({ fetch: app.fetch, port, hostname: LISTEN_HOST || '127.0.0.1' });
   if (!LISTEN_HOST) {
