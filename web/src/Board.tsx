@@ -475,15 +475,8 @@ function BoardCell(props: {
       <SortableContext items={props.issues.map(i => i.id)} strategy={verticalListSortingStrategy}>
         <div ref={setNodeRef} className="board-col-body">
           {props.issues.map(i => <BoardCard key={i.id} issue={i} groupBy={props.groupBy} subgroupBy={props.subgroupBy} display={props.display} index={props.flat.indexOf(i)} />)}
-          {props.issues.length === 0 && props.laneId === ALL_LANE && (
-            <div className="lane-empty">
-              <span>No issues</span>
-              {canCreate && <button className="lane-add" onClick={addIssue}><IconPlus size={12} /> New issue</button>}
-            </div>
-          )}
-          {canCreate && (props.issues.length > 0 || props.laneId !== ALL_LANE) && (
-            <button className="lane-add trailing" onClick={addIssue}><IconPlus size={12} /> New issue</button>
-          )}
+          {props.issues.length === 0 && props.laneId === ALL_LANE && <div className="lane-empty"><span>No issues</span></div>}
+          {canCreate && <button className="lane-add trailing" onClick={addIssue}><IconPlus size={12} /> New issue</button>}
         </div>
       </SortableContext>
     </div>
