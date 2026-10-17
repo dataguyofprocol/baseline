@@ -126,7 +126,7 @@ function WorkspaceSettings() {
         <input className="text-input" value={name} onChange={e => setName(e.target.value)} onBlur={save} />
       </div>
       <div className="field-row">
-        <div><div className="field-label">Members</div><div className="field-help">{snap.users.length} member(s) in this local workspace.</div></div>
+        <div><div className="field-label">Members</div><div className="field-help">{snap.users.length} member{snap.users.length === 1 ? '' : 's'} in this local workspace.</div></div>
         <span style={{ color: 'var(--text-secondary)' }}>{snap.users.map(u => u.name).join(', ')}</span>
       </div>
       <div className="field-row">

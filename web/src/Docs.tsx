@@ -5,7 +5,7 @@ import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, useMenu, RegisterMark } from './ui.js';
 import { RichEditor } from './RichEditor.js';
-import { Avatar } from './pickers.js';
+import { Avatar, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { TeamMissingRedirect } from './Views.js';
 import { CustomerRequests } from './Workspace.js';
@@ -137,7 +137,7 @@ export function TeamHomePage() {
   const go = (label: string, icon: React.ReactNode, to: string) => <button className="go-link" onClick={() => navigate(to)}>{icon}{label}</button>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: team.name, icon: <span className="ws-avatar" style={{ background: team.color, borderRadius: 4, fontSize: 9, width: 18, height: 18 }}>{team.key.slice(0, 2)}</span> }]} />
+      <TopBar crumbs={[{ label: team.name, icon: teamDisplayIcon(team) }]} />
       <div className="subnav">
         {(['overview', 'documents', 'members'] as const).map(t => (
           <button key={t} className={`seg ${tab === t ? 'selected' : ''}`} onClick={() => navigate(`/team/${team.key}/overview${t === 'overview' ? '' : `/${t}`}`)}>

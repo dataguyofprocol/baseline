@@ -60,6 +60,10 @@ export function resolveTheme(p: ThemePref): 'dark' | 'light' {
 
 let toastSeq = 1;
 
+/** a narrow window hides the nav on its own (the saved preference is left alone) so the page keeps its room */
+const narrowNav = window.matchMedia('(max-width: 760px)');
+const savedCollapsed = () => localStorage.getItem('baseline:sidebarCollapsed') === '1';
+
 const storedTheme = localStorage.getItem('baseline:theme');
 const initialTheme: ThemePref = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : 'system';
 
@@ -71,7 +75,7 @@ export const useApp = create<AppState>((set, get) => ({
   toasts: [],
   paletteOpen: false,
   paletteScope: null,
-  sidebarCollapsed: localStorage.getItem('baseline:sidebarCollapsed') === '1',
+  sidebarCollapsed: narrowNav.matches || savedCollapsed(),
   createModal: { open: false },
   shortcutsOpen: false,
   quickMenu: null,
@@ -111,6 +115,8 @@ export const useApp = create<AppState>((set, get) => ({
   setShortcuts: (open) => set({ shortcutsOpen: open }),
   setQuickMenu: (m) => set({ quickMenu: m }),
 }));
+
+narrowNav.addEventListener('change', (e) => { useApp.setState({ sidebarCollapsed: e.matches || savedCollapsed() }); });
 
 // while the preference is 'system', follow the OS/browser appearance live;
 // e.matches is that change's own verdict, so no re-query race

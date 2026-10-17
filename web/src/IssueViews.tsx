@@ -1308,6 +1308,7 @@ export function GroupedList(props: {
       );
     }
   }, [collapsed]);
+  useKeyColumn(listRef, render);
 
   const hiddenFooter = hiddenByFilters > 0 && (
     <div className="hidden-by-filters">
@@ -1356,7 +1357,7 @@ export function GroupedList(props: {
   };
 
   return (
-    <div style={{ paddingBottom: 40 }} ref={listRef}>
+    <div className="issue-list" style={{ paddingBottom: 40 }} ref={listRef}>
       {render.map((item, idx) => {
         if (item.kind === 'header') {
           return (
@@ -1418,14 +1419,35 @@ export function GroupedList(props: {
   );
 }
 
+/** Like Linear, the ID column is as wide as the list's longest key, so every title starts on one line. */
+function useKeyColumn(ref: React.RefObject<HTMLElement | null>, dep: unknown) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      el.style.removeProperty('--key-w');
+      let w = 0;
+      for (const k of el.querySelectorAll<HTMLElement>('.issue-key')) w = Math.max(w, k.getBoundingClientRect().width);
+      if (w) el.style.setProperty('--key-w', `${Math.ceil(w)}px`);
+    };
+    measure();
+    // the first paint can land before Inter does; its wider glyphs need a second pass
+    let live = true;
+    void document.fonts?.ready.then(() => { if (live) measure(); });
+    return () => { live = false; };
+  }, [ref, dep]);
+}
+
 /* helper used by pages to render rows outside a group */
 export function FlatIssueList(props: { issues: Issue[]; teamId?: string; display?: RowDisplay }) {
   const cursorIndex = useCursor(s => s.index);
   const selection = useSelection(s => s.ids);
   const flat = props.issues;
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { registerVisibleList(flat, props.teamId ?? ''); }, [flat, props.teamId]);
+  useKeyColumn(ref, flat);
   return (
-    <div>
+    <div className="issue-list" ref={ref}>
       {flat.map((i, idx) => (
         <IssueRow key={i.id} issue={i} display={props.display} cursor={idx === cursorIndex} selected={selection.includes(i.id)}
           onHover={() => { if (useCursor.getState().index !== idx) useCursor.setState({ index: idx }); }} />

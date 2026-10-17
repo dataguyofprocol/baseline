@@ -337,7 +337,7 @@ export function CycleDetailPage() {
                 onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setRenaming(false); }} />
             ) : <div className="cyr-name" onDoubleClick={() => setRenaming(true)}><IconCycle size={15} /> {cycleName(cycle)}</div>}
             <div className="rail-header" style={{ padding: 0 }}>Progress</div>
-            <Legend cycle={cycle} />
+            <Legend cycle={cycle} vertical />
             <BurnUp cycle={cycle} height={140} />
             <Breakdown issues={issues} />
           </aside>

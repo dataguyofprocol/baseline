@@ -236,7 +236,7 @@ export function InitiativesPage() {
   const toggle = (arr: string[], v: string) => arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
   const filtered = prefs.health.length + prefs.owners.length + prefs.statuses.length;
   const cols = COLS.filter(([k]) => prefs.cols[k]);
-  const grid = `minmax(260px, 1fr) ${cols.map(c => c[2]).join(' ')}`;
+  const grid = `minmax(200px, 1fr) ${cols.map(c => c[2]).join(' ')}`;
   const counts = { active: snap.initiatives.filter(i => i.status === 'active').length, planned: snap.initiatives.filter(i => i.status === 'planned').length, all: snap.initiatives.length };
 
   return (

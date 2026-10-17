@@ -593,8 +593,13 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   useLayoutEffect(() => {
     const el = titleRef.current;
     if (!el) return;
-    el.style.height = '0px';
-    el.style.height = `${el.scrollHeight}px`;
+    const fit = () => { el.style.height = '0px'; el.style.height = `${el.scrollHeight}px`; };
+    fit();
+    // re-fit when the column width changes: the peek pane slides in narrow, and windows resize
+    let lastWidth = el.clientWidth;
+    const ro = new ResizeObserver(() => { if (el.clientWidth !== lastWidth) { lastWidth = el.clientWidth; fit(); } });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [titleDraft]);
   useEffect(() => {
     const onRename = () => { titleRef.current?.focus(); titleRef.current?.select(); };
