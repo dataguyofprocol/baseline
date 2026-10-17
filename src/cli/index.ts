@@ -1380,6 +1380,31 @@ withDb(gitCmd.command('prs <key>')).description('Pull requests and commits linke
   if (opts.json) console.log(JSON.stringify({ prs, commits }, null, 2)); else { for (const p of prs) console.log(`#${p.number} ${p.state.padEnd(7)} ${p.title} (${p.link}) ${p.url}`); for (const c of commits) console.log(`${c.sha.slice(0, 7)} ${c.message.split('\n')[0]}`); }
   process.exit(0);
 });
+withDb(gitCmd.command('webhook')).description('GitHub webhooks (read-only, signed): show setup, or rotate / turn off the secret')
+  .option('--rotate', 'make a new secret (printed once; the old one stops working)', false).option('--off', 'turn webhooks off', false)
+  .option('--url <https-url>', 'the public https address GitHub reaches this server at (a tunnel)').option('--json', 'output as JSON', false)
+  .action((opts: { db?: string; rotate?: boolean; off?: boolean; url?: string; json?: boolean }) => {
+    const store = storeFor(opts.db); const w = store.ext.webhooks;
+    if (opts.url !== undefined) { try { w.setPublicUrl(opts.url); } catch (e) { fail((e as Error).message); } }
+    if (opts.off) w.turnOff();
+    const secret = opts.rotate ? w.rotateSecret() : null;
+    const cfg = w.config();
+    if (opts.json) { console.log(JSON.stringify({ ...cfg, ...(secret ? { secret } : {}) }, null, 2)); process.exit(0); }
+    console.log(`Webhooks: ${cfg.enabled ? `on (secret ${cfg.secretHint})` : 'off'}${store.getFeatures().githubEnabled ? '' : ' — GitHub is disabled in this workspace'}`);
+    console.log(`Payload URL: ${cfg.publicUrl ? `${cfg.publicUrl}/api/github/webhook` : '(set --url to your tunnel address)'}  ·  content type application/json`);
+    console.log(`Events: ${cfg.events.join(', ')}`);
+    if (secret) console.log(`Secret (shown once): ${secret}`);
+    if (cfg.lastDelivery) console.log(`Last delivery: ${cfg.lastDelivery.event} ${cfg.lastDelivery.status} at ${cfg.lastDelivery.receivedAt}`);
+    process.exit(0);
+  });
+withDb(gitCmd.command('import-issues <repo>')).description('Import a repo\'s open GitHub issues into a team (one way, read-only via gh)')
+  .requiredOption('-t, --team <key>', 'team to import into').option('--follow', 'keep importing new issues as webhooks report them', false)
+  .action(async (repo: string, opts: { db?: string; team: string; follow?: boolean }) => {
+    const store = storeFor(opts.db); const team = resolveTeam(store.snapshot(), opts.team, { required: true })!;
+    try { const r = await store.ext.webhooks.importIssues(repo, team.id, !!opts.follow); console.log(`Imported ${r.imported} issue${r.imported === 1 ? '' : 's'} into ${team.key}${r.skipped ? ` (${r.skipped} already imported)` : ''}${opts.follow ? ' — following new issues' : ''}`); }
+    catch (e) { fail((e as Error).message); }
+    process.exit(0);
+  });
 
 // ---------- customers ----------
 const customer = program.command('customer').description('Customers and the issues / projects they asked for');

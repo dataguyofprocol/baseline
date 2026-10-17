@@ -4,6 +4,7 @@ import { Planning } from './planning.js';
 import { Automation } from './automation.js';
 import { GitSync } from './git.js';
 import { ApiKeys } from './apikeys.js';
+import { GitHubWebhooks, migrateWebhooks } from './webhooks.js';
 
 /* Areas added after the core tracker — initiatives, releases, SLAs, asks, loops and the git
    integration. Each lives in its own module with its own tables, and plugs into the store
@@ -14,6 +15,7 @@ export interface Extensions {
   automation: Automation;
   git: GitSync;
   apiKeys: ApiKeys;
+  webhooks: GitHubWebhooks;
   /** extra snapshot fields */
   snapshot(): ReturnType<Planning['snapshot']> & ReturnType<Automation['snapshot']> & ReturnType<GitSync['snapshot']>;
   /** tables wipe() clears (children first) */
@@ -96,15 +98,17 @@ function migrateExtensions(db: DatabaseSync): void {
 
 export function createExtensions(store: Store, db: DatabaseSync): Extensions {
   migrateExtensions(db);
+  migrateWebhooks(db);
   const planning = new Planning(store, db);
   const automation = new Automation(store, db);
   const git = new GitSync(store, db);
   const apiKeys = new ApiKeys(store, db);
+  const webhooks = new GitHubWebhooks(store, db, git);
   return {
-    planning, automation, git, apiKeys,
+    planning, automation, git, apiKeys, webhooks,
     snapshot: () => ({ ...planning.snapshot(), ...automation.snapshot(), ...git.snapshot() }),
     // api_keys are not exported or imported: only their hashes exist
-    tables: ['api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'releases', 'initiative_updates', 'initiative_projects', 'initiatives'],
+    tables: ['github_issue_imports', 'github_deliveries', 'api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'releases', 'initiative_updates', 'initiative_projects', 'initiatives'],
     importData(data, insert) {
       const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : []);
       for (const x of arr<Record<string, unknown>>(data.initiatives)) {

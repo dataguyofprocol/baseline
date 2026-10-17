@@ -5,6 +5,7 @@ import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
 import { API_KEY_SCOPES, type ApiKey, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
+import { WEBHOOK_MAX_BYTES, WEBHOOK_PATH } from '../core/webhooks.js';
 import { FileError, FileService, MAX_EMOJI_BYTES, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname, basename } from 'node:path';
@@ -36,7 +37,7 @@ const originHostOf = (c: Context): string | null => {
 export function createApp(dbPath: string) {
   const db = openDb(dbPath);
   const store = new Store(db);
-  const { planning, automation, git, apiKeys } = store.ext;
+  const { planning, automation, git, apiKeys, webhooks } = store.ext;
   // images (avatars, emoji, pasted pictures) live in the database; pick up any from the old uploads folder
   const files = new FileService(db, join(dirname(dbPath), 'attachments'));
   const moved = files.migrateLegacy();
@@ -57,6 +58,16 @@ export function createApp(dbPath: string) {
 
   // The tracker is this machine's own: a Host that isn't loopback means a LAN client or a
   // DNS-rebinding page, and a write whose Origin is another site is a cross-site request.
+  // GitHub webhooks are the one door open to other hosts (GitHub reaches this machine through
+  // a tunnel): they carry no cookies or keys and are authenticated by their HMAC signature alone
+  app.post(WEBHOOK_PATH, async (c) => {
+    if (Number(c.req.header('content-length') ?? 0) > WEBHOOK_MAX_BYTES) return c.json({ error: 'Payload too large' }, 413);
+    const raw = await c.req.text();
+    if (raw.length > WEBHOOK_MAX_BYTES) return c.json({ error: 'Payload too large' }, 413);
+    const r = webhooks.receive({ event: c.req.header('x-github-event'), delivery: c.req.header('x-github-delivery'), signature: c.req.header('x-hub-signature-256') }, raw);
+    return c.json(r.body, r.status as 200);
+  });
+
   app.use('/api/*', async (c, next) => {
     const host = hostOf(c);
     if (!LAN_OPEN && !isLoopback(host)) return c.json({ error: 'Baseline only accepts requests from this machine (set BASELINE_HOST to change that)', code: 'forbidden' }, 403);
@@ -599,6 +610,17 @@ export function createApp(dbPath: string) {
   app.post('/api/git/sync', async (c) => c.json(await git.sync()));
   app.get('/api/git/automation/:teamId', (c) => c.json(git.automation(c.req.param('teamId'))));
   app.put('/api/git/automation/:teamId', async (c) => { git.setAutomation(c.req.param('teamId'), await c.req.json()); return c.json({ ok: true }); });
+  // webhook setup (the secret is shown once, when it's made) and one-way GitHub Issues import
+  app.get('/api/github/webhook/config', (c) => c.json(webhooks.config()));
+  app.put('/api/github/webhook/config', async (c) => { try { webhooks.setPublicUrl(String((await c.req.json()).publicUrl ?? '')); return c.json(webhooks.config()); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
+  app.post('/api/github/webhook/secret', (c) => c.json({ secret: webhooks.rotateSecret() }, 201));
+  app.delete('/api/github/webhook/secret', (c) => { webhooks.turnOff(); return c.json({ ok: true }); });
+  app.get('/api/github/webhook/deliveries', (c) => c.json({ deliveries: webhooks.deliveries(Math.min(100, Number(c.req.query('limit') ?? 30) || 30)) }));
+  app.post('/api/github/issues/import', async (c) => {
+    const b = await c.req.json();
+    try { return c.json(await webhooks.importIssues(String(b.repo ?? ''), String(b.teamId ?? ''), !!b.follow)); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  });
+  app.put('/api/github/issues/follow', async (c) => { const b = await c.req.json(); webhooks.setFollow(String(b.repo ?? ''), b.teamId ? String(b.teamId) : null); return c.json(webhooks.config()); });
   app.post('/api/git/unlink', async (c) => { const b = await c.req.json(); git.unlink(b.issueId, b.prId); return c.json({ ok: true }); });
   /** the webhook-shaped entry points, for scripts and (later) a hosted GitHub App */
   app.post('/api/git/pull-requests', async (c) => c.json({ pr: git.ingestPullRequest(await c.req.json()) }, 201));
