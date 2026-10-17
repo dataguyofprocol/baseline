@@ -8,7 +8,10 @@ import { Menu, MenuItem, MenuSep, Modal, useMenu } from './ui.js';
 import { Avatar, StateIcon, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { Markdown } from './Markdown.js';
-import { IconPlus, IconSearch, IconTrash, IconClose, IconStar, IconCheck, IconEdit, IconPulse, IconCustomers, IconCycle, IconBox } from './icons.js';
+import {
+  IconPlus, IconSearch, IconTrash, IconClose, IconStar, IconCheck, IconEdit, IconPulse, IconCustomers, IconCycle, IconBox,
+  IconInbox, IconMyIssues, IconDrafts, IconInitiative, IconViews, IconRelease, IconAsk, IconTeam, IconMembers, IconChevronDown,
+} from './icons.js';
 import { SIDEBAR_DEFAULTS, type SidebarVisibility } from '../../src/core/types.js';
 import { Illustration } from './illustrations.js';
 
@@ -465,36 +468,68 @@ export function sidebarVisibility(snap: Snap, key: string): SidebarVisibility {
   return snap.workspace.preferences.sidebar.items[key] ?? SIDEBAR_DEFAULTS[key] ?? 'show';
 }
 
+const SIDEBAR_ICONS: Record<string, React.ReactNode> = {
+  inbox: <IconInbox />, 'my-issues': <IconMyIssues />, drafts: <IconDrafts />, initiatives: <IconInitiative />, projects: <IconBox />, views: <IconViews />,
+  releases: <IconRelease />, asks: <IconAsk />, pulse: <IconPulse />, customers: <IconCustomers />, teams: <IconTeam />, members: <IconMembers />,
+};
+const VISIBILITY_LABEL: Record<SidebarVisibility, string> = { show: 'Always show', badged: 'Show when badged', hide: "Don't show" };
+const BADGE_LABEL = { count: 'Count', dot: 'Dot', none: 'None' } as const;
+type BadgeStyle = keyof typeof BADGE_LABEL;
+function BadgePreview({ style }: { style: BadgeStyle }) {
+  return style === 'count' ? <span className="cs-badge-count">1</span> : style === 'dot' ? <span className="cs-badge-dot" /> : null;
+}
+
 export function CustomizeSidebar(props: { onClose: () => void }) {
   const snap = useApp(s => s.snap)!;
   const sb = snap.workspace.preferences.sidebar;
-  const save = async (patch: { badgeStyle?: 'count' | 'dot' | 'none'; items?: Record<string, SidebarVisibility> }) => { await api.updatePreferences({ sidebar: { ...sb, ...patch, items: { ...sb.items, ...(patch.items ?? {}) } } }); await refresh(); };
-  const LABEL: Record<SidebarVisibility, string> = { show: 'Always show', badged: 'Show when badged', hide: "Don't show" };
+  const menu = useMenu();
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const save = async (patch: { badgeStyle?: BadgeStyle; items?: Record<string, SidebarVisibility> }) => { await api.updatePreferences({ sidebar: { ...sb, ...patch, items: { ...sb.items, ...(patch.items ?? {}) } } }); await refresh(); };
+  // only items the sidebar can actually show: feature-gated pages are left out while their feature is off
+  const f = snap.workspace.features;
+  const off: Record<string, boolean> = { initiatives: !f.initiativesEnabled, releases: !f.releasesEnabled, pulse: !f.pulseEnabled, customers: !f.customerRequestsEnabled };
+  const items = SIDEBAR_ITEMS.filter(i => !off[i.key]);
+  const openMenu = (key: string) => (e: React.MouseEvent) => { setMenuFor(key); menu.open(e); };
+  const menuItem = items.find(i => i.key === menuFor);
   return (
-    <Modal onClose={props.onClose} className="small-modal wide">
-      <div className="sm-head"><span>Customize sidebar</span><button className="icon-btn" onClick={props.onClose}><IconClose size={14} /></button></div>
+    <Modal onClose={props.onClose} className="modal small-modal wide cs-modal">
+      <div className="sm-head"><span>Customize sidebar</span><button className="icon-btn" aria-label="Close" onClick={props.onClose}><IconClose size={14} /></button></div>
       <div className="sm-body">
-        <div className="card cs-row"><span>Default badge style</span>
-          <select className="text-input" aria-label="Default badge style" value={sb.badgeStyle} onChange={e => void save({ badgeStyle: e.target.value as 'count' | 'dot' | 'none' })}>
-            <option value="count">Count</option><option value="dot">Dot</option><option value="none">None</option>
-          </select>
+        <div className="cs-card">
+          <div className="cs-row">
+            <span className="cs-label">Default badge style</span>
+            <button className={`cs-pick${menuFor === 'badge' && menu.anchor ? ' open' : ''}`} aria-label="Default badge style" onClick={openMenu('badge')}>
+              <BadgePreview style={sb.badgeStyle} /><span>{BADGE_LABEL[sb.badgeStyle]}</span><IconChevronDown size={12} />
+            </button>
+          </div>
         </div>
         {(['Personal', 'Workspace'] as const).map(sec => (
-          <div key={sec}>
-            <div className="cs-sec">{sec}</div>
-            <div className="card">
-              {SIDEBAR_ITEMS.filter(i => i.section === sec).map(i => (
-                <div key={i.key} className="cs-row">
-                  <span className={sidebarVisibility(snap, i.key) === 'hide' ? 'dim' : ''}>{i.label}</span>
-                  <select className="text-input" aria-label={`${i.label} visibility`} value={sidebarVisibility(snap, i.key)} onChange={e => void save({ items: { [i.key]: e.target.value as SidebarVisibility } })}>
-                    {(['show', 'badged', 'hide'] as const).map(v => <option key={v} value={v}>{LABEL[v]}</option>)}
-                  </select>
-                </div>
-              ))}
+          <section key={sec} className="cs-section">
+            <h3 className="cs-sec">{sec}</h3>
+            <div className="cs-card">
+              {items.filter(i => i.section === sec).map(i => {
+                const v = sidebarVisibility(snap, i.key);
+                return (
+                  <div key={i.key} className={`cs-row${v === 'hide' ? ' hidden' : ''}`}>
+                    <span className="cs-icon">{SIDEBAR_ICONS[i.key]}</span>
+                    <span className="cs-label">{i.label}</span>
+                    <button className={`cs-pick${menuFor === i.key && menu.anchor ? ' open' : ''}`} aria-label={`${i.label} visibility`} onClick={openMenu(i.key)}>
+                      <span>{VISIBILITY_LABEL[v]}</span><IconChevronDown size={12} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          </div>
+          </section>
         ))}
       </div>
+      {menu.anchor && menuFor && (
+        <Menu anchor={menu.anchor} onClose={() => { menu.close(); setMenuFor(null); }} width={200}>
+          {menuFor === 'badge'
+            ? (Object.keys(BADGE_LABEL) as BadgeStyle[]).map(b => <MenuItem key={b} label={BADGE_LABEL[b]} selected={sb.badgeStyle === b} onClick={() => void save({ badgeStyle: b })} />)
+            : menuItem && (['show', 'badged', 'hide'] as const).map(v => <MenuItem key={v} label={VISIBILITY_LABEL[v]} selected={sidebarVisibility(snap, menuItem.key) === v} onClick={() => void save({ items: { [menuItem.key]: v } })} />)}
+        </Menu>
+      )}
     </Modal>
   );
 }

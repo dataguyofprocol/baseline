@@ -2215,10 +2215,27 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .sm-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; font-weight: 590; }
 .sm-body { display: flex; flex-direction: column; gap: 8px; padding: 6px 16px 14px; max-height: 70vh; overflow: auto; }
 .sm-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--hairline); }
-.cs-sec { margin: 10px 0 6px; font-size: 12.5px; font-weight: 590; color: var(--text-secondary); }
-.cs-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 0 12px; border-bottom: 1px solid var(--hairline); }
-.card > .cs-row:last-child { border-bottom: 0; }
-.cs-row select { width: 170px; }
+/* customize sidebar: a real modal surface that is as tall as its content; only a
+   window too short for it scrolls the body, never a fixed inner panel */
+.cs-modal { --cs-top: clamp(16px, 9vh, 96px); width: 520px; margin-top: var(--cs-top); max-height: calc(100vh - var(--cs-top) - 16px); }
+.cs-modal .sm-head { padding: 18px 20px 14px; font-size: 15px; font-weight: var(--fw-semibold); letter-spacing: -0.01em; }
+.cs-modal .sm-head .icon-btn { margin-right: -6px; }
+.cs-modal .sm-body { gap: 22px; padding: 0 20px 22px; max-height: none; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.cs-section { display: flex; flex-direction: column; gap: 10px; }
+.cs-sec { margin: 0; font-size: 13px; font-weight: var(--fw-semibold); color: var(--text-primary); }
+.cs-card { padding: 4px 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-hover); }
+.cs-row { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 8px 0 14px; }
+.cs-icon { display: flex; flex: none; color: var(--text-secondary); }
+.cs-label { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: var(--fw-medium); color: var(--text-primary); }
+.cs-row.hidden .cs-icon, .cs-row.hidden .cs-label { color: var(--text-dim); }
+.cs-pick {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; height: 28px; padding: 0 6px 0 8px; border-radius: 6px;
+  font-size: 13px; font-weight: var(--fw-medium); color: var(--text-secondary); transition: background 120ms var(--ease), color 120ms var(--ease);
+}
+.cs-pick:hover, .cs-pick.open { background: var(--bg-hover); color: var(--text-primary); }
+.cs-pick svg { color: var(--text-dim); }
+.cs-badge-count { margin-right: 4px; font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.cs-badge-dot { width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: var(--brand); }
 .proj-notice { display: flex; flex-direction: column; gap: 12px; padding: 28px 32px; max-width: 720px; }
 .pn-title { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 590; }
 .pn-body { color: var(--text-secondary); }
