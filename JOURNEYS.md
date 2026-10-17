@@ -183,7 +183,7 @@ window size, and every difference that showed was fixed:
 
 ## Not built
 Asked about on 2026-10-16; you chose API keys and left these out:
-- **Slack notifications**, **connected accounts**, **SSO / passkeys / security policies**, **billing and usage**, **OAuth applications and webhooks**: they need accounts or a public server. The GitHub integration reads GitHub through your own `gh` login instead; a hosted GitHub App can feed the same ingest functions (planned in TEAM_PLAN.md on `team/identity-sessions`).
+- **Slack notifications**, **connected accounts**, **SSO / passkeys / security policies**, **billing and usage**, **OAuth applications and outgoing webhooks**: they need accounts or a public server. GitHub is read-only: your own `gh` login (read commands only) plus *incoming* signed GitHub webhooks reached through a tunnel; Baseline never writes to GitHub.
 - **AI (Agent, AI & agents)**: Baseline hands work to Claude Code instead (Open in Claude Code, Loops).
 
 ## Last full run

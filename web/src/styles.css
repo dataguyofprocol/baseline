@@ -2792,3 +2792,24 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
 /* help menu › Getting started */
 .gs-done { color: var(--text-dim); text-decoration: line-through; text-decoration-color: var(--border-strong); }
 .gs-hide { color: var(--text-secondary); }
+
+/* ---------- GitHub: read-only notice, webhooks, issue import ---------- */
+.gh-readonly { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-overlay); font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
+.gh-readonly > svg { color: #4cb782; margin-top: 2px; }
+.gh-readonly b { color: var(--text-primary); }
+.gh-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; flex: none; }
+.gh-secret { margin: 8px 0 4px; padding: 10px 12px; border: 1px solid color-mix(in srgb, #f2c94c 45%, transparent); border-radius: 8px; background: color-mix(in srgb, #f2c94c 8%, transparent); }
+.gh-copy-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.gh-copy-row code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; padding: 5px 8px; border-radius: 6px; background: var(--bg-input); border: 1px solid var(--border); user-select: all; }
+.gh-copy-row.inline { display: inline-flex; margin: 0 0 0 4px; vertical-align: middle; }
+.gh-copy-row.inline code { padding: 1px 6px; }
+.gh-steps { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
+.gh-steps ol { margin: 0 0 8px; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
+.gh-steps b { color: var(--text-primary); font-weight: 510; }
+.gh-deliveries .set-row { font-size: 12.5px; }
+.gh-ev { flex: none; }
+.gh-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-import { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gh-import input.text-input { width: 220px; }
+.gh-import select.text-input { width: 160px; }
+.gh-follow { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }

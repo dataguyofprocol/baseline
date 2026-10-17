@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery } from '../../src/core/types.js';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -128,6 +128,13 @@ export const api = {
   gitAutomation: (teamId: string) => req<PrAutomation>('GET', `/api/git/automation/${teamId}`),
   setGitAutomation: (teamId: string, b: Partial<PrAutomation>) => req<{ ok: true }>('PUT', `/api/git/automation/${teamId}`, b),
   unlinkPr: (issueId: string, prId: string) => req<{ ok: true }>('POST', '/api/git/unlink', { issueId, prId }),
+  webhookConfig: () => req<WebhookConfig>('GET', '/api/github/webhook/config'),
+  setWebhookUrl: (publicUrl: string) => req<WebhookConfig>('PUT', '/api/github/webhook/config', { publicUrl }),
+  rotateWebhookSecret: () => req<{ secret: string }>('POST', '/api/github/webhook/secret'),
+  turnOffWebhooks: () => req<{ ok: true }>('DELETE', '/api/github/webhook/secret'),
+  webhookDeliveries: (limit = 20) => req<{ deliveries: WebhookDelivery[] }>('GET', `/api/github/webhook/deliveries?limit=${limit}`),
+  importGithubIssues: (repo: string, teamId: string, follow: boolean) => req<{ imported: number; skipped: number }>('POST', '/api/github/issues/import', { repo, teamId, follow }),
+  followGithubIssues: (repo: string, teamId: string | null) => req<WebhookConfig>('PUT', '/api/github/issues/follow', { repo, teamId }),
   apiKeys: (all = false) => req<{ keys: ApiKey[] }>('GET', `/api/api-keys${all ? '?all=1' : ''}`),
   createApiKey: (b: { name: string; scopes: ApiKeyScope[] | null; teamIds: string[] | null }) => req<{ key: ApiKey; token: string }>('POST', '/api/api-keys', b),
   renameApiKey: (id: string, name: string) => req<{ ok: true }>('PATCH', `/api/api-keys/${id}`, { name }),

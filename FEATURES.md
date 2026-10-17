@@ -134,7 +134,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ SLAs (Settings › Issues › SLAs): rules by priority, label and team give issues a deadline; badges on rows and the rail, SLA filter, breach notifications
 - ✅ Asks (sidebar › Asks, Settings › Asks): intake forms with fields; submissions land in the team's triage
 - ✅ Loops (Settings › Loops): on issue created / label added / status changed / a schedule → comment, assign, label, move, file an issue, open in Claude Code; run log and Run now
-- ✅ GitHub (Settings › Integrations › GitHub): Linear's linking rules and magic words, per-team PR automations with branch rules, In Review state, PR and commit rows on issues, PR icon and filter, branch-name format; data from `gh` and `git log` behind ingest functions a hosted webhook can reuse
+- ✅ GitHub (Settings › Integrations › GitHub): Linear's linking rules and magic words, per-team PR automations with branch rules, In Review state, PR and commit rows on issues, PR icon and filter, branch-name format. **Read-only by design**: nothing is ever written to GitHub (an allowlist in `git.ts` lets only read commands reach `gh` / `git`). Data comes from `gh` + `git log` (polled every 2 min) and from **signed GitHub webhooks** (real time, no token: HMAC-verified, repeat deliveries dropped, delivery log in settings). One-way **GitHub Issues import** into a team's triage, optionally following new issues
 - ✅ Team bell: inbox notifications when issues are added to a team, closed, or land in its triage
 - ✅ Triage queue: filters, ordering (oldest / newest / priority), show snoozed, H snoozes, "Create triage issue"
 
@@ -153,5 +153,5 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution for agent identities; personal API keys for the REST API (`Authorization: Bearer <key>`, `baseline api-key create|list|revoke`); JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
 
 ## Known gaps (deliberate)
-- Slack, SSO, billing, OAuth apps and webhooks (declined; see JOURNEYS.md › Not built)
+- Slack, SSO, billing and OAuth apps (declined; see JOURNEYS.md › Not built). Writing back to GitHub (linkback comments, statuses, labels) is declined on purpose: the integration stays read-only
 - See JOURNEYS.md for the journey-by-journey comparison with Linear

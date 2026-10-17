@@ -17,9 +17,9 @@ import type { Commit, IssueCommit, IssuePr, PrAutomation, PrEvent, PrState, Pull
      the PR's activity is theirs and an unassigned issue it closes is assigned to them;
    - status automation per team: draft / opened / review / ready / merged map to a state;
      status only moves forward, canceled issues are never touched, every move is logged;
-   - data: `ingestPullRequest` / `ingestPush` take PRs and commits from any source. Locally
-     the source is `gh pr list` and `git log` in your locations' repos; a hosted server can
-     feed the same functions from GitHub webhooks. */
+   - data: `ingestPullRequest` / `ingestPush` take PRs and commits from any source: `gh pr list`
+     and `git log` in your locations' repos (polled), and signed GitHub webhooks (webhooks.ts);
+   - read-only: nothing is ever written to GitHub (see `assertReadOnly`). */
 
 const CLOSING = ['close', 'closes', 'closed', 'closing', 'fix', 'fixes', 'fixed', 'fixing', 'resolve', 'resolves', 'resolved', 'resolving', 'complete', 'completes', 'completed', 'completing', 'implement', 'implements', 'implemented', 'implementing'];
 const NON_CLOSING = ['ref', 'refs', 'references', 'part of', 'contributes to', 'toward', 'towards'];
@@ -72,7 +72,30 @@ export function prEvent(pr: Pick<PullRequest, 'state' | 'reviewDecision' | 'chec
 const EVENT_RANK: Record<PrEvent, number> = { draft: 1, opened: 2, review: 3, ready: 4, merged: 5 };
 const TYPE_RANK: Record<WorkflowStateType, number> = { triage: 0, backlog: 1, unstarted: 2, started: 3, completed: 4, canceled: 5 };
 
-const run = (cmd: string, args: string[], cwd?: string) => new Promise<string>((resolve, reject) => {
+/* Read-only by design: Baseline never writes to GitHub — no comments, statuses, labels, branches
+   or pushes. Every `gh` / `git` call goes through `run`, which only lets these read commands
+   through, so a future change can't start writing by accident. Webhooks need no credentials. */
+const GH_READ = [['--version'], ['auth', 'status'], ['pr', 'list'], ['pr', 'view'], ['issue', 'list'], ['issue', 'view'], ['repo', 'view'], ['api']];
+const GIT_READ = [['--version'], ['remote', 'get-url'], ['symbolic-ref'], ['log'], ['rev-parse']];
+/** gh api flags that send a body or pick a method: any of them can turn a read into a write */
+const GH_API_WRITE_FLAGS = /^(-X|--method|-f|-F|--field|--raw-field|--input)(=|$)/;
+export function assertReadOnly(cmd: string, args: string[]): void {
+  const allowed = cmd === 'gh' ? GH_READ : cmd === 'git' ? GIT_READ : [];
+  const ok = allowed.some(prefix => prefix.every((p, i) => args[i] === p));
+  if (!ok) throw new Error(`read-only GitHub integration: \`${cmd} ${args.slice(0, 2).join(' ')}\` is not a read command`);
+  if (cmd === 'gh' && args[0] === 'api') {
+    for (let i = 1; i < args.length; i++) {
+      const m = GH_API_WRITE_FLAGS.exec(args[i]);
+      if (!m) continue;
+      // `-X GET` / `--method=GET` stay reads; anything else (a body, another method) is refused
+      const method = m[2] === '=' ? args[i].slice(args[i].indexOf('=') + 1) : args[i + 1];
+      if (!/^(-X|--method)$/.test(m[1]) || method?.toUpperCase() !== 'GET') throw new Error(`read-only GitHub integration: \`gh api ${args[i]}\` would write`);
+    }
+    if (args[1] === 'graphql') throw new Error('read-only GitHub integration: `gh api graphql` is not allowed');
+  }
+}
+export const run = (cmd: string, args: string[], cwd?: string) => new Promise<string>((resolve, reject) => {
+  try { assertReadOnly(cmd, args); } catch (e) { reject(e); return; }
   execFile(cmd, args, { cwd, timeout: 20000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => err ? reject(new Error(String(stderr || err.message).trim().split('\n')[0])) : resolve(stdout));
 });
 

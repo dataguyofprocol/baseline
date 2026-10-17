@@ -603,6 +603,89 @@ ok("completed: no move", !store.startIssue(g.id, me.id).moved);
 if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
 ' "$WORK/git-flow.db"
 
+echo "=== git: read-only — only read commands reach gh / git ==="
+nodecheck "assertReadOnly allows reads and refuses every write" '
+const { assertReadOnly } = await import("./dist/core/git.js");
+const ok = (c, a) => { try { assertReadOnly(c, a); return true; } catch { return false; } };
+const reads = [["gh", ["--version"]], ["gh", ["api", "user", "--jq", ".login"]], ["gh", ["api", "-X", "GET", "repos/o/r"]], ["gh", ["api", "--method=GET", "repos/o/r"]],
+  ["gh", ["pr", "list", "--repo", "o/r"]], ["gh", ["issue", "list", "--repo", "o/r"]], ["git", ["log", "-n", "5"]], ["git", ["remote", "get-url", "origin"]], ["git", ["symbolic-ref", "--short", "x"]]];
+const writes = [["gh", ["pr", "comment", "1", "-b", "hi"]], ["gh", ["pr", "merge", "1"]], ["gh", ["issue", "create"]], ["gh", ["issue", "close", "3"]], ["gh", ["api", "-X", "POST", "repos/o/r/issues"]],
+  ["gh", ["api", "repos/o/r/issues/1/comments", "-f", "body=hi"]], ["gh", ["api", "--method=PATCH", "repos/o/r"]], ["gh", ["api", "repos/o/r", "--input", "x.json"]], ["gh", ["api", "graphql"]],
+  ["gh", ["label", "create", "x"]], ["git", ["push"]], ["git", ["remote", "add", "x", "y"]], ["git", ["commit", "-m", "x"]], ["curl", ["https://api.github.com"]]];
+const bad = [...reads.filter(([c, a]) => !ok(c, a)).map(x => "refused read " + x[1].join(" ")), ...writes.filter(([c, a]) => ok(c, a)).map(x => "allowed write " + x[0] + " " + x[1].join(" "))];
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+'
+
+echo "=== git: webhooks — signed, deduped, inbound only ==="
+nodecheck "webhooks verify signatures, dedupe, and feed PRs, reviews, checks, pushes and issues" '
+const { createHmac } = await import("node:crypto");
+const { createApp } = await import("./dist/server/index.js");
+const { app, store } = createApp(process.argv[1]);
+const fail = m => { console.error(m); process.exit(1); };
+const TUNNEL = "https://abc.trycloudflare.com/api/github/webhook";
+let secret = "";
+let n = 0;
+const send = async (event, payload, { sig, id, url = TUNNEL } = {}) => {
+  const raw = JSON.stringify(payload);
+  const headers = { "Content-Type": "application/json", "X-GitHub-Event": event, "X-GitHub-Delivery": id ?? `d-${++n}` };
+  const s = sig === undefined ? "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") : sig;
+  if (s) headers["X-Hub-Signature-256"] = s;
+  const r = await app.request(url, { method: "POST", headers, body: raw });
+  return { status: r.status, body: await r.json() };
+};
+const w = store.ext.webhooks;
+const issue = store.listIssues({}).find(i => !i.deletedAt);
+const team = store.snapshot().teams.find(t => t.id === issue.teamId);
+const key = `${team.key}-${issue.number}`;
+const repository = { full_name: "acme/app", default_branch: "main" };
+const pr = (extra = {}) => ({ number: 7, title: `${key} webhook test`, body: "", html_url: "https://github.com/acme/app/pull/7", state: "open", draft: false, merged: false, merged_at: null, head: { ref: "feat" }, base: { ref: "main" }, user: { login: "octo" }, updated_at: new Date().toISOString(), ...extra });
+
+if ((await send("ping", { zen: "x" }, { sig: "sha256=00" })).status !== 404) fail("webhooks should be off until a secret exists");
+store.setFeatures({ githubEnabled: true });
+secret = w.rotateSecret();
+if ((await send("ping", { zen: "hi", repository })).status !== 200) fail("signed ping from a tunnel host should be accepted");
+if ((await send("ping", { zen: "hi" }, { sig: "sha256=" + "0".repeat(64) })).status !== 401) fail("a bad signature should be rejected");
+if ((await send("ping", { zen: "hi" }, { sig: "" })).status !== 401) fail("an unsigned request should be rejected");
+if (w.config().rejected !== 2) fail("rejections should be logged");
+
+const opened = await send("pull_request", { action: "opened", pull_request: pr(), repository }, { id: "same" });
+if (opened.status !== 200) fail("PR opened: " + JSON.stringify(opened));
+const snap = () => store.snapshot();
+const p7 = () => snap().pullRequests.find(p => p.repo === "acme/app" && p.number === 7);
+if (!p7() || !snap().issuePrs.some(l => l.issueId === issue.id && l.prId === p7().id)) fail("PR should be stored and linked to " + key);
+const dup = await send("pull_request", { action: "opened", pull_request: pr({ title: "changed" }), repository }, { id: "same" });
+if (!dup.body.duplicate || p7().title === "changed") fail("a repeated delivery should be ignored");
+
+await send("pull_request_review", { action: "submitted", review: { state: "approved" }, pull_request: pr(), repository });
+if (p7().reviewDecision !== "approved") fail("review approved should set the decision, got " + p7().reviewDecision);
+await send("check_suite", { action: "completed", check_suite: { status: "completed", conclusion: "failure", pull_requests: [{ number: 7 }] }, repository });
+if (p7().checks !== "failure") fail("a failed check suite should mark checks failed");
+await send("pull_request", { action: "closed", pull_request: pr({ state: "closed", merged: true, merged_at: new Date().toISOString() }), repository });
+if (p7().state !== "merged" || p7().reviewDecision !== "approved") fail("merge should keep the review decision, got " + JSON.stringify(p7()));
+
+const push = await send("push", { ref: "refs/heads/main", repository, commits: [{ id: "abc1234def", message: `fixes ${key}`, timestamp: new Date().toISOString(), author: { username: "octo" } }] });
+if (!snap().issueCommits.some(c => c.issueId === issue.id && c.sha === "abc1234def")) fail("push should link the commit: " + JSON.stringify(push));
+
+if ((await send("issues", { action: "opened", issue: { number: 99, title: "From GitHub", body: "b", html_url: "https://github.com/acme/app/issues/99", user: { login: "octo" }, labels: [] }, repository })).status !== 202) fail("issues from a repo nobody follows should be ignored");
+w.setFollow("acme/app", team.id);
+await send("issues", { action: "opened", issue: { number: 99, title: "From GitHub", body: "b", html_url: "https://github.com/acme/app/issues/99", user: { login: "octo" }, labels: [] }, repository });
+const imported = store.listIssues({ teamId: team.id }).find(i => i.title === "From GitHub");
+if (!imported || !imported.description.includes("acme/app#99")) fail("a followed repo’s new issue should be imported");
+await send("issues", { action: "closed", issue: { number: 99, title: "From GitHub" }, repository });
+if (snap().states.find(s => s.id === store.getIssue(imported.id).stateId)?.type !== "completed") fail("closing it on GitHub should complete it here");
+
+// the exemption is the webhook POST only — everything else from a foreign host is still refused
+if ((await app.request("https://abc.trycloudflare.com/api/bootstrap")).status !== 403) fail("foreign host GET bootstrap must stay 403");
+if ((await app.request("https://abc.trycloudflare.com/api/github/webhook/config")).status !== 403) fail("foreign host webhook config must stay 403");
+if ((await app.request(TUNNEL)).status !== 403) fail("foreign host GET on the webhook path must stay 403");
+w.turnOff();
+if ((await send("ping", { zen: "x" })).status !== 404) fail("turned off: deliveries should be refused");
+' "$WORK/webhooks.db"
+check "git webhook shows setup" "Payload URL" git webhook
+check "git webhook --rotate prints a secret once" "Secret (shown once)" git webhook --rotate
+check_rc "git webhook --url refuses plain http" 1 git webhook --url http://example.com
+check_rc "git import-issues refuses a malformed repo" 1 git import-issues not-a-repo -t CORE
+
 echo "=== user update --github ==="
 check "user update sets a GitHub username" "github:ada-gh" user update Ada --github ada-gh
 check "user list shows the GitHub username" "github:ada-gh" user list

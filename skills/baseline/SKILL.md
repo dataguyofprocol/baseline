@@ -148,6 +148,9 @@ baseline loop run "Bug acknowledgement" CORE-12  # run a loop now, optionally on
 # git / GitHub (Linear's linking rules: key in branch or PR title; Fixes/Closes … moves the issue)
 baseline git sync                               # pull PRs (gh) and commits (git log) from your locations
 baseline git prs CORE-12 [--json]               # PRs and commits linked to an issue
+baseline git webhook [--rotate] [--url https://…] [--off]   # real-time GitHub webhooks (signed, inbound only)
+baseline git import-issues owner/repo -t CORE [--follow]    # one-way import of open GitHub issues into a team
+# the integration is read-only: Baseline never comments, labels or pushes on GitHub
 # name branches with the issue key (Copy git branch, ⌘⇧.) and write "Fixes CORE-12" in the PR so it moves on merge
 
 # customers (customer requests)
