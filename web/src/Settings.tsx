@@ -519,6 +519,14 @@ function PreferencesSettings() {
         <div><div className="field-label">On move to started status, assign to yourself</div><div className="field-help">When you move an unassigned issue to started, it will be automatically assigned to you.</div></div>
         <SettingSwitch on={prefs.assignOnStart} onChange={v => void save({ assignOnStart: v })} />
       </div>
+      <div className="field-row">
+        <div><div className="field-label">On git branch copy, move issue to started status</div><div className="field-help">Copying the branch name (⌘⇧.) moves a backlog or unstarted issue to started and assigns it to you if no one has it. Hold ⌥ while copying to skip this once.</div></div>
+        <SettingSwitch on={prefs.startOnBranchCopy} onChange={v => void save({ startOnBranchCopy: v })} />
+      </div>
+      <div className="field-row">
+        <div><div className="field-label">On copy as prompt or hand-off, move issue to started status</div><div className="field-help">The same for Copy as prompt (⌘⌥P) and Open in Claude Code. ⌥-click Copy as prompt to skip this once.</div></div>
+        <SettingSwitch on={prefs.startOnHandoff} onChange={v => void save({ startOnHandoff: v })} />
+      </div>
       <AnimatePresence>{customizing && <CustomizeSidebar key="cs" onClose={() => setCustomizing(false)} />}</AnimatePresence>
     </div>
   );
@@ -531,6 +539,7 @@ function ProfileSettings() {
   const [email, setEmail] = useState(me.email);
   const [title, setTitle] = useState(me.title ?? '');
   const [username, setUsername] = useState(me.username ?? '');
+  const [github, setGithub] = useState(me.githubUsername ?? '');
   const [err, setErr] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const colors = ['#5e6ad2', '#c770f4', '#f2994a', '#4cb782', '#eb5757', '#307ec6', '#26b5ce', '#8a8f98'];
@@ -565,6 +574,10 @@ function ProfileSettings() {
       <div className="field-row">
         <div><div className="field-label">Username</div><div className="field-help">One word, like a nickname or first name</div></div>
         <input className="text-input" aria-label="Username" placeholder={me.name.split(' ')[0].toLowerCase()} value={username} onChange={e => setUsername(e.target.value.replace(/\s+/g, ''))} onBlur={() => username !== (me.username ?? '') && void save({ username })} />
+      </div>
+      <div className="field-row">
+        <div><div className="field-label">GitHub username</div><div className="field-help">Pull requests you open are attributed to you, and an unassigned issue your PR closes is assigned to you.</div></div>
+        <input className="text-input" aria-label="GitHub username" placeholder="octocat" spellCheck={false} value={github} onChange={e => setGithub(e.target.value.replace(/\s+/g, ''))} onBlur={() => github !== (me.githubUsername ?? '') && void save({ githubUsername: github.replace(/^@/, '') })} />
       </div>
     </div>
   );
@@ -961,6 +974,7 @@ function MembersSettings() {
             <span style={{ flex: 1 }}>{u.name}{u.id === snap.currentUser.id ? <span style={{ color: 'var(--text-dim)' }}> (you)</span> : null}</span>
             {u.kind === 'agent' && <span className="kbd" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconAgent size={11} /> Agent</span>}
             {u.admin && <span className="kbd">Admin</span>}
+            {u.kind === 'human' && <GithubLoginInput userId={u.id} value={u.githubUsername ?? ''} />}
             {u.id !== snap.currentUser.id && (
               <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={async () => {
                 await api.updateWorkspace({ currentUserId: u.id });
@@ -988,6 +1002,18 @@ function MembersSettings() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** a member's GitHub login: their pull requests are attributed to them and assign them */
+function GithubLoginInput(props: { userId: string; value: string }) {
+  const [draft, setDraft] = useState(props.value);
+  useEffect(() => { setDraft(props.value); }, [props.value]);
+  return (
+    <input className="text-input" style={{ width: 130, height: 24, fontSize: 12 }} aria-label="GitHub username" title="GitHub username — links their pull requests to them" placeholder="GitHub username" spellCheck={false}
+      value={draft} onChange={e => setDraft(e.target.value.replace(/\s+/g, ''))}
+      onBlur={async () => { if (draft !== props.value) { await api.updateUser(props.userId, { githubUsername: draft.replace(/^@/, '') }); await useApp.getState().bootstrap(); } }}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
   );
 }
 

@@ -11,6 +11,10 @@ import type { Commit, IssueCommit, IssuePr, PrAutomation, PrEvent, PrState, Pull
    - linking: an issue key in the branch name or PR title links it; magic words in the
      description decide closing / non-closing / relation-only links, and `ignore KEY` /
      `skip KEY` opt out;
+   - `KEY-NEW` in a PR's title or description files a new issue in team KEY, started, assigned
+     to the PR's author and linked to the PR;
+   - people: a PR author whose GitHub login matches a user's GitHub username is that user —
+     the PR's activity is theirs and an unassigned issue it closes is assigned to them;
    - status automation per team: draft / opened / review / ready / merged map to a state;
      status only moves forward, canceled issues are never touched, every move is logged;
    - data: `ingestPullRequest` / `ingestPush` take PRs and commits from any source. Locally
@@ -43,6 +47,17 @@ export function parseLinks(pr: { branch: string; title: string; body: string }):
   for (const k of pr.title.match(new RegExp(`\\b${KEY}\\b`, 'g')) ?? []) if (!out.has(k.toUpperCase())) put(k, 'closing');
   for (const k of skipped) out.delete(k);
   return out;
+}
+
+const NEW_KEY = /\[?\(?\b([A-Z][A-Z0-9]{0,9})-NEW\b\)?\]?:?/g;
+/** team keys a PR asks a new issue for, with `KEY-NEW` in its title or description — pure.
+ *  Upper case only, so prose like "brand-new" never files anything. */
+export function parseNewIssueKeys(pr: { title: string; body: string }): string[] {
+  return [...new Set([...`${pr.title}\n${pr.body}`.matchAll(NEW_KEY)].map(m => m[1]))];
+}
+/** the PR title without its `KEY-NEW` markers: "[ENG-NEW] Fix login" → "Fix login" */
+export function titleFromPr(title: string): string {
+  return title.replace(NEW_KEY, ' ').replace(/\s+/g, ' ').replace(/^[\s:|–—-]+|[\s:|–—-]+$/g, '').trim();
 }
 
 /** the furthest event a PR has reached; closed-unmerged PRs don't count */
@@ -99,9 +114,31 @@ export class GitSync {
   }
 
   // ---------- ingest ----------
-  private issueByKey(key: string): { id: string; teamId: string } | undefined {
+  private issueByKey(key: string): { id: string; teamId: string; assigneeId: string | null } | undefined {
     const i = this.store.getByKey(key);
-    return i && !i.deletedAt ? { id: i.id, teamId: i.teamId } : undefined;
+    return i && !i.deletedAt ? { id: i.id, teamId: i.teamId, assigneeId: i.assigneeId } : undefined;
+  }
+  /** the user whose GitHub username is this login (case-insensitive) */
+  userByGithub(login: string | null | undefined): string | undefined {
+    if (!login?.trim()) return undefined;
+    return (this.db.prepare("SELECT id FROM users WHERE github_username != '' AND lower(github_username) = lower(?) ORDER BY rowid LIMIT 1").get(login.trim().replace(/^@/, '')) as { id: string } | undefined)?.id;
+  }
+  /** `KEY-NEW`: one issue per PR and team, started and assigned to the author; later syncs
+   *  return the same issue (or nothing once it's deleted) so it's never filed twice */
+  private issueFromPr(pr: PullRequest, teamKey: string, author: string | undefined, actor: string): string | null {
+    const team = this.db.prepare('SELECT id, key FROM teams WHERE upper(key) = ?').get(teamKey) as { id: string; key: string } | undefined;
+    if (!team) return null;
+    const memo = `prNewIssue:${pr.repo}#${pr.number}:${team.key}`;
+    const made = getMeta(this.db, memo);
+    if (made) { const i = this.store.getIssue(made); return i && !i.deletedAt ? `${team.key}-${i.number}` : null; }
+    if (pr.state === 'closed') return null; // a PR closed unmerged asks for nothing
+    const issue = this.store.createIssue({
+      teamId: team.id, title: titleFromPr(pr.title) || `PR #${pr.number}`,
+      description: `Created from [${pr.repo}#${pr.number}](${pr.url}).`,
+      stateId: this.store.stateOfType(team.id, 'started'), assigneeId: author ?? null,
+    }, actor);
+    setMeta(this.db, memo, issue.id);
+    return `${team.key}-${issue.number}`;
   }
   /** upsert a PR, (re)link it to the issues it names, and apply status automation */
   ingestPullRequest(input: Omit<PullRequest, 'id'>): PullRequest {
@@ -110,21 +147,27 @@ export class GitSync {
     this.db.prepare(`INSERT INTO pull_requests (id, repo, number, title, body, url, state, branch, base, author, review_decision, checks, updated_at, merged_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(repo, number) DO UPDATE SET title = excluded.title, body = excluded.body, url = excluded.url, state = excluded.state, branch = excluded.branch, base = excluded.base, author = excluded.author, review_decision = excluded.review_decision, checks = excluded.checks, updated_at = excluded.updated_at, merged_at = excluded.merged_at`)
       .run(pr.id, pr.repo, pr.number, pr.title, pr.body, pr.url, pr.state, pr.branch, pr.base, pr.author, pr.reviewDecision, pr.checks, pr.updatedAt, pr.mergedAt);
-    const bot = agentUser(this.store, this.db, 'GitHub');
+    const author = this.userByGithub(pr.author);
+    const actor = author ?? agentUser(this.store, this.db, 'GitHub');
     const me = getMeta(this.db, 'currentUser');
-    for (const [key, kind] of parseLinks(pr)) {
+    const links = parseLinks(pr);
+    for (const teamKey of parseNewIssueKeys(pr)) { const key = this.issueFromPr(pr, teamKey, author, actor); if (key) links.set(key, 'closing'); }
+    for (const [key, kind] of links) {
       const issue = this.issueByKey(key);
       if (!issue) continue;
       const link = this.db.prepare('SELECT kind, dismissed FROM issue_prs WHERE issue_id = ? AND pr_id = ?').get(issue.id, pr.id) as { kind: LinkKind; dismissed: number } | undefined;
       if (link?.dismissed) continue; // an unlinked PR is never re-linked
       if (!link) {
         this.db.prepare('INSERT INTO issue_prs (issue_id, pr_id, kind, dismissed) VALUES (?, ?, ?, 0)').run(issue.id, pr.id, kind);
-        this.store.logActivity({ issueId: issue.id, type: 'prLinked', data: { pr: `${pr.repo}#${pr.number}`, title: pr.title, kind, url: pr.url } }, bot);
+        this.store.logActivity({ issueId: issue.id, type: 'prLinked', data: { pr: `${pr.repo}#${pr.number}`, title: pr.title, kind, url: pr.url } }, actor);
+        // the PR's author is working on what it closes: an unassigned issue becomes theirs (once,
+        // at link time, so a later hand-unassign sticks)
+        if (kind === 'closing' && author && !issue.assigneeId && pr.state !== 'closed') this.store.updateIssue(issue.id, { assigneeId: author }, actor);
       } else if (link.kind !== kind) this.db.prepare('UPDATE issue_prs SET kind = ? WHERE issue_id = ? AND pr_id = ?').run(kind, issue.id, pr.id);
       const changed = !prev || prev.state !== pr.state || (prev.review_decision ?? null) !== pr.reviewDecision;
       if (changed && me && (this.store.isSubscribed(issue.id, me))) {
         const what = pr.state === 'merged' ? 'merged' : pr.state === 'closed' ? 'closed' : pr.reviewDecision === 'approved' ? 'approved' : pr.reviewDecision === 'changes_requested' ? 'changes requested' : prev ? 'updated' : 'opened';
-        this.store.notify('prActivity', { actorId: bot, issueId: issue.id, body: `PR #${pr.number} ${what}: ${pr.title}` });
+        this.store.notify('prActivity', { actorId: actor, issueId: issue.id, body: `PR #${pr.number} ${what}: ${pr.title}` });
       }
       this.applyAutomation(issue.id);
     }
@@ -155,17 +198,17 @@ export class GitSync {
   applyAutomation(issueId: string): void {
     const issue = this.store.getIssue(issueId);
     if (!issue) return;
-    const prs = this.rows<{ state: PrState; review_decision: PullRequest['reviewDecision']; checks: PullRequest['checks']; base: string; number: number }>(
-      "SELECT p.state, p.review_decision, p.checks, p.base, p.number FROM issue_prs l JOIN pull_requests p ON p.id = l.pr_id WHERE l.issue_id = ? AND l.kind = 'closing' AND l.dismissed = 0", issueId);
-    const events = prs.map(p => ({ ev: prEvent({ state: p.state, reviewDecision: p.review_decision, checks: p.checks }), base: p.base, number: p.number })).filter(x => x.ev) as Array<{ ev: PrEvent; base: string; number: number }>;
+    const prs = this.rows<{ state: PrState; review_decision: PullRequest['reviewDecision']; checks: PullRequest['checks']; base: string; number: number; author: string }>(
+      "SELECT p.state, p.review_decision, p.checks, p.base, p.number, p.author FROM issue_prs l JOIN pull_requests p ON p.id = l.pr_id WHERE l.issue_id = ? AND l.kind = 'closing' AND l.dismissed = 0", issueId);
+    const events = prs.map(p => ({ ev: prEvent({ state: p.state, reviewDecision: p.review_decision, checks: p.checks }), base: p.base, number: p.number, author: p.author })).filter(x => x.ev) as Array<{ ev: PrEvent; base: string; number: number; author: string }>;
     if (!events.length) return;
     const least = events.reduce((a, b) => (EVENT_RANK[b.ev] < EVENT_RANK[a.ev] ? b : a));
     const auto = this.automation(issue.teamId);
     const rule = auto.branchRules.find(r => r.event === least.ev && (() => { try { return new RegExp(r.pattern).test(least.base); } catch { return false; } })());
     const target = rule ? rule.stateId : auto[least.ev];
-    if (target) this.moveForward(issueId, target, `PR #${least.number} ${least.ev}`);
+    if (target) this.moveForward(issueId, target, `PR #${least.number} ${least.ev}`, this.userByGithub(least.author));
   }
-  private moveForward(issueId: string, stateId: string, why: string): void {
+  private moveForward(issueId: string, stateId: string, why: string, actorId?: string): void {
     const issue = this.store.getIssue(issueId);
     if (!issue || issue.stateId === stateId) return;
     const st = (sid: string) => this.db.prepare('SELECT type, position FROM states WHERE id = ?').get(sid) as { type: WorkflowStateType; position: number } | undefined;
@@ -173,9 +216,9 @@ export class GitSync {
     if (!cur || !next || cur.type === 'canceled' || cur.type === 'completed') return;
     const ahead = TYPE_RANK[next.type] > TYPE_RANK[cur.type] || (next.type === cur.type && next.position > cur.position);
     if (!ahead) return;
-    const bot = agentUser(this.store, this.db, 'GitHub');
-    this.store.updateIssue(issueId, { stateId }, bot);
-    this.store.logActivity({ issueId, type: 'prStateMoved', data: { why } }, bot);
+    const actor = actorId ?? agentUser(this.store, this.db, 'GitHub');
+    this.store.updateIssue(issueId, { stateId }, actor);
+    this.store.logActivity({ issueId, type: 'prStateMoved', data: { why } }, actor);
   }
 
   // ---------- local source: gh + git in your locations ----------

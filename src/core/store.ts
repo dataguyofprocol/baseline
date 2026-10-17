@@ -92,7 +92,7 @@ export class Store {
   snapshot(): Snapshot {
     const rows = <T>(sql: string): T[] => this.db.prepare(sql).all() as unknown as T[];
     const projectLocs = this.projectLocationMap();
-    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string; title: string | null; username: string | null; avatar_url: string | null }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human', title: u.title ?? '', username: u.username ?? '', avatarUrl: u.avatar_url ?? null }));
+    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string; title: string | null; username: string | null; github_username: string | null; avatar_url: string | null }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human', title: u.title ?? '', username: u.username ?? '', githubUsername: u.github_username ?? '', avatarUrl: u.avatar_url ?? null }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
     const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig(), preferences: this.getPreferences(), features: this.getFeatures() };
     const currentUser = users.find(u => u.id === (getMeta(this.db, 'currentUser') ?? '')) ?? users[0];
@@ -191,7 +191,7 @@ export class Store {
   }
 
   // ---------- users ----------
-  updateUser(userId: string, patch: Partial<Pick<User, 'name' | 'email' | 'color' | 'admin' | 'title' | 'username' | 'avatarUrl'>>): void {
+  updateUser(userId: string, patch: Partial<Pick<User, 'name' | 'email' | 'color' | 'admin' | 'title' | 'username' | 'githubUsername' | 'avatarUrl'>>): void {
     const cur = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as { name: string; email: string } | undefined;
     if (!cur) return;
     const name = patch.name ?? cur.name;
@@ -199,6 +199,7 @@ export class Store {
     const sets: string[] = []; const vals: (string | number | null)[] = [];
     for (const [k, v] of sqlPairs(patch, ['name', 'email', 'color', 'admin', 'title', 'username'])) { sets.push(`${k} = ?`); vals.push(k === 'admin' ? (v ? 1 : 0) : k === 'username' ? String(v).trim().split(/\s+/)[0] ?? '' : v as string | number); }
     if ('avatarUrl' in patch) { sets.push('avatar_url = ?'); vals.push(patch.avatarUrl ?? null); }
+    if (patch.githubUsername !== undefined) { sets.push('github_username = ?'); vals.push(String(patch.githubUsername ?? '').trim().replace(/^@/, '')); }
     if (initials) { sets.push('initials = ?'); vals.push(initials); }
     if (!sets.length) return;
     vals.push(userId);
@@ -494,6 +495,18 @@ export class Store {
     return next;
   }
 
+  /** Linear's "on git branch copy, move issue to started status": an issue still in backlog or
+   *  unstarted moves to its team's first started state, and an unassigned one goes to `userId` */
+  startIssue(issueId: string, userId: string): { moved: boolean; assigned: boolean; stateName?: string } {
+    const issue = this.getIssue(issueId);
+    const type = issue && this.stateType(issue.stateId);
+    const target = issue && this.stateOfType(issue.teamId, 'started');
+    if (!issue || !target || (type !== 'backlog' && type !== 'unstarted')) return { moved: false, assigned: false };
+    const assigned = !issue.assigneeId;
+    this.updateIssue(issueId, { stateId: target, ...(assigned ? { assigneeId: userId } : {}) }, userId);
+    const stateName = (this.db.prepare('SELECT name FROM states WHERE id = ?').get(target) as { name: string }).name;
+    return { moved: true, assigned, stateName };
+  }
   getByKey(key: string): Issue | undefined {
     const m = /^(.+)-(\d+)$/.exec(key.trim().toUpperCase());
     if (!m) return undefined;
@@ -1287,7 +1300,7 @@ export class Store {
     const insert = (table: string, cols: string[], row: Record<string, unknown>) => {
       this.db.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map(c => row[c] as string | number | null));
     };
-    for (const u of arr<Record<string, unknown>>(data.users)) insert('users', ['id', 'name', 'email', 'initials', 'color', 'admin', 'kind', 'title', 'username', 'avatar_url'], { ...u, admin: u.admin ? 1 : 0, kind: u.kind ?? 'human', title: u.title ?? '', username: u.username ?? '', avatar_url: u.avatarUrl ?? null });
+    for (const u of arr<Record<string, unknown>>(data.users)) insert('users', ['id', 'name', 'email', 'initials', 'color', 'admin', 'kind', 'title', 'username', 'github_username', 'avatar_url'], { ...u, admin: u.admin ? 1 : 0, kind: u.kind ?? 'human', title: u.title ?? '', username: u.username ?? '', github_username: u.githubUsername ?? '', avatar_url: u.avatarUrl ?? null });
     if (ws?.agentUserId && arr<{ id: string }>(data.users).some(u => u.id === ws.agentUserId)) setMeta(this.db, 'agentUserId', ws.agentUserId);
     const cu = data.currentUser as { id?: string } | undefined;
     if (cu?.id) setMeta(this.db, 'currentUser', cu.id);

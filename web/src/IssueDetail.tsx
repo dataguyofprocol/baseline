@@ -706,11 +706,11 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
               </MenuSub>
             </MenuSub>
             <MenuSep />
-            <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<span className="mi-kbd">⌘⌥P</span>} onClick={() => void handoff.copyPrompt()} />
+            <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<span className="mi-kbd">⌘⌥P</span>} onClick={e => void handoff.copyPrompt({ skipStart: e.altKey })} />
             <MenuSub icon={<IconSpark size={14} />} label="Open in Claude Code">
               <OpenInClaudeItems issue={issue} actions={handoff} />
             </MenuSub>
-            <MenuItem icon={<IconBranch size={14} />} label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={() => void handoff.copyBranch()} />
+            <MenuItem icon={<IconBranch size={14} />} label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={e => void handoff.copyBranch({ skipStart: e.altKey })} />
             <MenuItem icon={<IconCopyId size={14} />} label="Copy issue ID" right={<span className="mi-kbd">⌘.</span>} onClick={() => void handoff.copyId()} />
             <MenuItem icon={<IconDuplicate size={14} />} label="Make a copy" onClick={async () => {
               const { issue: dup } = await api.createIssue({

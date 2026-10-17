@@ -14,6 +14,7 @@ import { IconPlus, IconMore, IconCopy, IconFocus, IconCycle, IconEstimate, IconC
 import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { groupsFor, issuesOfGroup, orderIssues, subIssueProgress, SubIssueProgress, IssueContextMenu, estimateLabel, DEFAULT_DISPLAY, type DisplayProps } from './IssueViews.js';
 import { useLanding } from './motion.js';
+import { issuePrList, issuePrState, prSummary, PrIcon } from './GitHubUI.js';
 import { pointsOf, type Issue, type GroupBy } from '../../src/core/types.js';
 
 /* card internals — shared by the sortable card and the drag overlay. Linear's layout:
@@ -38,6 +39,7 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
   const overdue = !!due && !closed && due < new Date().toISOString().slice(0, 10);
   const links = d.links ? snap.attachments.filter(a => a.issueId === issue.id).length : 0;
   const est = estimateLabel(issue, snap);
+  const pr = d.prs !== false ? issuePrState(snap, issue.id) : null;
   const grouped = (g: GroupBy) => props.groupBy === g || props.subgroupBy === g;
   const chips = [
     d.priority && issue.priority > 0 && !grouped('priority') && (
@@ -52,6 +54,7 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
     d.milestone && milestone && !grouped('milestone') && (
       <span key="ms" className="bc-chip" title={milestone.name}><IconMilestone size={12} /><span className="bc-chip-text">{milestone.name}</span></span>
     ),
+    pr && <span key="pr" className="bc-chip icon" data-pr-state={pr}><PrIcon state={pr} size={12} title={prSummary(issuePrList(snap, issue.id))} /></span>,
     progress && <span key="s" className="bc-chip"><SubIssueProgress done={progress.done} total={progress.total} size={12} /></span>,
     ...(d.labels && !grouped('label') ? labels.slice(0, 2) : []).map(l => (
       <span key={l.id} className="bc-chip" title={l.name}><span className="label-dot" style={{ background: l.color }} /><span className="bc-chip-text">{l.name}</span></span>

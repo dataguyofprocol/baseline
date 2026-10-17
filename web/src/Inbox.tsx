@@ -9,6 +9,7 @@ import { Avatar, StateIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { parseReminder } from './propertyMenus.js';
 import { Markdown } from './Markdown.js';
+import { PrIcon, prStateOfNotice } from './GitHubUI.js';
 import {
   IconAssignArrow, IconComment, IconMention, IconCycle, IconFilter, IconDisplay, IconCheck, IconTrash,
   IconClock, IconSettings, IconReply, IconBell, IconClose, IconPulse, IconPlus, IconEdit,
@@ -200,7 +201,7 @@ export function InboxPage() {
       case 'projectUpdateReminder': return { icon: <IconClock size={12} />, what: 'Project update due' };
       case 'pulseDigest': return { icon: <IconPulse size={12} />, what: 'Pulse summary' };
       case 'slaBreached': return { icon: <IconClock size={12} />, what: 'SLA breached' };
-      case 'prActivity': return { icon: <IconCheck size={12} />, what: n.body };
+      case 'prActivity': return { icon: <PrIcon state={prStateOfNotice(n.body)} size={14} title="Pull request" />, what: n.body };
       case 'loopFailed': return { icon: <IconClose size={12} />, what: `loop failed — ${n.body}` };
       case 'teamActivity': return { icon: <IconBell size={12} />, what: n.body };
       default: return { icon: <IconComment size={12} />, what: 'updated the issue' };
@@ -259,7 +260,7 @@ export function InboxPage() {
                 onDoubleClick={() => { const k = keyOf(n); if (doc) navigate(`/docs/${doc.id}`); else if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); else if (n.type === 'pulseDigest') navigate('/pulse'); }}
                 onContextMenu={e => { setMenuRow(row); rowMenu.open(e); }}>
                 <span className="inbox-lead">
-                  {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? <span className="inbox-sys">{d.icon}</span>
+                  {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' || n.type === 'prActivity' ? <span className="inbox-sys">{d.icon}</span>
                     : actors.length > 1 ? <AvatarStack size={20} people={actors.map(a => ({ name: a.name, initials: a.initials, color: a.color }))} />
                     : actors.length === 1 ? <Avatar user={actors[0]} size={20} />
                     : <span className="inbox-sys">{d.icon}</span>}

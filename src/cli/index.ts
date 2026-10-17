@@ -269,7 +269,7 @@ const user = program.command('user').description('User operations');
 withDb(user.command('list')).description('List workspace users').action((opts: { db?: string }) => {
   const store = storeFor(opts.db);
   const snap = store.snapshot();
-  for (const u of snap.users) console.log(`${u.name.padEnd(24)} ${u.email.padEnd(20)} ${u.admin ? 'admin ' : ''}${u.kind === 'agent' ? 'agent' : ''}`);
+  for (const u of snap.users) console.log(`${u.name.padEnd(24)} ${u.email.padEnd(20)} ${u.admin ? 'admin ' : ''}${u.kind === 'agent' ? 'agent' : ''}${u.githubUsername ? `github:${u.githubUsername}` : ''}`.trimEnd());
   process.exit(0);
 });
 withDb(user.command('add <name>')).description('Add a workspace user')
@@ -279,6 +279,19 @@ withDb(user.command('add <name>')).description('Add a workspace user')
     const store = storeFor(opts.db);
     const u = store.createUser(name, opts.email ?? '', false, opts.agent ? 'agent' : 'human');
     console.log(`Created ${opts.agent ? 'agent' : 'user'} ${u.name}`);
+    process.exit(0);
+  });
+
+withDb(user.command('update <name>')).description('Change a user (me = you)')
+  .option('--email <email>', 'email address')
+  .option('--github <login>', 'GitHub username: their pull requests are attributed to them ("" clears it)')
+  .action((name: string, opts: { db?: string; email?: string; github?: string }) => {
+    const store = storeFor(opts.db);
+    const u = resolveUser(store.snapshot(), name);
+    if (!u) fail(`Unknown user "${name}"`);
+    store.updateUser(u.id, { ...(opts.email !== undefined ? { email: opts.email } : {}), ...(opts.github !== undefined ? { githubUsername: opts.github } : {}) });
+    const after = store.snapshot().users.find(x => x.id === u.id)!;
+    console.log(`Updated ${after.name}${after.githubUsername ? ` · github:${after.githubUsername}` : ''}`);
     process.exit(0);
   });
 

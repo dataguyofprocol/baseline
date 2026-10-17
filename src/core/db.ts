@@ -222,7 +222,7 @@ function migrate(db: DatabaseSync): void {
   // the background runner was removed — its switch and bookkeeping go with it
   db.prepare("DELETE FROM meta WHERE key IN ('agentRunner', 'agentNudges')").run();
   if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
-  for (const [col, def] of [['title', "TEXT NOT NULL DEFAULT ''"], ['username', "TEXT NOT NULL DEFAULT ''"], ['avatar_url', 'TEXT']] as const) {
+  for (const [col, def] of [['title', "TEXT NOT NULL DEFAULT ''"], ['username', "TEXT NOT NULL DEFAULT ''"], ['avatar_url', 'TEXT'], ['github_username', "TEXT NOT NULL DEFAULT ''"]] as const) {
     if (!columns('users').includes(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`);
   }
 

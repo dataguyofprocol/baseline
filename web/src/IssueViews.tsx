@@ -11,7 +11,7 @@ import { deleteIssues, toggleFavoriteIssue, convertToProject, convertToTemplate,
 import { useLanding } from './motion.js';
 import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc, IconRelease, IconSla, IconPr, IconSortDir, IconMore, IconLink, IconBranch, IconHandoff, IconExternal, IconSettings } from './icons.js';
 import { slaState, SlaBadge } from './AutomationUI.js';
-import { issuePrState, PrIcon } from './GitHubUI.js';
+import { issuePrList, issuePrState, prSummary, PrIcon } from './GitHubUI.js';
 import { teamScale, pointsOf, type Issue, type Priority, type ViewFilters, type GroupBy, type OrderBy, type FilterCondition, type FilterGroup } from '../../src/core/types.js';
 import { Illustration } from './illustrations.js';
 
@@ -21,6 +21,8 @@ type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 export interface DisplayProps {
   id: boolean; status: boolean; assignee: boolean; priority: boolean; labels: boolean; project: boolean; due: boolean;
   cycle: boolean; milestone: boolean; estimate: boolean; created: boolean; updated: boolean; links: boolean; creator: boolean;
+  /** the linked pull requests' status icon */
+  prs: boolean;
 }
 export type CompletedWindow = 'all' | 'day' | 'week' | 'month' | 'none';
 export interface ViewOptions {
@@ -43,7 +45,7 @@ export interface ViewOptions {
 
 export const DEFAULT_DISPLAY: DisplayProps = {
   id: true, status: true, assignee: true, priority: true, labels: true, project: true, due: true,
-  cycle: false, milestone: false, estimate: false, created: true, updated: false, links: false, creator: false,
+  cycle: false, milestone: false, estimate: false, created: true, updated: false, links: false, creator: false, prs: true,
 };
 export const DEFAULT_VIEW_OPTIONS: Omit<ViewOptions, 'filters'> = {
   layout: 'list', groupBy: 'status', subgroupBy: 'none', orderBy: 'priority', showEmpty: false,
@@ -509,7 +511,7 @@ export function IssueRow(props: {
         {display.cycle && cycle && <span className="proj-chip" title={cycle.name || `Cycle ${cycle.number}`}><IconCycle size={11} /> {cycle.number}</span>}
         {est && <span className="proj-chip" title={`${issue.estimate} points`}><IconEstimate size={11} /> {est}</span>}
         {display.links && links > 0 && <span className="proj-chip" title={`${links} link${links === 1 ? '' : 's'}`}><IconAttach size={11} /> {links}</span>}
-        {(() => { const pr = issuePrState(snap, issue.id); return pr ? <PrIcon state={pr} size={13} /> : null; })()}
+        {display.prs !== false && (() => { const pr = issuePrState(snap, issue.id); return pr ? <PrIcon state={pr} size={13} title={prSummary(issuePrList(snap, issue.id))} /> : null; })()}
         {issue.slaBreachesAt && !closed && <SlaBadge issue={issue} />}
         {display.due && due && (
           <span className={`due-chip ${overdue ? 'overdue' : ''}`} title={overdue ? `Overdue — due ${shortDate(due)}` : `Due ${shortDate(due)}`}>
@@ -597,8 +599,8 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
           <MenuItem icon={<IconLink size={14} />} label="Copy title as link" onClick={() => void handoff.copyTitleLink()} />
           <MenuItem icon={<IconDoc size={14} />} label="Copy issue as Markdown" onClick={() => void handoff.copyMarkdown()} />
           <MenuItem icon={<IconDoc size={14} />} label="Copy everything as Markdown" right={<span className="mi-kbd">⌘⌥C</span>} onClick={() => void handoff.copyEverything()} />
-          <MenuItem icon={<IconBranch size={14} />} label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={() => void handoff.copyBranch()} />
-          <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<span className="mi-kbd">⌘⌥P</span>} onClick={() => void handoff.copyPrompt()} />
+          <MenuItem icon={<IconBranch size={14} />} label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={e => void handoff.copyBranch({ skipStart: e.altKey })} />
+          <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<span className="mi-kbd">⌘⌥P</span>} onClick={e => void handoff.copyPrompt({ skipStart: e.altKey })} />
         </MenuSub>
       )}
       {!many && <MenuSub icon={<IconBox size={14} />} label="Convert to" width={220}>
@@ -1124,7 +1126,7 @@ export function DisplayOptionsMenu(props: {
   const propRows: Array<[keyof DisplayProps, string]> = [
     ['id', 'ID'], ['status', 'Status'], ['assignee', 'Assignee'], ['creator', 'Creator'], ['priority', 'Priority'], ['project', 'Project'],
     ['due', 'Due date'], ['milestone', 'Milestone'], ['cycle', 'Cycle'], ['estimate', 'Estimate'], ['labels', 'Labels'], ['links', 'Links'],
-    ['created', 'Created'], ['updated', 'Updated'],
+    ['prs', 'Pull requests'], ['created', 'Created'], ['updated', 'Updated'],
   ];
   return (
     <Menu anchor={props.anchor} onClose={props.onClose} width={300}>

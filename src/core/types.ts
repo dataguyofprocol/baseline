@@ -21,6 +21,8 @@ export interface User {
   title?: string;
   /** one word, like a nickname — used for {username} in branch names */
   username?: string;
+  /** GitHub login (Settings › Profile): PRs by this login are attributed to and assign this user */
+  githubUsername?: string;
   /** uploaded profile picture */
   avatarUrl?: string | null;
 }
@@ -666,6 +668,10 @@ export interface Preferences {
   autoAssign: boolean;
   /** moving an unassigned issue to a started status assigns it to you */
   assignOnStart: boolean;
+  /** copying an issue's git branch moves an unstarted / backlog issue to started and assigns you */
+  startOnBranchCopy: boolean;
+  /** the same for Copy as prompt and Open in Claude Code */
+  startOnHandoff: boolean;
   /** Settings › Notifications › Desktop: browser notifications, and which kinds */
   push: { desktop: boolean; types: Record<NotifyCategory, boolean> };
   /** Customize sidebar: badge style, and when each item shows (hidden ones move to More) */
@@ -709,7 +715,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   homeView: 'inbox', firstDayOfWeek: 1,
   notify: { assigned: true, statusChanged: true, comments: true, mentions: true },
   sidebar: { badgeStyle: 'count', items: {} },
-  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false,
+  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false, startOnBranchCopy: true, startOnHandoff: true,
   push: { desktop: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
 };
 

@@ -9,13 +9,27 @@ const refresh = () => useApp.getState().bootstrap();
 const PR_COLOR: Record<PullRequest['state'], string> = { draft: '#8a8f98', open: '#4cb782', merged: '#a371f7', closed: '#eb5757' };
 const EVENTS: Array<[PrEvent, string]> = [['draft', 'Draft PR opened'], ['opened', 'PR opened'], ['review', 'Review requested or activity'], ['ready', 'Ready for merge'], ['merged', 'Merged']];
 
-export function PrIcon({ state, size = 14 }: { state: PullRequest['state']; size?: number }) {
-  return <span className="pr-icon" style={{ color: PR_COLOR[state] }} title={`PR ${state}`}><IconPr size={size} /></span>;
+export function PrIcon({ state, size = 14, title }: { state: PullRequest['state']; size?: number; title?: string }) {
+  return <span className="pr-icon" style={{ color: PR_COLOR[state] }} title={title ?? `PR ${state}`}><IconPr size={size} /></span>;
+}
+/** the hover text for an issue's PR icon: each linked PR, newest first */
+export function prSummary(prs: PullRequest[]): string {
+  return prs.map(p => `${p.repo}#${p.number} · ${p.state} · ${p.title}`).join('\n');
+}
+/** the PR state an inbox notification's text describes ("PR #12 merged: …") */
+export function prStateOfNotice(body: string): PullRequest['state'] {
+  const what = /^PR #\d+ ([a-z ]+):/.exec(body)?.[1] ?? '';
+  return what === 'merged' ? 'merged' : what === 'closed' ? 'closed' : 'open';
 }
 
+type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
+/** the PRs linked to an issue (unlinked ones left out) */
+export function issuePrList(snap: Snap, issueId: string): PullRequest[] {
+  return snap.issuePrs.filter(l => l.issueId === issueId && !l.dismissed).map(l => snap.pullRequests.find(p => p.id === l.prId)).filter(Boolean) as PullRequest[];
+}
 /** the furthest-along PR linked to an issue, for list rows */
-export function issuePrState(snap: NonNullable<ReturnType<typeof useApp.getState>['snap']>, issueId: string): PullRequest['state'] | null {
-  const prs = snap.issuePrs.filter(l => l.issueId === issueId && !l.dismissed).map(l => snap.pullRequests.find(p => p.id === l.prId)).filter(Boolean) as PullRequest[];
+export function issuePrState(snap: Snap, issueId: string): PullRequest['state'] | null {
+  const prs = issuePrList(snap, issueId);
   if (!prs.length) return null;
   const order: Array<PullRequest['state']> = ['merged', 'open', 'draft', 'closed'];
   return order.find(s => prs.some(p => p.state === s)) ?? null;
@@ -89,6 +103,9 @@ export function GitHubSettings() {
       </div>
       <div className="settings-h2">Linking</div>
       <div className="field-help">A PR links to an issue when its branch name or title contains the issue ID, or its description uses a magic word: <b>closes, fixes, resolves, completes, implements</b> (moves the issue), <b>ref, part of, contributes to, towards</b> (links without moving), <b>related to</b> (mention only). <code>skip {sampleKey}</code> or <code>ignore {sampleKey}</code> opts out. Commits on the default branch with a closing word count as merged.</div>
+      <div className="field-help" style={{ marginTop: 8 }}><b>{sampleKey.split('-')[0]}-NEW</b> in a PR's title or description files a new issue in that team, titled from the PR, started, assigned to the PR's author and linked to the PR.</div>
+      <div className="settings-h2">People</div>
+      <div className="field-help">A PR whose author matches a member's GitHub username (Settings › Profile, or Members) is theirs: its activity shows under their name, and an unassigned issue it closes is assigned to them. {(() => { const n = snap.users.filter(u => u.kind === 'human' && u.githubUsername).length; return n ? `${n} member${n === 1 ? ' has' : 's have'} a GitHub username.` : 'No member has a GitHub username yet.'; })()}</div>
       <div className="settings-h2">Branch format</div>
       <div className="field-row">
         <div><div className="field-label">Copy git branch (⌘⇧.)</div><div className="field-help">Variables: <code>{'{username}'}</code> <code>{'{issueIdentifier}'}</code> <code>{'{issueTitle}'}</code> — e.g. <code>{branchName(sampleKey, sample?.title ?? 'Fix login redirect', format, snap.currentUser.username || snap.currentUser.name)}</code></div></div>

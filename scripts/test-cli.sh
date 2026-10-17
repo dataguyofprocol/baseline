@@ -463,6 +463,150 @@ else
   echo "FAIL  store createProject fields"; cat "$WORK/store-out.txt"; FAILED_NAMES+=("store createProject fields"); FAIL=$((FAIL+1))
 fi
 
+nodecheck() { # nodecheck <name> <module-script> [args…] — passes when the script exits 0
+  local name="$1" script="$2"; shift 2
+  if node --input-type=module -e "$script" "$@" > "$WORK/nodecheck.txt" 2>&1; then PASS=$((PASS+1)); else echo "FAIL  $name"; sed 's/^/      /' "$WORK/nodecheck.txt"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
+}
+
+echo "=== git: parseLinks and magic words ==="
+nodecheck "parseLinks: branch, title and magic words" '
+const { parseLinks } = await import("./dist/core/git.js");
+const bad = [];
+const eq = (what, got, want) => { const g = JSON.stringify([...got].sort()), w = JSON.stringify(want.sort()); if (g !== w) bad.push(`${what}: got ${g}, want ${w}`); };
+const L = (branch, title, body = "") => parseLinks({ branch, title, body });
+eq("key in branch",            L("parth/core-12-fix-login", "Fix login"), [["CORE-12", "closing"]]);
+eq("key in title",             L("main", "CORE-3 tidy up"), [["CORE-3", "closing"]]);
+eq("closing list",             L("x", "t", "Fixes CORE-1, CORE-2 and CORE-3"), [["CORE-1", "closing"], ["CORE-2", "closing"], ["CORE-3", "closing"]]);
+eq("closing with colon",       L("x", "t", "Closes: CORE-4"), [["CORE-4", "closing"]]);
+eq("every closing word",       L("x", "t", "resolved CORE-5\ncompletes CORE-6\nimplementing CORE-7"), [["CORE-5", "closing"], ["CORE-6", "closing"], ["CORE-7", "closing"]]);
+eq("ref words",                L("x", "t", "Part of CORE-5. refs CORE-6. Contributes to CORE-7. towards CORE-8"), [["CORE-5", "ref"], ["CORE-6", "ref"], ["CORE-7", "ref"], ["CORE-8", "ref"]]);
+eq("related",                  L("x", "t", "Related to CORE-8, relates to CORE-9"), [["CORE-8", "related"], ["CORE-9", "related"]]);
+eq("ignore beats the title",   L("x", "CORE-9 something", "ignore CORE-9"), []);
+eq("skip beats the branch",    L("me/core-10-x", "t", "skip CORE-10"), []);
+eq("closing outranks ref",     L("x", "t", "refs CORE-11\nfixes CORE-11"), [["CORE-11", "closing"]]);
+eq("a word beats the title",   L("x", "CORE-12 thing", "ref CORE-12"), [["CORE-12", "ref"]]);
+eq("lower-case keys",          L("x", "t", "fixes core-13"), [["CORE-13", "closing"]]);
+eq("no key, no link",          L("feature/login", "Fix login", "Just a description"), []);
+eq("key mid-word in a branch", L("score-14x", "t"), []);
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+'
+
+echo "=== git: prEvent ==="
+nodecheck "prEvent maps PR state to automation events" '
+const { prEvent } = await import("./dist/core/git.js");
+const cases = [
+  [{ state: "merged", reviewDecision: null, checks: null }, "merged"],
+  [{ state: "closed", reviewDecision: "approved", checks: "success" }, null],
+  [{ state: "draft", reviewDecision: null, checks: null }, "draft"],
+  [{ state: "open", reviewDecision: null, checks: null }, "opened"],
+  [{ state: "open", reviewDecision: "review_required", checks: null }, "review"],
+  [{ state: "open", reviewDecision: "changes_requested", checks: "success" }, "review"],
+  [{ state: "open", reviewDecision: "approved", checks: "success" }, "ready"],
+  [{ state: "open", reviewDecision: "approved", checks: null }, "ready"],
+  [{ state: "open", reviewDecision: "approved", checks: "pending" }, "review"],
+  [{ state: "open", reviewDecision: "approved", checks: "failure" }, "review"],
+];
+const bad = cases.filter(([pr, want]) => prEvent(pr) !== want).map(([pr, want]) => `${JSON.stringify(pr)} → ${prEvent(pr)}, want ${want}`);
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+'
+
+echo "=== git: KEY-NEW parsing ==="
+nodecheck "parseNewIssueKeys and titleFromPr" '
+const { parseNewIssueKeys, titleFromPr } = await import("./dist/core/git.js");
+const bad = [];
+const eq = (what, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) bad.push(`${what}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); };
+eq("title",              parseNewIssueKeys({ title: "CORE-NEW Add export", body: "" }), ["CORE"]);
+eq("title and body",     parseNewIssueKeys({ title: "[CORE-NEW] Add export", body: "also AGO-NEW, and CORE-NEW again" }), ["CORE", "AGO"]);
+eq("prose is not a key", parseNewIssueKeys({ title: "A brand-new export", body: "renew the core-new cache" }), []);
+eq("real keys are not NEW", parseNewIssueKeys({ title: "CORE-12 fix", body: "fixes CORE-13" }), []);
+eq("strip prefix",       titleFromPr("CORE-NEW Add export"), "Add export");
+eq("strip brackets",     titleFromPr("[CORE-NEW] Add export"), "Add export");
+eq("strip colon",        titleFromPr("CORE-NEW: Add export"), "Add export");
+eq("strip suffix",       titleFromPr("Add export (CORE-NEW)"), "Add export");
+eq("only the marker",    titleFromPr("CORE-NEW"), "");
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+'
+
+echo "=== git: ingest — PR author, attribution, KEY-NEW, branch-copy start ==="
+nodecheck "PR ingest assigns the author, files KEY-NEW issues, branch copy starts issues" '
+const { createApp } = await import("./dist/server/index.js");
+const { store } = createApp(process.argv[1]);
+const git = store.ext.git;
+const bad = [];
+const ok = (what, cond) => { if (!cond) bad.push(what); };
+const snap = () => store.snapshot();
+const team = snap().teams.find(t => t.key === "CORE");
+const state = (type, name) => snap().states.find(s => s.teamId === team.id && s.type === type && (!name || s.name === name));
+const ada = snap().users.find(u => u.name === "Ada Osei");
+const me = snap().currentUser;
+store.updateUser(ada.id, { githubUsername: "@Ada-GH" });
+ok("github username saved without @", snap().users.find(u => u.id === ada.id).githubUsername === "Ada-GH");
+ok("login match is case-insensitive", git.userByGithub("ada-gh") === ada.id && git.userByGithub("nobody") === undefined && git.userByGithub("") === undefined);
+let n = 0;
+const pr = (o) => git.ingestPullRequest({ repo: "acme/app", number: ++n, title: "Change", body: "", url: `https://github.com/acme/app/pull/${n}`, state: "open", branch: "work", base: "main", author: "ada-gh", reviewDecision: null, checks: null, updatedAt: new Date().toISOString(), mergedAt: null, ...o });
+const keyOf = (i) => `${team.key}-${i.number}`;
+const issue = (id) => store.getIssue(id);
+
+// an unassigned issue a PR closes goes to the PR author, and the activity is theirs
+const a = store.createIssue({ teamId: team.id, title: "unassigned", stateId: state("backlog").id });
+pr({ body: `Fixes ${keyOf(a)}` });
+ok("author becomes assignee", issue(a.id).assigneeId === ada.id);
+ok("opened PR moves to started", snap().states.find(s => s.id === issue(a.id).stateId).type === "started");
+const acts = store.issueActivity(a.id);
+ok("prLinked is by the author", acts.some(x => x.type === "prLinked" && x.userId === ada.id));
+ok("status move is by the author", acts.some(x => x.type === "prStateMoved" && x.userId === ada.id));
+
+// an assigned issue keeps its assignee; a ref link never assigns
+const b = store.createIssue({ teamId: team.id, title: "mine", assigneeId: me.id, stateId: state("unstarted").id });
+pr({ body: `Closes ${keyOf(b)}` });
+ok("assignee kept", issue(b.id).assigneeId === me.id);
+const c = store.createIssue({ teamId: team.id, title: "ref only", stateId: state("backlog").id });
+pr({ body: `Part of ${keyOf(c)}` });
+ok("ref link does not assign", issue(c.id).assigneeId === null);
+
+// an unknown author stays the GitHub agent and assigns no one
+const d = store.createIssue({ teamId: team.id, title: "stranger", stateId: state("backlog").id });
+pr({ body: `Fixes ${keyOf(d)}`, author: "stranger" });
+const bot = snap().users.find(u => u.kind === "agent" && u.name === "GitHub");
+ok("unknown author: no assignee", issue(d.id).assigneeId === null);
+ok("unknown author: GitHub agent acts", store.issueActivity(d.id).some(x => x.type === "prLinked" && x.userId === bot?.id));
+
+// KEY-NEW: one new issue, started, assigned to the author, titled from the PR, linked — never twice
+const before = snap().issues.length;
+const p = pr({ title: "CORE-NEW Add CSV export", body: "" });
+const made = snap().issues.filter(i => i.title === "Add CSV export");
+ok("KEY-NEW files one issue", made.length === 1 && snap().issues.length === before + 1);
+const m = made[0];
+ok("KEY-NEW issue is started", m && snap().states.find(s => s.id === m.stateId).type === "started");
+ok("KEY-NEW issue belongs to the author", m && m.assigneeId === ada.id);
+ok("KEY-NEW issue is linked", m && snap().issuePrs.some(l => l.issueId === m.id && l.prId === p.id && l.kind === "closing"));
+git.ingestPullRequest({ ...p, state: "merged", mergedAt: new Date().toISOString() });
+ok("re-sync files nothing new", snap().issues.filter(i => i.title === "Add CSV export").length === 1);
+ok("KEY-NEW issue follows the PR to done", snap().states.find(s => s.id === issue(m.id).stateId).type === "completed");
+pr({ title: "CORE-NEW Abandoned idea", state: "closed" });
+ok("closed PR files nothing", !snap().issues.some(i => i.title === "Abandoned idea"));
+pr({ title: "NOPE-NEW Unknown team" });
+ok("unknown team files nothing", !snap().issues.some(i => i.title === "Unknown team"));
+
+// branch copy: backlog / unstarted → first started state, unassigned → you; started issues stay put
+const e = store.createIssue({ teamId: team.id, title: "copy me", stateId: state("backlog").id });
+const r1 = store.startIssue(e.id, me.id);
+ok("branch copy moves backlog to started", r1.moved && issue(e.id).stateId === state("started").id && r1.stateName === state("started").name);
+ok("branch copy assigns you", r1.assigned && issue(e.id).assigneeId === me.id);
+const r2 = store.startIssue(e.id, me.id);
+ok("already started: no move", !r2.moved);
+const f = store.createIssue({ teamId: team.id, title: "Ada has it", assigneeId: ada.id, stateId: state("unstarted").id });
+const r3 = store.startIssue(f.id, me.id);
+ok("unstarted moves, assignee kept", r3.moved && !r3.assigned && issue(f.id).assigneeId === ada.id);
+const g = store.createIssue({ teamId: team.id, title: "done", stateId: state("completed").id });
+ok("completed: no move", !store.startIssue(g.id, me.id).moved);
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+' "$WORK/git-flow.db"
+
+echo "=== user update --github ==="
+check "user update sets a GitHub username" "github:ada-gh" user update Ada --github ada-gh
+check "user list shows the GitHub username" "github:ada-gh" user list
+
 echo
 echo "================================"
 echo "PASS: $PASS  FAIL: $FAIL"

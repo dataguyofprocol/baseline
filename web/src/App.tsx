@@ -206,7 +206,8 @@ function KeyboardManager() {
         const h = handoffActions(one);
         if (e.altKey && e.code === 'KeyP') { e.preventDefault(); void h.copyPrompt(); return; }
         if (e.altKey && e.code === 'KeyC') { e.preventDefault(); void h.copyMarkdown(); return; }
-        if (!e.altKey && e.code === 'Period') { e.preventDefault(); void (e.shiftKey ? h.copyBranch() : h.copyId()); return; }
+        if (e.shiftKey && e.code === 'Period') { e.preventDefault(); void h.copyBranch({ skipStart: e.altKey }); return; }
+        if (!e.altKey && e.code === 'Period') { e.preventDefault(); void h.copyId(); return; }
         if (!e.altKey && e.shiftKey && e.code === 'Comma') { e.preventDefault(); void h.copyUrl(); return; }
         if (!e.altKey && e.shiftKey && e.code === 'Quote') { e.preventDefault(); void h.copyTitle(); return; }
       }

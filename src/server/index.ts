@@ -241,6 +241,8 @@ export function createApp(dbPath: string) {
     store.moveIssue(c.req.param('id'), b.beforeId ?? null, b.afterId ?? null);
     return c.json({ ok: true });
   });
+  // branch copy / hand-off: backlog or unstarted → first started state, unassigned → you
+  app.post('/api/issues/:id/start', (c) => c.json(store.startIssue(c.req.param('id'), actor(c))));
   app.get('/api/issues/:id/handoff', (c) => {
     const handoff = store.handoffFor(c.req.param('id'));
     return handoff ? c.json({ handoff }) : c.json({ error: 'not found' }, 404);

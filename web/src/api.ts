@@ -27,6 +27,7 @@ export const api = {
   unarchiveIssue: (id: string) => req<{ ok: true }>('POST', `/api/issues/${id}/unarchive`),
   bulkIssues: (b: { ids: string[]; patch?: Record<string, unknown>; delete?: boolean; archive?: boolean }) => req<{ ok: true; count: number }>('POST', '/api/issues/bulk', b),
   moveIssue: (id: string, beforeId: string | null, afterId: string | null) => req<{ ok: true }>('POST', `/api/issues/${id}/move`, { beforeId, afterId }),
+  startIssue: (id: string) => req<{ moved: boolean; assigned: boolean; stateName?: string }>('POST', `/api/issues/${id}/start`, {}),
   getHandoff: (id: string) => req<{ handoff: Handoff }>('GET', `/api/issues/${id}/handoff`),
   /** errors come back as values — the caller reacts to `code` (e.g. no-directory → open the picker) */
   openClaude: async (id: string, b: { locationId?: string; directory?: string }) => {
