@@ -1003,6 +1003,20 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .board-card .bc-proj { font-size: 11px; flex: none; }
 .board-card .bc-chip.overdue { color: #eb5757; border-color: color-mix(in srgb, #eb5757 35%, var(--border)); }
 .board-card .bc-created { font-size: 12px; color: var(--text-dim); }
+/* editable properties: each chip, the status icon and the avatar open their picker in place.
+   They answer the pointer with the row-hover tint, like Linear's card chips. */
+.board-card .bc-menus { display: contents; }
+.board-card .bc-status { display: inline-flex; flex: none; margin-top: 2px; }
+.board-card .bc-status.editable { margin: -1px -3px 0; padding: 3px; border-radius: 5px; }
+.board-card .bc-avatar.editable { display: inline-flex; border-radius: 999px; }
+.board-card .editable { cursor: pointer; transition: background 110ms ease, border-color 110ms ease, color 110ms ease, opacity 110ms ease; }
+.board-card .bc-chip.editable:hover { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-primary); }
+:root[data-theme='light'] .board-card .bc-chip.editable:hover { background: var(--bg-active); }
+.board-card .bc-chip.editable.overdue:hover { color: #eb5757; border-color: color-mix(in srgb, #eb5757 55%, var(--border)); }
+.board-card .bc-status.editable:hover { background: var(--bg-hover); }
+.board-card .bc-avatar.editable:hover { box-shadow: 0 0 0 2px var(--border-strong); }
+.board-card .bc-avatar.unassigned { opacity: 0; }
+.board-card:hover .bc-avatar.unassigned, .board-card.cursor .bc-avatar.unassigned { opacity: 1; }
 
 /* finished work recedes — it stays readable, it just stops asking for attention */
 .board-card.is-done .bc-title, .board-card.is-canceled .bc-title { color: var(--text-secondary); }

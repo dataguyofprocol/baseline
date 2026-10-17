@@ -15,13 +15,16 @@ import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { groupsFor, issuesOfGroup, orderIssues, subIssueProgress, SubIssueProgress, IssueContextMenu, estimateLabel, DEFAULT_DISPLAY, type DisplayProps } from './IssueViews.js';
 import { useLanding } from './motion.js';
 import { issuePrList, issuePrState, prSummary, PrIcon } from './GitHubUI.js';
+import { PropertyMenu, type PropKind } from './propertyMenus.js';
 import { pointsOf, type Issue, type GroupBy } from '../../src/core/types.js';
 
 /* card internals — shared by the sortable card and the drag overlay. Linear's layout:
    the key (and parent, for a sub-issue) with the avatar, then status + title, then a row
    of small bordered chips for whatever is set and shown, then when it was created. A chip
-   that would only repeat the column's or the row's grouping is left out. */
-function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy | 'none'; display: Partial<DisplayProps>; becameDone?: boolean }) {
+   that would only repeat the column's or the row's grouping is left out. With `onProp` the
+   property chips are buttons that open the same menu the shortcut or the detail page would
+   (the drag overlay leaves it off, so its copy stays inert). */
+function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy | 'none'; display: Partial<DisplayProps>; becameDone?: boolean; onProp?: (kind: PropKind, e: React.MouseEvent) => void }) {
   const snap = useApp(s => s.snap)!;
   const issue = props.issue;
   const d = props.display;
@@ -41,29 +44,37 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
   const est = estimateLabel(issue, snap);
   const pr = d.prs !== false ? issuePrState(snap, issue.id) : null;
   const grouped = (g: GroupBy) => props.groupBy === g || props.subgroupBy === g;
+  const onProp = props.onProp;
+  // a press on a chip is a click, never the start of a drag or an open of the issue
+  const edit = (kind: PropKind) => onProp ? {
+    role: 'button', 'data-edit': kind,
+    onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
+    onClick: (e: React.MouseEvent) => { e.stopPropagation(); onProp(kind, e); },
+  } : {};
+  const editable = onProp ? ' editable' : '';
   const chips = [
     d.priority && issue.priority > 0 && !grouped('priority') && (
-      <span key="p" className="bc-chip icon" title={['', 'Urgent', 'High', 'Medium', 'Low'][issue.priority]}><PriorityIcon priority={issue.priority} size={12} /></span>
+      <span key="p" className={`bc-chip icon${editable}`} {...edit('priority')} title={['', 'Urgent', 'High', 'Medium', 'Low'][issue.priority]}><PriorityIcon priority={issue.priority} size={12} /></span>
     ),
     d.cycle && cycle && !grouped('cycle') && (
-      <span key="c" className="bc-chip" title={cycle.name || `Cycle ${cycle.number}`}><IconCycle size={12} />{cycle.number}</span>
+      <span key="c" className={`bc-chip${editable}`} {...edit('cycle')} title={cycle.name || `Cycle ${cycle.number}`}><IconCycle size={12} />{cycle.number}</span>
     ),
     d.project && project && !grouped('project') && (
-      <span key="j" className="bc-chip" title={project.name}><span className="bc-proj">{project.icon}</span><span className="bc-chip-text">{project.name}</span></span>
+      <span key="j" className={`bc-chip${editable}`} {...edit('project')} title={project.name}><span className="bc-proj">{project.icon}</span><span className="bc-chip-text">{project.name}</span></span>
     ),
     d.milestone && milestone && !grouped('milestone') && (
-      <span key="ms" className="bc-chip" title={milestone.name}><IconMilestone size={12} /><span className="bc-chip-text">{milestone.name}</span></span>
+      <span key="ms" className={`bc-chip${editable}`} {...edit('milestone')} title={milestone.name}><IconMilestone size={12} /><span className="bc-chip-text">{milestone.name}</span></span>
     ),
     pr && <span key="pr" className="bc-chip icon" data-pr-state={pr}><PrIcon state={pr} size={12} title={prSummary(issuePrList(snap, issue.id))} /></span>,
     progress && <span key="s" className="bc-chip"><SubIssueProgress done={progress.done} total={progress.total} size={12} /></span>,
     ...(d.labels && !grouped('label') ? labels.slice(0, 2) : []).map(l => (
-      <span key={l.id} className="bc-chip" title={l.name}><span className="label-dot" style={{ background: l.color }} /><span className="bc-chip-text">{l.name}</span></span>
+      <span key={l.id} className={`bc-chip${editable}`} {...edit('labels')} title={l.name}><span className="label-dot" style={{ background: l.color }} /><span className="bc-chip-text">{l.name}</span></span>
     )),
-    d.labels && !grouped('label') && labels.length > 2 && <span key="lm" className="bc-chip" title={labels.slice(2).map(l => l.name).join(', ')}>+{labels.length - 2}</span>,
-    d.estimate && est != null && <span key="e" className="bc-chip" title={`${issue.estimate} points`}><IconEstimate size={12} />{est}</span>,
+    d.labels && !grouped('label') && labels.length > 2 && <span key="lm" className={`bc-chip${editable}`} {...edit('labels')} title={labels.slice(2).map(l => l.name).join(', ')}>+{labels.length - 2}</span>,
+    d.estimate && est != null && <span key="e" className={`bc-chip${editable}`} {...edit('estimate')} title={`${issue.estimate} points`}><IconEstimate size={12} />{est}</span>,
     d.links && links > 0 && <span key="lk" className="bc-chip" title={`${links} links`}><IconAttach size={12} />{links}</span>,
     d.due && due && (
-      <span key="d" className={`bc-chip${overdue ? ' overdue' : ''}`} title={overdue ? `Overdue — was due ${shortDate(due + 'T12:00')}` : `Due ${shortDate(due + 'T12:00')}`}><IconCalendar size={12} />{shortDate(due + 'T12:00')}</span>
+      <span key="d" className={`bc-chip${editable}${overdue ? ' overdue' : ''}`} {...edit('due')} title={overdue ? `Overdue — was due ${shortDate(due + 'T12:00')}` : `Due ${shortDate(due + 'T12:00')}`}><IconCalendar size={12} />{shortDate(due + 'T12:00')}</span>
     ),
   ].filter(Boolean);
   return (
@@ -72,10 +83,19 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
         {d.id !== false && <span className="bc-key">{team?.key}-{issue.number}</span>}
         {parent && <span className="bc-parent" title={`Sub-issue of ${parent.title}`}><IconChevronRight size={10} />{parent.title}</span>}
         <span className="bc-fill" />
-        {d.assignee !== false && assignee && !grouped('assignee') && <span className="bc-avatar" data-no-drag><Avatar user={assignee} size={18} /></span>}
+        {d.assignee !== false && !grouped('assignee') && (assignee || onProp) && (
+          // unassigned cards keep an empty avatar that surfaces on hover, so assigning is one click
+          <span className={`bc-avatar${editable}${assignee ? '' : ' unassigned'}`} {...edit('assignee')} title={assignee ? `Assigned to ${assignee.name}` : 'Assign'}>
+            <Avatar user={assignee} size={18} />
+          </span>
+        )}
       </div>
       <div className="bc-head">
-        {d.status !== false && state && <StateIcon type={state.type} color={state.color} size={14} morph={props.becameDone} />}
+        {d.status !== false && state && (
+          <span className={`bc-status${editable}`} {...edit('status')} title={onProp ? `Change status (${state.name})` : state.name}>
+            <StateIcon type={state.type} color={state.color} size={14} morph={props.becameDone} />
+          </span>
+        )}
         <span className="bc-title">{issue.title}</span>
       </div>
       {chips.length > 0 && <div className="bc-chips">{chips}</div>}
@@ -86,9 +106,12 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
   );
 }
 
+const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+
 function BoardCard(props: { issue: Issue; groupBy: GroupBy; subgroupBy: GroupBy | 'none'; display: Partial<DisplayProps>; index: number }) {
   const navigate = useNavigate();
   const menu = useMenu();
+  const [prop, setProp] = useState<{ kind: PropKind; anchor: DOMRect } | null>(null);
   const selected = useSelection(s => s.ids.includes(props.issue.id));
   const cursor = useCursor(s => s.index === props.index);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.issue.id, data: { issue: props.issue } });
@@ -124,8 +147,16 @@ function BoardCard(props: { issue: Issue; groupBy: GroupBy; subgroupBy: GroupBy 
       onMouseMove={() => { if (useCursor.getState().index !== props.index) useCursor.setState({ index: props.index }); }}
       onContextMenu={menu.open}
     >
-      <CardBody issue={props.issue} groupBy={props.groupBy} subgroupBy={props.subgroupBy} display={props.display} becameDone={becameDone} />
-      {menu.anchor && <IssueContextMenu anchor={menu.anchor} onClose={menu.close} issue={props.issue} />}
+      <CardBody issue={props.issue} groupBy={props.groupBy} subgroupBy={props.subgroupBy} display={props.display} becameDone={becameDone}
+        onProp={(kind, e) => { menu.close(); setProp({ kind, anchor: (e.currentTarget as HTMLElement).getBoundingClientRect() }); }} />
+      {(menu.anchor || prop) && (
+        // the menus portal out, but React still bubbles their events through the card:
+        // keep those presses and clicks from starting a drag or opening the issue
+        <span className="bc-menus" onPointerDown={stop} onMouseDown={stop} onClick={stop} onDoubleClick={stop} onContextMenu={stop}>
+          {menu.anchor && <IssueContextMenu anchor={menu.anchor} onClose={menu.close} issue={props.issue} />}
+          {prop && <PropertyMenu kind={prop.kind} issues={[props.issue]} anchor={prop.anchor} onClose={() => setProp(null)} />}
+        </span>
+      )}
     </div>
   );
 }
