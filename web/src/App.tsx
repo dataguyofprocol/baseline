@@ -1,7 +1,6 @@
 import { Component, useEffect, useRef } from 'react';
 import { MotionConfig } from 'framer-motion';
 import { HashRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
-import { IconSearch } from './icons.js';
 import { useApp, useCursor, useSelection, visibleList, copyText } from './store.js';
 import { undoLast, setIssueProps, assignToMe, toggleSubscription, toggleFavoriteIssue, archiveIssues, deleteIssues } from './actions.js';
 import { sortedStatesOf, type PropKind } from './propertyMenus.js';
@@ -23,13 +22,15 @@ import { CycleDetailPage, CyclesPage, CycleAlias } from './Cycles.js';
 import { InboxPage } from './Inbox.js';
 import { DocumentPage, TeamHomePage } from './Docs.js';
 import { PulsePage, CustomersPage, CustomerPage, TeamsPage, MembersPage, DraftsPage } from './Workspace.js';
-import { InitiativesPage, InitiativePage, ReleasesPage, ReleasePage } from './Planning.js';
+import { ReleasesPage, ReleasePage } from './Planning.js';
+import { InitiativesPage, InitiativePage } from './Initiatives.js';
 import { AsksPage, AskFormPage } from './AutomationUI.js';
 import { ProjectsPage, NewProjectPage, ProjectPage } from './Projects.js';
 import { IssuePage } from './IssueDetail.js';
 import { Onboarding } from './Onboarding.js';
 import { Logo } from './Logo.js';
 import { reducedMotion } from './motion.js';
+import { Illustration } from './illustrations.js';
 
 function keyOfIssue(issue: Issue) {
   return `${useApp.getState().snap?.teams.find(t => t.id === issue.teamId)?.key}-${issue.number}`;
@@ -350,7 +351,7 @@ function NotFoundPage() {
   const navigate = useNavigate();
   return (
     <div className="content"><div className="empty-state">
-      <div className="empty-mark"><IconSearch size={28} /></div>
+      <Illustration name="search" />
       <div className="empty-title">Not found</div>
       <div className="empty-desc">We could not find the page you were looking for</div>
       <div className="empty-actions"><button className="btn secondary" onClick={() => navigate('/inbox')}>Go to inbox</button></div>
@@ -422,6 +423,7 @@ export function App() {
                 <Route path="/initiatives" element={<InitiativesPage />} />
                 <Route path="/initiatives/view/:tab" element={<InitiativesPage />} />
                 <Route path="/initiatives/:initiativeId" element={<InitiativePage />} />
+                <Route path="/initiatives/:initiativeId/:tab" element={<InitiativePage />} />
                 <Route path="/releases" element={<ReleasesPage />} />
                 <Route path="/releases/:releaseId" element={<ReleasePage />} />
                 <Route path="/asks" element={<AsksPage />} />

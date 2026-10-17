@@ -2,11 +2,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Store } from './store.js';
 import { getMeta } from './db.js';
 import { id } from './util.js';
-import type { Initiative, InitiativeUpdate, InitiativeStatus, ProjectHealth, Release, ReleaseStage } from './types.js';
+import type { DateResolution, Initiative, InitiativeUpdate, InitiativeStatus, ProjectHealth, Release, ReleaseStage } from './types.js';
 
 const ts = () => new Date().toISOString();
 
-type InitiativeRow = { id: string; name: string; description: string; icon: string; color: string; status: InitiativeStatus; health: ProjectHealth | null; owner_id: string | null; target_date: string | null; parent_id: string | null; position: number; created_at: string; updated_at: string };
+type InitiativeRow = { id: string; name: string; description: string; summary: string; icon: string; color: string; status: InitiativeStatus; health: ProjectHealth | null; owner_id: string | null; target_date: string | null; target_resolution: DateResolution | null; parent_id: string | null; position: number; created_at: string; updated_at: string };
 type ReleaseRow = { id: string; name: string; description: string; stage: ReleaseStage; team_id: string | null; target_date: string | null; released_at: string | null; created_at: string };
 
 /* Initiatives (groups of projects with their own status, health and updates) and releases
@@ -19,8 +19,8 @@ export class Planning {
   snapshot() {
     const links = this.rows<{ initiative_id: string; project_id: string }>('SELECT * FROM initiative_projects');
     const initiatives: Initiative[] = this.rows<InitiativeRow>('SELECT * FROM initiatives ORDER BY position, created_at').map(r => ({
-      id: r.id, name: r.name, description: r.description, icon: r.icon, color: r.color, status: r.status, health: r.health,
-      ownerId: r.owner_id, targetDate: r.target_date, parentId: r.parent_id, position: r.position, createdAt: r.created_at, updatedAt: r.updated_at,
+      id: r.id, name: r.name, description: r.description, summary: r.summary ?? '', icon: r.icon, color: r.color, status: r.status, health: r.health,
+      ownerId: r.owner_id, targetDate: r.target_date, targetResolution: r.target_resolution ?? null, parentId: r.parent_id, position: r.position, createdAt: r.created_at, updatedAt: r.updated_at,
       projectIds: links.filter(l => l.initiative_id === r.id).map(l => l.project_id),
     }));
     const initiativeUpdates: InitiativeUpdate[] = this.rows<{ id: string; initiative_id: string; user_id: string; body: string; health: ProjectHealth | null; created_at: string }>('SELECT * FROM initiative_updates ORDER BY created_at DESC')
@@ -32,25 +32,27 @@ export class Planning {
   }
 
   // ---------- initiatives ----------
-  createInitiative(input: { name: string; description?: string; icon?: string; color?: string; status?: InitiativeStatus; ownerId?: string | null; targetDate?: string | null; parentId?: string | null; projectIds?: string[] }): Initiative {
+  createInitiative(input: { name: string; description?: string; summary?: string; icon?: string; color?: string; status?: InitiativeStatus; ownerId?: string | null; targetDate?: string | null; targetResolution?: DateResolution | null; parentId?: string | null; projectIds?: string[] }): Initiative {
     const now = ts();
     const pos = (this.db.prepare('SELECT COALESCE(MAX(position), 0) + 1 p FROM initiatives').get() as { p: number }).p;
     const ini: Initiative = {
-      id: id('in'), name: input.name.trim(), description: input.description ?? '', icon: input.icon ?? '🎯', color: input.color ?? '#5e6ad2',
-      status: input.status ?? 'planned', health: null, ownerId: input.ownerId ?? getMeta(this.db, 'currentUser'), targetDate: input.targetDate ?? null,
+      id: id('in'), name: input.name.trim(), description: input.description ?? '', summary: input.summary?.trim() ?? '', icon: input.icon ?? 'glyph:initiative', color: input.color ?? '#5e6ad2',
+      status: input.status ?? 'planned', health: null, ownerId: input.ownerId ?? getMeta(this.db, 'currentUser'), targetDate: input.targetDate ?? null, targetResolution: input.targetDate ? input.targetResolution ?? null : null,
       parentId: input.parentId ?? null, projectIds: [], position: pos, createdAt: now, updatedAt: now,
     };
-    this.db.prepare('INSERT INTO initiatives (id, name, description, icon, color, status, health, owner_id, target_date, parent_id, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(ini.id, ini.name, ini.description, ini.icon, ini.color, ini.status, null, ini.ownerId, ini.targetDate, ini.parentId, pos, now, now);
+    this.db.prepare('INSERT INTO initiatives (id, name, description, summary, icon, color, status, health, owner_id, target_date, target_resolution, parent_id, position, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(ini.id, ini.name, ini.description, ini.summary, ini.icon, ini.color, ini.status, null, ini.ownerId, ini.targetDate, ini.targetResolution, ini.parentId, pos, now, now);
     for (const p of input.projectIds ?? []) this.addProject(ini.id, p);
     ini.projectIds = input.projectIds ?? [];
     return ini;
   }
-  updateInitiative(initiativeId: string, patch: Partial<Pick<Initiative, 'name' | 'description' | 'icon' | 'color' | 'status' | 'health' | 'ownerId' | 'targetDate' | 'parentId' | 'position'>>): void {
-    const col: Record<string, string> = { ownerId: 'owner_id', targetDate: 'target_date', parentId: 'parent_id' };
+  updateInitiative(initiativeId: string, patch: Partial<Pick<Initiative, 'name' | 'description' | 'summary' | 'icon' | 'color' | 'status' | 'health' | 'ownerId' | 'targetDate' | 'targetResolution' | 'parentId' | 'position'>>): void {
+    const col: Record<string, string> = { ownerId: 'owner_id', targetDate: 'target_date', targetResolution: 'target_resolution', parentId: 'parent_id' };
+    // clearing the date clears its resolution too
+    if (patch.targetDate === null) patch = { ...patch, targetResolution: null };
     const sets: string[] = []; const vals: Array<string | number | null> = [];
     for (const [k, v] of Object.entries(patch)) {
-      if (v === undefined || !['name', 'description', 'icon', 'color', 'status', 'health', 'ownerId', 'targetDate', 'parentId', 'position'].includes(k)) continue;
+      if (v === undefined || !['name', 'description', 'summary', 'icon', 'color', 'status', 'health', 'ownerId', 'targetDate', 'targetResolution', 'parentId', 'position'].includes(k)) continue;
       if (k === 'parentId' && v === initiativeId) continue; // never its own parent
       sets.push(`${col[k] ?? k} = ?`); vals.push(v as string | number | null);
     }

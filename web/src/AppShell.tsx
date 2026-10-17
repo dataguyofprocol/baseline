@@ -8,6 +8,7 @@ import { Logo } from './Logo.js';
 import { teamDisplayIcon } from './pickers.js';
 import { AnimatePresence } from 'framer-motion';
 import { CustomizeSidebar, sidebarVisibility, useDrafts } from './Workspace.js';
+import { InitiativeIcon } from './Initiatives.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues, IconCycle, IconTeam, IconHelp, IconCaret,
   IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
@@ -115,7 +116,7 @@ export function Sidebar() {
       }
       if (f.type === 'initiative') {
         const ini = snap.initiatives.find(x => x.id === f.refId);
-        return ini ? { id: f.id, label: ini.name, icon: <span className="fav-emoji">{ini.icon}</span>, to: `/initiatives/${ini.id}` } : null;
+        return ini ? { id: f.id, label: ini.name, icon: <InitiativeIcon ini={ini} size={15} />, to: `/initiatives/${ini.id}` } : null;
       }
       if (f.type === 'cycle') {
         const c = snap.cycles.find(x => x.id === f.refId);

@@ -9,9 +9,9 @@ import { Avatar, PriorityIcon } from './pickers.js';
 import { NewCycleModal } from './Settings.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueViews.js';
 import { IssueListBody, ListToolbar, TeamMissingRedirect } from './Views.js';
-import { LogoMark } from './Logo.js';
 import { IconCycle, IconMore, IconTrash, IconEdit, IconChevronDown, IconBox, IconTag, IconPanel, IconPlus, IconEstimate } from './icons.js';
 import type { Issue, ActivityItem, Snapshot, Cycle, Priority } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 const DAY = 86400000;
 type Snap = Snapshot;
@@ -220,7 +220,7 @@ export function CyclesPage() {
       <div className="content">
         {cycles.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-mark"><LogoMark size={28} /></div>
+            <Illustration name="cycles" />
             <div className="empty-title">No cycles yet</div>
             <div className="empty-desc">Cycles are time-boxed iterations for {team.name}. Create one, or turn on automation in the team's settings and they'll be scheduled for you.</div>
             <div className="empty-actions">

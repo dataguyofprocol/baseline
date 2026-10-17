@@ -10,11 +10,10 @@ import { AvatarStack } from './AvatarStack.js';
 import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
 import type { Editor } from '@tiptap/react';
 import { Markdown } from './Markdown.js';
-import { LogoMark } from './Logo.js';
 import { ProjectLocationsRow } from './CodingTools.js';
 import { Resources } from './Docs.js';
 import { CustomerRequests } from './Workspace.js';
-import { ProjectInitiatives } from './Planning.js';
+import { ProjectInitiatives } from './Initiatives.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueViews.js';
 import { IssueListBody, ListToolbar, useListLayoutToggle, openFilterMenu, ViewNameSeg } from './Views.js';
 import {
@@ -23,6 +22,7 @@ import {
   IconBox, IconTag, IconCycle, IconTeam, IconBell, IconViews,
 } from './icons.js';
 import { UPDATE_CADENCE_LABELS, type Project, type ProjectStatus, type ProjectHealth, type Priority, type Issue, type SavedView, type UpdateCadence } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 
@@ -82,7 +82,7 @@ export function projectProgress(snap: Snap, projectId: string, milestoneId?: str
   return { total: issues.length, done, started, pct: issues.length ? Math.round((done / issues.length) * 100) : 0 };
 }
 
-function ProgressRing({ pct, size = 14 }: { pct: number; size?: number }) {
+export function ProgressRing({ pct, size = 14 }: { pct: number; size?: number }) {
   const r = size / 2 - 1.5;
   const c = 2 * Math.PI * r;
   return (
@@ -552,7 +552,7 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
       <div className="content">
         {snap.projects.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-mark"><LogoMark size={30} /></div>
+            <Illustration name="projects" />
             <div className="empty-title">Projects</div>
             <div className="empty-desc">Projects are larger units of work with a clear outcome, such as a new feature you want to ship. They can be shared across multiple teams and are comprised of issues and optional documents.</div>
             <div className="empty-actions"><button className="btn primary" onClick={() => setCreating(true)}>Create new project</button></div>

@@ -7,7 +7,6 @@ import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
 import { IssueDetail } from './IssueDetail.js';
 import { Avatar, StateIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
-import { LogoMark } from './Logo.js';
 import { parseReminder } from './propertyMenus.js';
 import { Markdown } from './Markdown.js';
 import {
@@ -16,6 +15,7 @@ import {
   IconEmoji, IconDoc,
 } from './icons.js';
 import { notifyCategory, type Notification, type NotificationType, type NotifyCategory } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 /* Linear's inbox: notifications on the left (newest first, merged per issue and kind),
    the issue on the right. U toggles read, ⌫ deletes, H snoozes, ⇧⌫ deletes everything
@@ -232,7 +232,7 @@ export function InboxPage() {
         <div className="content">
           {rows.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-mark"><LogoMark size={30} /></div>
+              <Illustration name="inbox" />
               <div className="empty-title">You're all caught up</div>
               <div className="empty-desc">Assignments, mentions, comments and status changes on issues you follow land here.</div>
             </div>
@@ -288,7 +288,7 @@ export function InboxPage() {
       <div className="inbox-preview">
         {openRow ? <ProjectNotice n={openRow.lead} /> : selectedIssue ? <IssueDetail key={selectedIssue.id} issue={selectedIssue} /> : (
           <div className="empty-state">
-            <div className="empty-mark"><LogoMark size={26} /></div>
+            <Illustration name="inbox" small />
             <div className="empty-title">{rows.length ? 'No notification selected' : 'Nothing to preview'}</div>
             {rows.length > 0 && <div className="empty-desc"><span className="kbd">J</span> <span className="kbd">K</span> to move · <span className="kbd">U</span> read/unread · <span className="kbd">⌫</span> delete · <span className="kbd">H</span> snooze</div>}
           </div>

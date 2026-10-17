@@ -8,12 +8,12 @@ import { OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { PropertyMenu, PropertyMenuBody, propMenuWidth, PROP_KBD, type PropKind } from './propertyMenus.js';
 import { deleteIssues, toggleFavoriteIssue, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS } from './actions.js';
-import { LogoMark } from './Logo.js';
 import { useLanding } from './motion.js';
 import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc, IconRelease, IconSla, IconPr, IconSortDir, IconMore, IconLink, IconBranch, IconHandoff, IconExternal, IconSettings } from './icons.js';
 import { slaState, SlaBadge } from './AutomationUI.js';
 import { issuePrState, PrIcon } from './GitHubUI.js';
 import { teamScale, pointsOf, type Issue, type Priority, type ViewFilters, type GroupBy, type OrderBy, type FilterCondition, type FilterGroup } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 
@@ -1318,8 +1318,8 @@ export function GroupedList(props: {
     return (
       <>
         <div className="empty-state">
-          {/* the containerless mark is the only illustration the product uses */}
-          <div className="empty-mark"><LogoMark size={30} /></div>
+          {/* line-art illustration, as on Linear's empty views */}
+          <Illustration name="issues" />
           <div className="empty-title">{hiddenByFilters ? 'No matching issues' : props.emptyTitle ?? 'All issues'}</div>
           <div className="empty-desc">{hiddenByFilters ? 'No issues match the current filters.' : props.emptyDesc ?? 'All issues is the place where you can see all your team’s work in one view. Once you have created issues for this team, they will show up here.'}</div>
           <div className="empty-actions">

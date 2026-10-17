@@ -236,11 +236,17 @@ export type UpdateCadence = 'none' | 'weekly' | 'biweekly' | 'monthly';
 export const UPDATE_CADENCE_LABELS: Record<UpdateCadence, string> = { none: 'No expectation for updates', weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month' };
 
 /* ---------- initiatives ---------- */
-export type InitiativeStatus = 'planned' | 'active' | 'completed';
+export type InitiativeStatus = 'proposed' | 'planned' | 'active' | 'completed' | 'canceled';
+/** how precise a target date is: Linear lets a target be a day, a month, a quarter, a half or a year */
+export type DateResolution = 'day' | 'month' | 'quarter' | 'half' | 'year';
 /** a strategic effort grouping projects (and sub-initiatives), with its own updates and health */
 export interface Initiative {
   id: string; name: string; description: string; icon: string; color: string;
+  /** one-line summary shown under the name in lists and on the overview */
+  summary: string;
   status: InitiativeStatus; health: ProjectHealth | null; ownerId: string | null; targetDate: string | null;
+  /** targetDate is the last day of this period (null = a plain day) */
+  targetResolution: DateResolution | null;
   parentId: string | null; projectIds: string[]; position: number; createdAt: string; updatedAt: string;
 }
 export interface InitiativeUpdate { id: string; initiativeId: string; userId: string; body: string; health: ProjectHealth | null; createdAt: string }

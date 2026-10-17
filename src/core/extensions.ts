@@ -88,6 +88,10 @@ function migrateExtensions(db: DatabaseSync): void {
       scopes TEXT, team_ids TEXT, created_at TEXT NOT NULL, last_used_at TEXT
     );
   `);
+  const iniCols = columns('initiatives');
+  for (const [col, def] of [['summary', "TEXT NOT NULL DEFAULT ''"], ['target_resolution', 'TEXT']] as const) {
+    if (!iniCols.includes(col)) db.exec(`ALTER TABLE initiatives ADD COLUMN ${col} ${def}`);
+  }
 }
 
 export function createExtensions(store: Store, db: DatabaseSync): Extensions {
@@ -104,8 +108,8 @@ export function createExtensions(store: Store, db: DatabaseSync): Extensions {
     importData(data, insert) {
       const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : []);
       for (const x of arr<Record<string, unknown>>(data.initiatives)) {
-        insert('initiatives', ['id', 'name', 'description', 'icon', 'color', 'status', 'health', 'owner_id', 'target_date', 'parent_id', 'position', 'created_at', 'updated_at'],
-          { ...x, description: x.description ?? '', icon: x.icon ?? '🎯', color: x.color ?? '#5e6ad2', status: x.status ?? 'planned', health: x.health ?? null, owner_id: x.ownerId ?? null, target_date: x.targetDate ?? null, parent_id: x.parentId ?? null, position: x.position ?? 0, created_at: x.createdAt, updated_at: x.updatedAt ?? x.createdAt });
+        insert('initiatives', ['id', 'name', 'description', 'summary', 'icon', 'color', 'status', 'health', 'owner_id', 'target_date', 'target_resolution', 'parent_id', 'position', 'created_at', 'updated_at'],
+          { ...x, description: x.description ?? '', summary: x.summary ?? '', icon: x.icon ?? '🎯', color: x.color ?? '#5e6ad2', status: x.status ?? 'planned', health: x.health ?? null, owner_id: x.ownerId ?? null, target_date: x.targetDate ?? null, target_resolution: x.targetResolution ?? null, parent_id: x.parentId ?? null, position: x.position ?? 0, created_at: x.createdAt, updated_at: x.updatedAt ?? x.createdAt });
         for (const pid of arr<string>(x.projectIds)) insert('initiative_projects', ['initiative_id', 'project_id'], { initiative_id: x.id, project_id: pid });
       }
       for (const x of arr<Record<string, unknown>>(data.initiativeUpdates)) insert('initiative_updates', ['id', 'initiative_id', 'user_id', 'body', 'health', 'created_at'], { ...x, initiative_id: x.initiativeId, user_id: x.userId, health: x.health ?? null, created_at: x.createdAt });

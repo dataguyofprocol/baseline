@@ -4,9 +4,9 @@ import { useApp, relTime } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { PriorityIcon } from './pickers.js';
-import { LogoMark } from './Logo.js';
 import { IconPlus, IconTrash, IconSla, IconAsk, IconLoop, IconClose } from './icons.js';
 import type { AskField, Issue, Loop, LoopAction, LoopTrigger, Priority, WorkflowStateType } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 const refresh = () => useApp.getState().bootstrap();
 const PRIORITIES: Array<[Priority, string]> = [[1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low'], [0, 'No priority']];
@@ -137,7 +137,7 @@ export function AsksPage() {
       <TopBar crumbs={[{ label: 'Asks', icon: <IconAsk size={14} /> }]} right={<button className="btn secondary" onClick={() => navigate('/settings/asks')}>Manage forms</button>} />
       <div className="content">
         {!snap.askForms.length ? (
-          <div className="empty-state"><div className="empty-mark"><LogoMark size={30} /></div><div className="empty-title">Asks</div><div className="empty-desc">Create intake forms in Settings › Asks; submissions land in the team's triage.</div><div className="empty-actions"><button className="btn primary" onClick={() => navigate('/settings/asks')}>Create a form</button></div></div>
+          <div className="empty-state"><Illustration name="asks" /><div className="empty-title">Asks</div><div className="empty-desc">Create intake forms in Settings › Asks; submissions land in the team's triage.</div><div className="empty-actions"><button className="btn primary" onClick={() => navigate('/settings/asks')}>Create a form</button></div></div>
         ) : (
           <div className="asks-page">
             <div className="ask-cards">{snap.askForms.filter(f => f.enabled).map(f => (

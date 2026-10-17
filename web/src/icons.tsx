@@ -206,7 +206,8 @@ export const IconPulse = (p: P) => <S {...p}><path d="M1.8 7.6h2.6l1.6-4 2.6 7.6
 export const IconCustomers = (p: P) => <S {...p}><rect x="2.4" y="3.4" width="10.2" height="8.6" rx="1.6" {...stroke} /><path d="M5 3.4V2.4h5v1M2.4 7.2h10.2" {...stroke} /></S>;
 export const IconDrafts = (p: P) => <S {...p}><path d="M3 2.6h6.4l2.6 2.6v7.2H3z" {...stroke} /><path d="M5.2 7h4.6M5.2 9.4h3" {...stroke} /></S>;
 export const IconMembers = (p: P) => <S {...p}><circle cx="5.6" cy="5.4" r="2" {...stroke} /><path d="M2 12c.5-2 2-3 3.6-3s3.1 1 3.6 3" {...stroke} /><path d="M9.8 3.6a1.8 1.8 0 1 1 0 3.6M11 9.2c1 .4 1.7 1.3 2 2.6" {...stroke} /></S>;
-export const IconInitiative = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.3" {...stroke} /><circle cx="7.5" cy="7.5" r="2.4" {...stroke} /><path d="M7.5 2.2v1.6M7.5 11.2v1.6M2.2 7.5h1.6M11.2 7.5h1.6" {...stroke} /></S>;
+/* Linear's initiative mark: an up-pointing arrowhead */
+export const IconInitiative = (p: P) => <S {...p}><path d="M7.5 2.1 12.4 12.3a.4.4 0 0 1-.56.52L7.8 10.7a.6.6 0 0 0-.6 0l-4.04 2.12a.4.4 0 0 1-.56-.52L7.5 2.1Z" {...stroke} /></S>;
 export const IconRelease = (p: P) => <S {...p}><path d="M7.5 2.2 12.6 5v5L7.5 12.8 2.4 10V5z" {...stroke} /><path d="M2.6 5.1 7.5 7.8l4.9-2.7M7.5 7.8v5" {...stroke} /></S>;
 export const IconSla = (p: P) => <S {...p}><circle cx="7.5" cy="8" r="5" {...stroke} /><path d="M7.5 5.2V8l1.9 1.3M6 1.8h3" {...stroke} /></S>;
 export const IconAsk = (p: P) => <S {...p}><path d="M2.6 3.2h9.8v6.6H7.6L4.6 12.2V9.8h-2z" {...stroke} /><path d="M6.2 5.4c.2-.7.8-1 1.4-1 .8 0 1.4.5 1.4 1.2 0 .9-1.3 1-1.3 1.8M7.6 8.2v.1" {...stroke} /></S>;

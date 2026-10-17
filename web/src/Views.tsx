@@ -7,10 +7,10 @@ import { Menu, MenuItem, MenuSep, useMenu, RegisterMark } from './ui.js';
 import { GroupedList, FilterBar, DisplayOptionsMenu, useViewPrefs, DEFAULT_VIEW_OPTIONS, activeFilterCount, applyFilters, applyDisplay, countConditions, type ViewOptions } from './IssueViews.js';
 import { Board } from './Board.js';
 import { ProjectsPage, countProjectView, describeProjectView } from './Projects.js';
-import { LogoMark } from './Logo.js';
 import { StateIcon, teamDisplayIcon, Avatar } from './pickers.js';
 import { IconFilter, IconDisplay, IconStar, IconMore, IconTrash, IconEdit, IconViews, IconBell, IconCheck } from './icons.js';
 import type { SavedView, ViewFilters, Issue } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 /** the right-toolbar filter icon opens the filter menu anchored to itself */
 export function openFilterMenu(e: React.MouseEvent) {
@@ -333,7 +333,7 @@ function MyActivity() {
     return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   };
   let last = '';
-  if (!items.length) return <div className="content"><div className="empty-state"><div className="empty-mark"><LogoMark size={30} /></div><div className="empty-title">No activity yet</div><div className="empty-desc">Changes you make to issues show up here.</div></div></div>;
+  if (!items.length) return <div className="content"><div className="empty-state"><Illustration name="activity" /><div className="empty-title">No activity yet</div><div className="empty-desc">Changes you make to issues show up here.</div></div></div>;
   return (
     <div className="content">
       <div className="my-activity">
@@ -420,7 +420,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
       <div className="content">
         {snap.views.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-mark"><LogoMark size={30} /></div>
+            <Illustration name="views" />
             <div className="empty-title">Views</div>
             <div className="empty-desc">{kind === 'projects' ? 'Save project filters, groupings and layouts — a roadmap, a team’s portfolio, at-risk work — and come back to them.' : 'Create views to save filters and groupings you return to.'}</div>
             <div className="empty-actions">

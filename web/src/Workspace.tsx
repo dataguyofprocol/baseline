@@ -8,9 +8,9 @@ import { Menu, MenuItem, MenuSep, Modal, useMenu } from './ui.js';
 import { Avatar, StateIcon, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { Markdown } from './Markdown.js';
-import { LogoMark } from './Logo.js';
 import { IconPlus, IconSearch, IconTrash, IconClose, IconStar, IconCheck, IconEdit, IconPulse, IconCustomers, IconCycle, IconBox } from './icons.js';
 import { SIDEBAR_DEFAULTS, type SidebarVisibility } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 const refresh = () => useApp.getState().bootstrap();
@@ -45,7 +45,7 @@ export function PulsePage() {
         {!snap.workspace.features.pulseEnabled ? (
           <div className="empty-state"><div className="empty-title">Pulse is off</div><div className="empty-desc">Turn it on in Settings › Pulse to see every project update in one feed.</div><div className="empty-actions"><button className="btn primary" onClick={async () => { await api.setFeatures({ pulseEnabled: true }); await refresh(); }}>Enable Pulse</button></div></div>
         ) : !updates.length ? (
-          <div className="empty-state"><div className="empty-mark"><LogoMark size={30} /></div><div className="empty-title">No updates yet</div><div className="empty-desc">Project updates posted from a project's overview show up here.</div></div>
+          <div className="empty-state"><Illustration name="updates" /><div className="empty-title">No updates yet</div><div className="empty-desc">Project updates posted from a project's overview show up here.</div></div>
         ) : (
           <div className="pulse-feed">
             {[...days.entries()].map(([day, list]) => (
@@ -89,7 +89,7 @@ export function CustomersPage() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
         <TopBar crumbs={[{ label: 'Customers' }]} />
-        <div className="empty-state"><div className="empty-mark"><IconCustomers size={28} /></div><div className="empty-title">Customer requests are off</div>
+        <div className="empty-state"><Illustration name="customers" /><div className="empty-title">Customer requests are off</div>
           <div className="empty-desc">Track which customers asked for which issues and projects.</div>
           <div className="empty-actions"><button className="btn primary" onClick={async () => { await api.setFeatures({ customerRequestsEnabled: true }); await refresh(); }}>Enable customer requests</button></div></div>
       </div>
@@ -101,7 +101,7 @@ export function CustomersPage() {
       <div className="subnav"><div className="set-filter" style={{ border: 0, margin: 0, flex: 1 }}><IconSearch size={13} /><input placeholder="Find customers…" value={q} onChange={e => setQ(e.target.value)} /></div></div>
       <div className="content">
         {!snap.customers.length ? (
-          <div className="empty-state"><div className="empty-mark"><IconCustomers size={28} /></div><div className="empty-title">No customers</div><div className="empty-desc">Add the customers you hear from, then attach their requests to issues and projects.</div><div className="empty-actions"><button className="btn primary" onClick={() => setCreating(true)}>New customer</button></div></div>
+          <div className="empty-state"><Illustration name="customers" /><div className="empty-title">No customers</div><div className="empty-desc">Add the customers you hear from, then attach their requests to issues and projects.</div><div className="empty-actions"><button className="btn primary" onClick={() => setCreating(true)}>New customer</button></div></div>
         ) : (
           <div className="wtable">
             <div className="wt-head wt-cust"><span>Name</span><span>Status</span><span>Tier</span><span className="num">Requests</span><span className="num">Revenue</span><span className="num">Size</span><span>Owner</span></div>
@@ -432,7 +432,7 @@ export function DraftsPage() {
       <TopBar crumbs={[{ label: 'Drafts' }]} />
       <div className="content">
         {!drafts.length ? (
-          <div className="empty-state"><div className="empty-mark"><LogoMark size={30} /></div><div className="empty-title">No active drafts</div><div className="empty-desc">"Save draft" in the new-issue modal keeps an issue here until you finish it.</div></div>
+          <div className="empty-state"><Illustration name="drafts" /><div className="empty-title">No active drafts</div><div className="empty-desc">"Save draft" in the new-issue modal keeps an issue here until you finish it.</div></div>
         ) : (
           <div className="static-list">
             {drafts.map(d => {

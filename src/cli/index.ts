@@ -1250,7 +1250,7 @@ withDb(initiative.command('list')).description('List initiatives with progress')
   if (opts.json) console.log(JSON.stringify(rows, null, 2)); else for (const r of rows) console.log(`${r.name.padEnd(30)} ${r.status.padEnd(10)} ${(r.health ?? '-').padEnd(9)} ${r.projects.join(', ')}`);
   process.exit(0);
 });
-withDb(initiative.command('create <name>')).description('Create an initiative').option('-d, --description <text>').option('--status <status>', 'planned|active|completed').option('--target <date>').option('--parent <initiative>').option('--project <name...>', 'projects to include')
+withDb(initiative.command('create <name>')).description('Create an initiative').option('-d, --description <text>').option('--status <status>', 'proposed|planned|active|completed|canceled').option('--target <date>').option('--parent <initiative>').option('--project <name...>', 'projects to include')
   .action((name: string, opts: { db?: string; description?: string; status?: string; target?: string; parent?: string; project?: string[] }) => {
     const store = storeFor(opts.db); const snap = store.snapshot();
     const ini = store.ext.planning.createInitiative({ name, description: opts.description, status: opts.status as 'planned' | undefined, targetDate: opts.target ?? null, parentId: opts.parent ? findInitiative(snap, opts.parent).id : null, projectIds: (opts.project ?? []).map(n => resolveProject(snap, n)!.id) });

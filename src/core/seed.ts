@@ -150,9 +150,24 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   if (reqIssue) store.addCustomerRequest({ customerId: north.id, issueId: reqIssue.id, body: 'Search should match comment text too.' }, jun.id);
   // initiatives, releases, SLAs, asks, loops and a few pull requests
   const { planning, automation, git } = store.ext;
-  const agentFirst = planning.createInitiative({ name: 'Agent-first tracker', icon: '🤖', status: 'active', description: 'Make Baseline the place coding agents and people share work.', targetDate: iso(45).slice(0, 10), projectIds: [project.id, design.id] });
+  // finished work gets completion times spread over past weeks (initiative graphs and activity read them)
+  const finished = store.listIssues({ teamId: core.id, stateType: 'completed' });
+  finished.forEach((i, n) => {
+    db.prepare('UPDATE issues SET completed_at = ?, project_id = COALESCE(project_id, ?) WHERE id = ?').run(iso(-(1.5 + n * 9)), n % 2 ? design.id : project.id, i.id);
+  });
+  store.updateProject(project.id, { status: 'started' });
+  store.updateProject(design.id, { status: 'started' });
+  store.addProjectUpdate(design.id, jun.id, 'Tokens are in; icon redraw slipped a week.', 'atRisk');
+  // targets use Linear's resolutions: the end of a quarter / half / year
+  const today = new Date(); const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const quarterEnd = ymd(new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3 + 3, 0));
+  const halfEnd = ymd(new Date(today.getFullYear(), today.getMonth() < 6 ? 6 : 12, 0));
+  const yearEnd = ymd(new Date(today.getFullYear() + 1, 12, 0));
+  const agentFirst = planning.createInitiative({ name: 'Agent-first tracker', icon: 'glyph:sparkles', color: '#5e6ad2', status: 'active', summary: 'The place coding agents and people share work.', description: 'Make Baseline the place coding agents and people share work: hand-offs, PR status and review in one loop.', targetDate: quarterEnd, targetResolution: 'quarter', projectIds: [project.id, design.id] });
   planning.addInitiativeUpdate(agentFirst.id, ada.id, 'Hand-off loop is in beta; design tokens land next week.', 'onTrack');
-  planning.createInitiative({ name: 'Triage on the go', icon: '📱', status: 'planned', parentId: agentFirst.id, projectIds: [mobile.id] });
+  const onTheGo = planning.createInitiative({ name: 'Triage on the go', icon: 'glyph:phone', color: '#26b5ce', status: 'planned', summary: 'Inbox and triage from a phone, for on-call.', parentId: agentFirst.id, targetDate: halfEnd, targetResolution: 'half', projectIds: [mobile.id] });
+  planning.addInitiativeUpdate(onTheGo.id, jun.id, 'Waiting on the inbox API; design is ready.', 'atRisk');
+  planning.createInitiative({ name: 'Developer love', icon: 'glyph:heart', color: '#e255a1', status: 'planned', summary: 'Docs, a CLI people brag about, and one-command self-hosting.', targetDate: yearEnd, targetResolution: 'year' });
   const coreIssues = store.listIssues({ teamId: core.id });
   const done = coreIssues.filter(i => st(core.id, 'completed') === i.stateId).slice(0, 2);
   const open = coreIssues.filter(i => [st(core.id, 'unstarted'), st(core.id, 'started')].includes(i.stateId)).slice(0, 3);

@@ -8,12 +8,13 @@ import { IssueDetail } from './IssueDetail.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { PropertyMenuBody, propMenuWidth, parseReminder } from './propertyMenus.js';
 import { setIssueProps } from './actions.js';
-import { LogoMark } from './Logo.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, FilterBar, applyFilters, activeFilterCount, type ViewOptions } from './IssueViews.js';
 import { IssueListBody, ListToolbar, openFilterMenu } from './Views.js';
 import { useMenu } from './ui.js';
-import { IconTriage, IconCheck, IconClose, IconDuplicate, IconClock, IconRestore, IconTrash, IconArchive, IconSearch, IconPlus, IconFilter, IconDisplay } from './icons.js';
+import { IconCheck, IconClose, IconDuplicate, IconClock, IconRestore, IconSearch, IconPlus, IconFilter, IconDisplay } from './icons.js';
 import type { Issue, ViewFilters } from '../../src/core/types.js';
+import { InitiativeIcon } from './Initiatives.js';
+import { Illustration } from './illustrations.js';
 
 interface TriagePrefs { filters: ViewFilters; orderBy: 'oldest' | 'newest' | 'priority'; showSnoozed: boolean }
 const DEFAULT_TRIAGE: TriagePrefs = { filters: {}, orderBy: 'oldest', showSnoozed: false };
@@ -85,7 +86,7 @@ export function TriagePage() {
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
         <TopBar crumbs={[{ label: team.name, to: `/team/${team.key}/all`, muted: true }, { label: 'Triage' }]} />
         <div className="empty-state">
-          <div className="empty-mark"><IconTriage size={28} /></div>
+          <Illustration name="triage" />
           <div className="empty-title">Triage is off for {team.name}</div>
           <div className="empty-desc">With triage on, issues that agents and teammates file through the CLI land in a review queue before they reach the backlog.</div>
           <div className="empty-actions">
@@ -123,7 +124,7 @@ export function TriagePage() {
         <div className="content">
           {queue.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-mark"><LogoMark size={30} /></div>
+              <Illustration name="triage" />
               <div className="empty-title">{activeFilterCount(prefs.filters) ? 'No triage issues match' : 'Nothing to triage'}</div>
               <div className="empty-actions">
                 {activeFilterCount(prefs.filters) ? <button className="btn secondary" onClick={() => patchPrefs({ filters: {} })}>Clear filters</button>
@@ -170,7 +171,7 @@ export function TriagePage() {
             )}
           </div>
         ) : (
-          <div className="empty-state"><div className="empty-mark"><LogoMark size={26} /></div><div className="empty-title">Nothing to review</div></div>
+          <div className="empty-state"><Illustration name="issues" /><div className="empty-title">Nothing to review</div></div>
         )}
       </div>
     </div>
@@ -246,7 +247,7 @@ export function ArchivePage() {
       </div>
       <div className="content">
         {tab === 'issues' && (issues === null ? null : issues.length === 0 ? (
-          <div className="empty-state"><div className="empty-mark"><IconArchive size={26} /></div><div className="empty-title">No archived issues</div><div className="empty-desc">Issues you archive in {team.name} (E) — and closed issues the team’s auto-archive picks up — are kept here and can be brought back at any time.</div></div>
+          <div className="empty-state"><Illustration name="archive" /><div className="empty-title">No archived issues</div><div className="empty-desc">Issues you archive in {team.name} (E) — and closed issues the team’s auto-archive picks up — are kept here and can be brought back at any time.</div></div>
         ) : (
           <div className="static-list">
             {issues.map(i => (
@@ -269,7 +270,7 @@ export function ArchivePage() {
           </div>
         ))}
         {tab === 'deleted' && (deleted === null ? null : gone.length === 0 ? (
-          <div className="empty-state"><div className="empty-mark"><IconTrash size={26} /></div><div className="empty-title">Nothing deleted recently</div><div className="empty-desc">Deleted issues stay here until you restore them or delete them for good.</div></div>
+          <div className="empty-state"><Illustration name="trash" /><div className="empty-title">Nothing deleted recently</div><div className="empty-desc">Deleted issues stay here until you restore them or delete them for good.</div></div>
         ) : (
           <div className="static-list">
             {gone.map(i => (
@@ -298,7 +299,7 @@ export function TrashPage() {
       ) : undefined} />
       <div className="content">
         {issues === null ? null : issues.length === 0 ? (
-          <div className="empty-state"><div className="empty-mark"><IconTrash size={26} /></div><div className="empty-title">Trash is empty</div><div className="empty-desc">Deleted issues stay here until you restore them or delete them for good.</div></div>
+          <div className="empty-state"><Illustration name="trash" /><div className="empty-title">Trash is empty</div><div className="empty-desc">Deleted issues stay here until you restore them or delete them for good.</div></div>
         ) : (
           <div className="static-list">
             <div className="static-head">{issues.length} deleted issue{issues.length === 1 ? '' : 's'}</div>
@@ -360,7 +361,7 @@ export function SearchPage() {
   const rows: Row[] = [
     ...(tab === 'all' || tab === 'issues' ? issues.map(i => { const st = snap.states.find(s => s.id === i.stateId); const team = snap.teams.find(t => t.id === i.teamId); return { id: i.id, kind: 'Issue', icon: st ? <StateIcon type={st.type} color={st.color} size={14} /> : null, title: i.title, right: team && <span className="sr-team"><span className="ws-avatar" style={{ background: team.color, borderRadius: 3, fontSize: 7, width: 13, height: 13 }}>{team.key[0]}</span>{team.name}</span>, at: i.updatedAt, to: `/issue/${keyOf(i)}` }; }) : []),
     ...(tab === 'all' || tab === 'projects' ? projects.map(p => ({ id: p.id, kind: 'Project', icon: <span>{p.icon}</span>, title: p.name, right: null, at: p.updatedAt ?? p.createdAt, to: `/projects/${p.id}` })) : []),
-    ...(tab === 'all' || tab === 'initiatives' ? initiatives.map(i => ({ id: i.id, kind: 'Initiative', icon: <span>{i.icon}</span>, title: i.name, right: null, at: i.updatedAt, to: `/initiatives/${i.id}` })) : []),
+    ...(tab === 'all' || tab === 'initiatives' ? initiatives.map(i => ({ id: i.id, kind: 'Initiative', icon: <InitiativeIcon ini={i} size={14} />, title: i.name, right: null, at: i.updatedAt, to: `/initiatives/${i.id}` })) : []),
     ...(tab === 'all' || tab === 'documents' ? docs.map(d => ({ id: d.id, kind: 'Document', icon: <span>{d.icon || '📄'}</span>, title: d.title || 'Untitled document', right: null, at: d.updatedAt, to: `/docs/${d.id}` })) : []),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (
@@ -379,7 +380,7 @@ export function SearchPage() {
         {tab === 'issues' && words.length > 0 && <ListToolbar opts={opts} onDisplay={displayBtn.open} />}
       </div>
       {!words.length ? (
-        <div className="content"><div className="empty-state"><div className="empty-mark"><IconSearch size={26} /></div><div className="empty-title">Search</div><div className="empty-desc">Find issues, projects, initiatives, and documents</div></div></div>
+        <div className="content"><div className="empty-state"><Illustration name="search" /><div className="empty-title">Search</div><div className="empty-desc">Find issues, projects, initiatives, and documents</div></div></div>
       ) : tab === 'issues' ? (
         <IssueListBody issues={issues} opts={opts} patch={patch} reset={reset} multiTeam
           displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close} emptyHideCreate
