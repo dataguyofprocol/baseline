@@ -404,6 +404,21 @@ export function Board(props: {
 
 const cellId = (lane: string, col: string) => lane === ALL_LANE ? col : `cell:${lane}:${col}`;
 
+/** groupings whose column (or row) a new issue can start in */
+const CREATE_GROUPS: GroupBy[] = ['status', 'project', 'cycle', 'priority', 'assignee'];
+type CreateDefaults = { projectId?: string | null; cycleId?: string | null };
+
+/** the create modal's starting values for an issue made from a column (and row) */
+function createOpts(snap: NonNullable<ReturnType<typeof useApp.getState>['snap']>, teamId: string | undefined, base: CreateDefaults | undefined, at: [GroupBy, string][]) {
+  const opts: { teamId?: string; stateId?: string } & CreateDefaults = { teamId, ...base };
+  for (const [g, id] of at) {
+    if (g === 'status') { opts.stateId = id; opts.teamId ??= snap.states.find(s => s.id === id)?.teamId; }
+    if (g === 'project') opts.projectId = id === 'none' ? null : id;
+    if (g === 'cycle') opts.cycleId = id === 'none' ? null : id;
+  }
+  return opts;
+}
+
 function ColumnHeader(props: {
   col: Column; total: number; points: number; groupBy: GroupBy; teamId?: string; issues: Issue[];
   createDefaults?: { projectId?: string | null; cycleId?: string | null };
@@ -413,17 +428,8 @@ function ColumnHeader(props: {
   const openCreate = useApp(s => s.openCreate);
   const toast = useApp(s => s.toast);
   const menu = useMenu();
-  const canCreate = ['status', 'project', 'cycle', 'priority', 'assignee'].includes(props.groupBy);
-  const addIssue = () => {
-    const createTeamId = props.teamId ?? snap.states.find(s => s.id === props.col.id)?.teamId;
-    const g = props.groupBy;
-    openCreate({
-      teamId: createTeamId, ...props.createDefaults,
-      ...(g === 'status' ? { stateId: props.col.id } : {}),
-      ...(g === 'project' ? { projectId: props.col.id === 'none' ? null : props.col.id } : {}),
-      ...(g === 'cycle' ? { cycleId: props.col.id === 'none' ? null : props.col.id } : {}),
-    });
-  };
+  const canCreate = CREATE_GROUPS.includes(props.groupBy);
+  const addIssue = () => openCreate(createOpts(snap, props.teamId, props.createDefaults, [[props.groupBy, props.col.id]]));
   const estimatesOn = props.teamId ? snap.teams.find(t => t.id === props.teamId)?.estimateScale !== 'none' : true;
   return (
     <div className="board-col-header">
@@ -432,7 +438,7 @@ function ColumnHeader(props: {
       <span className="count">{props.total}</span>
       {estimatesOn && props.points > 0 && <span className="gh-points" title={`${props.points} points`}><IconEstimate size={11} />{props.points}</span>}
       <span className="col-actions">
-        <button className="icon-btn" data-no-drag title="Column actions" onClick={menu.open}><IconMore size={13} /></button>
+        <button className="icon-btn col-more" data-no-drag title="Column actions" onClick={menu.open}><IconMore size={13} /></button>
         {canCreate && <button className="icon-btn" data-no-drag title="New issue in this column" onClick={addIssue}><IconPlus size={13} /></button>}
       </span>
       {menu.anchor && (
@@ -456,12 +462,28 @@ function BoardCell(props: {
   display: Partial<DisplayProps>; teamId?: string; createDefaults?: { projectId?: string | null; cycleId?: string | null };
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: cellId(props.laneId, props.col.id) });
+  const snap = useApp(s => s.snap)!;
+  const openCreate = useApp(s => s.openCreate);
+  const canCreate = CREATE_GROUPS.includes(props.groupBy);
+  // a card made here starts in this column and, on a board with rows, in this row too
+  const addIssue = () => openCreate(createOpts(snap, props.teamId, props.createDefaults, [
+    [props.groupBy, props.col.id],
+    ...(props.subgroupBy !== 'none' && props.laneId !== ALL_LANE ? [[props.subgroupBy, props.laneId] as [GroupBy, string]] : []),
+  ]));
   return (
     <div className={`board-col${isOver ? ' drop-active' : ''}`}>
       <SortableContext items={props.issues.map(i => i.id)} strategy={verticalListSortingStrategy}>
         <div ref={setNodeRef} className="board-col-body">
           {props.issues.map(i => <BoardCard key={i.id} issue={i} groupBy={props.groupBy} subgroupBy={props.subgroupBy} display={props.display} index={props.flat.indexOf(i)} />)}
-          {props.issues.length === 0 && props.laneId === ALL_LANE && <div className="lane-empty"><span>No issues</span></div>}
+          {props.issues.length === 0 && props.laneId === ALL_LANE && (
+            <div className="lane-empty">
+              <span>No issues</span>
+              {canCreate && <button className="lane-add" onClick={addIssue}><IconPlus size={12} /> New issue</button>}
+            </div>
+          )}
+          {canCreate && (props.issues.length > 0 || props.laneId !== ALL_LANE) && (
+            <button className="lane-add trailing" onClick={addIssue}><IconPlus size={12} /> New issue</button>
+          )}
         </div>
       </SortableContext>
     </div>
