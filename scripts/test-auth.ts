@@ -220,15 +220,17 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   const handoff = await (await req(`/api/issues/${issue.id}/handoff`, { cookie: adaCookie })).json() as { handoff: { prompt: string } };
   check('hand-off prompts carry the readable form', !handoff.handoff.prompt.includes('](user:'));
 
-  // ---- uploaded files ----
-  const up = async (name: string, type: string, body: string) => (await (await req(`/api/issues/${issue.id}/files?name=${name}`, { method: 'POST', body, headers: { 'content-type': type, origin: ORIGIN }, cookie: adaCookie })).json() as { attachment: { url: string } }).attachment.url;
-  const html = await req(await up('evil.html', 'text/html', '<script>alert(1)</script>'), { cookie: adaCookie });
-  check('an uploaded HTML file downloads instead of rendering', html.headers.get('content-type') === 'application/octet-stream' && html.headers.get('content-disposition')!.startsWith('attachment'));
-  check('…with nosniff and a sandboxing CSP', html.headers.get('x-content-type-options') === 'nosniff' && /sandbox/.test(html.headers.get('content-security-policy') ?? ''));
-  const svg = await req(await up('x.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'), { cookie: adaCookie });
-  check('an SVG (which can carry script) downloads too', svg.headers.get('content-disposition')!.startsWith('attachment'));
-  const png = await req(await up('a.png', 'image/png', 'png-bytes'), { cookie: adaCookie });
-  check('a PNG shows inline', png.headers.get('content-type') === 'image/png' && png.headers.get('content-disposition')!.startsWith('inline'));
+  // ---- uploaded files (only real images are stored; their type comes from the bytes, not the uploader) ----
+  const up = (name: string, type: string, body: string | Uint8Array) => req(`/api/files?owner=issue:${issue.id}&name=${name}`, { method: 'POST', body, headers: { 'content-type': type, origin: ORIGIN }, cookie: adaCookie });
+  check('an HTML file is refused', (await up('evil.html', 'image/png', '<script>alert(1)</script>')).status === 415);
+  const svgUp = await (await up('x.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')).json() as { file: { url: string } };
+  const svg = await req(svgUp.file.url, { cookie: adaCookie });
+  check('an SVG (which can carry script) is served with nosniff and a sandboxing CSP', svg.headers.get('x-content-type-options') === 'nosniff' && /sandbox/.test(svg.headers.get('content-security-policy') ?? '') && !/allow-scripts/.test(svg.headers.get('content-security-policy') ?? ''));
+  const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const pngUp = await (await up('a.png', 'text/html', pngBytes)).json() as { file: { url: string } };
+  const png = await req(pngUp.file.url, { cookie: adaCookie });
+  check('a PNG shows inline as image/png, whatever type the upload claimed', png.headers.get('content-type') === 'image/png' && png.headers.get('content-disposition')!.startsWith('inline'));
+  check('files need a session', (await req(pngUp.file.url)).status === 401);
 }
 
 // ---- live updates ----

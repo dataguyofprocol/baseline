@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import { flushSync } from 'react-dom';
 import { api, ApiError } from './api.js';
 import { revealTheme } from './motion.js';
-import type { Snapshot, Issue, Priority } from '../../src/core/types.js';
+import { notifyCategory, type Snapshot, type Issue, type Priority, type GettingStarted } from '../../src/core/types.js';
 import type { PropKind } from './propertyMenus.js';
 
+export type PaletteScope = 'issue' | 'project' | 'view' | 'document' | 'cycle' | 'label' | 'user' | 'favorite' | 'settings' | 'document-new';
 export interface Toast {
   id: number;
   title: string;
@@ -24,9 +25,11 @@ interface AppState {
   resolvedTheme: 'dark' | 'light';
   toasts: Toast[];
   paletteOpen: boolean;
+  /** O then …: the palette opens as a picker of one kind (issue, project, view…) */
+  paletteScope: PaletteScope | null;
   /** left nav collapsed (⌘B / the nav toggle); persisted across reloads */
   sidebarCollapsed: boolean;
-  createModal: { open: boolean; teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated };
+  createModal: { open: boolean; expanded?: boolean; copyFrom?: string; teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated };
   shortcutsOpen: boolean;
   /** hovered/focused row quick-action menu, e.g. pressing S or P on a row */
   quickMenu: { issueIds: string[]; kind: PropKind; anchor: DOMRect } | null;
@@ -37,10 +40,10 @@ interface AppState {
   setTheme: (t: ThemePref) => void;
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: number) => void;
-  setPalette: (open: boolean) => void;
+  setPalette: (open: boolean, scope?: PaletteScope | null) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
-  openCreate: (opts?: { teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated }) => void;
+  openCreate: (opts?: { expanded?: boolean; copyFrom?: string; teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated }) => void;
   closeCreate: () => void;
   setShortcuts: (open: boolean) => void;
   setQuickMenu: (m: AppState['quickMenu']) => void;
@@ -59,6 +62,10 @@ export function resolveTheme(p: ThemePref): 'dark' | 'light' {
 
 let toastSeq = 1;
 
+/** a narrow window hides the nav on its own (the saved preference is left alone) so the page keeps its room */
+const narrowNav = window.matchMedia('(max-width: 760px)');
+const savedCollapsed = () => localStorage.getItem('baseline:sidebarCollapsed') === '1';
+
 const storedTheme = localStorage.getItem('baseline:theme');
 const initialTheme: ThemePref = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : 'system';
 
@@ -70,7 +77,8 @@ export const useApp = create<AppState>((set, get) => ({
   resolvedTheme: resolveTheme(initialTheme),
   toasts: [],
   paletteOpen: false,
-  sidebarCollapsed: localStorage.getItem('baseline:sidebarCollapsed') === '1',
+  paletteScope: null,
+  sidebarCollapsed: narrowNav.matches || savedCollapsed(),
   createModal: { open: false },
   shortcutsOpen: false,
   quickMenu: null,
@@ -105,7 +113,10 @@ export const useApp = create<AppState>((set, get) => ({
     if (t.autoClose !== false) setTimeout(() => get().dismissToast(id), 5200);
   },
   dismissToast: (id) => set(s => ({ toasts: s.toasts.filter(x => x.id !== id) })),
-  setPalette: (open) => set({ paletteOpen: open }),
+  setPalette: (open, scope = null) => {
+    set({ paletteOpen: open, paletteScope: open ? scope : null });
+    if (open && get().snap?.workspace.preferences.gettingStarted.usedPalette === false) setGettingStarted({ usedPalette: true });
+  },
   setSidebarCollapsed: (collapsed) => {
     localStorage.setItem('baseline:sidebarCollapsed', collapsed ? '1' : '0');
     set({ sidebarCollapsed: collapsed });
@@ -116,6 +127,8 @@ export const useApp = create<AppState>((set, get) => ({
   setShortcuts: (open) => set({ shortcutsOpen: open }),
   setQuickMenu: (m) => set({ quickMenu: m }),
 }));
+
+narrowNav.addEventListener('change', (e) => { useApp.setState({ sidebarCollapsed: e.matches || savedCollapsed() }); });
 
 // while the preference is 'system', follow the OS/browser appearance live;
 // e.matches is that change's own verdict, so no re-query race
@@ -153,10 +166,19 @@ export const useCursor = create<CursorState>((set) => ({
 }));
 
 /** the mounted list registers its visible issues so global keys act on them */
-export const visibleList: { issues: Issue[]; teamId: string } = { issues: [], teamId: '' };
+/** the list on screen; `route` is the page that registered it, so a list left behind
+    (e.g. after opening a project page) can't be acted on by issue shortcuts */
+export const visibleList: { issues: Issue[]; teamId: string; route: string } = { issues: [], teamId: '', route: '' };
 export function registerVisibleList(issues: Issue[], teamId: string) {
   visibleList.issues = issues;
   visibleList.teamId = teamId;
+  visibleList.route = location.hash.split('?')[0];
+}
+
+/** a person's name as Preferences › Display names asks for it */
+export function nameOf(u: { name: string } | null | undefined, fallback = 'Someone'): string {
+  if (!u) return fallback;
+  return useApp.getState().snap?.workspace.preferences.displayNames === 'first' ? u.name.split(/\s+/)[0] : u.name;
 }
 
 /* ---------- derived helpers ---------- */
@@ -222,14 +244,46 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/** first-run progress and the Getting started checklist: applied here at once, saved behind */
+export function setGettingStarted(patch: Partial<GettingStarted>): Promise<unknown> {
+  const s = useApp.getState().snap;
+  if (s) {
+    const prefs = s.workspace.preferences;
+    useApp.setState({ snap: { ...s, workspace: { ...s.workspace, preferences: { ...prefs, gettingStarted: { ...prefs.gettingStarted, ...patch } } } } });
+  }
+  return api.updatePreferences({ gettingStarted: patch }).catch(() => {});
+}
+
 export async function refresh() {
   await useApp.getState().bootstrap();
 }
 
 // Live updates. The server announces a new version whenever anything changes — a teammate, an
 // agent writing through the CLI, the workspace's own clock — and the tab refetches its snapshot,
-// swapping it in only when something it shows actually moved. A hidden tab waits until it's seen.
+// swapping it in only when something it shows actually moved. A hidden tab waits until it's seen
+// (unless desktop notifications are on).
 let lastSnapJson = '';
+/* Settings › Notifications › Desktop: new inbox notifications become browser notifications
+   (the kinds you chose), also while the tab is in the background */
+let seenNotifications: Set<string> | null = null;
+function pushDesktop(snap: Snapshot) {
+  const ids = new Set(snap.notifications.map(n => n.id));
+  const before = seenNotifications;
+  seenNotifications = ids;
+  const push = snap.workspace.preferences.push;
+  if (!before || !push?.desktop || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  for (const n of snap.notifications) {
+    if (before.has(n.id) || n.readAt || (n.snoozedUntil && n.snoozedUntil > new Date().toISOString())) continue;
+    const cat = notifyCategory(n.type, n.body);
+    if (!cat || !push.types[cat]) continue;
+    const issue = n.issueId ? snap.issues.find(i => i.id === n.issueId) : undefined;
+    const key = issue ? `${snap.teams.find(t => t.id === issue.teamId)?.key}-${issue.number}` : '';
+    const actor = snap.users.find(u => u.id === n.actorId)?.name;
+    const note = new Notification(issue ? `${key} ${issue.title}` : 'Baseline', { body: [actor, n.body].filter(Boolean).join(': ').slice(0, 200), tag: n.id });
+    note.onclick = () => { window.focus(); location.hash = issue ? `#/issue/${key}` : '#/inbox'; note.close(); };
+  }
+}
+
 let fetching = false;
 let fetchAgain = false;
 let announced: number | null = null;
@@ -240,6 +294,7 @@ async function refreshSnapshot() {
   fetching = true;
   try {
     const snap = await api.bootstrap();
+    pushDesktop(snap);
     const json = JSON.stringify(snap);
     if (json !== lastSnapJson) useApp.setState({ snap });
     lastSnapJson = json;
@@ -250,7 +305,9 @@ async function refreshSnapshot() {
   }
 }
 function catchUp() {
-  if (document.visibilityState !== 'visible' || announced === applied) return;
+  // a hidden tab waits, unless it has desktop notifications to show
+  const background = document.visibilityState !== 'visible';
+  if ((background && !useApp.getState().snap?.workspace.preferences.push?.desktop) || announced === applied) return;
   applied = announced;
   void refreshSnapshot();
 }

@@ -7,10 +7,10 @@ import { Menu, MenuItem, MenuSep, useMenu, RegisterMark } from './ui.js';
 import { GroupedList, FilterBar, DisplayOptionsMenu, useViewPrefs, DEFAULT_VIEW_OPTIONS, activeFilterCount, applyFilters, applyDisplay, countConditions, type ViewOptions } from './IssueViews.js';
 import { Board } from './Board.js';
 import { ProjectsPage, countProjectView, describeProjectView } from './Projects.js';
-import { LogoMark } from './Logo.js';
-import { StateIcon } from './pickers.js';
-import { IconFilter, IconDisplay, IconStar, IconMore, IconTrash, IconEdit, IconChevronDown } from './icons.js';
+import { StateIcon, teamDisplayIcon, Avatar } from './pickers.js';
+import { IconFilter, IconDisplay, IconStar, IconMore, IconTrash, IconEdit, IconViews, IconBell, IconCheck } from './icons.js';
 import type { SavedView, ViewFilters, Issue } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 /** the right-toolbar filter icon opens the filter menu anchored to itself */
 export function openFilterMenu(e: React.MouseEvent) {
@@ -113,6 +113,7 @@ export function IssueListBody(props: {
             groupBy={opts.groupBy}
             subgroupBy={opts.subgroupBy}
             orderBy={opts.orderBy}
+            orderReversed={opts.orderReversed}
             display={opts.display}
             showEmpty={opts.showEmpty}
             createDefaults={props.createDefaults}
@@ -142,17 +143,16 @@ export function TeamPage() {
   }, [snap.issues, snap.states, team, filter]);
 
   if (!team) return <TeamMissingRedirect />;
-  const title = filter === 'active' ? 'Active' : filter === 'backlog' ? 'Backlog' : 'All issues';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar
         crumbs={[
-          { label: team.name, icon: <span className="ws-avatar" style={{ background: team.color, borderRadius: 4, fontSize: 9, width: 18, height: 18 }}>{team.key.slice(0, 2)}</span>, to: `/team/${team.key}/all`, muted: true },
-          { label: 'Issues', muted: true },
-          { label: title },
+          { label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true },
+          { label: 'Issues' },
         ]}
         favoriteRef={{ type: 'view', refId: `team-${team.id}-${filter}` }}
+        right={<TeamBell teamId={team.id} />}
       />
       <TeamSubnav
         teamId={team.id}
@@ -182,6 +182,30 @@ export function TeamMissingRedirect() {
 }
 
 /** team selector + All/Active/Backlog/Cycles tabs shared by the team issues page and the cycles page */
+/** the team bell: which team events reach your inbox (Linear's three options) */
+function TeamBell({ teamId }: { teamId: string }) {
+  const snap = useApp(s => s.snap)!;
+  const menu = useMenu();
+  const sub = snap.teamSubscriptions[teamId] ?? { issueAdded: false, issueClosed: false, triage: false };
+  const on = sub.issueAdded || sub.issueClosed || sub.triage;
+  const toggle = async (k: keyof typeof sub) => { await api.setTeamSubscription(teamId, { [k]: !sub[k] }); await useApp.getState().bootstrap(); };
+  return (
+    <>
+      <button className={`icon-btn${on ? ' on' : ''}`} title="Notifications" data-team-bell onClick={menu.open}><IconBell size={15} /></button>
+      {menu.anchor && (
+        <Menu anchor={menu.anchor} onClose={menu.close} width={330}>
+          <div className="menu-header"><span>Send inbox notifications for</span></div>
+          {([['issueAdded', 'An issue is added to the team'], ['issueClosed', 'An issue is marked completed or canceled'], ['triage', 'An issue is added to the triage queue']] as const).map(([k, l]) => (
+            <button key={k} className="menu-item" onClick={e => { e.stopPropagation(); void toggle(k); }}>
+              <span className="mi-label">{l}</span><span className={`mi-check${sub[k] ? ' on' : ''}`} style={{ marginLeft: 'auto' }}>{sub[k] && <IconCheck size={11} />}</span>
+            </button>
+          ))}
+        </Menu>
+      )}
+    </>
+  );
+}
+
 export function TeamSubnav(props: { teamId: string; filter: 'all' | 'active' | 'backlog' | 'cycles'; trailing?: React.ReactNode }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -202,17 +226,13 @@ export function TeamSubnav(props: { teamId: string; filter: 'all' | 'active' | '
 
   return (
     <div className="subnav">
-      <button className="team-switch" onClick={teamMenu.open} title="Switch team">
-        {chip(team)}
-        <span>{team.name}</span>
-        <IconChevronDown size={13} style={{ color: 'var(--text-secondary)' }} />
-      </button>
-      {(['all', 'active', 'backlog', 'cycles'] as const).map(f => (
+      {(['active', 'backlog', 'all'] as const).map(f => (
         <button key={f} className={`seg ${props.filter === f ? 'selected' : ''}`} onClick={() => navigate(`/team/${team.key}/${f}`)}>
-          {f === 'all' ? 'All issues' : f === 'active' ? 'Active' : f === 'backlog' ? 'Backlog' : 'Cycles'}
+          {f === 'all' ? 'All issues' : f === 'active' ? 'Active' : 'Backlog'}
           {props.filter === f && <RegisterMark group="team-tabs" />}
         </button>
       ))}
+      <button className="icon-btn seg-add" title="New view from this list (⌥V)" onClick={() => { const ev = new CustomEvent('baseline:save-view', { cancelable: true }); window.dispatchEvent(ev); }}><IconViews size={14} /></button>
       <span style={{ flex: 1 }} />
       {props.trailing}
       {teamMenu.anchor && (
@@ -313,7 +333,7 @@ function MyActivity() {
     return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   };
   let last = '';
-  if (!items.length) return <div className="content"><div className="empty-state"><div className="empty-mark"><LogoMark size={30} /></div><div className="empty-title">No activity yet</div><div className="empty-desc">Changes you make to issues show up here.</div></div></div>;
+  if (!items.length) return <div className="content"><div className="empty-state"><Illustration name="activity" /><div className="empty-title">No activity yet</div><div className="empty-desc">Changes you make to issues show up here.</div></div></div>;
   return (
     <div className="content">
       <div className="my-activity">
@@ -400,7 +420,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
       <div className="content">
         {snap.views.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-mark"><LogoMark size={30} /></div>
+            <Illustration name="views" />
             <div className="empty-title">Views</div>
             <div className="empty-desc">{kind === 'projects' ? 'Save project filters, groupings and layouts — a roadmap, a team’s portfolio, at-risk work — and come back to them.' : 'Create views to save filters and groupings you return to.'}</div>
             <div className="empty-actions">
@@ -569,6 +589,72 @@ function IssueViewPage() {
       <IssueListBody issues={issues} opts={opts} patch={patch} teamId={view.teamId ?? undefined} multiTeam={!view.teamId}
         displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close} onSaveView={null}
         emptyTitle={view.name} emptyDesc="No issues match this view right now." />
+    </div>
+  );
+}
+
+/* ================= label page (O then L) and profile page (O then U), as in Linear ================= */
+export function LabelPage() {
+  const { labelId = '' } = useParams();
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  const displayBtn = useMenu();
+  const switcher = useMenu();
+  const label = snap.labels.find(l => l.id === labelId);
+  const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:label:${labelId}`, { ...TEAM_DEFAULT_OPTS });
+  const issues = useMemo(() => snap.issues.filter(i => i.labelIds.includes(labelId)), [snap.issues, labelId]);
+  if (!label) return <div className="empty-state"><div className="es-title">Label not found</div></div>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <TopBar
+        crumbs={[{ label: label.name, icon: <span className="label-dot" style={{ background: label.color }} />, onClick: switcher.open }]}
+        favoriteRef={{ type: 'view', refId: `label-${label.id}` }}
+        right={<ListToolbar opts={opts} onDisplay={displayBtn.open} />}
+      />
+      {switcher.anchor && (
+        <Menu anchor={switcher.anchor} onClose={switcher.close} width={220}>
+          {snap.labels.map(l => <MenuItem key={l.id} icon={<span className="label-dot" style={{ background: l.color }} />} label={l.name} selected={l.id === label.id} onClick={() => { switcher.close(); navigate(`/labels/${l.id}`); }} />)}
+        </Menu>
+      )}
+      <IssueListBody issues={issues} opts={opts} patch={patch} reset={reset} multiTeam
+        displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close}
+        emptyTitle="No matching issues" emptyDesc={`Issues labelled ${label.name} show up here.`} emptyHideCreate />
+    </div>
+  );
+}
+
+export function ProfilePage() {
+  const { userId = '', tab: rawTab } = useParams();
+  const snap = useApp(s => s.snap)!;
+  const navigate = useNavigate();
+  const displayBtn = useMenu();
+  const switcher = useMenu();
+  const user = snap.users.find(u => u.id === userId);
+  const tab = rawTab === 'created' ? 'created' : 'assigned';
+  const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:profile:${tab}`, { ...TEAM_DEFAULT_OPTS });
+  const issues = useMemo(() => snap.issues.filter(i => (tab === 'created' ? i.creatorId : i.assigneeId) === userId), [snap.issues, userId, tab]);
+  if (!user) return <div className="empty-state"><div className="es-title">User not found</div></div>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <TopBar crumbs={[{ label: user.name, icon: <Avatar user={user} size={16} />, onClick: switcher.open }]} />
+      {switcher.anchor && (
+        <Menu anchor={switcher.anchor} onClose={switcher.close} width={220}>
+          {snap.users.map(u => <MenuItem key={u.id} icon={<Avatar user={u} size={16} />} label={u.name} selected={u.id === user.id} onClick={() => { switcher.close(); navigate(`/profiles/${u.id}/${tab}`); }} />)}
+        </Menu>
+      )}
+      <div className="subnav">
+        {(['assigned', 'created'] as const).map(t => (
+          <button key={t} className={`seg ${tab === t ? 'selected' : ''}`} onClick={() => navigate(`/profiles/${user.id}/${t}`)}>
+            {t === 'assigned' ? 'Assigned' : 'Created'}
+            {tab === t && <RegisterMark group="profile-tabs" />}
+          </button>
+        ))}
+        <span style={{ flex: 1 }} />
+        <ListToolbar opts={opts} onDisplay={displayBtn.open} />
+      </div>
+      <IssueListBody issues={issues} opts={opts} patch={patch} reset={reset} multiTeam
+        displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close}
+        emptyTitle={tab === 'created' ? `No issues created by ${user.name}` : `No issues assigned to ${user.name}`} emptyDesc="" emptyHideCreate />
     </div>
   );
 }

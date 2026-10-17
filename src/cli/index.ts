@@ -7,8 +7,8 @@ import { createApp, serve } from '../server/index.js';
 import { isDirectory, LaunchError, openInClaudeCode } from '../server/launch.js';
 import { resolveDbPath } from '../core/db.js';
 import { seedWorkspace } from '../core/seed.js';
-import { issueKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS } from '../core/types.js';
-import type { Priority, RelationType, Snapshot, Team, User, WorkflowState, Label, Project, Issue, Location } from '../core/types.js';
+import { issueKey, initiativeKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS, API_KEY_SCOPES } from '../core/types.js';
+import type { Priority, RelationType, Snapshot, Team, User, WorkflowState, Label, Project, Issue, Location, ApiKeyScope } from '../core/types.js';
 
 const program = new Command();
 program.name('baseline').description('Local issue & project tracker with a Linear-quality UI').version('0.1.0');
@@ -159,8 +159,9 @@ program
   .option('-p, --port <port>', 'port (default: $BASELINE_PORT or 7770)')
   .option('-d, --db <path>', 'database path')
   .option('--open', 'open browser', false)
+  .option('--seed', 'a new database starts with the sample workspace instead of the first-run flow', false)
   .action((opts) => {
-    void serve({ port: opts.port ? Number(opts.port) : undefined, dbPath: opts.db, open: opts.open });
+    void serve({ port: opts.port ? Number(opts.port) : undefined, dbPath: opts.db, open: opts.open, seedIfEmpty: opts.seed });
   });
 
 program
@@ -269,7 +270,7 @@ const user = program.command('user').description('User operations');
 withDb(user.command('list')).description('List workspace users').action((opts: { db?: string }) => {
   const store = storeFor(opts.db);
   const snap = store.snapshot();
-  for (const u of snap.users) console.log(`${u.name.padEnd(24)} ${u.email.padEnd(20)} ${u.admin ? 'admin ' : ''}${u.kind === 'agent' ? 'agent' : ''}`);
+  for (const u of snap.users) console.log(`${u.name.padEnd(24)} ${u.email.padEnd(20)} ${u.admin ? 'admin ' : ''}${u.kind === 'agent' ? 'agent' : ''}${u.githubUsername ? `github:${u.githubUsername}` : ''}`.trimEnd());
   process.exit(0);
 });
 withDb(user.command('add <name>')).description('Add a workspace user')
@@ -279,6 +280,19 @@ withDb(user.command('add <name>')).description('Add a workspace user')
     const store = storeFor(opts.db);
     const u = store.createUser(name, opts.email ?? '', false, opts.agent ? 'agent' : 'human');
     console.log(`Created ${opts.agent ? 'agent' : 'user'} ${u.name}`);
+    process.exit(0);
+  });
+
+withDb(user.command('update <name>')).description('Change a user (me = you)')
+  .option('--email <email>', 'email address')
+  .option('--github <login>', 'GitHub username: their pull requests are attributed to them ("" clears it)')
+  .action((name: string, opts: { db?: string; email?: string; github?: string }) => {
+    const store = storeFor(opts.db);
+    const u = resolveUser(store.snapshot(), name);
+    if (!u) fail(`Unknown user "${name}"`);
+    store.updateUser(u.id, { ...(opts.email !== undefined ? { email: opts.email } : {}), ...(opts.github !== undefined ? { githubUsername: opts.github } : {}) });
+    const after = store.snapshot().users.find(x => x.id === u.id)!;
+    console.log(`Updated ${after.name}${after.githubUsername ? ` · github:${after.githubUsername}` : ''}`);
     process.exit(0);
   });
 
@@ -1241,6 +1255,199 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof stor
   return { ...projectJson(p, snap, store), issues, updates, milestones, blockedBy, blocking, links };
 }
 
+// ---------- initiatives & releases ----------
+const initiative = program.command('initiative').description('Initiatives: strategic efforts made of projects');
+const findInitiative = (snap: Snapshot, ref: string) => snap.initiatives.find(i => i.id === ref) ?? snap.initiatives.find(i => /^i-\d+$/i.test(ref) && i.number === Number(ref.slice(2)))
+  ?? snap.initiatives.find(i => i.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown initiative "${ref}"`);
+/** initiative labels by name, created on the fly like project labels */
+const initiativeLabelIds = (store: ReturnType<typeof storeFor>, snap: Snapshot, names: string[]) => names.flatMap(n => n.split(',')).map(n => n.trim()).filter(Boolean)
+  .map(n => (snap.initiativeLabels.find(l => l.name.toLowerCase() === n.toLowerCase()) ?? store.ext.planning.createLabel({ name: n })).id);
+const UPDATE_SCHEDULES = ['none', 'weekly', 'biweekly', 'monthly', 'default'];
+withDb(initiative.command('list')).description('List initiatives with progress').option('--json', 'output as JSON', false).action((opts: { db?: string; json?: boolean }) => {
+  const store = storeFor(opts.db); const snap = store.snapshot();
+  const rows = snap.initiatives.map(i => ({
+    key: initiativeKey(i), name: i.name, status: i.status, health: i.health, priority: PRIORITY_LABELS[i.priority], labels: i.labelIds.map(l => snap.initiativeLabels.find(x => x.id === l)?.name).filter(Boolean) as string[],
+    owner: snap.users.find(u => u.id === i.ownerId)?.name ?? null, team: snap.teams.find(t => t.id === i.teamId)?.key ?? null, targetDate: i.targetDate, parent: snap.initiatives.find(x => x.id === i.parentId)?.name ?? null,
+    updateSchedule: i.updateCadence ?? snap.workspace.features.initiativeUpdateCadence, updateDueAt: store.ext.planning.updateDueAt(i),
+    projects: i.projectIds.map(pid => snap.projects.find(p => p.id === pid)?.name),
+  }));
+  if (opts.json) console.log(JSON.stringify(rows, null, 2));
+  else for (const r of rows) console.log(`${r.key.padEnd(6)} ${r.name.padEnd(30)} ${r.status.padEnd(10)} ${(r.health ?? '-').padEnd(9)} ${r.priority.padEnd(11)} ${r.labels.length ? `[${r.labels.join(', ')}] ` : ''}${r.projects.join(', ')}`);
+  process.exit(0);
+});
+withDb(initiative.command('create <name>')).description('Create an initiative').option('-d, --description <text>').option('--status <status>', 'proposed|planned|active|completed|canceled').option('--target <date>').option('--parent <initiative>').option('--project <name...>', 'projects to include')
+  .option('-p, --priority <level>', 'none|urgent|high|medium|low').option('--label <name...>', 'initiative labels (created if new)').option('-t, --team <key>', 'lead team')
+  .action((name: string, opts: { db?: string; description?: string; status?: string; target?: string; parent?: string; project?: string[]; priority?: string; label?: string[]; team?: string }) => {
+    const store = storeFor(opts.db); const snap = store.snapshot();
+    const ini = store.ext.planning.createInitiative({ name, description: opts.description, status: opts.status as 'planned' | undefined, targetDate: opts.target ?? null, parentId: opts.parent ? findInitiative(snap, opts.parent).id : null, projectIds: (opts.project ?? []).map(n => resolveProject(snap, n)!.id),
+      priority: priorityNum(opts.priority), labelIds: initiativeLabelIds(store, snap, opts.label ?? []), teamId: resolveTeam(snap, opts.team, { required: true })?.id ?? null });
+    console.log(`Created initiative ${initiativeKey(ini)} "${ini.name}"`); process.exit(0);
+  });
+withDb(initiative.command('update <initiative>')).description('Update an initiative (by name or I-12)').option('--status <status>').option('--target <date>').option('--add-project <name>').option('--remove-project <name>')
+  .option('-p, --priority <level>', 'none|urgent|high|medium|low').option('--label <name...>', 'add initiative labels (created if new)').option('--remove-label <name...>', 'remove initiative labels')
+  .option('-t, --team <key>', 'lead team ("none" to clear)').option('--updates <cadence>', 'update reminders: none|weekly|biweekly|monthly|default')
+  .action((ref: string, opts: { db?: string; status?: string; target?: string; addProject?: string; removeProject?: string; priority?: string; label?: string[]; removeLabel?: string[]; team?: string; updates?: string }) => {
+    const store = storeFor(opts.db); const snap = store.snapshot(); const ini = findInitiative(snap, ref);
+    if (opts.updates && !UPDATE_SCHEDULES.includes(opts.updates)) fail(`Invalid --updates — use ${UPDATE_SCHEDULES.join('|')}`);
+    let labelIds: string[] | undefined;
+    if (opts.label || opts.removeLabel) {
+      const drop = new Set((opts.removeLabel ?? []).flatMap(n => n.split(',')).map(n => snap.initiativeLabels.find(l => l.name.toLowerCase() === n.trim().toLowerCase())?.id));
+      labelIds = [...new Set([...ini.labelIds, ...initiativeLabelIds(store, snap, opts.label ?? [])])].filter(l => !drop.has(l));
+    }
+    store.ext.planning.updateInitiative(ini.id, {
+      ...(opts.status ? { status: opts.status as 'active' } : {}), ...(opts.target ? { targetDate: opts.target === 'none' ? null : opts.target } : {}),
+      ...(opts.priority ? { priority: priorityNum(opts.priority)! } : {}), ...(labelIds ? { labelIds } : {}),
+      ...(opts.team ? { teamId: opts.team.toLowerCase() === 'none' ? null : resolveTeam(snap, opts.team, { required: true })!.id } : {}),
+      ...(opts.updates ? { updateCadence: opts.updates === 'default' ? null : opts.updates as 'weekly' } : {}),
+    });
+    if (opts.addProject) store.ext.planning.addProject(ini.id, resolveProject(snap, opts.addProject)!.id);
+    if (opts.removeProject) store.ext.planning.removeProject(ini.id, resolveProject(snap, opts.removeProject)!.id);
+    console.log(`Updated initiative ${initiativeKey(ini)} "${ini.name}"`); process.exit(0);
+  });
+const initiativeLabel = initiative.command('label').description('Initiative labels (Settings › Initiatives)');
+withDb(initiativeLabel.command('list')).description('List initiative labels').option('--json', 'output as JSON', false).action((opts: { db?: string; json?: boolean }) => {
+  const snap = storeFor(opts.db).snapshot();
+  const rows = snap.initiativeLabels.map(l => ({ name: l.name, color: l.color, initiatives: snap.initiatives.filter(i => i.labelIds.includes(l.id)).length }));
+  if (opts.json) console.log(JSON.stringify(rows, null, 2)); else for (const r of rows) console.log(`${r.name.padEnd(24)} ${r.color}  ${r.initiatives} initiative${r.initiatives === 1 ? '' : 's'}`);
+  process.exit(0);
+});
+withDb(initiativeLabel.command('create <name>')).description('Create an initiative label').option('--color <hex>').action((name: string, opts: { db?: string; color?: string }) => {
+  const l = storeFor(opts.db).ext.planning.createLabel({ name, color: opts.color });
+  console.log(`Created initiative label "${l.name}"`); process.exit(0);
+});
+withDb(initiativeLabel.command('delete <name>')).description('Delete an initiative label').action((name: string, opts: { db?: string }) => {
+  const store = storeFor(opts.db); const l = store.snapshot().initiativeLabels.find(x => x.name.toLowerCase() === name.toLowerCase()) ?? fail(`Unknown initiative label "${name}"`);
+  store.ext.planning.deleteLabel(l.id); console.log(`Deleted initiative label "${l.name}"`); process.exit(0);
+});
+withAs(withDb(initiative.command('note <initiative> <body>'))).description('Post an initiative update').option('--health <health>', 'onTrack|atRisk|offTrack')
+  .action((ref: string, body: string, opts: { db?: string; health?: string; as?: string }) => {
+    const store = storeFor(opts.db); const snap = store.snapshot();
+    store.ext.planning.addInitiativeUpdate(findInitiative(snap, ref).id, actorId(snap, opts.as) ?? store.workspaceMeta().currentUser, body, opts.health as 'onTrack' | undefined);
+    console.log('Posted update'); process.exit(0);
+  });
+const release = program.command('release').description('Releases: which issues ship in a version');
+const findRelease = (snap: Snapshot, ref: string) => snap.releases.find(r => r.id === ref || r.name === ref) ?? fail(`Unknown release "${ref}"`);
+withDb(release.command('list')).description('List releases').option('--json', 'output as JSON', false).action((opts: { db?: string; json?: boolean }) => {
+  const snap = storeFor(opts.db).snapshot();
+  const rows = snap.releases.map(r => ({ name: r.name, stage: r.stage, targetDate: r.targetDate, releasedAt: r.releasedAt, issues: snap.issues.filter(i => i.releaseId === r.id).map(i => issueKey(i, snap.teams)) }));
+  if (opts.json) console.log(JSON.stringify(rows, null, 2)); else for (const r of rows) console.log(`${r.name.padEnd(12)} ${r.stage.padEnd(9)} ${r.issues.join(' ')}`);
+  process.exit(0);
+});
+withDb(release.command('create <name>')).description('Create a release').option('-d, --description <text>').option('--target <date>').action((name: string, opts: { db?: string; description?: string; target?: string }) => {
+  storeFor(opts.db).ext.planning.createRelease({ name, description: opts.description, targetDate: opts.target ?? null }); console.log(`Created release ${name}`); process.exit(0);
+});
+withDb(release.command('update <release>')).description('Change a release (stage: planned|started|released|canceled)').option('--stage <stage>').option('--add <keys...>', 'issue keys to add').option('--remove <keys...>', 'issue keys to remove')
+  .action((ref: string, opts: { db?: string; stage?: string; add?: string[]; remove?: string[] }) => {
+    const store = storeFor(opts.db); const r = findRelease(store.snapshot(), ref);
+    if (opts.stage) store.ext.planning.updateRelease(r.id, { stage: opts.stage as 'released' });
+    for (const k of opts.add ?? []) store.updateIssue(store.getByKey(k)?.id ?? fail(`Unknown issue ${k}`), { releaseId: r.id });
+    for (const k of opts.remove ?? []) store.updateIssue(store.getByKey(k)?.id ?? fail(`Unknown issue ${k}`), { releaseId: null });
+    console.log(`Updated release ${r.name}`); process.exit(0);
+  });
+
+// ---------- personal API keys ----------
+const apiKey = program.command('api-key').description('Personal API keys for the REST API (Authorization: Bearer <key>)');
+withDb(apiKey.command('list')).description('List your API keys').option('--all', 'every member\'s keys', false).option('--json', 'output as JSON', false).action((opts: { db?: string; all?: boolean; json?: boolean }) => {
+  const store = storeFor(opts.db); const snap = store.snapshot();
+  const keys = store.ext.apiKeys.list(opts.all ? undefined : snap.currentUser.id);
+  if (opts.json) console.log(JSON.stringify(keys, null, 2));
+  else if (!keys.length) console.log('No API keys');
+  else for (const k of keys) console.log(`${k.id}  ${k.name.padEnd(20)} …${k.hint}  ${k.scopes ? k.scopes.join(',') : 'full access'}${k.teamIds ? ` · teams ${k.teamIds.map(t => snap.teams.find(x => x.id === t)?.key ?? t).join(',')}` : ''}  ${k.lastUsedAt ? `used ${k.lastUsedAt.slice(0, 10)}` : 'never used'}`);
+  process.exit(0);
+});
+withDb(apiKey.command('create <name>')).description('Create a key; prints the token once')
+  .option('-s, --scope <scopes...>', `limit permissions: ${API_KEY_SCOPES.map(([k]) => k).join('|')}`).option('-t, --team <keys...>', 'limit to these teams')
+  .action((name: string, opts: { db?: string; scope?: string[]; team?: string[] }) => {
+    const store = storeFor(opts.db); const snap = store.snapshot();
+    for (const sc of opts.scope ?? []) if (!API_KEY_SCOPES.some(([k]) => k === sc)) fail(`Unknown permission "${sc}"`);
+    const teamIds = opts.team?.map(k => snap.teams.find(t => t.key.toLowerCase() === k.toLowerCase())?.id ?? fail(`Unknown team "${k}"`));
+    const { token } = store.ext.apiKeys.create({ name, userId: snap.currentUser.id, scopes: (opts.scope as ApiKeyScope[] | undefined) ?? null, teamIds: teamIds ?? null });
+    console.log(token); process.exit(0);
+  });
+withDb(apiKey.command('revoke <id>')).description('Revoke a key by id or name').action((ref: string, opts: { db?: string }) => {
+  const store = storeFor(opts.db);
+  const k = store.ext.apiKeys.list().find(x => x.id === ref || x.name === ref) ?? fail(`Unknown API key "${ref}"`);
+  store.ext.apiKeys.revoke(k.id); console.log(`Revoked ${k.name}`); process.exit(0);
+});
+
+// ---------- SLAs, asks, loops, git ----------
+const sla = program.command('sla').description('SLA rules: deadlines for matching issues');
+withDb(sla.command('list')).description('List SLA rules and breached issues').action((opts: { db?: string }) => {
+  const snap = storeFor(opts.db).snapshot();
+  for (const r of snap.slaRules) console.log(`${r.enabled ? '●' : '○'} ${r.name.padEnd(24)} priorities ${r.priorities.join(',') || 'any'} · within ${r.hours}h`);
+  const now = new Date().toISOString();
+  const breached = snap.issues.filter(i => i.slaBreachesAt && i.slaBreachesAt <= now).map(i => issueKey(i, snap.teams));
+  if (breached.length) console.log(`breached: ${breached.join(' ')}`);
+  process.exit(0);
+});
+withDb(sla.command('create <name>')).description('Add an SLA rule').requiredOption('--hours <n>', 'deadline in hours').option('-p, --priority <levels...>', 'urgent|high|medium|low|none').option('-t, --team <key>')
+  .action((name: string, opts: { db?: string; hours: string; priority?: string[]; team?: string }) => {
+    const store = storeFor(opts.db);
+    store.ext.automation.createSlaRule({ name, hours: Number(opts.hours), priorities: (opts.priority ?? []).map(p => priorityNum(p)!), teamId: opts.team ? resolveTeam(store.snapshot(), opts.team, { required: true })!.id : null });
+    console.log(`Created SLA rule "${name}"`); process.exit(0);
+  });
+const ask = program.command('ask').description('Asks: intake forms that file into triage');
+withDb(ask.command('list')).description('List Ask forms and their fields').action((opts: { db?: string }) => {
+  for (const f of storeFor(opts.db).snapshot().askForms) console.log(`${f.id}  ${f.name} — ${f.fields.map(x => `${x.id}:${x.label}${x.required ? '*' : ''}`).join(', ')}`);
+  process.exit(0);
+});
+withAs(withDb(ask.command('submit <form>'))).description('Submit an Ask (field values as id=value)').argument('<values...>')
+  .action((ref: string, values: string[], opts: { db?: string; as?: string }) => {
+    const store = storeFor(opts.db); const snap = store.snapshot();
+    const f = snap.askForms.find(x => x.id === ref || x.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown form "${ref}"`);
+    try { const issue = store.ext.automation.submitAsk(f.id, Object.fromEntries(values.map(v => [v.split('=')[0], v.split('=').slice(1).join('=')])), actorId(snap, opts.as)); console.log(`Filed ${store.keyOf(issue)}`); }
+    catch (e) { fail((e as Error).message); }
+    process.exit(0);
+  });
+const loop = program.command('loop').description('Loops: workflows that run on a schedule or when issues change');
+withDb(loop.command('list')).description('List loops and recent runs').action((opts: { db?: string }) => {
+  const snap = storeFor(opts.db).snapshot();
+  for (const l of snap.loops) { console.log(`${l.enabled ? '●' : '○'} ${l.name} (${l.trigger.kind}) → ${l.actions.map(a => a.kind).join(', ')}`); for (const r of snap.loopRuns.filter(x => x.loopId === l.id).slice(0, 2)) console.log(`    ${r.ok ? '✓' : '✗'} ${r.detail}`); }
+  process.exit(0);
+});
+withDb(loop.command('run <loop> [issue]')).description('Run a loop now (optionally on an issue)').action((ref: string, key: string | undefined, opts: { db?: string }) => {
+  const store = storeFor(opts.db); const l = store.snapshot().loops.find(x => x.id === ref || x.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown loop "${ref}"`);
+  const run = store.ext.automation.runLoop(l.id, key ? store.getByKey(key)?.id ?? fail(`Unknown issue ${key}`) : null);
+  console.log(`${run.ok ? 'ran' : 'failed'}: ${run.detail}`); process.exit(run.ok ? 0 : 1);
+});
+const gitCmd = program.command('git').description('Git / GitHub: link PRs and commits to issues');
+withDb(gitCmd.command('sync')).description('Pull recent PRs (gh) and commits (git log) from your locations').action(async (opts: { db?: string }) => {
+  const store = storeFor(opts.db); const r = await store.ext.git.sync();
+  console.log(`${r.prs} pull requests, ${r.commits} commit links${r.error ? ` — ${r.error}` : ''}`); process.exit(0);
+});
+withDb(gitCmd.command('prs <key>')).description('Pull requests and commits linked to an issue').option('--json', 'output as JSON', false).action((key: string, opts: { db?: string; json?: boolean }) => {
+  const store = storeFor(opts.db); const snap = store.snapshot(); const i = store.getByKey(key) ?? fail(`Unknown issue ${key}`);
+  const prs = snap.issuePrs.filter(l => l.issueId === i.id && !l.dismissed).map(l => ({ ...snap.pullRequests.find(p => p.id === l.prId)!, link: l.kind }));
+  const commits = snap.issueCommits.filter(c => c.issueId === i.id).map(c => snap.commits.find(x => x.sha === c.sha)!);
+  if (opts.json) console.log(JSON.stringify({ prs, commits }, null, 2)); else { for (const p of prs) console.log(`#${p.number} ${p.state.padEnd(7)} ${p.title} (${p.link}) ${p.url}`); for (const c of commits) console.log(`${c.sha.slice(0, 7)} ${c.message.split('\n')[0]}`); }
+  process.exit(0);
+});
+withDb(gitCmd.command('webhook')).description('GitHub webhooks (read-only, signed): show setup, or rotate / turn off the secret')
+  .option('--rotate', 'make a new secret (printed once; the old one stops working)', false).option('--off', 'turn webhooks off', false)
+  .option('--url <https-url>', 'the public https address GitHub reaches this server at (a tunnel)').option('--json', 'output as JSON', false)
+  .action((opts: { db?: string; rotate?: boolean; off?: boolean; url?: string; json?: boolean }) => {
+    const store = storeFor(opts.db); const w = store.ext.webhooks;
+    if (opts.url !== undefined) { try { w.setPublicUrl(opts.url); } catch (e) { fail((e as Error).message); } }
+    if (opts.off) w.turnOff();
+    const secret = opts.rotate ? w.rotateSecret() : null;
+    const cfg = w.config();
+    if (opts.json) { console.log(JSON.stringify({ ...cfg, ...(secret ? { secret } : {}) }, null, 2)); process.exit(0); }
+    console.log(`Webhooks: ${cfg.enabled ? `on (secret ${cfg.secretHint})` : 'off'}${store.getFeatures().githubEnabled ? '' : ' — GitHub is disabled in this workspace'}`);
+    console.log(`Payload URL: ${cfg.publicUrl ? `${cfg.publicUrl}/api/github/webhook` : '(set --url to your tunnel address)'}  ·  content type application/json`);
+    console.log(`Events: ${cfg.events.join(', ')}`);
+    if (secret) console.log(`Secret (shown once): ${secret}`);
+    if (cfg.lastDelivery) console.log(`Last delivery: ${cfg.lastDelivery.event} ${cfg.lastDelivery.status} at ${cfg.lastDelivery.receivedAt}`);
+    process.exit(0);
+  });
+withDb(gitCmd.command('import-issues <repo>')).description('Import a repo\'s open GitHub issues into a team (one way, read-only via gh)')
+  .requiredOption('-t, --team <key>', 'team to import into').option('--follow', 'keep importing new issues as webhooks report them', false)
+  .action(async (repo: string, opts: { db?: string; team: string; follow?: boolean }) => {
+    const store = storeFor(opts.db); const team = resolveTeam(store.snapshot(), opts.team, { required: true })!;
+    try { const r = await store.ext.webhooks.importIssues(repo, team.id, !!opts.follow); console.log(`Imported ${r.imported} issue${r.imported === 1 ? '' : 's'} into ${team.key}${r.skipped ? ` (${r.skipped} already imported)` : ''}${opts.follow ? ' — following new issues' : ''}`); }
+    catch (e) { fail((e as Error).message); }
+    process.exit(0);
+  });
+
 // ---------- customers ----------
 const customer = program.command('customer').description('Customers and the issues / projects they asked for');
 function resolveCustomer(snap: Snapshot, ref: string) {
@@ -1336,11 +1543,11 @@ withAs(withDb(doc.command('create <title>'))).description('Create a document on 
     console.log(`Created document ${d.id} "${d.title}"`);
     process.exit(0);
   });
-withDb(doc.command('update <doc>')).description('Change a document\'s title or content')
+withAs(withDb(doc.command('update <doc>'))).description('Change a document\'s title or content')
   .option('--title <text>', 'new title')
   .option('--content <markdown>', 'replace the body (Markdown); use - to read stdin')
   .option('--append <markdown>', 'add to the end of the body')
-  .action(async (ref: string, opts: { db?: string; title?: string; content?: string; append?: string }) => {
+  .action(async (ref: string, opts: { db?: string; title?: string; content?: string; append?: string; as?: string }) => {
     const store = storeFor(opts.db);
     const d = resolveDoc(store.snapshot(), ref);
     const patch: { title?: string; content?: string } = {};
@@ -1348,7 +1555,7 @@ withDb(doc.command('update <doc>')).description('Change a document\'s title or c
     if (opts.content !== undefined) patch.content = opts.content === '-' ? await readStdin() : opts.content;
     if (opts.append !== undefined) patch.content = `${(patch.content ?? d.content).replace(/\s+$/, '')}\n\n${opts.append}`;
     if (!Object.keys(patch).length) fail('Nothing to change — pass --title, --content or --append');
-    store.updateDoc(d.id, patch);
+    store.updateDoc(d.id, patch, actorId(store.snapshot(), opts.as));
     console.log(`Updated document "${patch.title ?? d.title}"`);
     process.exit(0);
   });

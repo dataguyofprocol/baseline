@@ -16,6 +16,9 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Search page (`/`), Trash page, team Archive page; ⌘Z undo for every issue change; `[` toggles the sidebar
 - ✅ Team Home (team "…" › Team overview): Overview (icon, name, description, team resources), Documents, Members; right rail with members and Go to links
 - ✅ "+" beside Your teams opens Create a new team (name, identifier derived from it)
+- ✅ Team sub-items start with Home; Workspace adds Pulse and Customers (when on); Drafts shows when you have drafts
+- ✅ Customize sidebar (More › Customize sidebar): badge style (count / dot / none) and per-item Always show / Show when badged / Don't show — hidden items live in More
+- ✅ Teams and Members directory pages; Drafts page
 
 ## 2. Issues list
 - ✅ Grouping: Status (cross-team merge by name), Priority, Assignee, Label, Project, Cycle, None
@@ -42,7 +45,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Save as draft (localStorage per team, restored on reopen with Discard), Create more toggle, ⌘⏎ creates
 - ✅ Sub-issue mode: opens with parent pre-wired from issue detail or cycle page
 - ✅ Draft state persists; toasts on create with View issue link
-- ✅ Cycle pill (current / upcoming cycles), Milestone pill once the project has milestones, paperclip to attach files (uploaded on create); ⌘↵ works after picking from any pill menu
+- ✅ Cycle pill (current / upcoming cycles), Milestone pill once the project has milestones; ⌘↵ works after picking from any pill menu
 - ✅ On the triage page, C (or "+") files the new issue straight into triage
 
 ## 4. Issue detail
@@ -59,8 +62,8 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Hand-off is always explicit (Copy as prompt, Open in Claude Code): nothing picks up assigned issues on its own
 - ✅ Sub-issues: list rows nest under their parent (elbow + indent), show "› parent" when apart, and parents show a closed/total progress ring; issue page shows "Sub-issue of ◐ KEY title  ◌ n/m"; inline sub-issue composer inherits the parent's priority, assignee, cycle and project, and Enter creates and keeps it open for the next one
 - ✅ Breadcrumb names the list you came from, "3 / 27" with ↓↑, J/K steps through it; every issue shortcut works on the open issue (menus anchor at the rail)
-- ✅ Rich-text description and comments (TipTap, stored as Markdown): headings, lists, checklists, code, quotes, `/` commands, @mentions of people and issues, pasted/dropped images and files
-- ✅ One activity timeline; comment threads with reply / resolve / reactions; real subscriptions (subscribers shown, ⇧S); links and file attachments (⌃L); Remind me (⇧H); move to team (⌘⇧M); Make a copy
+- ✅ Rich-text description and comments (TipTap, stored as Markdown): headings, lists, checklists, code, quotes, `/` commands, @mentions of people and issues, pasted/dropped images (images only, up to 2 MB, stored in the database — the same in docs, project, initiative and team descriptions)
+- ✅ One activity timeline; comment threads with reply / resolve / reactions; real subscriptions (subscribers shown, ⇧S); link attachments (⌃L) — files aren't hosted, link to them; Remind me (⇧H); move to team (⌘⇧M); Make a copy
 - ✅ Triage banner (Accept / Duplicate / Decline) on issues waiting in triage; archived and trashed URLs open with Restore
 
 ## 5. Board view
@@ -83,10 +86,21 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Issues belong to milestones (rail, filter, grouping, CLI `--milestone`), milestone progress
 - ✅ Project templates (Settings › Templates; pick one in New project) and project dependencies (blocked by / blocking, arrows on the timeline)
 - ✅ Documents: "Add document or link…" in project and team resources; document page with the rich editor; `baseline doc`
+- ✅ Project labels (Settings › Projects › Labels) with groups whose labels are exclusive; Labels in the properties "…" menu (P then L), list chips, filter and display property
+- ✅ Named project statuses (Settings › Projects › Statuses): add, rename, recolour or delete statuses inside each category
+- ✅ Project bell: choose which project events reach your inbox (issue added, issue completed/canceled, description changes, new update) and the project's update schedule
+- ✅ Update schedule (Settings › Projects › Updates, or per project): next-due hint under the update card; leads get an inbox reminder when an update is due
+- ✅ Pulse: one feed of every project update (All / Following / My projects) and an optional daily or weekly summary in the inbox
+- ✅ Customer requests (Settings › Customer requests): customers with status, tier, revenue, size, owner and domains; requests on issues and projects; New issue from a customer page goes to the default team
+- ✅ Document templates (Settings › Documents) offered in "Add document or link…"
+- ✅ Custom emojis (Settings › Emojis): reactions and :name: in Markdown
+- ✅ Initiatives (sidebar, G then N): Active / Planned / All, owner, target, health from updates, projects and sub-initiatives, progress across their projects; a project's properties show its initiatives
+- ✅ Releases: stages Planned / In progress / Released / Canceled, issues per release, Release on the issue rail, Release filter
 - ✅ Project saved views: Views has Issues | Projects tabs; a project view keeps filters, grouping, ordering, layout and properties; ⌥V saves whatever list is on screen
 
 ## 7. Command palette (⌘K)
-- ✅ Fuzzy subsequence search with scoring; sections: Navigation, Actions, Teams, Projects, Views, Issues
+- ✅ Linear's default command list and grouping, multi-key hints; O then I · P · F · C · L · U · V · D · S pickers; N then P · I · D; V creates full screen; Export issues as CSV; user (profile) and label pages; `?` help menu; ⌘/ shortcuts drawer; ⌘⇧C copies the page URL; Not found page
+- ✅ Fuzzy subsequence search with scoring over commands, issues, projects, views and documents
 - ✅ Commands: go to inbox/my issues/projects/views/settings pages, per-team home/cycles, create issue, create project, switch theme, shortcuts overlay, copy as prompt (when an issue is in view)
 - ✅ Acts on the open / peeked / hovered issue when nothing is selected: assign to me, relations, remind, move team, subscribe, copy ID/URL/title/branch/Markdown/prompt; navigation to triage, archive, current cycle, search, trash, settings pages
 
@@ -102,6 +116,11 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Import & export: export JSON, import JSON (full restore), reset sample workspace
 - ✅ Account: Preferences (home view, first day of week, theme), Profile (name, email, avatar colour), Notifications (per kind)
 - ✅ Recurring issues per team (daily / weekly / every 2 weeks / monthly); any issue converts to one, or to a template, or to a project
+- ✅ Preferences: Underline links, Auto-assign to self (off by default, as in Linear), On move to started status assign to yourself
+- ✅ Profile: picture upload, title, username (feeds `{username}` in branch names)
+- ✅ Notifications: Priority inbox + which kinds count as priority; Desktop push by category through browser notifications (also from a background tab); reaction and document-change notifications
+- ✅ Team settings hub (Linear's layout): General (name, identifier, description, estimates with zero / extended / count-unestimated), Members, Issue labels, Templates, Recurring issues, Issue statuses, Workflows & automations (PR automations, auto-close parent / sub-issues / stale issues, auto-archive, re-order on status change), Triage, Cycles, Danger zone
+- ✅ Security & access: personal API keys (name, permissions, team limits, shown once, last used, revoke); Administration › API: who may create keys, every issued key, require a key from other devices
 - ✅ Per-team page: triage, estimate scale (none / exponential / fibonacci / linear / t-shirt), cycle automation (length, cooldown, upcoming, rollover), workflow, cycles
 
 ## 9. Inbox & notifications
@@ -112,6 +131,11 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Linear inbox: U read/unread, ⌫ delete, H snooze (with natural-language times), ⇧⌫ delete all read, row menu, filters (type, from), display (ordering, show snoozed, unread first)
 - ✅ Notifications follow subscriptions: status changes (e.g. an agent finishing), comments, replies, mentions, assignment, reminders
 - ✅ Priority inbox (assignments, mentions, replies and reminders first) and grouping by Focus
+- ✅ SLAs (Settings › Issues › SLAs): rules by priority, label and team give issues a deadline; badges on rows and the rail, SLA filter, breach notifications
+- ✅ Asks (sidebar › Asks, Settings › Asks): intake forms with fields; submissions land in the team's triage
+- ✅ Loops (Settings › Loops): on issue created / label added / status changed / a schedule → comment, assign, label, move, file an issue, open in Claude Code; run log and Run now
+- ✅ GitHub (Settings › Integrations › GitHub): Linear's linking rules and magic words, per-team PR automations with branch rules, In Review state, PR and commit rows on issues, PR icon and filter, branch-name format. **Read-only by design**: nothing is ever written to GitHub (an allowlist in `git.ts` lets only read commands reach `gh` / `git`). Data comes from `gh` + `git log` (polled every 2 min) and from **signed GitHub webhooks** (real time, no token: HMAC-verified, repeat deliveries dropped, delivery log in settings). One-way **GitHub Issues import** into a team's triage, optionally following new issues
+- ✅ Team bell: inbox notifications when issues are added to a team, closed, or land in its triage
 - ✅ Triage queue: filters, ordering (oldest / newest / priority), show snoozed, H snoozes, "Create triage issue"
 
 ## 10. Cycles
@@ -126,8 +150,8 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ ? opens the searchable cheatsheet (also in Settings › Keyboard shortcuts), one source for both
 
 ## 12. Non-UI (agentic core)
-- ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution for agent identities; JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
+- ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution for agent identities; personal API keys for the REST API (`Authorization: Bearer <key>`, `baseline api-key create|list|revoke`); JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
 
 ## Known gaps (deliberate)
-- Initiatives (removed from the model earlier), customer requests, integrations, SSO, billing
+- Slack, SSO, billing and OAuth apps (declined; see JOURNEYS.md › Not built). Writing back to GitHub (linkback comments, statuses, labels) is declined on purpose: the integration stays read-only
 - See JOURNEYS.md for the journey-by-journey comparison with Linear

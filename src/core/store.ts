@@ -7,20 +7,21 @@ import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import { actingUser } from './actor.js';
 import { mentionedIds, plainMentions } from './mentions.js';
 import type {
-  ActivityItem, ActivityType, Attachment, RecurringIssue, ProjectTemplate, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, EstimateScale,
+  ActivityItem, ActivityType, Attachment, RecurringIssue, ProjectTemplate, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, PreferencesPatch, EstimateScale,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType, UpdateCadence, ProjectStatusDef, ProjectSubscription, ProjectLabel, DocTemplate, CustomEmoji,
   Customer, CustomerRequest, WorkspaceFeatures,
 } from './types.js';
 import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES, DEFAULT_SECURITY, type WorkspaceSecurity } from './types.js';
+import { createExtensions, type Extensions } from './extensions.js';
 
-interface TeamRow { id: string; key: string; name: string; icon: string; color: string; description: string; position: number; triage_enabled: number; auto_cycles: number; cycle_duration: number; cycle_cooldown: number; cycle_upcoming: number; cycle_rollover: number; estimate_scale: string }
+interface TeamRow { id: string; key: string; name: string; icon: string; color: string; description: string; position: number; triage_enabled: number; auto_cycles: number; cycle_duration: number; cycle_cooldown: number; cycle_upcoming: number; cycle_rollover: number; estimate_scale: string; estimate_zero?: number; estimate_extended?: number; estimate_count_unestimated?: number }
 interface CommentRow { id: string; issue_id: string; user_id: string; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null; parent_id: string | null }
 interface AttachmentRow { id: string; issue_id: string; user_id: string; kind: string; url: string; title: string; mime: string; size: number; created_at: string }
 const DAY = 86400000;
 
-interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; milestone_id: string | null; creator_id: string | null; snoozed_until: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; }
+interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; milestone_id: string | null; creator_id: string | null; snoozed_until: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; release_id?: string | null; ask_form_id?: string | null; sla_rule_id?: string | null; sla_breaches_at?: string | null; }
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
@@ -40,7 +41,13 @@ function sqlPairs<T extends object>(patch: T, allowed: Array<keyof T>): Array<[s
 }
 
 export class Store {
-  constructor(private db: DatabaseSync) {}
+  /** extension modules (initiatives, releases, SLAs, asks, loops, git) — see extensions.ts */
+  readonly ext: Extensions;
+  /** called after every issue create (before = null) and update */
+  readonly issueHooks: Array<(before: Issue | null, after: Issue, actorId?: string) => void> = [];
+  /** called on every tick */
+  readonly tickHooks: Array<(now: Date) => void> = [];
+  constructor(private db: DatabaseSync) { this.ext = createExtensions(this, db); }
 
   // ---------- mappers ----------
   private mapIssue = (r: IssueRow): Issue => ({
@@ -51,6 +58,7 @@ export class Store {
     dueDate: r.due_date, sortOrder: r.sort_order, labelIds: JSON.parse(r.labels),
     createdAt: r.created_at, updatedAt: r.updated_at, archivedAt: r.archived_at,
     completedAt: r.completed_at, canceledAt: r.canceled_at, deletedAt: r.deleted_at,
+    releaseId: r.release_id ?? null, askFormId: r.ask_form_id ?? null, slaRuleId: r.sla_rule_id ?? null, slaBreachesAt: r.sla_breaches_at ?? null,
   });
 
   private mapTeam = (t: TeamRow): Team => ({
@@ -59,6 +67,7 @@ export class Store {
     cycleCooldown: t.cycle_cooldown ?? 0, cycleUpcoming: t.cycle_upcoming ?? 2, cycleRollover: t.cycle_rollover !== 0,
     estimateScale: (t.estimate_scale as EstimateScale) ?? 'fibonacci',
     memberIds: (this.db.prepare('SELECT user_id FROM team_members WHERE team_id = ? ORDER BY created_at').all(t.id) as Array<{ user_id: string }>).map(r => r.user_id),
+    estimateZero: !!t.estimate_zero, estimateExtended: !!t.estimate_extended, estimateCountUnestimated: !!t.estimate_count_unestimated,
   });
   private mapComment = (c: CommentRow): Comment => ({
     id: c.id, issueId: c.issue_id, userId: c.user_id, body: c.body, createdAt: c.created_at, editedAt: c.edited_at,
@@ -87,7 +96,7 @@ export class Store {
     const rows = <T>(sql: string, ...params: string[]): T[] => this.db.prepare(sql).all(...params) as unknown as T[];
     const me = this.actor();
     const projectLocs = this.projectLocationMap();
-    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string; avatar_url: string | null; status: string | null; created_at: string | null; last_seen_at: string | null }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human', avatarUrl: u.avatar_url ?? '', status: u.status === 'suspended' ? 'suspended' as const : 'active' as const, createdAt: u.created_at, lastSeenAt: u.last_seen_at }));
+    const users = rows<{ id: string; name: string; email: string; initials: string; color: string; admin: number; kind: string; title: string | null; username: string | null; github_username: string | null; avatar_url: string | null; status: string | null; created_at: string | null; last_seen_at: string | null }>('SELECT * FROM users ORDER BY rowid').map(u => ({ id: u.id, name: u.name, email: u.email, initials: u.initials, color: u.color, admin: !!u.admin, kind: (u.kind as User['kind']) ?? 'human', title: u.title ?? '', username: u.username ?? '', githubUsername: u.github_username ?? '', avatarUrl: u.avatar_url || null, status: u.status === 'suspended' ? 'suspended' as const : 'active' as const, createdAt: u.created_at, lastSeenAt: u.last_seen_at }));
     const workspaceId = getMeta(this.db, 'workspaceId') ?? '';
     const workspace = { id: workspaceId, name: getMeta(this.db, 'workspaceName') ?? 'Workspace', createdAt: getMeta(this.db, 'workspaceCreatedAt') ?? ts(), handoffPromptTemplate: getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE, ...this.getAgentConfig(), preferences: this.getPreferences(), features: this.getFeatures(), security: this.getSecurity() };
     const currentUser = users.find(u => u.id === this.actor()) ?? users[0];
@@ -115,7 +124,7 @@ export class Store {
       recurring: rows<{ id: string; team_id: string; title: string; description: string; priority: number; assignee_id: string | null; labels: string; project_id: string | null; cadence: string; next_at: string; created_at: string }>('SELECT * FROM recurring_issues ORDER BY created_at').map(r => ({ id: r.id, teamId: r.team_id, title: r.title, description: r.description, priority: r.priority as Priority, assigneeId: r.assignee_id, labelIds: JSON.parse(r.labels), projectId: r.project_id, cadence: r.cadence as RecurringIssue['cadence'], nextAt: r.next_at, createdAt: r.created_at })),
       projectTemplates: rows<{ id: string; name: string; icon: string; summary: string; description: string; status: string; priority: number; milestones: string; issues: string; created_at: string }>('SELECT * FROM project_templates ORDER BY created_at').map(t => ({ id: t.id, name: t.name, icon: t.icon, summary: t.summary, description: t.description, status: t.status as Project['status'], priority: t.priority as Priority, milestones: JSON.parse(t.milestones), issues: JSON.parse(t.issues), createdAt: t.created_at })),
       projectRelations: rows<{ id: string; project_id: string; related_id: string; type: string }>('SELECT * FROM project_relations').map(r => ({ id: r.id, projectId: r.project_id, relatedProjectId: r.related_id, type: 'blocks' as const })),
-      docs: rows<{ id: string; title: string; icon: string; content: string; project_id: string | null; team_id: string | null; creator_id: string | null; created_at: string; updated_at: string }>('SELECT * FROM documents ORDER BY updated_at DESC').map(d => ({ id: d.id, title: d.title, icon: d.icon, content: d.content, projectId: d.project_id, teamId: d.team_id, creatorId: d.creator_id, createdAt: d.created_at, updatedAt: d.updated_at })),
+      docs: rows<{ id: string; title: string; icon: string; content: string; project_id: string | null; team_id: string | null; initiative_id: string | null; creator_id: string | null; created_at: string; updated_at: string }>('SELECT * FROM documents ORDER BY updated_at DESC').map(d => ({ id: d.id, title: d.title, icon: d.icon, content: d.content, projectId: d.project_id, teamId: d.team_id, initiativeId: d.initiative_id ?? null, creatorId: d.creator_id, createdAt: d.created_at, updatedAt: d.updated_at })),
       teamLinks: rows<{ id: string; team_id: string; url: string; title: string; created_at: string }>('SELECT * FROM team_links ORDER BY created_at').map(l => ({ id: l.id, teamId: l.team_id, url: l.url, title: l.title, createdAt: l.created_at })),
       projectLinks: rows<{ id: string; project_id: string; url: string; title: string; created_at: string }>('SELECT * FROM project_links ORDER BY created_at').map(l => ({ id: l.id, projectId: l.project_id, url: l.url, title: l.title, createdAt: l.created_at })),
       locations: this.listLocations(),
@@ -126,6 +135,7 @@ export class Store {
       favorites: rows<{ id: string; type: Favorite['type']; ref_id: string; position: number }>('SELECT * FROM favorites WHERE user_id = ? ORDER BY position', me).map(f => ({ id: f.id, type: f.type, refId: f.ref_id, position: f.position })),
       notifications: rows<{ id: string; type: Notification['type']; actor_id: string | null; issue_id: string | null; project_id: string | null; body: string; read_at: string | null; snoozed_until: string | null; created_at: string }>('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 500', me).map(n => ({ id: n.id, type: n.type, actorId: n.actor_id, issueId: n.issue_id, projectId: n.project_id, body: n.body, readAt: n.read_at, snoozedUntil: n.snoozed_until ?? null, createdAt: n.created_at })),
       activity: rows<{ id: string; issue_id: string | null; project_id: string | null; user_id: string; type: ActivityType; data: string; created_at: string }>('SELECT * FROM activity ORDER BY created_at DESC LIMIT 2000').map(a => ({ id: a.id, issueId: a.issue_id, projectId: a.project_id, userId: a.user_id, type: a.type, data: JSON.parse(a.data), createdAt: a.created_at })),
+      ...this.ext.snapshot(),
     };
   }
 
@@ -160,13 +170,14 @@ export class Store {
     const row = this.db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as TeamRow | undefined;
     return row ? this.mapTeam(row) : undefined;
   }
-  updateTeam(teamId: string, patch: Partial<Pick<Team, 'key' | 'name' | 'icon' | 'color' | 'description' | 'position' | 'triageEnabled' | 'autoCycles' | 'cycleDuration' | 'cycleCooldown' | 'cycleUpcoming' | 'cycleRollover' | 'estimateScale'>>): void {
+  updateTeam(teamId: string, patch: Partial<Pick<Team, 'key' | 'name' | 'icon' | 'color' | 'description' | 'position' | 'triageEnabled' | 'autoCycles' | 'cycleDuration' | 'cycleCooldown' | 'cycleUpcoming' | 'cycleRollover' | 'estimateScale' | 'estimateZero' | 'estimateExtended' | 'estimateCountUnestimated'>>): void {
     const col: Record<string, string> = {
       triageEnabled: 'triage_enabled', autoCycles: 'auto_cycles', cycleDuration: 'cycle_duration', cycleCooldown: 'cycle_cooldown',
       cycleUpcoming: 'cycle_upcoming', cycleRollover: 'cycle_rollover', estimateScale: 'estimate_scale',
+      estimateZero: 'estimate_zero', estimateExtended: 'estimate_extended', estimateCountUnestimated: 'estimate_count_unestimated',
     };
     const sets: string[] = []; const vals: (string | number)[] = [];
-    for (const [k, v] of sqlPairs(patch, ['key', 'name', 'icon', 'color', 'description', 'position', 'triageEnabled', 'autoCycles', 'cycleDuration', 'cycleCooldown', 'cycleUpcoming', 'cycleRollover', 'estimateScale'])) {
+    for (const [k, v] of sqlPairs(patch, ['key', 'name', 'icon', 'color', 'description', 'position', 'triageEnabled', 'autoCycles', 'cycleDuration', 'cycleCooldown', 'cycleUpcoming', 'cycleRollover', 'estimateScale', 'estimateZero', 'estimateExtended', 'estimateCountUnestimated'])) {
       sets.push(`${col[k] ?? k} = ?`);
       vals.push(typeof v === 'boolean' ? (v ? 1 : 0) : k === 'key' ? String(v).toUpperCase() : v as string | number);
     }
@@ -202,13 +213,15 @@ export class Store {
   }
 
   // ---------- users ----------
-  updateUser(userId: string, patch: Partial<Pick<User, 'name' | 'email' | 'color' | 'admin'>>): void {
+  updateUser(userId: string, patch: Partial<Pick<User, 'name' | 'email' | 'color' | 'admin' | 'title' | 'username' | 'githubUsername' | 'avatarUrl'>>): void {
     const cur = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as { name: string; email: string } | undefined;
     if (!cur) return;
     const name = patch.name ?? cur.name;
     const initials = patch.name ? name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() : undefined;
-    const sets: string[] = []; const vals: (string | number)[] = [];
-    for (const [k, v] of sqlPairs(patch, ['name', 'email', 'color', 'admin'])) { sets.push(`${k} = ?`); vals.push(k === 'admin' ? (v ? 1 : 0) : v as string | number); }
+    const sets: string[] = []; const vals: (string | number | null)[] = [];
+    for (const [k, v] of sqlPairs(patch, ['name', 'email', 'color', 'admin', 'title', 'username'])) { sets.push(`${k} = ?`); vals.push(k === 'admin' ? (v ? 1 : 0) : k === 'username' ? String(v).trim().split(/\s+/)[0] ?? '' : v as string | number); }
+    if ('avatarUrl' in patch) { sets.push('avatar_url = ?'); vals.push(patch.avatarUrl ?? null); }
+    if (patch.githubUsername !== undefined) { sets.push('github_username = ?'); vals.push(String(patch.githubUsername ?? '').trim().replace(/^@/, '')); }
     if (initials) { sets.push('initials = ?'); vals.push(initials); }
     if (!sets.length) return;
     vals.push(userId);
@@ -283,7 +296,7 @@ export class Store {
     if (!issue) return undefined;
     const snap = this.snapshot();
     const template = getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
-    return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels }, template);
+    return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels, branchFormat: snap.workspace.features.branchFormat, username: snap.currentUser?.username || snap.currentUser?.name }, template);
   }
   getHandoffTemplate(): string {
     return getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
@@ -395,7 +408,7 @@ export class Store {
     return s.id;
   }
 
-  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null }, actorId?: string): Issue {
+  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null; releaseId?: string | null; askFormId?: string | null }, actorId?: string): Issue {
     const now = ts();
     const creatorId = actorId ?? this.actor();
     // with triage on, work filed by anyone but you (agents, teammates on the CLI) waits for review
@@ -420,10 +433,15 @@ export class Store {
     if (issue.assigneeId) { this.subscribe(issue.id, issue.assigneeId); this.notifyAssign(issue.id, issue.assigneeId, actorId); }
     for (const uid of this.mentions(issue.description)) this.subscribe(issue.id, uid);
     if (issue.projectId) this.notifyProject(issue.projectId, 'issueAdded', 'projectIssueAdded', creatorId, issue.title, issue.id);
+    if (input.releaseId !== undefined || input.askFormId) {
+      this.db.prepare('UPDATE issues SET release_id = ?, ask_form_id = ? WHERE id = ?').run(input.releaseId ?? null, input.askFormId ?? null, issue.id);
+      issue.releaseId = input.releaseId ?? null; issue.askFormId = input.askFormId ?? null;
+    }
+    for (const h of this.issueHooks) h(null, issue, actorId);
     return issue;
   }
 
-  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'milestoneId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt'>>, actorId?: string): Issue | undefined {
+  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'milestoneId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt' | 'releaseId'>>, actorId?: string): Issue | undefined {
     // drop explicitly-undefined keys so partial patches never clobber values
     const patch = Object.fromEntries(Object.entries(rawPatch).filter(([, v]) => v !== undefined)) as typeof rawPatch;
     const row = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(issueId) as IssueRow | undefined;
@@ -443,6 +461,11 @@ export class Store {
       const st = this.db.prepare('SELECT type FROM states WHERE id = ?').get(patch.stateId) as { type: WorkflowStateType };
       next.completedAt = st.type === 'completed' ? now : null;
       next.canceledAt = st.type === 'canceled' ? now : null;
+      // Preferences › On move to started status, assign to yourself
+      const me = actorId ?? this.actor();
+      if (st.type === 'started' && !next.assigneeId && patch.assigneeId === undefined && me && this.getPreferences(me).assignOnStart) {
+        next.assigneeId = me; patch.assigneeId = me;
+      }
     }
     this.db.prepare(`UPDATE issues SET title=?, description=?, state_id=?, priority=?, assignee_id=?, project_id=?, cycle_id=?, parent_id=?, location_id=?, milestone_id=?, estimate=?, due_date=?, sort_order=?, labels=?, updated_at=?, completed_at=?, canceled_at=?, archived_at=? WHERE id=?`)
       .run(next.title, next.description, next.stateId, next.priority, next.assigneeId, next.projectId, next.cycleId, next.parentId, next.locationId, next.milestoneId, next.estimate, next.dueDate, next.sortOrder, JSON.stringify(next.labelIds), now, next.completedAt, next.canceledAt, next.archivedAt, issueId);
@@ -485,10 +508,27 @@ export class Store {
       for (const lid of before.labelIds) if (!patch.labelIds.includes(lid)) acts.push(['unlabeled', { labelId: lid }]);
     }
     if (patch.archivedAt !== undefined) acts.push([patch.archivedAt ? 'archived' : 'restored', {}]);
+    if (patch.releaseId !== undefined && patch.releaseId !== before.releaseId) {
+      this.db.prepare('UPDATE issues SET release_id = ? WHERE id = ?').run(patch.releaseId, issueId);
+      acts.push(['releaseChanged', { to: patch.releaseId, from: before.releaseId ?? null }]);
+    }
     for (const [type, data] of acts) this.logActivity({ issueId, type, data }, actorId);
+    for (const h of this.issueHooks) h(before, next, actorId);
     return next;
   }
 
+  /** Linear's "on git branch copy, move issue to started status": an issue still in backlog or
+   *  unstarted moves to its team's first started state, and an unassigned one goes to `userId` */
+  startIssue(issueId: string, userId: string): { moved: boolean; assigned: boolean; stateName?: string } {
+    const issue = this.getIssue(issueId);
+    const type = issue && this.stateType(issue.stateId);
+    const target = issue && this.stateOfType(issue.teamId, 'started');
+    if (!issue || !target || (type !== 'backlog' && type !== 'unstarted')) return { moved: false, assigned: false };
+    const assigned = !issue.assigneeId;
+    this.updateIssue(issueId, { stateId: target, ...(assigned ? { assigneeId: userId } : {}) }, userId);
+    const stateName = (this.db.prepare('SELECT name FROM states WHERE id = ?').get(target) as { name: string }).name;
+    return { moved: true, assigned, stateName };
+  }
   getByKey(key: string): Issue | undefined {
     const m = /^(.+)-(\d+)$/.exec(key.trim().toUpperCase());
     if (!m) return undefined;
@@ -613,7 +653,7 @@ export class Store {
       // a mention outranks a reply, which outranks the plain comment notification — never raise two
       const threadAuthors = threadId ? (this.db.prepare('SELECT DISTINCT user_id FROM comments WHERE id = ? OR parent_id = ?').all(threadId, threadId) as Array<{ user_id: string }>).map(r => r.user_id) : [];
       if (mentioned.includes(me)) this.notifyMention(issueId, me, userId, body);
-      else if (threadAuthors.includes(me)) { if (this.getPreferences(me).notify.comments) this.notify('issueReplied', { actorId: userId, issueId, body: body.slice(0, 140), createdAt: now }); }
+      else if (threadAuthors.includes(me)) { this.notify('issueReplied', { actorId: userId, issueId, body: body.slice(0, 140), createdAt: now }); }
       else this.notifySubscribed(issueId, 'issueCommented', userId, body.slice(0, 140), 'comments');
     }
     return c;
@@ -665,6 +705,10 @@ export class Store {
     r[emoji] = arr.includes(userId) ? arr.filter(u => u !== userId) : [...arr, userId];
     if (r[emoji].length === 0) delete r[emoji];
     this.db.prepare('UPDATE comments SET reactions = ? WHERE id = ?').run(JSON.stringify(r), commentId);
+    // someone else reacting to your comment reaches your inbox (Notifications › Reactions)
+    const c = this.db.prepare('SELECT issue_id, user_id, body FROM comments WHERE id = ?').get(commentId) as { issue_id: string; user_id: string; body: string };
+    const me = getMeta(this.db, 'currentUser');
+    if (!arr.includes(userId) && me && c.user_id === me && userId !== me) this.notify('commentReacted', { actorId: userId, issueId: c.issue_id, body: `${emoji} ${c.body.slice(0, 120)}` });
   }
 
   // ---------- relations ----------
@@ -732,18 +776,26 @@ export class Store {
     if (patch.health) this.logActivity({ projectId, type: 'projectHealth', data: { to: patch.health } });
   }
   // ---------- documents & team links ----------
-  createDoc(input: { title?: string; content?: string; icon?: string; projectId?: string | null; teamId?: string | null }, actorId?: string): Doc {
+  createDoc(input: { title?: string; content?: string; icon?: string; projectId?: string | null; teamId?: string | null; initiativeId?: string | null }, actorId?: string): Doc {
     const now = ts();
-    const d: Doc = { id: id('doc'), title: input.title ?? '', icon: input.icon ?? '', content: input.content ?? '', projectId: input.projectId ?? null, teamId: input.teamId ?? null, creatorId: actorId ?? this.actor(), createdAt: now, updatedAt: now };
-    this.db.prepare('INSERT INTO documents (id, title, icon, content, project_id, team_id, creator_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(d.id, d.title, d.icon, d.content, d.projectId, d.teamId, d.creatorId, now, now);
+    const d: Doc = { id: id('doc'), title: input.title ?? '', icon: input.icon ?? '', content: input.content ?? '', projectId: input.projectId ?? null, teamId: input.teamId ?? null, initiativeId: input.initiativeId ?? null, creatorId: actorId ?? this.actor(), createdAt: now, updatedAt: now };
+    this.db.prepare('INSERT INTO documents (id, title, icon, content, project_id, team_id, initiative_id, creator_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(d.id, d.title, d.icon, d.content, d.projectId, d.teamId, d.initiativeId, d.creatorId, now, now);
     if (d.projectId) this.logActivity({ projectId: d.projectId, type: 'projectUpdated', data: { fields: ['document'] } }, actorId);
     return d;
   }
-  updateDoc(docId: string, patch: Partial<Pick<Doc, 'title' | 'content' | 'icon'>>): void {
+  updateDoc(docId: string, patch: Partial<Pick<Doc, 'title' | 'content' | 'icon'>>, actorId?: string): void {
     const pairs = sqlPairs(patch, ['title', 'content', 'icon']);
     if (!pairs.length) return;
     this.db.prepare(`UPDATE documents SET ${pairs.map(([k]) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...(pairs.map(([, v]) => v) as string[]), ts(), docId);
+    // someone else (an agent, a teammate) changing a document you wrote reaches your inbox
+    const d = this.db.prepare('SELECT title, creator_id, project_id FROM documents WHERE id = ?').get(docId) as { title: string; creator_id: string | null; project_id: string | null } | undefined;
+    const me = getMeta(this.db, 'currentUser');
+    if (d && me && actorId && actorId !== me && d.creator_id === me) {
+      // one notification per document per hour, not one per keystroke
+      const recent = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'docChanged' AND body LIKE ? AND created_at > ?").get(`${docId}|%`, new Date(Date.now() - 3600_000).toISOString());
+      if (!recent) this.notify('docChanged', { actorId, projectId: d.project_id, body: `${docId}|${d.title || 'Untitled document'}` });
+    }
   }
   deleteDoc(docId: string): void { this.db.prepare('DELETE FROM documents WHERE id = ?').run(docId); }
   addTeamLink(teamId: string, url: string, title?: string): void {
@@ -883,6 +935,7 @@ export class Store {
     this.fileRecurring(now);
     this.remindUpdates(now);
     this.pulseDigest(now);
+    for (const h of this.tickHooks) h(now);
   }
 
   // ---------- recurring issues ----------
@@ -1005,15 +1058,16 @@ export class Store {
     return mentionedIds(body, this.db.prepare('SELECT id, name FROM users').all() as unknown as Array<{ id: string; name: string }>);
   }
   /** notifications are this install's person's: raise one when they follow the issue and
-   *  someone else acted, if their preferences want that kind */
-  private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, pref: keyof Preferences['notify']): void {
+   *  someone else acted. Everything lands in the inbox, as in Linear; Settings › Notifications
+   *  only chooses what is pushed to the desktop and what counts as priority. */
+  private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, _pref: keyof Preferences['notify']): void {
     const me = this.inboxOwner();
-    if (!me || (actorId ?? this.actor()) === me || !this.isSubscribed(issueId, me) || !this.getPreferences(me).notify[pref]) return;
+    if (!me || (actorId ?? this.actor()) === me || !this.isSubscribed(issueId, me)) return;
     this.notify(type, { actorId: actorId ?? this.actor(), issueId, body });
   }
   private notifyMention(issueId: string, userId: string, actorId: string | undefined, body: string): void {
     const me = this.inboxOwner();
-    if (userId !== me || (actorId ?? this.actor()) === me || !this.getPreferences(me).notify.mentions) return;
+    if (userId !== me || (actorId ?? this.actor()) === me) return;
     this.notify('issueMentioned', { actorId: actorId ?? this.actor(), issueId, body: body.slice(0, 140) });
   }
   listNotifications(): Notification[] { return this.snapshot().notifications; }
@@ -1038,13 +1092,13 @@ export class Store {
     try {
       const row = this.db.prepare('SELECT json FROM user_preferences WHERE user_id = ?').get(userId) as { json: string } | undefined;
       const raw = JSON.parse(row?.json ?? '{}') as Partial<Preferences>;
-      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } } };
+      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, push: { ...DEFAULT_PREFERENCES.push, ...(raw.push ?? {}), types: { ...DEFAULT_PREFERENCES.push.types, ...(raw.push?.types ?? {}) } }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } }, gettingStarted: { ...DEFAULT_PREFERENCES.gettingStarted, ...(raw.gettingStarted ?? {}) } };
     } catch { return DEFAULT_PREFERENCES; }
   }
-  setPreferences(patch: Partial<Preferences>, userId = this.actor()): void {
+  setPreferences(patch: PreferencesPatch, userId = this.actor()): void {
     if (!userId) return;
     const cur = this.getPreferences(userId);
-    const next = { ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } } };
+    const next = { ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, push: { ...cur.push, ...(patch.push ?? {}), types: { ...cur.push.types, ...(patch.push?.types ?? {}) } }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } }, gettingStarted: { ...cur.gettingStarted, ...(patch.gettingStarted ?? {}) } };
     this.db.prepare('INSERT INTO user_preferences (user_id, json) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET json = excluded.json').run(userId, JSON.stringify(next));
   }
 
@@ -1164,7 +1218,7 @@ export class Store {
       const due = this.updateDueAt(p);
       if (!due || due > now.toISOString()) continue;
       const already = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'projectUpdateReminder' AND project_id = ? AND created_at >= ?").get(p.id, due);
-      if (!already) this.notify('projectUpdateReminder', { projectId: p.id, body: `An update on ${p.name} is due` });
+      if (!already) this.notify('projectUpdateReminder', { projectId: p.id, body: `An update on ${p.name} is due`, createdAt: now.toISOString() });
     }
   }
   private pulseDigest(now: Date): void {
@@ -1175,7 +1229,7 @@ export class Store {
     if (last && now.getTime() - new Date(last).getTime() < days * 86400000) return;
     const since = last ?? new Date(now.getTime() - days * 86400000).toISOString();
     const n = (this.db.prepare('SELECT COUNT(*) n FROM project_updates WHERE created_at > ?').get(since) as { n: number }).n;
-    if (n) this.notify('pulseDigest', { body: `${n} project update${n === 1 ? '' : 's'} since your last summary` });
+    if (n) this.notify('pulseDigest', { body: `${n} project update${n === 1 ? '' : 's'} since your last summary`, createdAt: now.toISOString() });
   }
 
   // ---------- document templates ----------
@@ -1289,7 +1343,13 @@ export class Store {
     const snap = this.snapshot();
     // the snapshot hides archived and trashed issues; a backup keeps them
     const issues = (this.db.prepare('SELECT * FROM issues').all() as unknown as IssueRow[]).map(this.mapIssue);
-    return JSON.stringify({ exportedAt: ts(), ...snap, issues }, null, 2);
+    // uploaded images ride along as base64 — they're small, so the JSON stays a complete backup
+    const files = (this.db.prepare('SELECT * FROM files ORDER BY created_at').all() as Array<Record<string, unknown>>).map(f => ({
+      id: f.id, name: f.name, mime: f.mime, size: f.size, sha256: f.sha256,
+      ownerType: f.owner_type, ownerId: f.owner_id, uploadedBy: f.uploaded_by, createdAt: f.created_at,
+      data: Buffer.from(f.data as Uint8Array).toString('base64'),
+    }));
+    return JSON.stringify({ exportedAt: ts(), ...snap, issues, files }, null, 2);
   }
   /** restore a full workspace from an exportJson payload (keeps ids) */
   importJson(json: string): void {
@@ -1312,12 +1372,12 @@ export class Store {
     const insert = (table: string, cols: string[], row: Record<string, unknown>) => {
       this.db.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map(c => row[c] as string | number | null));
     };
-    for (const u of arr<Record<string, unknown>>(data.users)) insert('users', ['id', 'name', 'email', 'initials', 'color', 'admin', 'kind'], { ...u, admin: u.admin ? 1 : 0, kind: u.kind ?? 'human' });
+    for (const u of arr<Record<string, unknown>>(data.users)) insert('users', ['id', 'name', 'email', 'initials', 'color', 'admin', 'kind', 'title', 'username', 'github_username', 'avatar_url'], { ...u, admin: u.admin ? 1 : 0, kind: u.kind ?? 'human', title: u.title ?? '', username: u.username ?? '', github_username: u.githubUsername ?? '', avatar_url: u.avatarUrl ?? null });
     if (ws?.agentUserId && arr<{ id: string }>(data.users).some(u => u.id === ws.agentUserId)) setMeta(this.db, 'agentUserId', ws.agentUserId);
     const cu = data.currentUser as { id?: string } | undefined;
     if (cu?.id) setMeta(this.db, 'currentUser', cu.id);
-    for (const t of arr<Record<string, unknown>>(data.teams)) insert('teams', ['id', 'key', 'name', 'icon', 'color', 'description', 'position', 'triage_enabled', 'auto_cycles', 'cycle_duration', 'cycle_cooldown', 'cycle_upcoming', 'cycle_rollover', 'estimate_scale'],
-      { ...t, triage_enabled: t.triageEnabled ? 1 : 0, auto_cycles: t.autoCycles ? 1 : 0, cycle_duration: t.cycleDuration ?? 2, cycle_cooldown: t.cycleCooldown ?? 0, cycle_upcoming: t.cycleUpcoming ?? 2, cycle_rollover: t.cycleRollover === false ? 0 : 1, estimate_scale: t.estimateScale ?? 'fibonacci' });
+    for (const t of arr<Record<string, unknown>>(data.teams)) insert('teams', ['id', 'key', 'name', 'icon', 'color', 'description', 'position', 'triage_enabled', 'auto_cycles', 'cycle_duration', 'cycle_cooldown', 'cycle_upcoming', 'cycle_rollover', 'estimate_scale', 'estimate_zero', 'estimate_extended', 'estimate_count_unestimated'],
+      { ...t, estimate_zero: t.estimateZero ? 1 : 0, estimate_extended: t.estimateExtended ? 1 : 0, estimate_count_unestimated: t.estimateCountUnestimated ? 1 : 0, triage_enabled: t.triageEnabled ? 1 : 0, auto_cycles: t.autoCycles ? 1 : 0, cycle_duration: t.cycleDuration ?? 2, cycle_cooldown: t.cycleCooldown ?? 0, cycle_upcoming: t.cycleUpcoming ?? 2, cycle_rollover: t.cycleRollover === false ? 0 : 1, estimate_scale: t.estimateScale ?? 'fibonacci' });
     // memberships travel on the teams; an export from before memberships puts every person on every team
     const humans = arr<Record<string, unknown>>(data.users).filter(u => (u.kind ?? 'human') === 'human').map(u => String(u.id));
     for (const t of arr<Record<string, unknown>>(data.teams)) for (const uid of Array.isArray(t.memberIds) ? t.memberIds as string[] : humans) {
@@ -1338,7 +1398,7 @@ export class Store {
       { ...p, team_id: p.teamId, summary: p.summary ?? '', status: p.status ?? 'planned', health: p.health ?? 'onTrack', priority: p.priority ?? 0, directory: normalizeDir(p.directory as string | undefined), start_date: p.startDate, target_date: p.targetDate, lead_id: p.leadId, members: JSON.stringify(p.memberIds ?? []), position: p.position ?? 0, created_at: p.createdAt ?? ts(), updated_at: p.updatedAt ?? ts(), completed_at: p.completedAt });
     for (const l of arr<Record<string, unknown>>(data.locations)) insert('locations', ['id', 'name', 'path', 'created_at'], { ...l, path: normalizeDir(l.path as string), created_at: l.createdAt ?? ts() });
     for (const p of arr<{ id: string; locationIds?: string[] }>(data.projects)) (p.locationIds ?? []).forEach((lid, n) => insert('project_locations', ['project_id', 'location_id', 'position'], { project_id: p.id, location_id: lid, position: n }));
-    for (const d of arr<Record<string, unknown>>(data.docs)) insert('documents', ['id', 'title', 'icon', 'content', 'project_id', 'team_id', 'creator_id', 'created_at', 'updated_at'], { ...d, project_id: d.projectId ?? null, team_id: d.teamId ?? null, creator_id: d.creatorId ?? null, created_at: d.createdAt ?? ts(), updated_at: d.updatedAt ?? ts() });
+    for (const d of arr<Record<string, unknown>>(data.docs)) insert('documents', ['id', 'title', 'icon', 'content', 'project_id', 'team_id', 'initiative_id', 'creator_id', 'created_at', 'updated_at'], { ...d, project_id: d.projectId ?? null, team_id: d.teamId ?? null, initiative_id: d.initiativeId ?? null, creator_id: d.creatorId ?? null, created_at: d.createdAt ?? ts(), updated_at: d.updatedAt ?? ts() });
     for (const l of arr<Record<string, unknown>>(data.teamLinks)) insert('team_links', ['id', 'team_id', 'url', 'title', 'created_at'], { ...l, team_id: l.teamId, created_at: l.createdAt ?? ts() });
     for (const t of arr<Record<string, unknown>>(data.projectTemplates)) insert('project_templates', ['id', 'name', 'icon', 'summary', 'description', 'status', 'priority', 'milestones', 'issues', 'created_at'], { ...t, milestones: JSON.stringify(t.milestones ?? []), issues: JSON.stringify(t.issues ?? []), created_at: t.createdAt ?? ts() });
     for (const r of arr<Record<string, unknown>>(data.projectRelations)) insert('project_relations', ['id', 'project_id', 'related_id', 'type'], { ...r, project_id: r.projectId, related_id: r.relatedProjectId, type: 'blocks' });
@@ -1360,6 +1420,12 @@ export class Store {
     for (const x of arr<Record<string, unknown>>(data.projectStatuses)) insert('project_statuses', ['id', 'type', 'name', 'color', 'description', 'position'], { ...x, description: x.description ?? '', position: x.position ?? 0 });
     for (const x of arr<Record<string, unknown>>(data.projectSubscriptions)) insert('project_subscriptions', ['project_id', 'user_id', 'issue_added', 'issue_closed', 'comments', 'updates'], { project_id: x.projectId, user_id: x.userId, issue_added: x.issueAdded ? 1 : 0, issue_closed: x.issueClosed ? 1 : 0, comments: x.comments ? 1 : 0, updates: x.updates ? 1 : 0 });
     for (const x of arr<Record<string, unknown>>(data.docTemplates)) insert('doc_templates', ['id', 'name', 'title', 'content', 'created_at'], { ...x, title: x.title ?? '', content: x.content ?? '', created_at: x.createdAt ?? ts() });
+    for (const f of arr<Record<string, unknown>>(data.files)) {
+      if (typeof f.data !== 'string') continue;
+      const bytes = Buffer.from(f.data, 'base64');
+      this.db.prepare('INSERT INTO files (id, name, mime, size, sha256, owner_type, owner_id, uploaded_by, created_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(String(f.id), String(f.name ?? 'image'), String(f.mime ?? 'application/octet-stream'), bytes.length, String(f.sha256 ?? ''), String(f.ownerType), String(f.ownerId ?? ''), (f.uploadedBy as string | null) ?? null, String(f.createdAt ?? ts()), bytes);
+    }
     for (const x of arr<Record<string, unknown>>(data.emojis)) insert('emojis', ['id', 'name', 'url', 'created_at'], { ...x, created_at: x.createdAt ?? ts() });
     for (const x of arr<Record<string, unknown>>(data.customerStatuses)) insert('customer_statuses', ['id', 'name', 'color', 'position'], { ...x, position: x.position ?? 0 });
     for (const x of arr<Record<string, unknown>>(data.customerTiers)) insert('customer_tiers', ['id', 'name', 'color', 'position'], { ...x, position: x.position ?? 0 });
@@ -1367,12 +1433,15 @@ export class Store {
     for (const x of arr<Record<string, unknown>>(data.customerRequests)) insert('customer_requests', ['id', 'customer_id', 'issue_id', 'project_id', 'body', 'important', 'creator_id', 'created_at'], { ...x, customer_id: x.customerId, issue_id: x.issueId ?? null, project_id: x.projectId ?? null, body: x.body ?? '', important: x.important ? 1 : 0, creator_id: x.creatorId ?? null, created_at: x.createdAt ?? ts() });
     for (const p of arr<Record<string, unknown>>(data.projects)) this.db.prepare('UPDATE projects SET labels = ?, status_id = ?, update_cadence = ? WHERE id = ?').run(JSON.stringify(p.labelIds ?? []), (p.statusId as string | null) ?? null, (p.updateCadence as string | null) ?? null, p.id as string);
     if (ws && (ws as { features?: WorkspaceFeatures }).features) setMeta(this.db, 'features', JSON.stringify((ws as { features?: WorkspaceFeatures }).features));
+    this.ext.importData(data, insert);
+    for (const i of arr<Record<string, unknown>>(data.issues)) this.db.prepare('UPDATE issues SET release_id = ?, ask_form_id = ?, sla_rule_id = ?, sla_breaches_at = ? WHERE id = ?').run((i.releaseId as string | null) ?? null, (i.askFormId as string | null) ?? null, (i.slaRuleId as string | null) ?? null, (i.slaBreachesAt as string | null) ?? null, i.id as string);
     ensureDefaults(this.db);
     // a pre-locations export: its project directories and default become locations, as on upgrade
     migrateDirectoriesToLocations(this.db);
   }
   wipe(): void {
-    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
+    for (const t of this.ext.tables) this.db.exec(`DELETE FROM ${t};`);
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
     ensureDefaults(this.db);

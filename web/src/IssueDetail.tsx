@@ -2,14 +2,17 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useApp, useHelpers, relTime, shortDate } from './store.js';
+import { useApp, useHelpers, relTime, shortDate, nameOf } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
 import { IssueToolbar, IssueLocationRow, OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { CustomerRequests } from './Workspace.js';
+import { IssuePullRequests } from './GitHubUI.js';
+import { SlaBadge } from './AutomationUI.js';
 import { Markdown } from './Markdown.js';
-import { RichEditor, isBlank } from './RichEditor.js';
+import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
+import type { Editor } from '@tiptap/react';
 import {
   StateIcon, PriorityIcon, Avatar, StatusMenu, PriorityMenu, AssigneeMenu, LabelsMenu, ProjectMenu, MilestoneMenu,
   DueDateMenu, EstimateMenu, CycleMenu, IssuePickerMenu, AddRelationMenu,
@@ -23,10 +26,11 @@ import { navFor, neighbour } from './nav.js';
 import { Logo } from './Logo.js';
 import { useLanding } from './motion.js';
 import {
-  IconAttach, IconPlus, IconClose, IconArchive, IconRestore, IconTrash, IconEdit, IconDuplicate,
+  IconPlus, IconClose, IconArchive, IconRestore, IconTrash, IconEdit, IconDuplicate,
   IconEstimate, IconCycle, IconCalendar, IconBox, IconBranch, IconHandoff, IconSpark, IconCopyId,
   IconMilestone, IconLink, IconFile, IconReply, IconResolve, IconChevronDown, IconChevronUp, IconExternal,
   IconBell, IconBellOff, IconTeam, IconClock, IconTriage, IconCheck, IconEmoji, IconMore, IconDoc,
+  IconRelease, IconArrowUp,
 } from './icons.js';
 import type { Issue, Comment } from '../../src/core/types.js';
 
@@ -34,7 +38,7 @@ import type { Issue, Comment } from '../../src/core/types.js';
 function useActivityText() {
   const snap = useApp(s => s.snap)!;
   return (a: { type: string; data: Record<string, unknown>; userId: string; createdAt: string }) => {
-    const who = snap.users.find(u => u.id === a.userId)?.name ?? 'Someone';
+    const who = nameOf(snap.users.find(u => u.id === a.userId));
     const st = (id: unknown) => snap.states.find(s => s.id === id)?.name ?? '?';
     const prio = (p: unknown) => ['No priority', 'Urgent', 'High', 'Medium', 'Low'][Number(p)] ?? '?';
     const issueRef = (id: unknown) => {
@@ -84,15 +88,25 @@ function useActivityText() {
         : <><b>{who}</b> removed the location {when}</>;
       case 'archived': return <><b>{who}</b> archived the issue {when}</>;
       case 'restored': return <><b>{who}</b> restored the issue {when}</>;
+      case 'releaseChanged': return a.data.to
+        ? <><b>{who}</b> added the issue to release <b>{snap.releases.find(r => r.id === a.data.to)?.name ?? 'a removed release'}</b> {when}</>
+        : <><b>{who}</b> removed the issue from its release {when}</>;
+      case 'slaApplied': return <><b>{who}</b> applied SLA <b>{String(a.data.rule)}</b> — due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
+      case 'slaBreached': return <><b>{who}</b> marked the SLA as breached {when}</>;
+      case 'prLinked': return <><b>{who}</b> linked {a.data.kind === 'closing' ? 'pull request' : 'a reference from'} <a href={String(a.data.url)} target="_blank" rel="noreferrer"><b>{String(a.data.pr)}</b></a> {String(a.data.title ?? '')} {when}</>;
+      case 'prStateMoved': return <><b>{who}</b> moved the issue — {String(a.data.why)} {when}</>;
+      case 'commitLinked': return <><b>{who}</b> linked commit <b className="mono">{String(a.data.sha)}</b> {String(a.data.message ?? '')} {when}</>;
+      case 'loopRan': return <><b>{who}</b> ran loop <b>{String(a.data.loop)}</b> — {String(a.data.detail)} {when}</>;
+      case 'askSubmitted': return <><b>{who}</b> filed this through the <b>{String(a.data.form)}</b> Ask {when}</>;
       default: return <><b>{who}</b> {a.type} {when}</>;
     }
   };
 }
 
-const REACTION_SET = ['👍', '👎', '❤️', '🎉', '🚀', '😄', '👀', '🙏'];
+export const REACTION_SET = ['👍', '👎', '❤️', '🎉', '🚀', '😄', '👀', '🙏'];
 
 /** a reaction key: a unicode emoji, or :name: for a custom emoji */
-function EmojiGlyph({ value }: { value: string }) {
+export function EmojiGlyph({ value }: { value: string }) {
   const emojis = useApp(s => s.snap?.emojis ?? []);
   const m = /^:([a-z0-9_-]+):$/.exec(value);
   const custom = m && emojis.find(e => e.name === m[1]);
@@ -101,18 +115,23 @@ function EmojiGlyph({ value }: { value: string }) {
 
 /* ---------------- comments & threads ---------------- */
 function Reactions(props: { comment: Comment }) {
+  return <ReactionChips reactions={props.comment.reactions} onToggle={async emoji => { await api.toggleReaction(props.comment.id, emoji); await useApp.getState().bootstrap(); }} />;
+}
+/** emoji reaction chips (a comment's, an initiative update's): click one to add or remove yours */
+export function ReactionChips(props: { reactions: Record<string, string[]>; onToggle: (emoji: string) => void; children?: React.ReactNode }) {
   const snap = useApp(s => s.snap)!;
-  const entries = Object.entries(props.comment.reactions);
-  if (!entries.length) return null;
+  const entries = Object.entries(props.reactions);
+  if (!entries.length && !props.children) return null;
   return (
     <div className="reactions">
       {entries.map(([emoji, userIds]) => (
         <button key={emoji} className={`reaction-chip ${userIds.includes(snap.currentUser.id) ? 'mine' : ''}`}
           title={userIds.map(id => snap.users.find(u => u.id === id)?.name ?? '?').join(', ')}
-          onClick={async () => { await api.toggleReaction(props.comment.id, emoji); await useApp.getState().bootstrap(); }}>
+          onClick={() => props.onToggle(emoji)}>
           <EmojiGlyph value={emoji} /> {userIds.length}
         </button>
       ))}
+      {props.children}
     </div>
   );
 }
@@ -131,7 +150,7 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
     <div className={`cmt${props.reply ? ' reply' : ''}`}>
       <div className="cmt-head">
         <Avatar user={author} size={props.reply ? 18 : 20} />
-        <span className="cmt-author">{author?.name ?? 'Someone'}</span>
+        <span className="cmt-author">{nameOf(author)}</span>
         <span className="rel-time" title={new Date(c.createdAt).toLocaleString()}>{relTime(c.createdAt)}{c.editedAt ? ' (edited)' : ''}</span>
         <span style={{ flex: 1 }} />
         <span className="cmt-actions">
@@ -500,10 +519,34 @@ export function PropertiesRail(props: { issue: Issue }) {
             )}
           </MilestoneMenu>
         )}
+        <ReleaseRow issue={issue} />
+        {issue.slaBreachesAt && <div className="prop-line" data-prop="sla"><SlaBadge issue={issue} long /></div>}
       </div>
 
       <RelationsCard issue={issue} />
     </aside>
+  );
+}
+
+/** Release in the rail: which version the issue ships in */
+function ReleaseRow({ issue }: { issue: Issue }) {
+  const snap = useApp(s => s.snap)!;
+  const menu = useMenu();
+  if (!snap.workspace.features.releasesEnabled) return null;
+  const rel = snap.releases.find(r => r.id === issue.releaseId);
+  const open = snap.releases.filter(r => r.stage !== 'released' && r.stage !== 'canceled');
+  return (
+    <>
+      <button className={`prop-line ${rel ? '' : 'dim'}`} data-prop="release" onClick={menu.open} title="Set release"><IconRelease size={14} /><span className="prop-line-label">{rel ? rel.name : 'Add to release'}</span></button>
+      {menu.anchor && (
+        <Menu anchor={menu.anchor} onClose={menu.close} width={220}>
+          <div className="menu-header"><span>Release</span></div>
+          {(open.length ? open : snap.releases).map(r => <MenuItem key={r.id} icon={<IconRelease size={14} />} label={r.name} selected={issue.releaseId === r.id} onClick={() => void setIssueProps([issue.id], { releaseId: r.id })} />)}
+          {!snap.releases.length && <div className="menu-empty">No releases yet — create one on the Releases page.</div>}
+          {issue.releaseId && <><MenuSep /><MenuItem label="Remove from release" onClick={() => void setIssueProps([issue.id], { releaseId: null })} /></>}
+        </Menu>
+      )}
+    </>
   );
 }
 
@@ -546,7 +589,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
   const linkMenu = useMenu();
-  const fileInput = useRef<HTMLInputElement>(null);
   const handoff = useHandoffActions(issue);
   const nav = props.full ? navFor(issue.id) : { ids: [], origin: null };
   const navIndex = nav.ids.indexOf(issue.id);
@@ -556,8 +598,13 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   useLayoutEffect(() => {
     const el = titleRef.current;
     if (!el) return;
-    el.style.height = '0px';
-    el.style.height = `${el.scrollHeight}px`;
+    const fit = () => { el.style.height = '0px'; el.style.height = `${el.scrollHeight}px`; };
+    fit();
+    // re-fit when the column width changes: the peek pane slides in narrow, and windows resize
+    let lastWidth = el.clientWidth;
+    const ro = new ResizeObserver(() => { if (el.clientWidth !== lastWidth) { lastWidth = el.clientWidth; fit(); } });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [titleDraft]);
   useEffect(() => {
     const onRename = () => { titleRef.current?.focus(); titleRef.current?.select(); };
@@ -608,16 +655,10 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
     const cur = useApp.getState().snap?.issues.find(i => i.id === issue.id)?.description ?? '';
     if (md !== cur) await setIssueProps([issue.id], { description: md });
   };
+  const commentEditor = useRef<Editor | null>(null);
   const postComment = async (md: string) => {
     if (isBlank(md)) return;
     await api.addComment(issue.id, md);
-    await useApp.getState().bootstrap();
-  };
-  const uploadFiles = async (files: FileList | null) => {
-    if (!files) return;
-    for (const f of [...files]) {
-      try { await api.uploadFile(issue.id, f); } catch (err) { toast({ title: 'Upload failed', line: String((err as Error).message) }); }
-    }
     await useApp.getState().bootstrap();
   };
   const go = (delta: 1 | -1) => {
@@ -667,11 +708,11 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
               </MenuSub>
             </MenuSub>
             <MenuSep />
-            <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<span className="mi-kbd">⌘⌥P</span>} onClick={() => void handoff.copyPrompt()} />
+            <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<span className="mi-kbd">⌘⌥P</span>} onClick={e => void handoff.copyPrompt({ skipStart: e.altKey })} />
             <MenuSub icon={<IconSpark size={14} />} label="Open in Claude Code">
               <OpenInClaudeItems issue={issue} actions={handoff} />
             </MenuSub>
-            <MenuItem icon={<IconBranch size={14} />} label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={() => void handoff.copyBranch()} />
+            <MenuItem icon={<IconBranch size={14} />} label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={e => void handoff.copyBranch({ skipStart: e.altKey })} />
             <MenuItem icon={<IconCopyId size={14} />} label="Copy issue ID" right={<span className="mi-kbd">⌘.</span>} onClick={() => void handoff.copyId()} />
             <MenuItem icon={<IconDuplicate size={14} />} label="Make a copy" onClick={async () => {
               const { issue: dup } = await api.createIssue({
@@ -725,14 +766,14 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                   onChange={md => void saveDesc(md)} onBlur={md => void saveDesc(md)} />
               </div>
               <div className="issue-under-desc">
-                <button className="icon-btn" title="Attach files" onClick={() => fileInput.current?.click()}><IconAttach size={14} /></button>
+                <CustomerRequests issueId={issue.id} asButton />
                 <button className="icon-btn" data-add-link title="Add link (⌃L)" onClick={linkMenu.open}><IconLink size={14} /></button>
                 <button className="icon-btn" title="Add sub-issue (⌘⇧O)" onClick={() => useApp.getState().openCreate({ teamId: issue.teamId, parentId: issue.id, projectId: issue.projectId, cycleId: issue.cycleId })}><IconPlus size={14} /></button>
-                <input ref={fileInput} type="file" multiple hidden onChange={e => { void uploadFiles(e.target.files); e.target.value = ''; }} />
               </div>
               <Attachments issue={issue} />
               <SubIssuesSection issue={issue} />
-              <CustomerRequests issueId={issue.id} />
+              <IssuePullRequests issueId={issue.id} />
+              <CustomerRequests issueId={issue.id} hideWhenEmpty />
 
               <div className="activity">
                 <div className="activity-head">
@@ -758,10 +799,10 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                 ))}
 
                 <div className="comment-box composer">
-                  <RichEditor key={`c-${issue.id}`} value="" issueId={issue.id} placeholder="Leave a comment…" clearOnSubmit onSubmit={postComment} />
+                  <RichEditor key={`c-${issue.id}`} value="" issueId={issue.id} placeholder="Leave a comment…" clearOnSubmit onSubmit={postComment} editorRef={commentEditor} />
                   <div className="cbox-foot">
-                    <button className="icon-btn" title="Attach files" onClick={() => fileInput.current?.click()}><IconAttach size={14} /></button>
-                    <span className="cbox-hint">⌘↵ to comment</span>
+                    <span style={{ flex: 1 }} />
+                    <button className="icon-btn cbox-send" title="Comment (⌘↵)" onClick={async () => { const ed = commentEditor.current; if (!ed) return; const md = htmlToMarkdown(ed.getHTML()); if (isBlank(md)) return; ed.commands.clearContent(); await postComment(md); }}><IconArrowUp size={14} /></button>
                   </div>
                 </div>
               </div>

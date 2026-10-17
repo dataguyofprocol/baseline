@@ -222,6 +222,9 @@ function migrate(db: DatabaseSync): void {
   // the background runner was removed — its switch and bookkeeping go with it
   db.prepare("DELETE FROM meta WHERE key IN ('agentRunner', 'agentNudges')").run();
   if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
+  for (const [col, def] of [['title', "TEXT NOT NULL DEFAULT ''"], ['username', "TEXT NOT NULL DEFAULT ''"], ['avatar_url', 'TEXT'], ['github_username', "TEXT NOT NULL DEFAULT ''"]] as const) {
+    if (!columns('users').includes(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`);
+  }
 
   // accounts: Google identity, suspension, and server-side sessions (one row per signed-in browser;
   // the cookie holds a random token, the row only its SHA-256)
@@ -458,6 +461,11 @@ function migrate(db: DatabaseSync): void {
     ['cycle_upcoming', 'INTEGER NOT NULL DEFAULT 2'], ['cycle_rollover', 'INTEGER NOT NULL DEFAULT 1'],
     ['estimate_scale', "TEXT NOT NULL DEFAULT 'fibonacci'"],
   ] as const) if (!teamCols.includes(col)) db.exec(`ALTER TABLE teams ADD COLUMN ${col} ${def}`);
+  // Linear's estimate options; teams from before keep the 0 and 13/21 their Fibonacci scale offered
+  if (!teamCols.includes('estimate_zero')) {
+    db.exec('ALTER TABLE teams ADD COLUMN estimate_zero INTEGER NOT NULL DEFAULT 0; ALTER TABLE teams ADD COLUMN estimate_extended INTEGER NOT NULL DEFAULT 0; ALTER TABLE teams ADD COLUMN estimate_count_unestimated INTEGER NOT NULL DEFAULT 1');
+    db.exec("UPDATE teams SET estimate_zero = 1, estimate_extended = 1 WHERE estimate_scale = 'fibonacci'");
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
@@ -471,6 +479,26 @@ function migrate(db: DatabaseSync): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_attachments_issue ON attachments(issue_id);
+  `);
+  // a pre-release build kept file bytes outside the database; its table was never populated
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'files'").get() && !columns('files').includes('data')) db.exec('DROP TABLE files');
+  // uploaded images (avatars, emoji, pictures pasted into editors) — small by design, so the
+  // bytes live here too; owners are polymorphic, so files.ts deletes a file when its owner
+  // goes rather than a foreign key
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS files (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+      size INTEGER NOT NULL DEFAULT 0,
+      sha256 TEXT NOT NULL DEFAULT '',
+      owner_type TEXT NOT NULL,
+      owner_id TEXT NOT NULL DEFAULT '',
+      uploaded_by TEXT,
+      created_at TEXT NOT NULL,
+      data BLOB NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_type, owner_id);
   `);
   if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'subscriptions'").get()) {
     db.exec(`
@@ -488,9 +516,11 @@ function migrate(db: DatabaseSync): void {
     `);
   }
 
-  // initiatives were removed from the model — drop leftover tables from pre-existing databases
-  db.exec('DROP TABLE IF EXISTS initiative_updates');
-  db.exec('DROP TABLE IF EXISTS initiatives');
+  // initiatives came back with a new schema (extensions.ts) — drop only tables left from the old one
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'initiatives'").get() && !columns('initiatives').includes('parent_id')) {
+    db.exec('DROP TABLE IF EXISTS initiative_updates');
+    db.exec('DROP TABLE IF EXISTS initiatives');
+  }
 
   // every workspace gets at least one agent identity for hand-offs
   const hasAgent = db.prepare("SELECT 1 FROM users WHERE kind = 'agent' LIMIT 1").get();

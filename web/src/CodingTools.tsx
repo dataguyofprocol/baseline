@@ -47,17 +47,32 @@ export async function pickLocation(prompt: string): Promise<Location | null> {
 export function handoffActions(issue: Issue) {
   const { toast, snap } = useApp.getState();
   const key = `${snap?.teams.find(t => t.id === issue.teamId)?.key ?? 'ISS'}-${issue.number}`;
+  const noClipboard = () => toast({ title: 'Clipboard unavailable', line: <>bring the app tab into focus and retry</> });
   const copy = async (text: string, title: string, line?: React.ReactNode) => {
     if (await copyText(text)) toast({ title, line });
-    else toast({ title: 'Clipboard unavailable', line: <>bring the app tab into focus and retry</> });
+    else noClipboard();
   };
-  const copyPrompt = async () => {
-    const { handoff } = await api.getHandoff(issue.id);
-    await copy(handoff.prompt, `Copied prompt for ${handoff.key}`, <>branch: <b>{handoff.branchName}</b></>);
+  /** Preferences › "On git branch copy / on hand-off, move issue to started status": a backlog or
+   *  unstarted issue moves to the team's first started state and, if unassigned, to you. ⌥ skips it once. */
+  const startOn = async (pref: 'startOnBranchCopy' | 'startOnHandoff', skip?: boolean): Promise<React.ReactNode> => {
+    const s = useApp.getState();
+    if (skip || !s.snap?.workspace.preferences[pref]) return null;
+    const r = await api.startIssue(issue.id).catch(() => null);
+    if (!r?.moved) return null;
+    await s.bootstrap();
+    return <>moved to <b>{r.stateName}</b>{r.assigned ? ' · assigned to you' : ''}</>;
   };
-  const copyBranch = async () => {
+  const copyPrompt = async (opts: { skipStart?: boolean } = {}) => {
     const { handoff } = await api.getHandoff(issue.id);
-    await copy(handoff.branchName, `Copied branch ${handoff.branchName}`);
+    if (!(await copyText(handoff.prompt))) return noClipboard();
+    const moved = await startOn('startOnHandoff', opts.skipStart);
+    toast({ title: `Copied prompt for ${handoff.key}`, line: <>branch: <b>{handoff.branchName}</b>{moved && <> · {moved}</>}</> });
+  };
+  const copyBranch = async (opts: { skipStart?: boolean } = {}) => {
+    const { handoff } = await api.getHandoff(issue.id);
+    if (!(await copyText(handoff.branchName))) return noClipboard();
+    const moved = await startOn('startOnBranchCopy', opts.skipStart);
+    toast({ title: `Copied branch ${handoff.branchName}`, line: moved ?? undefined });
   };
   const copyUrl = () => copy(`${location.origin}/#/issue/${key}`, 'Copied issue URL');
   const copyId = () => copy(key, `Copied ${key}`);
@@ -68,6 +83,16 @@ export function handoffActions(issue: Issue) {
     const body = `# ${key} ${issue.title}\n\nStatus: ${st}\n\n${issue.description}`.trim();
     return copy(body, `Copied ${key} as Markdown`);
   };
+  /** the issue plus its comments, as Linear's "Copy everything as Markdown" */
+  const copyEverything = () => {
+    const s2 = useApp.getState().snap;
+    const st = s2?.states.find(x => x.id === issue.stateId)?.name ?? '';
+    const comments = (s2?.comments ?? []).filter(c => c.issueId === issue.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map(c => `**${s2?.users.find(u => u.id === c.userId)?.name ?? 'Someone'}** · ${c.createdAt.slice(0, 10)}\n\n${c.body}`);
+    const body = [`# ${key} ${issue.title}`, `Status: ${st}`, issue.description, ...(comments.length ? ['## Comments', ...comments] : [])].filter(Boolean).join('\n\n');
+    return copy(body, `Copied ${key} with comments as Markdown`);
+  };
+  const copyTitleLink = () => copy(`[${key} ${issue.title}](${location.origin}/#/issue/${key})`, 'Copied title as link');
 
   const setLocation = async (locationId: string | null) => {
     await api.updateIssue(issue.id, { locationId });
@@ -93,13 +118,14 @@ export function handoffActions(issue: Issue) {
       });
       return;
     }
+    const moved = await startOn('startOnHandoff');
     toast({
       title: `Opened ${r.key} in Claude Code`,
-      line: <><b>{r.location.name}</b> · {tildify(r.directory, home)}{r.pinned ? <> · now {r.key}'s location</> : null}</>,
+      line: <><b>{r.location.name}</b> · {tildify(r.directory, home)}{r.pinned ? <> · now {r.key}'s location</> : null}{moved && <> · {moved}</>}</>,
     });
-    await useApp.getState().bootstrap();
+    if (!moved) await useApp.getState().bootstrap();
   };
-  return { key, copyPrompt, copyBranch, copyUrl, copyId, copyTitle, copyMarkdown, openInClaude, chooseAndOpen, setLocation, chooseAndPin };
+  return { key, copyPrompt, copyBranch, copyUrl, copyId, copyTitle, copyMarkdown, copyEverything, copyTitleLink, openInClaude, chooseAndOpen, setLocation, chooseAndPin };
 }
 export type HandoffActions = ReturnType<typeof handoffActions>;
 
@@ -116,10 +142,11 @@ function useHandoffShortcuts(actions: HandoffActions) {
       if (s.paletteOpen || s.createModal.open) return;
       const run = (fn: () => unknown) => { e.preventDefault(); e.stopPropagation(); void fn(); };
       if (e.altKey && e.code === 'KeyP') run(actions.copyPrompt);
-      else if (!e.altKey && e.code === 'Period') run(e.shiftKey ? actions.copyBranch : actions.copyId);
+      else if (e.shiftKey && e.code === 'Period') run(() => actions.copyBranch({ skipStart: e.altKey })); // ⌘⌥⇧. copies without moving the issue
+      else if (!e.altKey && e.code === 'Period') run(actions.copyId);
       else if (!e.altKey && e.shiftKey && e.code === 'Comma') run(actions.copyUrl);
       else if (!e.altKey && e.shiftKey && e.code === 'Quote') run(actions.copyTitle);
-      else if (e.altKey && e.code === 'KeyC') run(actions.copyMarkdown);
+      else if (e.altKey && e.code === 'KeyC') run(actions.copyEverything);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -162,14 +189,14 @@ export function IssueToolbar(props: { issue: Issue }) {
     <div className="issue-toolbar">
       <button className="tb-btn" title="Copy issue URL (⌘⇧,)" onClick={() => void actions.copyUrl()}><IconLink size={15} /></button>
       <button className="tb-btn" title="Copy issue ID (⌘.)" onClick={() => void actions.copyId()}><IconCopyId size={15} /></button>
-      <button className="tb-btn" title="Copy git branch name (⌘⇧.)" onClick={() => void actions.copyBranch()}><IconBranch size={15} /></button>
+      <button className="tb-btn" title="Copy git branch name (⌘⇧.) — hold ⌥ to leave the status alone" onClick={e => void actions.copyBranch({ skipStart: e.altKey })}><IconBranch size={15} /></button>
       <div className={`tb-split${menu.isOpen ? ' open' : ''}`}>
-        <button className="tb-btn" title="Copy as prompt (⌘⌥P)" onClick={() => void actions.copyPrompt()}><IconHandoff size={15} /></button>
+        <button className="tb-btn" title="Copy as prompt (⌘⌥P) — ⌥-click to leave the status alone" onClick={e => void actions.copyPrompt({ skipStart: e.altKey })}><IconHandoff size={15} /></button>
         <button className="tb-btn tb-caret" title="Hand off to a coding agent" onClick={menu.open}><IconChevronDown size={12} /></button>
       </div>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={264}>
-          <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<><span className="kbd">⌘</span><span className="kbd">⌥</span><span className="kbd">P</span></>} onClick={() => void actions.copyPrompt()} />
+          <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<><span className="kbd">⌘</span><span className="kbd">⌥</span><span className="kbd">P</span></>} onClick={e => void actions.copyPrompt({ skipStart: e.altKey })} />
           <MenuSub icon={<IconSpark size={14} />} label="Open in Claude Code" right={pinned ? <span className="mi-loc">{pinned.name}</span> : undefined}>
             <OpenInClaudeItems issue={props.issue} actions={actions} />
           </MenuSub>

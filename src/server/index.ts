@@ -1,8 +1,8 @@
 import { Hono, type Context, type Next } from 'hono';
 import { serve as nodeServe, type ServerType } from '@hono/node-server';
-import { openDb, resolveDbPath } from '../core/db.js';
+import { getMeta, openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
-import { seedWorkspace } from '../core/seed.js';
+import { blankWorkspace, seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
 import { authConfigFromEnv, mountAuth, type AuthConfig } from './auth.js';
 import { mountMembers } from './members.js';
@@ -10,10 +10,13 @@ import { ChangeFeed, startScheduler } from './live.js';
 import { streamSSE } from 'hono/streaming';
 import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
 import { Accounts } from '../core/accounts.js';
+import { actingUser } from '../core/actor.js';
 import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
-import type { Priority, Snapshot, WorkflowStateType, RelationType } from '../core/types.js';
-import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { API_KEY_SCOPES, type ApiKey, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
+import { WEBHOOK_MAX_BYTES, WEBHOOK_PATH } from '../core/webhooks.js';
+import { FileError, FileService, MAX_EMOJI_BYTES, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -40,28 +43,22 @@ const originHostOf = (c: Context): string | null => {
   try { return new URL(origin).hostname; } catch { return '?'; }
 };
 
-/** Headers for an uploaded file. Uploads carry whatever type the uploader claimed, so only media a
- *  browser can't run as a page is shown inline; anything else (HTML, SVG, scripts, unknown types)
- *  downloads instead of rendering on this origin. */
-const INLINE_TYPES = /^(image\/(png|jpe?g|gif|webp|avif|bmp)|video\/(mp4|webm|quicktime)|audio\/(mpeg|mp4|ogg|wav|webm)|application\/pdf)$/i;
-export function uploadHeaders(mime: string, name: string): Record<string, string> {
-  const inline = INLINE_TYPES.test(mime);
-  return {
-    'Content-Type': inline ? mime : 'application/octet-stream',
-    'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`,
-    'X-Content-Type-Options': 'nosniff',
-    // even if something did render, it can't run script or reach this origin
-    'Content-Security-Policy': "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
-    'Cache-Control': 'private, max-age=31536000, immutable',
-  };
-}
-
-export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv(), mailer: Mailer = mailerFromEnv()) {
+/** `blank`: a new database starts empty for the web app's first-run flow instead of seeded */
+export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv(), mailer: Mailer = mailerFromEnv(), opts: { blank?: boolean } = {}) {
   const db = openDb(dbPath);
   const store = new Store(db);
   const accounts = new Accounts(db, store);
   const changes = new ChangeFeed(db);
   const hosted = auth.mode === 'google';
+  const { planning, automation, git, apiKeys, webhooks } = store.ext;
+  // images (avatars, emoji, pasted pictures) live in the database; pick up any from the old uploads folder
+  const files = new FileService(db, join(dirname(dbPath), 'attachments'));
+  const moved = files.migrateLegacy();
+  if (moved) console.error(`[baseline] moved ${moved} upload(s) into the database`);
+  // Loops' "Open in Claude Code" action opens the same interactive session as the manual hand-off
+  automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
+  // the git integration polls gh / git log every two minutes while it's on
+  setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
 
   // first run: a laptop gets the sample workspace to play with; a hosted one starts empty —
   // its people come from Google sign-in, and onboarding asks for the first team
@@ -71,11 +68,24 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     setMeta(db, 'workspaceName', process.env.BASELINE_WORKSPACE_NAME?.trim() || 'Baseline');
     setMeta(db, 'workspaceCreatedAt', new Date().toISOString());
   } else if (Number(hasWorkspace.n) === 0) {
-    seedWorkspace(db);
-    console.error('[baseline] seeded a sample workspace — run `baseline seed --reset` to reseed');
+    if (opts.blank) blankWorkspace(db);
+    else {
+      seedWorkspace(db);
+      console.error('[baseline] seeded a sample workspace — run `baseline seed --reset` to reseed');
+    }
   }
 
   const app = new Hono();
+
+  // GitHub webhooks are the one door open to other hosts (GitHub reaches this machine through
+  // a tunnel): they carry no cookies or keys and are authenticated by their HMAC signature alone
+  app.post(WEBHOOK_PATH, async (c) => {
+    if (Number(c.req.header('content-length') ?? 0) > WEBHOOK_MAX_BYTES) return c.json({ error: 'Payload too large' }, 413);
+    const raw = await c.req.text();
+    if (raw.length > WEBHOOK_MAX_BYTES) return c.json({ error: 'Payload too large' }, 413);
+    const r = webhooks.receive({ event: c.req.header('x-github-event'), delivery: c.req.header('x-github-delivery'), signature: c.req.header('x-hub-signature-256') }, raw);
+    return c.json(r.body, r.status as 200);
+  });
 
   if (hosted) mountAuth(app, auth, accounts, store, {
     onInviteAccepted: (userId, invitedBy) => {
@@ -96,6 +106,64 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     }
     await next();
   });
+
+  // Personal API keys: a request may carry `Authorization: Bearer <key>` (or the bare key, as
+  // Linear accepts). A bad key is refused; a good one acts as its owner, within its permissions
+  // and teams. Requests without a key are the app's own, unless other devices must use one.
+  const keyOf = new WeakMap<Request, ApiKey>();
+  const actor = (c: Context) => keyOf.get(c.req.raw)?.userId ?? store.actor();
+  /** the local app may act as anyone (agents, other members); a key, or a signed-in person, always acts as themselves */
+  const who = (c: Context, given: unknown) => hosted || keyOf.has(c.req.raw) || typeof given !== 'string' ? actor(c) : given;
+  const isAdmin = (userId: string) => !!(db.prepare('SELECT admin FROM users WHERE id = ?').get(userId) as { admin: number } | undefined)?.admin;
+  app.use('/api/*', async (c, next) => {
+    const auth = c.req.header('authorization')?.trim();
+    if (!auth) {
+      if (LAN_OPEN && !isLoopback(hostOf(c)) && store.getFeatures().apiKeyRequiredRemote) return c.json({ error: 'Requests from other devices need an API key: send Authorization: Bearer <key>', code: 'unauthorized' }, 401);
+      return next();
+    }
+    const key = apiKeys.verify(auth.replace(/^Bearer\s+/i, ''));
+    if (!key) return c.json({ error: 'Invalid API key', code: 'unauthorized' }, 401);
+    const path = c.req.path;
+    if (path.startsWith('/api/api-keys')) return c.json({ error: 'API keys are managed in Settings › Security & access, not with an API key', code: 'forbidden' }, 403);
+    const missing = apiKeys.missingScope(key, c.req.method, path);
+    if (missing) return c.json({ error: `This API key doesn't have the “${API_KEY_SCOPES.find(([k]) => k === missing)?.[1]}” permission`, code: 'forbidden' }, 403);
+    const body = c.req.method !== 'GET' && c.req.method !== 'HEAD' && (c.req.header('content-type') ?? '').includes('application/json')
+      ? await c.req.json().catch(() => null) as Record<string, unknown> | null : null;
+    if (!apiKeys.teamAllowed(key, path, body)) return c.json({ error: 'This API key can’t access that team', code: 'forbidden' }, 403);
+    keyOf.set(c.req.raw, key);
+    // the store's own writes (activity, notifications) are by the key's owner too
+    await actingUser.run(key.userId, next);
+    if (key.teamIds && (c.res.headers.get('content-type') ?? '').includes('application/json')) {
+      const scoped = apiKeys.scopeResponse(key, await c.res.json());
+      c.res = new Response(JSON.stringify(scoped), { status: (scoped as { error?: string }).error ? 404 : c.res.status, headers: { 'content-type': 'application/json' } });
+    }
+  });
+
+  // a delete may have taken an image's owner with it (an issue purged, a doc, a team, an emoji):
+  // sweep orphaned images after each delete, and hourly for deletes that happen on their own (trash expiry)
+  const sweepFiles = () => { const n = files.gc(); if (n) console.error(`[baseline] deleted ${n} image(s) whose owner is gone`); };
+  app.use('/api/*', async (c, next) => {
+    await next();
+    if (c.req.method === 'DELETE') sweepFiles();
+  });
+  setInterval(sweepFiles, 3_600_000).unref();
+
+  // ---------- API keys ----------
+  app.get('/api/api-keys', (c) => {
+    const me = actor(c);
+    if (c.req.query('all') && !isAdmin(me)) return c.json({ error: 'Only admins can see every API key', code: 'forbidden' }, 403);
+    return c.json({ keys: apiKeys.list(c.req.query('all') ? undefined : me) });
+  });
+  app.post('/api/api-keys', async (c) => {
+    const b = await c.req.json();
+    const me = actor(c);
+    if (store.getFeatures().apiKeyCreation === 'admins' && !isAdmin(me)) return c.json({ error: 'Only admins can create API keys in this workspace', code: 'forbidden' }, 403);
+    try { return c.json(apiKeys.create({ name: String(b.name ?? ''), userId: me, scopes: b.scopes ?? null, teamIds: b.teamIds ?? null }), 201); }
+    catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  });
+  const ownKey = (c: Context) => { const k = apiKeys.get(c.req.param('id')!); return k && (k.userId === actor(c) || isAdmin(actor(c))) ? k : null; };
+  app.patch('/api/api-keys/:id', async (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.rename(c.req.param('id'), String((await c.req.json()).name ?? '')); return c.json({ ok: true }); });
+  app.delete('/api/api-keys/:id', (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.revoke(c.req.param('id')); return c.json({ ok: true }); });
 
   // a write tells open tabs at once, rather than at the feed's next look
   app.use('/api/*', async (c, next) => {
@@ -118,6 +186,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     snap.workspace.auth = auth.mode;
     // the home directory only means something when the server is this machine
     if (!hosted) snap.workspace.homeDir = homedir();
+    if (LAN_OPEN) snap.workspace.lanHost = LISTEN_HOST;
     return c.json(snap);
   });
 
@@ -147,12 +216,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null, milestoneId: b.milestoneId ?? null,
       // omitted = a sub-issue inherits its parent's (nothing else is defaulted); null = explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
-    });
+    }, keyOf.has(c.req.raw) || typeof b.actorId === 'string' ? who(c, b.actorId) : undefined);
     return c.json({ issue }, 201);
   });
   app.patch('/api/issues/:id', async (c) => {
     const b = await c.req.json();
-    const issue = store.updateIssue(c.req.param('id'), b);
+    const issue = store.updateIssue(c.req.param('id'), b, keyOf.has(c.req.raw) ? actor(c) : undefined);
     if (!issue) return c.json({ error: 'not found' }, 404);
     return c.json({ issue });
   });
@@ -165,10 +234,10 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/issues/:id', (c) => { store.deleteIssue(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/issues/:id/restore', (c) => { store.restoreIssue(c.req.param('id')); return c.json({ ok: true }); });
-  app.delete('/api/issues/:id/purge', (c) => {
+  app.delete('/api/issues/:id/purge', async (c) => {
     const issueId = c.req.param('id');
-    for (const a of store.snapshot().attachments.filter(x => x.issueId === issueId && x.kind === 'file')) rmSync(join(attachmentsDir, a.id), { recursive: true, force: true });
     store.purgeIssue(issueId);
+    files.removeOwner('issue', issueId);
     return c.json({ ok: true });
   });
   app.post('/api/issues/:id/convert-project', (c) => {
@@ -193,37 +262,51 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.post('/api/issues/:id/subscribe', async (c) => {
     const b = await c.req.json().catch(() => ({}));
-    const uid = store.actor();
+    const uid = who(c, b.userId);
     if (b.subscribed === false) store.unsubscribe(c.req.param('id'), uid);
     else store.subscribe(c.req.param('id'), uid);
     return c.json({ ok: true });
   });
 
-  // ---------- attachments ----------
-  const attachmentsDir = join(dirname(dbPath), 'attachments');
+  // ---------- images ----------
+  /** the request body is the image; a Content-Length over the limit is refused before reading */
+  const readUpload = async (c: Context, max: number): Promise<Buffer> => {
+    if (Number(c.req.header('content-length')) > max) throw new FileError(`Images are limited to ${formatBytes(max)} — link to bigger files instead`, 413);
+    return Buffer.from(await c.req.arrayBuffer());
+  };
+  const uploadFailed = (c: Context, err: unknown) => err instanceof FileError
+    ? c.json({ error: err.message }, err.status)
+    : c.json({ error: `Upload failed: ${(err as Error).message}` }, 500);
+
+  // a picture pasted into an issue's, doc's, project's, initiative's or team's editor; ?owner=issue:<id>, ?name= its filename
+  const EDITOR_OWNERS: FileOwnerType[] = ['issue', 'doc', 'project', 'initiative', 'team'];
+  app.post('/api/files', async (c) => {
+    const [type, ownerId = ''] = String(c.req.query('owner') ?? '').split(':');
+    if (!EDITOR_OWNERS.includes(type as FileOwnerType)) return c.json({ error: 'owner must be issue:<id>, doc:<id>, project:<id>, initiative:<id> or team:<id>' }, 400);
+    try {
+      const file = files.upload({ data: await readUpload(c, MAX_IMAGE_BYTES), name: c.req.query('name'), ownerType: type as FileOwnerType, ownerId, uploadedBy: actor(c) });
+      return c.json({ file }, 201);
+    } catch (err) { return uploadFailed(c, err); }
+  });
+  const serveFile = (c: Context, fileId: string) => {
+    const f = files.get(fileId);
+    const data = f && files.data(f.id);
+    if (!f || !data) return c.json({ error: 'not found' }, 404);
+    const headers = fileHeaders(f);
+    if (c.req.header('if-none-match') === headers.ETag) return new Response(null, { status: 304, headers });
+    return new Response(c.req.method === 'HEAD' ? null : new Uint8Array(data), { headers: { ...headers, 'Content-Length': String(data.length) } });
+  };
+  app.get('/api/files/:id/:name?', (c) => serveFile(c, c.req.param('id')));
+  // URLs from before images moved into the database, already pasted into descriptions and comments
+  app.get('/api/attachments/:id/:name', (c) => serveFile(c, c.req.param('id')));
+  app.get('/api/emoji-files/:id/:name', (c) => serveFile(c, c.req.param('id')));
+
+  // ---------- attachments (links; file attachments from older versions stay listed) ----------
   app.post('/api/issues/:id/attachments', async (c) => {
     const b = await c.req.json();
     if (!b.url) return c.json({ error: 'url is required' }, 400);
     const attachment = store.addAttachment({ issueId: c.req.param('id'), kind: 'link', url: String(b.url), title: b.title });
     return c.json({ attachment }, 201);
-  });
-  // raw upload: the body is the file, ?name= its filename (images pasted into the editor land here)
-  app.post('/api/issues/:id/files', async (c) => {
-    const name = basename(c.req.query('name') || 'file').replace(/[^\w.\- ]+/g, '_').slice(0, 120) || 'file';
-    const buf = Buffer.from(await c.req.arrayBuffer());
-    if (buf.length > 25 * 1024 * 1024) return c.json({ error: 'Files are limited to 25 MB' }, 413);
-    const attId = `att_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    mkdirSync(join(attachmentsDir, attId), { recursive: true });
-    writeFileSync(join(attachmentsDir, attId, name), buf);
-    const attachment = store.addAttachment({ id: attId, issueId: c.req.param('id'), kind: 'file', url: `/api/attachments/${attId}/${encodeURIComponent(name)}`, title: name, mime: c.req.header('content-type') ?? 'application/octet-stream', size: buf.length });
-    return c.json({ attachment }, 201);
-  });
-  app.get('/api/attachments/:id/:name', (c) => {
-    const a = store.getAttachment(c.req.param('id'));
-    if (!a || a.kind !== 'file') return c.json({ error: 'not found' }, 404);
-    const file = join(attachmentsDir, a.id, basename(decodeURIComponent(c.req.param('name'))));
-    if (!existsSync(file)) return c.json({ error: 'not found' }, 404);
-    return c.body(readFileSync(file), 200, uploadHeaders(a.mime || 'application/octet-stream', basename(file)));
   });
   app.patch('/api/attachments/:id', async (c) => {
     const b = await c.req.json();
@@ -232,8 +315,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/attachments/:id', (c) => {
     const a = store.getAttachment(c.req.param('id'));
-    if (a?.kind === 'file') rmSync(join(attachmentsDir, a.id), { recursive: true, force: true });
     store.deleteAttachment(c.req.param('id'));
+    if (a?.kind === 'file') files.remove(a.id);
     return c.json({ ok: true });
   });
   app.post('/api/issues/:id/archive', (c) => {
@@ -259,6 +342,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     store.moveIssue(c.req.param('id'), b.beforeId ?? null, b.afterId ?? null);
     return c.json({ ok: true });
   });
+  // branch copy / hand-off: backlog or unstarted → first started state, unassigned → you
+  app.post('/api/issues/:id/start', (c) => c.json(store.startIssue(c.req.param('id'), actor(c))));
   app.get('/api/issues/:id/handoff', (c) => {
     const handoff = store.handoffFor(c.req.param('id'));
     return handoff ? c.json({ handoff }) : c.json({ error: 'not found' }, 404);
@@ -271,12 +356,15 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (hosted) return c.json({ error: 'The hosted app can\'t open programs on your computer yet — copy the prompt instead', code: 'companion-required' }, 403);
     const originHost = originHostOf(c);
     if (!isLoopback(hostOf(c)) || (originHost !== null && !isLoopback(originHost)) || !(c.req.header('content-type') ?? '').includes('application/json')) {
-      return c.json({ error: 'Launching Claude Code is only allowed from this machine', code: 'forbidden' }, 403);
+      return c.json({ error: 'Only this machine can do that', code: 'forbidden' }, 403);
     }
     await next();
   };
   app.use('/api/issues/:id/open-claude', localOnly);
   app.use('/api/directories/*', localOnly);
+  // PR and commit ingest move issues as the GitHub agent: same rule
+  app.use('/api/git/pull-requests', localOnly);
+  app.use('/api/git/commits', localOnly);
   app.post('/api/issues/:id/open-claude', async (c) => {
     const b = await c.req.json().catch(() => ({})) as { locationId?: string; directory?: string };
     try {
@@ -323,12 +411,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // ---------- comments ----------
   app.post('/api/issues/:id/comments', async (c) => {
     const b = await c.req.json();
-    const comment = store.addComment(c.req.param('id'), store.actor(), b.body, b.parentId ?? null);
+    const comment = store.addComment(c.req.param('id'), who(c, b.userId), b.body, b.parentId ?? null);
     return c.json({ comment }, 201);
   });
   app.patch('/api/comments/:id', async (c) => {
     const b = await c.req.json();
-    if (b.reaction) { store.toggleReaction(c.req.param('id'), b.reaction, store.actor()); return c.json({ ok: true }); }
+    if (b.reaction) { store.toggleReaction(c.req.param('id'), b.reaction, who(c, b.userId)); return c.json({ ok: true }); }
     if ('resolved' in b) { store.resolveComment(c.req.param('id'), !!b.resolved); return c.json({ ok: true }); }
     store.updateComment(c.req.param('id'), b.body);
     return c.json({ ok: true });
@@ -358,7 +446,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.delete('/api/projects/:id', (c) => { store.deleteProject(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/projects/:id/updates', async (c) => {
     const b = await c.req.json();
-    const update = store.addProjectUpdate(c.req.param('id'), store.actor(), b.body, b.health);
+    const update = store.addProjectUpdate(c.req.param('id'), who(c, b.userId), b.body, b.health);
     return c.json({ update }, 201);
   });
   app.post('/api/projects/:id/links', async (c) => {
@@ -410,7 +498,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- documents & team links ----------
   app.post('/api/docs', async (c) => c.json({ doc: store.createDoc(await c.req.json()) }, 201));
-  app.patch('/api/docs/:id', async (c) => { store.updateDoc(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.patch('/api/docs/:id', async (c) => { const b = await c.req.json(); store.updateDoc(c.req.param('id'), b, keyOf.has(c.req.raw) || typeof b.actorId === 'string' ? who(c, b.actorId) : undefined); return c.json({ ok: true }); });
   app.delete('/api/docs/:id', (c) => { store.deleteDoc(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/teams/:id/links', async (c) => {
     const b = await c.req.json();
@@ -551,7 +639,72 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     store.setPreferences(await c.req.json());
     return c.json({ ok: true });
   });
-  app.patch('/api/features', async (c) => { store.setFeatures(await c.req.json()); return c.json({ ok: true }); });
+  app.patch('/api/features', async (c) => {
+    const b = await c.req.json();
+    store.setFeatures(b);
+    // turning GitHub on adds Linear's "In Review" state and syncs straight away
+    if (b.githubEnabled === true) { git.ensureInReview(); void git.sync().catch(() => {}); }
+    return c.json({ ok: true });
+  });
+
+  // ---------- initiatives ----------
+  app.post('/api/initiatives', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ initiative: planning.createInitiative(b) }, 201); });
+  app.patch('/api/initiatives/:id', async (c) => { planning.updateInitiative(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/initiatives/:id', (c) => { planning.deleteInitiative(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/initiatives/:id/projects', async (c) => { const b = await c.req.json(); planning.addProject(c.req.param('id'), b.projectId); return c.json({ ok: true }, 201); });
+  app.delete('/api/initiatives/:id/projects/:projectId', (c) => { planning.removeProject(c.req.param('id'), c.req.param('projectId')); return c.json({ ok: true }); });
+  app.post('/api/initiatives/:id/updates', async (c) => { const b = await c.req.json(); if (!b.body) return c.json({ error: 'body is required' }, 400); return c.json({ update: planning.addInitiativeUpdate(c.req.param('id'), who(c, b.userId), b.body, b.health) }, 201); });
+  app.patch('/api/initiative-updates/:id', async (c) => { const b = await c.req.json(); if (!b.reaction) return c.json({ error: 'reaction is required' }, 400); planning.toggleUpdateReaction(c.req.param('id'), String(b.reaction), who(c, b.userId)); return c.json({ ok: true }); });
+  app.post('/api/initiatives/:id/links', async (c) => { const b = await c.req.json(); if (!b.url) return c.json({ error: 'url is required' }, 400); return c.json({ link: planning.addLink(c.req.param('id'), String(b.url), b.title) }, 201); });
+  app.delete('/api/initiative-links/:id', (c) => { planning.deleteLink(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/initiative-labels', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ label: planning.createLabel(b) }, 201); });
+  app.patch('/api/initiative-labels/:id', async (c) => { planning.updateLabel(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/initiative-labels/:id', (c) => { planning.deleteLabel(c.req.param('id')); return c.json({ ok: true }); });
+
+  // ---------- releases ----------
+  app.post('/api/releases', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ release: planning.createRelease(b) }, 201); });
+  app.patch('/api/releases/:id', async (c) => { planning.updateRelease(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/releases/:id', (c) => { planning.deleteRelease(c.req.param('id')); return c.json({ ok: true }); });
+
+  // ---------- SLAs, asks, loops ----------
+  app.post('/api/sla-rules', async (c) => { const b = await c.req.json(); if (!b.name || !(b.hours > 0)) return c.json({ error: 'name and hours are required' }, 400); return c.json({ rule: automation.createSlaRule(b) }, 201); });
+  app.patch('/api/sla-rules/:id', async (c) => { automation.updateSlaRule(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/sla-rules/:id', (c) => { automation.deleteSlaRule(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/asks', async (c) => { const b = await c.req.json(); if (!b.name || !b.teamId) return c.json({ error: 'name and teamId are required' }, 400); return c.json({ form: automation.createAskForm(b) }, 201); });
+  app.patch('/api/asks/:id', async (c) => { automation.updateAskForm(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/asks/:id', (c) => { automation.deleteAskForm(c.req.param('id')); return c.json({ ok: true }); });
+  app.post('/api/asks/:id/submit', async (c) => {
+    const b = await c.req.json();
+    try { return c.json({ issue: automation.submitAsk(c.req.param('id'), b.values ?? {}, b.requesterId) }, 201); }
+    catch (err) { return c.json({ error: (err as Error).message }, 400); }
+  });
+  app.post('/api/loops', async (c) => { const b = await c.req.json(); if (!b.name || !b.trigger) return c.json({ error: 'name and trigger are required' }, 400); return c.json({ loop: automation.createLoop({ ...b, actions: b.actions ?? [] }) }, 201); });
+  app.patch('/api/loops/:id', async (c) => { automation.updateLoop(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.delete('/api/loops/:id', (c) => { automation.deleteLoop(c.req.param('id')); return c.json({ ok: true }); });
+  app.put('/api/teams/:id/workflow', async (c) => c.json({ workflow: automation.setTeamWorkflow(c.req.param('id'), await c.req.json()) }));
+  app.put('/api/teams/:id/subscription', async (c) => { automation.setTeamSubscription(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
+  app.post('/api/loops/:id/run', async (c) => { const b = await c.req.json().catch(() => ({})); try { return c.json({ run: automation.runLoop(c.req.param('id'), b.issueId ?? null) }); } catch (err) { return c.json({ error: (err as Error).message }, 400); } });
+
+  // ---------- git / GitHub ----------
+  app.get('/api/git/status', async (c) => c.json(await git.status()));
+  app.post('/api/git/sync', async (c) => c.json(await git.sync()));
+  app.get('/api/git/automation/:teamId', (c) => c.json(git.automation(c.req.param('teamId'))));
+  app.put('/api/git/automation/:teamId', async (c) => { git.setAutomation(c.req.param('teamId'), await c.req.json()); return c.json({ ok: true }); });
+  // webhook setup (the secret is shown once, when it's made) and one-way GitHub Issues import
+  app.get('/api/github/webhook/config', (c) => c.json(webhooks.config()));
+  app.put('/api/github/webhook/config', async (c) => { try { webhooks.setPublicUrl(String((await c.req.json()).publicUrl ?? '')); return c.json(webhooks.config()); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
+  app.post('/api/github/webhook/secret', (c) => c.json({ secret: webhooks.rotateSecret() }, 201));
+  app.delete('/api/github/webhook/secret', (c) => { webhooks.turnOff(); return c.json({ ok: true }); });
+  app.get('/api/github/webhook/deliveries', (c) => c.json({ deliveries: webhooks.deliveries(Math.min(100, Number(c.req.query('limit') ?? 30) || 30)) }));
+  app.post('/api/github/issues/import', async (c) => {
+    const b = await c.req.json();
+    try { return c.json(await webhooks.importIssues(String(b.repo ?? ''), String(b.teamId ?? ''), !!b.follow)); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  });
+  app.put('/api/github/issues/follow', async (c) => { const b = await c.req.json(); webhooks.setFollow(String(b.repo ?? ''), b.teamId ? String(b.teamId) : null); return c.json(webhooks.config()); });
+  app.post('/api/git/unlink', async (c) => { const b = await c.req.json(); git.unlink(b.issueId, b.prId); return c.json({ ok: true }); });
+  /** the webhook-shaped entry points, for scripts and (later) a hosted GitHub App */
+  app.post('/api/git/pull-requests', async (c) => c.json({ pr: git.ingestPullRequest(await c.req.json()) }, 201));
+  app.post('/api/git/commits', async (c) => { const b = await c.req.json(); return c.json({ linked: git.ingestPush(b.commits ?? []) }, 201); });
 
   // ---------- project labels, statuses, subscriptions ----------
   app.post('/api/project-labels', async (c) => {
@@ -569,7 +722,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/project-statuses/:id', async (c) => { store.updateProjectStatus(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/project-statuses/:id', (c) => store.deleteProjectStatus(c.req.param('id')) ? c.json({ ok: true }) : c.json({ error: 'A category keeps at least one status' }, 400));
   app.put('/api/projects/:id/subscription', async (c) => {
-    store.setProjectSubscription(c.req.param('id'), store.actor(), await c.req.json());
+    store.setProjectSubscription(c.req.param('id'), actor(c), await c.req.json());
     return c.json({ ok: true });
   });
 
@@ -583,24 +736,27 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.delete('/api/doc-templates/:id', (c) => { store.deleteDocTemplate(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/emojis', async (c) => {
     const name = String(c.req.query('name') ?? '');
-    const file = basename(c.req.query('file') || 'emoji.png').replace(/[^\w.\-]+/g, '_').slice(0, 80) || 'emoji.png';
-    const buf = Buffer.from(await c.req.arrayBuffer());
-    if (!buf.length) return c.json({ error: 'Pick an image' }, 400);
-    if (buf.length > 1024 * 1024) return c.json({ error: 'Emoji images are limited to 1 MB' }, 413);
-    const dirId = `emoji_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    mkdirSync(join(attachmentsDir, dirId), { recursive: true });
-    writeFileSync(join(attachmentsDir, dirId, file), buf);
-    writeFileSync(join(attachmentsDir, dirId, '.mime'), c.req.header('content-type') ?? 'image/png');
-    try { return c.json({ emoji: store.addEmoji(name, `/api/emoji-files/${dirId}/${encodeURIComponent(file)}`) }, 201); }
-    catch (err) { return c.json({ error: (err as Error).message }, 400); }
+    try {
+      const f = files.upload({ data: await readUpload(c, MAX_EMOJI_BYTES), name: c.req.query('file') || 'emoji.png', ownerType: 'workspace', ownerId: '', uploadedBy: actor(c), maxBytes: MAX_EMOJI_BYTES });
+      try {
+        const emoji = store.addEmoji(name, f.url);
+        files.reassign(f.id, 'emoji', emoji.id);
+        return c.json({ emoji }, 201);
+      } catch (err) { files.remove(f.id); return c.json({ error: (err as Error).message }, 400); }
+    } catch (err) { return uploadFailed(c, err); }
   });
-  app.get('/api/emoji-files/:dir/:name', (c) => {
-    const dir = basename(c.req.param('dir'));
-    if (!dir.startsWith('emoji_')) return c.json({ error: 'not found' }, 404);
-    const file = join(attachmentsDir, dir, basename(decodeURIComponent(c.req.param('name'))));
-    if (!existsSync(file)) return c.json({ error: 'not found' }, 404);
-    const mime = existsSync(join(attachmentsDir, dir, '.mime')) ? readFileSync(join(attachmentsDir, dir, '.mime'), 'utf8').trim() : 'image/png';
-    return c.body(readFileSync(file), 200, uploadHeaders(mime, basename(file)));
+  // Settings › Profile › Profile picture (an empty body removes it)
+  app.post('/api/users/:id/avatar', async (c) => {
+    const userId = c.req.param('id');
+    if (!files.ownerExists('avatar', userId)) return c.json({ error: 'not found' }, 404);
+    try {
+      const data = await readUpload(c, MAX_IMAGE_BYTES);
+      const previous = files.byOwner('avatar', userId);
+      const avatarUrl = data.length ? files.upload({ data, name: c.req.query('file') || 'avatar.png', ownerType: 'avatar', ownerId: userId, uploadedBy: actor(c) }).url : null;
+      store.updateUser(userId, { avatarUrl });
+      for (const p of previous) files.remove(p.id);
+      return c.json({ avatarUrl }, avatarUrl ? 201 : 200);
+    } catch (err) { return uploadFailed(c, err); }
   });
   app.delete('/api/emojis/:id', (c) => { store.deleteEmoji(c.req.param('id')); return c.json({ ok: true }); });
 
@@ -651,6 +807,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (!b?.json) return c.json({ error: 'missing json payload' }, 400);
     try {
       store.importJson(b.json);
+      // an export from before images moved into the database still points at the old folder
+      files.migrateLegacy();
       return c.json({ ok: true });
     } catch (err) {
       return c.json({ error: String(err) }, 400);
@@ -659,7 +817,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.post('/api/seed', async (c) => {
     if (hosted) return c.json({ error: 'Sample data can\'t replace a hosted workspace', code: 'forbidden' }, 403);
     const b = await c.req.json().catch(() => ({}));
-    seedWorkspace(db, { workspaceName: b.workspaceName });
+    if (b.into) {
+      // onboarding's "Load sample data": once per workspace, alongside what you already set up
+      if (getMeta(db, 'seededAt')) return c.json({ ok: true, already: true });
+      seedWorkspace(db, { into: true });
+      if (store.getFeatures().githubEnabled) git.ensureInReview();
+    } else seedWorkspace(db, { workspaceName: b.workspaceName });
     return c.json({ ok: true });
   });
 
@@ -676,14 +839,15 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.body(readFileSync(join(WEB_DIST, 'index.html')), 200, { 'Content-Type': 'text/html' });
   });
 
-  return { app, store, db, accounts, changes };
+  return { app, store, db, accounts, changes, files };
 }
 
 export function serve(opts: ServeOptions = {}): { server: ServerType; port: number } {
   const dbPath = resolveDbPath(opts.dbPath);
   const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7770);
   const auth = authConfigFromEnv();
-  const { app, store, changes } = createApp(dbPath, auth);
+  // the browser is where a new workspace gets set up, so a new database starts blank (--seed: sample data)
+  const { app, store, changes } = createApp(dbPath, auth, mailerFromEnv(), { blank: !opts.seedIfEmpty });
   // only the server watches the clock and the file: the CLI uses createApp too, and must exit
   changes.start();
   startScheduler(store, changes);

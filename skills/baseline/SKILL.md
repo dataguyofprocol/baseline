@@ -121,12 +121,55 @@ baseline project milestone-update "Name" "Beta cut" --status inProgress   # plan
 baseline project milestone-delete "Name" "Beta cut"
 baseline project delete "Name"                # issues are kept and detached
 
+# project labels, statuses, update schedule
+baseline project labels                       # groups end with "/" and list their labels
+baseline project label-create "Infra" [--group] [--in "Area"] [-c "#3b82f6"]
+baseline project statuses                     # named statuses by category
+baseline project status-create started "In Review"
+baseline project update "Name" --status "In Review" --label Infra --remove-label "Q4 bet" --updates weekly   # --updates none|weekly|biweekly|monthly|default
+
+# initiatives & releases
+baseline initiative list [--json]
+baseline initiative create "Agent-first tracker" --status active --project "Agent Handoff" "Design System" [--parent "…"] [--target 2026-12-01]
+baseline initiative update "Agent-first tracker" --status completed --add-project "Mobile" --remove-project "…"
+baseline initiative update I-3 --priority high --label Growth "Q1 bet" --remove-label Docs --team CORE --updates weekly   # by name or I-12; labels are created if new
+baseline initiative label list | create <name> [--color #hex] | delete <name>
+baseline initiative note "Agent-first tracker" "On track for Q4" --health onTrack
+baseline release list [--json]
+baseline release create v1.5.0 [--target 2026-11-01] [-d "notes"]
+baseline release update v1.5.0 --add CORE-3 CORE-7 --stage released   # planned|started|released|canceled
+
+# SLAs, Asks, Loops
+baseline sla list                               # rules + breached issues
+baseline sla create "Urgent in 24h" --hours 24 -p urgent [-t CORE]
+baseline ask list                               # forms and their field ids (* = required)
+baseline ask submit "Bug report" f_title="Export crashes" f_sev=Blocking   # files into the team's triage
+baseline loop list
+baseline loop run "Bug acknowledgement" CORE-12  # run a loop now, optionally on an issue
+
+# git / GitHub (Linear's linking rules: key in branch or PR title; Fixes/Closes … moves the issue)
+baseline git sync                               # pull PRs (gh) and commits (git log) from your locations
+baseline git prs CORE-12 [--json]               # PRs and commits linked to an issue
+baseline git webhook [--rotate] [--url https://…] [--off]   # real-time GitHub webhooks (signed, inbound only)
+baseline git import-issues owner/repo -t CORE [--follow]    # one-way import of open GitHub issues into a team
+# the integration is read-only: Baseline never comments, labels or pushes on GitHub
+# name branches with the issue key (Copy git branch, ⌘⇧.) and write "Fixes CORE-12" in the PR so it moves on merge
+
+# customers (customer requests)
+baseline customer list [--json]
+baseline customer create "Acme" --domain acme.dev --revenue 240000 --size 120
+baseline customer request "Acme" CORE-12 -b "what they said" [--important]   # or a project name instead of an issue key
+
 # documents (specs, briefs, runbooks on a project or team — Markdown)
 baseline doc list [--project "Name"] [--team CORE] [--json]
 baseline doc show "Hand-off spec" [--json]    # by id or title
 baseline doc create "API spec" --project "Name" --content "## Goals…"   # or --team CORE; --content - reads stdin
-baseline doc update "API spec" --append "- new decision"   # --title / --content (replace) / --append
+baseline doc update "API spec" --append "- new decision"   # --title / --content (replace) / --append; --as "Agent" notifies the doc's author
 baseline doc delete "API spec"
+
+# personal API keys for scripts calling the REST API (curl -H "Authorization: Bearer <key>" localhost:7770/api/bootstrap)
+baseline api-key create "CI" [-s read createIssues] [-t CORE]   # prints the token once; no -s = full access
+baseline api-key list [--all] [--json] / baseline api-key revoke "CI"
 
 # labels & workspace backup
 baseline label create "Flaky" -t CORE -c "#eb5757" -d "description" / label update / label delete

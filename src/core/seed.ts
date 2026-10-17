@@ -1,33 +1,62 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { setMeta } from './db.js';
+import { execFileSync } from 'node:child_process';
+import { userInfo } from 'node:os';
+import { getMeta, setMeta } from './db.js';
 import { id, nowIso } from './util.js';
 import { Store } from './store.js';
 import type { Priority } from './types.js';
 
-export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string } = {}): void {
+/** who you are on a fresh machine: git's user.name, else the login name */
+function localUserName(): string {
+  try { const n = execFileSync('git', ['config', '--global', 'user.name'], { encoding: 'utf8', timeout: 2000 }).trim(); if (n) return n; } catch { /* no git or no name */ }
+  try { const n = userInfo().username; return n.charAt(0).toUpperCase() + n.slice(1); } catch { return 'You'; }
+}
+
+/** A workspace with nothing in it but you and Claude Code — the web app's first run, where
+ *  onboarding names the first team and offers the sample data. */
+export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string } = {}): void {
   const store = new Store(db);
   store.wipe();
+  setMeta(db, 'workspaceId', id('w'));
+  setMeta(db, 'workspaceName', opts.workspaceName ?? 'Baseline');
+  setMeta(db, 'workspaceCreatedAt', nowIso());
+  const me = store.createUser(opts.userName ?? localUserName(), '', true);
+  setMeta(db, 'currentUser', me.id);
+  store.claudeCodeUserId();
+  store.setPreferences({ gettingStarted: { onboarding: 'pending', step: 0, since: null, usedPalette: false } });
+}
+
+/** The sample workspace. `into` adds it to the workspace as it stands — your teams, locations
+ *  and settings stay, and you are the sample's "me" — instead of wiping first. */
+export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string; into?: boolean } = {}): void {
+  const store = new Store(db);
+  if (!opts.into) store.wipe();
 
   const now = Date.now();
   const iso = (offsetDays: number) => new Date(now + offsetDays * 86400_000).toISOString();
 
-  const workspaceName = opts.workspaceName ?? 'Baseline';
-  setMeta(db, 'workspaceId', id('w'));
-  setMeta(db, 'workspaceName', workspaceName);
-  setMeta(db, 'workspaceCreatedAt', iso(-30));
+  if (!opts.into) {
+    const workspaceName = opts.workspaceName ?? 'Baseline';
+    setMeta(db, 'workspaceId', id('w'));
+    setMeta(db, 'workspaceName', workspaceName);
+    setMeta(db, 'workspaceCreatedAt', iso(-30));
+  }
   setMeta(db, 'seededAt', iso(0));
 
   // members
-  const me = store.createUser(opts.userName ?? 'Parth Batra', 'parth@local', true);
+  const current = opts.into ? store.snapshot().users.find(u => u.id === getMeta(db, 'currentUser')) : undefined;
+  const me = current ?? store.createUser(opts.userName ?? 'Parth Batra', 'parth@local', true);
   const ada = store.createUser('Ada Osei', 'ada@local');
   const jun = store.createUser('Jun Watanabe', 'jun@local');
   const agent = store.createUser('Agent', 'agent@local', false, 'agent');
   store.updateUser(agent.id, { color: '#4cb782' });
   setMeta(db, 'currentUser', me.id);
 
-  // teams with default workflow states
-  const core = store.createTeam('CORE', 'Core', '◆', '#5e6ad2');
-  const agents = store.createTeam('AGO', 'Agent Surface', '🤖', '#c770f4');
+  // teams with default workflow states (a key you already use gets a number)
+  const taken = new Set(store.snapshot().teams.map(t => t.key));
+  const freeKey = (k: string) => { let n = 2, key = k; while (taken.has(key)) key = `${k}${n++}`; taken.add(key); return key; };
+  const core = store.createTeam(freeKey('CORE'), 'Core', '◆', '#5e6ad2');
+  const agents = store.createTeam(freeKey('AGO'), 'Agent Surface', '🤖', '#c770f4');
   for (const t of [core, agents]) for (const u of [ada, jun]) store.addTeamMember(t.id, u.id);
 
   // labels (Linear default trio per team + extras)
@@ -149,6 +178,45 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.addCustomerRequest({ customerId: acme.id, projectId: mobile.id, body: 'Our on-call team triages from phones — need the inbox on mobile.', important: true }, ada.id);
   const reqIssue = store.listIssues({ teamId: core.id }).find(i => /search/i.test(i.title));
   if (reqIssue) store.addCustomerRequest({ customerId: north.id, issueId: reqIssue.id, body: 'Search should match comment text too.' }, jun.id);
+  // initiatives, releases, SLAs, asks, loops and a few pull requests
+  const { planning, automation, git } = store.ext;
+  // finished work gets completion times spread over past weeks (initiative graphs and activity read them)
+  const finished = store.listIssues({ teamId: core.id, stateType: 'completed' });
+  finished.forEach((i, n) => {
+    db.prepare('UPDATE issues SET completed_at = ?, project_id = COALESCE(project_id, ?) WHERE id = ?').run(iso(-(1.5 + n * 9)), n % 2 ? design.id : project.id, i.id);
+  });
+  store.updateProject(project.id, { status: 'started' });
+  store.updateProject(design.id, { status: 'started' });
+  store.addProjectUpdate(design.id, jun.id, 'Tokens are in; icon redraw slipped a week.', 'atRisk');
+  // targets use Linear's resolutions: the end of a quarter / half / year
+  const today = new Date(); const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const quarterEnd = ymd(new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3 + 3, 0));
+  const halfEnd = ymd(new Date(today.getFullYear(), today.getMonth() < 6 ? 6 : 12, 0));
+  const yearEnd = ymd(new Date(today.getFullYear() + 1, 12, 0));
+  const agentFirst = planning.createInitiative({ name: 'Agent-first tracker', icon: 'glyph:sparkles', color: '#5e6ad2', status: 'active', summary: 'The place coding agents and people share work.', description: 'Make Baseline the place coding agents and people share work: hand-offs, PR status and review in one loop.', targetDate: quarterEnd, targetResolution: 'quarter', projectIds: [project.id, design.id] });
+  const lStrategy = planning.createLabel({ name: 'Company bet', color: '#9b6ef3' });
+  const lGrowth = planning.createLabel({ name: 'Growth', color: '#4cb782' });
+  planning.updateInitiative(agentFirst.id, { priority: 1, labelIds: [lStrategy.id], teamId: core.id, updateCadence: 'weekly' });
+  planning.addLink(agentFirst.id, 'https://linear.app/docs/initiatives', 'Linear: initiatives');
+  const firstUpdate = planning.addInitiativeUpdate(agentFirst.id, ada.id, 'Hand-off loop is in beta; design tokens land next week.', 'onTrack');
+  planning.toggleUpdateReaction(firstUpdate.id, '🚀', jun.id);
+  const onTheGo = planning.createInitiative({ name: 'Triage on the go', icon: 'glyph:phone', color: '#26b5ce', status: 'planned', summary: 'Inbox and triage from a phone, for on-call.', parentId: agentFirst.id, targetDate: halfEnd, targetResolution: 'half', projectIds: [mobile.id] });
+  planning.updateInitiative(onTheGo.id, { priority: 2, labelIds: [lGrowth.id], teamId: agents.id });
+  planning.addInitiativeUpdate(onTheGo.id, jun.id, 'Waiting on the inbox API; design is ready.', 'atRisk');
+  planning.createInitiative({ priority: 3, labelIds: [lGrowth.id], name: 'Developer love', icon: 'glyph:heart', color: '#e255a1', status: 'planned', summary: 'Docs, a CLI people brag about, and one-command self-hosting.', targetDate: yearEnd, targetResolution: 'year' });
+  const coreIssues = store.listIssues({ teamId: core.id });
+  const done = coreIssues.filter(i => st(core.id, 'completed') === i.stateId).slice(0, 2);
+  const open = coreIssues.filter(i => [st(core.id, 'unstarted'), st(core.id, 'started')].includes(i.stateId)).slice(0, 3);
+  const v09 = planning.createRelease({ name: 'v0.9.0', description: 'Rich editor and triage', stage: 'released' });
+  const v10 = planning.createRelease({ name: 'v1.0.0', description: 'Projects and cycles parity', stage: 'started', targetDate: iso(10).slice(0, 10) });
+  for (const i of done) store.updateIssue(i.id, { releaseId: v09.id });
+  for (const i of open) store.updateIssue(i.id, { releaseId: v10.id });
+  automation.createSlaRule({ name: 'Urgent issues', priorities: [1], hours: 24 });
+  automation.createSlaRule({ name: 'High-priority bugs', priorities: [2], labelIds: [coreBug.id], hours: 7 * 24 });
+  automation.createAskForm({ name: 'Bug report', teamId: agents.id, description: 'Something broken? Tell us what you saw.', priority: 2,
+    fields: [{ id: 'f_title', label: 'What went wrong?', type: 'text', options: [], required: true }, { id: 'f_steps', label: 'Steps to reproduce', type: 'textarea', options: [], required: false }, { id: 'f_sev', label: 'How bad is it?', type: 'select', options: ['Blocking', 'Annoying', 'Cosmetic'], required: true }] });
+  automation.createLoop({ name: 'Bug acknowledgement', teamId: core.id, trigger: { kind: 'labelAdded', labelId: coreBug.id }, actions: [{ kind: 'comment', body: 'Thanks — {issue.key} is queued for the bug rotation.' }] });
+  if (open[0]) git.ingestPullRequest({ repo: 'example/baseline', number: 41, title: `${store.keyOf(open[0])} ${open[0].title}`, body: '', url: 'https://github.com/example/baseline/pull/41', state: 'open', branch: `parth/${store.keyOf(open[0]).toLowerCase()}`, base: 'main', author: 'parth', reviewDecision: 'review_required', checks: 'success', updatedAt: iso(-0.1), mergedAt: null });
   store.createDocTemplate({ name: 'Spec', title: 'Spec: ', content: '## Problem\n\n## Proposal\n\n## Open questions\n' });
   store.createProjectTemplate({
     name: 'Feature launch', icon: '🚀', summary: 'Ship a feature from spec to rollout.', priority: 2,
@@ -196,6 +264,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.toggleFavorite('project', project.id);
   store.toggleFavorite('view', store.snapshot().views[0].id);
 
-  setMeta(db, 'seedVersion', '6');
+  setMeta(db, 'seedVersion', '7');
   void nowIso;
 }

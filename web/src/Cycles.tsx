@@ -8,10 +8,10 @@ import { useMenu, Menu, MenuItem, MenuSep, ConfirmButton } from './ui.js';
 import { Avatar, PriorityIcon } from './pickers.js';
 import { NewCycleModal } from './Settings.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueViews.js';
-import { IssueListBody, ListToolbar, TeamMissingRedirect, TeamSubnav } from './Views.js';
-import { LogoMark } from './Logo.js';
+import { IssueListBody, ListToolbar, TeamMissingRedirect } from './Views.js';
 import { IconCycle, IconMore, IconTrash, IconEdit, IconChevronDown, IconBox, IconTag, IconPanel, IconPlus, IconEstimate } from './icons.js';
 import type { Issue, ActivityItem, Snapshot, Cycle, Priority } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 const DAY = 86400000;
 type Snap = Snapshot;
@@ -20,7 +20,7 @@ type Snap = Snapshot;
    (or for every issue when the team doesn't estimate). */
 function pointsOf(i: Issue, snap: Snap): number {
   const team = snap.teams.find(t => t.id === i.teamId);
-  return team?.estimateScale === 'none' ? 1 : i.estimate ?? 1;
+  return team?.estimateScale === 'none' ? 1 : i.estimate ?? (team?.estimateCountUnestimated === false ? 0 : 1);
 }
 
 /** an issue's workflow-state type at time t, replayed from its status changes */
@@ -62,6 +62,22 @@ function cycleStatus(c: Cycle, all: Cycle[]): 'Current' | 'Upcoming' | 'Planned'
   return next?.id === c.id ? 'Upcoming' : 'Planned';
 }
 const cycleName = (c: Cycle) => c.name || `Cycle ${c.number}`;
+/** a small progress ring, as in Linear's capacity / success figures */
+function Ring({ pct: p, over }: { pct: number; over?: boolean }) {
+  const r = 5.5; const c = 2 * Math.PI * r; const f = Math.min(p, 100) / 100;
+  return <svg width="14" height="14" viewBox="0 0 14 14" className="cy-ring"><circle cx="7" cy="7" r={r} fill="none" stroke="var(--border-strong)" strokeWidth="1.6" /><circle cx="7" cy="7" r={r} fill="none" stroke={over ? '#eb5757' : 'var(--brand)'} strokeWidth="1.6" strokeDasharray={`${c * f} ${c}`} transform="rotate(-90 7 7)" strokeLinecap="round" /></svg>;
+}
+/** Linear's cycle glyph: a play mark in a circle, filled by progress for the current cycle */
+function CycleIcon({ status, pct: p }: { status: ReturnType<typeof cycleStatus>; pct: number }) {
+  const r = 5.6; const c = 2 * Math.PI * r;
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" className={`cy-glyph ${status.toLowerCase()}`}>
+      <circle cx="7.5" cy="7.5" r={r} fill="none" stroke="currentColor" strokeWidth="1.3" strokeDasharray={status === 'Planned' ? '2 2' : undefined} opacity={status === 'Current' ? 0.35 : 1} />
+      {status === 'Current' && <circle cx="7.5" cy="7.5" r={r} fill="none" stroke="var(--brand)" strokeWidth="1.3" strokeDasharray={`${c * Math.max(p, 8) / 100} ${c}`} transform="rotate(-90 7.5 7.5)" />}
+      <path d="M6.3 5.2v4.6l3.8-2.3z" fill="currentColor" />
+    </svg>
+  );
+}
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 
 /* the cycle graph: scope, started and completed points per day, the dashed ideal pace,
@@ -137,9 +153,9 @@ function Legend(props: { cycle: Cycle; vertical?: boolean }) {
   const st = cycleStats(props.cycle, snap);
   return (
     <div className={`bu-legend${props.vertical ? ' vertical' : ''}`}>
-      <span><i className="sw scope" />Scope <b><IconEstimate size={11} /> {st.scope}</b></span>
-      <span><i className="sw started" />Started <b><IconEstimate size={11} /> {st.started + st.done}</b><em>· {pct(st.started + st.done, st.scope)}%</em></span>
-      <span><i className="sw done" />Completed <b><IconEstimate size={11} /> {st.done}</b><em>· {pct(st.done, st.scope)}%</em></span>
+      <span><i className="sw scope" /><span className="lg-label">Scope</span><b><IconEstimate size={11} /> {st.scope}</b></span>
+      <span><i className="sw started" /><span className="lg-label">Started</span><b><IconEstimate size={11} /> {st.started + st.done}</b><em>· {pct(st.started + st.done, st.scope)}%</em></span>
+      <span><i className="sw done" /><span className="lg-label">Completed</span><b><IconEstimate size={11} /> {st.done}</b><em>· {pct(st.done, st.scope)}%</em></span>
     </div>
   );
 }
@@ -199,13 +215,12 @@ export function CyclesPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: team.name, to: `/team/${team.key}/all`, muted: true }, { label: 'Cycles' }]}
-        right={<button className="btn secondary" onClick={() => setCreating(true)}><IconPlus size={13} /> New cycle</button>} />
-      <TeamSubnav teamId={team.id} filter="cycles" />
+      <TopBar crumbs={[{ label: 'Cycles' }]} favoriteRef={{ type: 'view', refId: `team-${team.id}-cycles` }}
+        more={<><MenuItem icon={<IconPlus size={14} />} label="New cycle" onClick={() => setCreating(true)} /><MenuItem label="Cycle settings" onClick={() => navigate(`/settings/team/${team.key}`)} /></>} />
       <div className="content">
         {cycles.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-mark"><LogoMark size={28} /></div>
+            <Illustration name="cycles" />
             <div className="empty-title">No cycles yet</div>
             <div className="empty-desc">Cycles are time-boxed iterations for {team.name}. Create one, or turn on automation in the team's settings and they'll be scheduled for you.</div>
             <div className="empty-actions">
@@ -224,15 +239,14 @@ export function CyclesPage() {
                   <div className="cyt-rail"><span className="cyt-node" /></div>
                   <div className="cyt-body">
                     <button className="cyt-row" onClick={() => navigate(`/team/${team.key}/cycles/${c.id}`)}>
-                      <IconCycle size={14} />
-                      <span className="cyt-name">{cycleName(c)}</span>
-                      <span className="cyt-dates">{shortDate(c.startsAt)} – {shortDate(c.endsAt)}</span>
+                      <CycleIcon status={status} pct={pct(st.done, st.scope)} />
+                      <span className="cyt-name" title={`${shortDate(c.startsAt)} – ${shortDate(c.endsAt)}`}>{cycleName(c)}</span>
                       <span className="cy-fill" />
                       <span className={`cycle-badge ${status.toLowerCase()}`}>{status}</span>
                       {status === 'Completed'
-                        ? <span className="cyt-metric">{pct(st.done, st.scope)}% success · <IconEstimate size={11} /> {st.done} completed</span>
-                        : <span className={`cyt-metric${velocity && st.scope > velocity ? ' over' : ''}`}>{velocity ? `${pct(st.scope, velocity)}% of capacity` : '— capacity'}</span>}
-                      <span className="cyt-metric"><IconEstimate size={11} /> {st.scope} scope</span>
+                        ? <><span className="cyt-metric"><Ring pct={pct(st.done, st.scope)} /><b>{pct(st.done, st.scope)}%</b> success</span><span className="cyt-metric"><IconEstimate size={11} /><b>{st.done}</b> completed</span></>
+                        : (() => { const cap = velocity ? pct(st.scope, velocity) : st.scope ? 100 : 0; return <span className={`cyt-metric${cap > 100 ? ' over' : ''}`}><Ring pct={cap} over={cap > 100} /><b>{cap}%</b> of capacity</span>; })()}
+                      <span className="cyt-metric"><IconEstimate size={11} /><b>{st.scope}</b> scope</span>
                     </button>
                     {status === 'Current' && (
                       <div className="cyt-current">
@@ -323,7 +337,7 @@ export function CycleDetailPage() {
                 onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setRenaming(false); }} />
             ) : <div className="cyr-name" onDoubleClick={() => setRenaming(true)}><IconCycle size={15} /> {cycleName(cycle)}</div>}
             <div className="rail-header" style={{ padding: 0 }}>Progress</div>
-            <Legend cycle={cycle} />
+            <Legend cycle={cycle} vertical />
             <BurnUp cycle={cycle} height={140} />
             <Breakdown issues={issues} />
           </aside>

@@ -5,7 +5,7 @@ import { api } from './api.js';
 import { setIssueProps, toggleLabel, moveIssueToTeam, markDuplicate } from './actions.js';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid, teamDisplayIcon } from './pickers.js';
 import { IconUser, IconCycle, IconEstimate, IconClose, IconCheck, IconBox, IconCalendar, IconMilestone, IconPlus, IconClock } from './icons.js';
-import { ESTIMATE_SCALES, type Issue, type Priority } from '../../src/core/types.js';
+import { teamScale, type Issue, type Priority } from '../../src/core/types.js';
 
 /* Linear's property menus all share one shape: a filter field on top (with the
    shortcut that opened it), then the values, each with a number key where order
@@ -221,7 +221,7 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
     case 'estimate': {
       const current = same(i => i.estimate);
       const team = snap.teams.find(t => t.id === first.teamId);
-      const scale = ESTIMATE_SCALES[team?.estimateScale ?? 'fibonacci'];
+      const scale = teamScale(team);
       const shown = scale.filter(s => match(q, s.label, `${s.value} points`));
       return (
         <Shell {...common} placeholder={`Set estimate${plural}…`}>

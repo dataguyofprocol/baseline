@@ -278,13 +278,20 @@ check  "user add human"        "Created user"    user add "Ada Clone"
 if b user list 2>/dev/null | grep -q '^Codex.*agent'; then PASS=$((PASS+1)); else echo "FAIL  agent kind marker on user list"; FAIL=$((FAIL+1)); fi
 if b user list 2>/dev/null | grep -q '^Ada Clone' && ! b user list 2>/dev/null | grep -q '^Ada Clone.*agent'; then PASS=$((PASS+1)); else echo "FAIL  human user not marked agent"; FAIL=$((FAIL+1)); fi
 
+echo "=== personal API keys ==="
+check  "api-key create prints token" "bl_api_"     api-key create "CLI test" -s read -t CORE
+check  "api-key list shows scopes"   "read · teams CORE" api-key list
+check_rc "api-key bad scope"  1                    api-key create "bad" -s fly
+check  "api-key revoke"              "Revoked CLI test" api-key revoke "CLI test"
+check  "api-key list empty"          "No API keys"  api-key list
+
 echo "=== issue handoff ==="
 BRANCH="$(echo "$KEY" | tr '[:upper:]' '[:lower:]')-renamed-issue"
 check  "handoff includes title"  "renamed issue"  issue handoff "$KEY"
 check  "handoff includes branch" "$BRANCH"        issue handoff "$KEY"
 check  "handoff suggests report-back" "state to Done" issue handoff "$KEY"
 b issue handoff "$KEY" --json > "$WORK/h.json"
-check_json "handoff json shape" "$WORK/h.json" "d.key==='$KEY'&&d.title==='renamed issue'&&d.branchName==='$BRANCH'&&d.prompt.includes('renamed issue')&&d.url.includes('/#/issue/')"
+check_json "handoff json shape" "$WORK/h.json" "d.key==='$KEY'&&d.title==='renamed issue'&&(d.branchName==='$BRANCH'||d.branchName.endsWith('/$BRANCH'))&&d.prompt.includes('renamed issue')&&d.url.includes('/#/issue/')"
 check_rc "handoff unknown issue" 1 issue handoff "NOPE-99"
 # --copy failure path: strip PATH so no clipboard helper exists (avoids clobbering the real clipboard)
 NODE_BIN=$(command -v node)
@@ -376,6 +383,28 @@ echo "=== seed ==="
 DB3=$(newdb 3)
 checkon "$DB3" "seed --reset" "Seeded:" seed --reset
 
+echo "=== initiatives: ids, priority, labels, lead team ==="
+checkon "$DB3" "initiative list shows I- ids" "I-1 " initiative list
+checkon "$DB3" "initiative update by I- id sets priority and labels" "Updated initiative I-3" initiative update I-3 --priority urgent --label Docs "Q1 bet"
+BASELINE_DB="$DB3" $BIN initiative list --json > "$WORK/ini.json"
+check_json "priority and labels stored" "$WORK/ini.json" "d.find(i=>i.key==='I-3').priority==='Urgent'&&['Docs','Q1 bet'].every(l=>d.find(i=>i.key==='I-3').labels.includes(l))"
+checkon "$DB3" "remove a label" "Updated" initiative update "Developer love" --remove-label Docs --team CORE --updates weekly
+BASELINE_DB="$DB3" $BIN initiative list --json > "$WORK/ini.json"
+check_json "label removed, team and schedule set" "$WORK/ini.json" "(i=>!i.labels.includes('Docs')&&i.labels.includes('Q1 bet')&&i.team==='CORE'&&i.updateSchedule==='weekly'&&!!i.updateDueAt)(d.find(i=>i.key==='I-3'))"
+checkon "$DB3" "create with priority, labels and team" "Created initiative I-4" initiative create "Self-serve" -p high --label Growth -t AGO
+checkon "$DB3" "initiative label list" "Q1 bet" initiative label list
+checkon "$DB3" "initiative label create" "Created initiative label" initiative label create Platform --color "#4ea7fc"
+BASELINE_DB="$DB3" $BIN initiative list --json > "$WORK/ini.json"
+check_json "seeded labels are reused, not duplicated" "$WORK/ini.json" "d.find(i=>i.key==='I-4').labels.join()==='Growth'&&d.find(i=>i.key==='I-4').priority==='High'"
+BASELINE_DB="$DB3" $BIN initiative label list --json > "$WORK/il.json"
+check_json "one Growth label" "$WORK/il.json" "d.filter(l=>l.name==='Growth').length===1&&d.find(l=>l.name==='Growth').initiatives===3"
+check_rc "bad priority fails" 1 initiative update I-1 --priority huge --db "$DB3"
+BASELINE_DB="$DB3" $BIN export --out "$WORK/ini-export.json"
+DB6=$(newdb 6)
+checkon "$DB6" "import with initiative fields" "Imported:" import "$WORK/ini-export.json"
+BASELINE_DB="$DB6" $BIN initiative list --json > "$WORK/ini6.json"
+check_json "initiative fields round-trip" "$WORK/ini6.json" "d.find(i=>i.key==='I-4').labels.join()==='Growth'&&d.find(i=>i.key==='I-3').team==='CORE'&&d.find(i=>i.key==='I-1').priority==='Urgent'"
+
 echo "=== explicit --db flag path ==="
 DB4="$WORK/db4.db"
 check  "explicit --db flag"   "CORE"            team list --db "$DB4"
@@ -455,6 +484,255 @@ if [[ $? -eq 0 ]]; then
 else
   echo "FAIL  store createProject fields"; cat "$WORK/store-out.txt"; FAILED_NAMES+=("store createProject fields"); FAIL=$((FAIL+1))
 fi
+
+nodecheck() { # nodecheck <name> <module-script> [args…] — passes when the script exits 0
+  local name="$1" script="$2"; shift 2
+  if node --input-type=module -e "$script" "$@" > "$WORK/nodecheck.txt" 2>&1; then PASS=$((PASS+1)); else echo "FAIL  $name"; sed 's/^/      /' "$WORK/nodecheck.txt"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
+}
+
+echo "=== git: parseLinks and magic words ==="
+nodecheck "parseLinks: branch, title and magic words" '
+const { parseLinks } = await import("./dist/core/git.js");
+const bad = [];
+const eq = (what, got, want) => { const g = JSON.stringify([...got].sort()), w = JSON.stringify(want.sort()); if (g !== w) bad.push(`${what}: got ${g}, want ${w}`); };
+const L = (branch, title, body = "") => parseLinks({ branch, title, body });
+eq("key in branch",            L("parth/core-12-fix-login", "Fix login"), [["CORE-12", "closing"]]);
+eq("key in title",             L("main", "CORE-3 tidy up"), [["CORE-3", "closing"]]);
+eq("closing list",             L("x", "t", "Fixes CORE-1, CORE-2 and CORE-3"), [["CORE-1", "closing"], ["CORE-2", "closing"], ["CORE-3", "closing"]]);
+eq("closing with colon",       L("x", "t", "Closes: CORE-4"), [["CORE-4", "closing"]]);
+eq("every closing word",       L("x", "t", "resolved CORE-5\ncompletes CORE-6\nimplementing CORE-7"), [["CORE-5", "closing"], ["CORE-6", "closing"], ["CORE-7", "closing"]]);
+eq("ref words",                L("x", "t", "Part of CORE-5. refs CORE-6. Contributes to CORE-7. towards CORE-8"), [["CORE-5", "ref"], ["CORE-6", "ref"], ["CORE-7", "ref"], ["CORE-8", "ref"]]);
+eq("related",                  L("x", "t", "Related to CORE-8, relates to CORE-9"), [["CORE-8", "related"], ["CORE-9", "related"]]);
+eq("ignore beats the title",   L("x", "CORE-9 something", "ignore CORE-9"), []);
+eq("skip beats the branch",    L("me/core-10-x", "t", "skip CORE-10"), []);
+eq("closing outranks ref",     L("x", "t", "refs CORE-11\nfixes CORE-11"), [["CORE-11", "closing"]]);
+eq("a word beats the title",   L("x", "CORE-12 thing", "ref CORE-12"), [["CORE-12", "ref"]]);
+eq("lower-case keys",          L("x", "t", "fixes core-13"), [["CORE-13", "closing"]]);
+eq("no key, no link",          L("feature/login", "Fix login", "Just a description"), []);
+eq("key mid-word in a branch", L("score-14x", "t"), []);
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+'
+
+echo "=== git: prEvent ==="
+nodecheck "prEvent maps PR state to automation events" '
+const { prEvent } = await import("./dist/core/git.js");
+const cases = [
+  [{ state: "merged", reviewDecision: null, checks: null }, "merged"],
+  [{ state: "closed", reviewDecision: "approved", checks: "success" }, null],
+  [{ state: "draft", reviewDecision: null, checks: null }, "draft"],
+  [{ state: "open", reviewDecision: null, checks: null }, "opened"],
+  [{ state: "open", reviewDecision: "review_required", checks: null }, "review"],
+  [{ state: "open", reviewDecision: "changes_requested", checks: "success" }, "review"],
+  [{ state: "open", reviewDecision: "approved", checks: "success" }, "ready"],
+  [{ state: "open", reviewDecision: "approved", checks: null }, "ready"],
+  [{ state: "open", reviewDecision: "approved", checks: "pending" }, "review"],
+  [{ state: "open", reviewDecision: "approved", checks: "failure" }, "review"],
+];
+const bad = cases.filter(([pr, want]) => prEvent(pr) !== want).map(([pr, want]) => `${JSON.stringify(pr)} → ${prEvent(pr)}, want ${want}`);
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+'
+
+echo "=== git: KEY-NEW parsing ==="
+nodecheck "parseNewIssueKeys and titleFromPr" '
+const { parseNewIssueKeys, titleFromPr } = await import("./dist/core/git.js");
+const bad = [];
+const eq = (what, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) bad.push(`${what}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); };
+eq("title",              parseNewIssueKeys({ title: "CORE-NEW Add export", body: "" }), ["CORE"]);
+eq("title and body",     parseNewIssueKeys({ title: "[CORE-NEW] Add export", body: "also AGO-NEW, and CORE-NEW again" }), ["CORE", "AGO"]);
+eq("prose is not a key", parseNewIssueKeys({ title: "A brand-new export", body: "renew the core-new cache" }), []);
+eq("real keys are not NEW", parseNewIssueKeys({ title: "CORE-12 fix", body: "fixes CORE-13" }), []);
+eq("strip prefix",       titleFromPr("CORE-NEW Add export"), "Add export");
+eq("strip brackets",     titleFromPr("[CORE-NEW] Add export"), "Add export");
+eq("strip colon",        titleFromPr("CORE-NEW: Add export"), "Add export");
+eq("strip suffix",       titleFromPr("Add export (CORE-NEW)"), "Add export");
+eq("only the marker",    titleFromPr("CORE-NEW"), "");
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+'
+
+echo "=== git: ingest — PR author, attribution, KEY-NEW, branch-copy start ==="
+nodecheck "PR ingest assigns the author, files KEY-NEW issues, branch copy starts issues" '
+const { createApp } = await import("./dist/server/index.js");
+const { store } = createApp(process.argv[1]);
+const git = store.ext.git;
+const bad = [];
+const ok = (what, cond) => { if (!cond) bad.push(what); };
+const snap = () => store.snapshot();
+const team = snap().teams.find(t => t.key === "CORE");
+const state = (type, name) => snap().states.find(s => s.teamId === team.id && s.type === type && (!name || s.name === name));
+const ada = snap().users.find(u => u.name === "Ada Osei");
+const me = snap().currentUser;
+store.updateUser(ada.id, { githubUsername: "@Ada-GH" });
+ok("github username saved without @", snap().users.find(u => u.id === ada.id).githubUsername === "Ada-GH");
+ok("login match is case-insensitive", git.userByGithub("ada-gh") === ada.id && git.userByGithub("nobody") === undefined && git.userByGithub("") === undefined);
+let n = 0;
+const pr = (o) => git.ingestPullRequest({ repo: "acme/app", number: ++n, title: "Change", body: "", url: `https://github.com/acme/app/pull/${n}`, state: "open", branch: "work", base: "main", author: "ada-gh", reviewDecision: null, checks: null, updatedAt: new Date().toISOString(), mergedAt: null, ...o });
+const keyOf = (i) => `${team.key}-${i.number}`;
+const issue = (id) => store.getIssue(id);
+
+// an unassigned issue a PR closes goes to the PR author, and the activity is theirs
+const a = store.createIssue({ teamId: team.id, title: "unassigned", stateId: state("backlog").id });
+pr({ body: `Fixes ${keyOf(a)}` });
+ok("author becomes assignee", issue(a.id).assigneeId === ada.id);
+ok("opened PR moves to started", snap().states.find(s => s.id === issue(a.id).stateId).type === "started");
+const acts = store.issueActivity(a.id);
+ok("prLinked is by the author", acts.some(x => x.type === "prLinked" && x.userId === ada.id));
+ok("status move is by the author", acts.some(x => x.type === "prStateMoved" && x.userId === ada.id));
+
+// an assigned issue keeps its assignee; a ref link never assigns
+const b = store.createIssue({ teamId: team.id, title: "mine", assigneeId: me.id, stateId: state("unstarted").id });
+pr({ body: `Closes ${keyOf(b)}` });
+ok("assignee kept", issue(b.id).assigneeId === me.id);
+const c = store.createIssue({ teamId: team.id, title: "ref only", stateId: state("backlog").id });
+pr({ body: `Part of ${keyOf(c)}` });
+ok("ref link does not assign", issue(c.id).assigneeId === null);
+
+// an unknown author stays the GitHub agent and assigns no one
+const d = store.createIssue({ teamId: team.id, title: "stranger", stateId: state("backlog").id });
+pr({ body: `Fixes ${keyOf(d)}`, author: "stranger" });
+const bot = snap().users.find(u => u.kind === "agent" && u.name === "GitHub");
+ok("unknown author: no assignee", issue(d.id).assigneeId === null);
+ok("unknown author: GitHub agent acts", store.issueActivity(d.id).some(x => x.type === "prLinked" && x.userId === bot?.id));
+
+// KEY-NEW: one new issue, started, assigned to the author, titled from the PR, linked — never twice
+const before = snap().issues.length;
+const p = pr({ title: "CORE-NEW Add CSV export", body: "" });
+const made = snap().issues.filter(i => i.title === "Add CSV export");
+ok("KEY-NEW files one issue", made.length === 1 && snap().issues.length === before + 1);
+const m = made[0];
+ok("KEY-NEW issue is started", m && snap().states.find(s => s.id === m.stateId).type === "started");
+ok("KEY-NEW issue belongs to the author", m && m.assigneeId === ada.id);
+ok("KEY-NEW issue is linked", m && snap().issuePrs.some(l => l.issueId === m.id && l.prId === p.id && l.kind === "closing"));
+git.ingestPullRequest({ ...p, state: "merged", mergedAt: new Date().toISOString() });
+ok("re-sync files nothing new", snap().issues.filter(i => i.title === "Add CSV export").length === 1);
+ok("KEY-NEW issue follows the PR to done", snap().states.find(s => s.id === issue(m.id).stateId).type === "completed");
+pr({ title: "CORE-NEW Abandoned idea", state: "closed" });
+ok("closed PR files nothing", !snap().issues.some(i => i.title === "Abandoned idea"));
+pr({ title: "NOPE-NEW Unknown team" });
+ok("unknown team files nothing", !snap().issues.some(i => i.title === "Unknown team"));
+
+// branch copy: backlog / unstarted → first started state, unassigned → you; started issues stay put
+const e = store.createIssue({ teamId: team.id, title: "copy me", stateId: state("backlog").id });
+const r1 = store.startIssue(e.id, me.id);
+ok("branch copy moves backlog to started", r1.moved && issue(e.id).stateId === state("started").id && r1.stateName === state("started").name);
+ok("branch copy assigns you", r1.assigned && issue(e.id).assigneeId === me.id);
+const r2 = store.startIssue(e.id, me.id);
+ok("already started: no move", !r2.moved);
+const f = store.createIssue({ teamId: team.id, title: "Ada has it", assigneeId: ada.id, stateId: state("unstarted").id });
+const r3 = store.startIssue(f.id, me.id);
+ok("unstarted moves, assignee kept", r3.moved && !r3.assigned && issue(f.id).assigneeId === ada.id);
+const g = store.createIssue({ teamId: team.id, title: "done", stateId: state("completed").id });
+ok("completed: no move", !store.startIssue(g.id, me.id).moved);
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+' "$WORK/git-flow.db"
+
+echo "=== git: read-only — only read commands reach gh / git ==="
+nodecheck "assertReadOnly allows reads and refuses every write" '
+const { assertReadOnly } = await import("./dist/core/git.js");
+const ok = (c, a) => { try { assertReadOnly(c, a); return true; } catch { return false; } };
+const reads = [["gh", ["--version"]], ["gh", ["api", "user", "--jq", ".login"]], ["gh", ["api", "-X", "GET", "repos/o/r"]], ["gh", ["api", "--method=GET", "repos/o/r"]],
+  ["gh", ["pr", "list", "--repo", "o/r"]], ["gh", ["issue", "list", "--repo", "o/r"]], ["git", ["log", "-n", "5"]], ["git", ["remote", "get-url", "origin"]], ["git", ["symbolic-ref", "--short", "x"]]];
+const writes = [["gh", ["pr", "comment", "1", "-b", "hi"]], ["gh", ["pr", "merge", "1"]], ["gh", ["issue", "create"]], ["gh", ["issue", "close", "3"]], ["gh", ["api", "-X", "POST", "repos/o/r/issues"]],
+  ["gh", ["api", "repos/o/r/issues/1/comments", "-f", "body=hi"]], ["gh", ["api", "--method=PATCH", "repos/o/r"]], ["gh", ["api", "repos/o/r", "--input", "x.json"]], ["gh", ["api", "graphql"]],
+  ["gh", ["label", "create", "x"]], ["git", ["push"]], ["git", ["remote", "add", "x", "y"]], ["git", ["commit", "-m", "x"]], ["curl", ["https://api.github.com"]]];
+const bad = [...reads.filter(([c, a]) => !ok(c, a)).map(x => "refused read " + x[1].join(" ")), ...writes.filter(([c, a]) => ok(c, a)).map(x => "allowed write " + x[0] + " " + x[1].join(" "))];
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+'
+
+echo "=== git: webhooks — signed, deduped, inbound only ==="
+nodecheck "webhooks verify signatures, dedupe, and feed PRs, reviews, checks, pushes and issues" '
+const { createHmac } = await import("node:crypto");
+const { createApp } = await import("./dist/server/index.js");
+const { app, store } = createApp(process.argv[1]);
+const fail = m => { console.error(m); process.exit(1); };
+const TUNNEL = "https://abc.trycloudflare.com/api/github/webhook";
+let secret = "";
+let n = 0;
+const send = async (event, payload, { sig, id, url = TUNNEL } = {}) => {
+  const raw = JSON.stringify(payload);
+  const headers = { "Content-Type": "application/json", "X-GitHub-Event": event, "X-GitHub-Delivery": id ?? `d-${++n}` };
+  const s = sig === undefined ? "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") : sig;
+  if (s) headers["X-Hub-Signature-256"] = s;
+  const r = await app.request(url, { method: "POST", headers, body: raw });
+  return { status: r.status, body: await r.json() };
+};
+const w = store.ext.webhooks;
+const issue = store.listIssues({}).find(i => !i.deletedAt);
+const team = store.snapshot().teams.find(t => t.id === issue.teamId);
+const key = `${team.key}-${issue.number}`;
+const repository = { full_name: "acme/app", default_branch: "main" };
+const pr = (extra = {}) => ({ number: 7, title: `${key} webhook test`, body: "", html_url: "https://github.com/acme/app/pull/7", state: "open", draft: false, merged: false, merged_at: null, head: { ref: "feat" }, base: { ref: "main" }, user: { login: "octo" }, updated_at: new Date().toISOString(), ...extra });
+
+if ((await send("ping", { zen: "x" }, { sig: "sha256=00" })).status !== 404) fail("webhooks should be off until a secret exists");
+store.setFeatures({ githubEnabled: true });
+secret = w.rotateSecret();
+if ((await send("ping", { zen: "hi", repository })).status !== 200) fail("signed ping from a tunnel host should be accepted");
+if ((await send("ping", { zen: "hi" }, { sig: "sha256=" + "0".repeat(64) })).status !== 401) fail("a bad signature should be rejected");
+if ((await send("ping", { zen: "hi" }, { sig: "" })).status !== 401) fail("an unsigned request should be rejected");
+if (w.config().rejected !== 2) fail("rejections should be logged");
+
+const opened = await send("pull_request", { action: "opened", pull_request: pr(), repository }, { id: "same" });
+if (opened.status !== 200) fail("PR opened: " + JSON.stringify(opened));
+const snap = () => store.snapshot();
+const p7 = () => snap().pullRequests.find(p => p.repo === "acme/app" && p.number === 7);
+if (!p7() || !snap().issuePrs.some(l => l.issueId === issue.id && l.prId === p7().id)) fail("PR should be stored and linked to " + key);
+const dup = await send("pull_request", { action: "opened", pull_request: pr({ title: "changed" }), repository }, { id: "same" });
+if (!dup.body.duplicate || p7().title === "changed") fail("a repeated delivery should be ignored");
+
+await send("pull_request_review", { action: "submitted", review: { state: "approved" }, pull_request: pr(), repository });
+if (p7().reviewDecision !== "approved") fail("review approved should set the decision, got " + p7().reviewDecision);
+await send("check_suite", { action: "completed", check_suite: { status: "completed", conclusion: "failure", pull_requests: [{ number: 7 }] }, repository });
+if (p7().checks !== "failure") fail("a failed check suite should mark checks failed");
+await send("pull_request", { action: "closed", pull_request: pr({ state: "closed", merged: true, merged_at: new Date().toISOString() }), repository });
+if (p7().state !== "merged" || p7().reviewDecision !== "approved") fail("merge should keep the review decision, got " + JSON.stringify(p7()));
+
+const push = await send("push", { ref: "refs/heads/main", repository, commits: [{ id: "abc1234def", message: `fixes ${key}`, timestamp: new Date().toISOString(), author: { username: "octo" } }] });
+if (!snap().issueCommits.some(c => c.issueId === issue.id && c.sha === "abc1234def")) fail("push should link the commit: " + JSON.stringify(push));
+
+if ((await send("issues", { action: "opened", issue: { number: 99, title: "From GitHub", body: "b", html_url: "https://github.com/acme/app/issues/99", user: { login: "octo" }, labels: [] }, repository })).status !== 202) fail("issues from a repo nobody follows should be ignored");
+w.setFollow("acme/app", team.id);
+await send("issues", { action: "opened", issue: { number: 99, title: "From GitHub", body: "b", html_url: "https://github.com/acme/app/issues/99", user: { login: "octo" }, labels: [] }, repository });
+const imported = store.listIssues({ teamId: team.id }).find(i => i.title === "From GitHub");
+if (!imported || !imported.description.includes("acme/app#99")) fail("a followed repo’s new issue should be imported");
+await send("issues", { action: "closed", issue: { number: 99, title: "From GitHub" }, repository });
+if (snap().states.find(s => s.id === store.getIssue(imported.id).stateId)?.type !== "completed") fail("closing it on GitHub should complete it here");
+
+// the exemption is the webhook POST only — everything else from a foreign host is still refused
+if ((await app.request("https://abc.trycloudflare.com/api/bootstrap")).status !== 403) fail("foreign host GET bootstrap must stay 403");
+if ((await app.request("https://abc.trycloudflare.com/api/github/webhook/config")).status !== 403) fail("foreign host webhook config must stay 403");
+if ((await app.request(TUNNEL)).status !== 403) fail("foreign host GET on the webhook path must stay 403");
+w.turnOff();
+if ((await send("ping", { zen: "x" })).status !== 404) fail("turned off: deliveries should be refused");
+' "$WORK/webhooks.db"
+check "git webhook shows setup" "Payload URL" git webhook
+check "git webhook --rotate prints a secret once" "Secret (shown once)" git webhook --rotate
+check_rc "git webhook --url refuses plain http" 1 git webhook --url http://example.com
+check_rc "git import-issues refuses a malformed repo" 1 git import-issues not-a-repo -t CORE
+
+echo "=== initiatives: update reminders and reactions ==="
+nodecheck "initiative owners get one reminder when an update is due" '
+import { createRequire } from "node:module";
+const require = createRequire(process.cwd() + "/");
+const { createApp } = require("./dist/server/index.js");
+const { store } = createApp(process.argv[1]);
+const me = store.workspaceMeta().currentUser;
+const pl = store.ext.planning;
+const ini = pl.createInitiative({ name: "Remind me", ownerId: me, updateCadence: "weekly" });
+const reminders = () => { store.tick(); return store.snapshot().notifications.filter(n => n.type === "initiativeUpdateReminder" && n.body.startsWith(ini.id + "|")); };
+if (reminders().length) throw new Error("reminded before the update was due");
+store.db.prepare("UPDATE initiatives SET created_at = ? WHERE id = ?").run(new Date(Date.now() - 9 * 86400000).toISOString(), ini.id);
+if (reminders().length !== 1) throw new Error("no reminder once due");
+if (reminders().length !== 1) throw new Error("reminded twice for one due date");
+const u = pl.addInitiativeUpdate(ini.id, me, "On it", "onTrack");
+if (pl.updateDueAt(store.snapshot().initiatives.find(i => i.id === ini.id)) <= new Date().toISOString()) throw new Error("posting an update did not move the due date");
+pl.toggleUpdateReaction(u.id, "🎉", me);
+if (store.snapshot().initiativeUpdates.find(x => x.id === u.id).reactions["🎉"]?.[0] !== me) throw new Error("reaction not stored");
+pl.toggleUpdateReaction(u.id, "🎉", me);
+if (Object.keys(store.snapshot().initiativeUpdates.find(x => x.id === u.id).reactions).length) throw new Error("reaction not removed");
+' "$WORK/ini-remind.db"
+
+echo "=== user update --github ==="
+check "user update sets a GitHub username" "github:ada-gh" user update Ada --github ada-gh
+check "user list shows the GitHub username" "github:ada-gh" user list
 
 echo
 echo "================================"

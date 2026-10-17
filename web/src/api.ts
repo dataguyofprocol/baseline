@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Invite, InviteResult, WorkspaceSecurity } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -51,6 +51,7 @@ export const api = {
   unarchiveIssue: (id: string) => req<{ ok: true }>('POST', `/api/issues/${id}/unarchive`),
   bulkIssues: (b: { ids: string[]; patch?: Record<string, unknown>; delete?: boolean; archive?: boolean }) => req<{ ok: true; count: number }>('POST', '/api/issues/bulk', b),
   moveIssue: (id: string, beforeId: string | null, afterId: string | null) => req<{ ok: true }>('POST', `/api/issues/${id}/move`, { beforeId, afterId }),
+  startIssue: (id: string) => req<{ moved: boolean; assigned: boolean; stateName?: string }>('POST', `/api/issues/${id}/start`, {}),
   getHandoff: (id: string) => req<{ handoff: Handoff }>('GET', `/api/issues/${id}/handoff`),
   /** errors come back as values — the caller reacts to `code` (e.g. no-directory → open the picker) */
   openClaude: async (id: string, b: { locationId?: string; directory?: string }) => {
@@ -101,12 +102,13 @@ export const api = {
   deletedIssues: (teamId?: string) => req<{ issues: Issue[] }>('GET', `/api/issues/deleted${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ''}`),
   purgeIssue: (id: string) => req<{ ok: true }>('DELETE', `/api/issues/${id}/purge`),
   addLink: (issueId: string, url: string, title?: string) => req<{ attachment: Attachment }>('POST', `/api/issues/${issueId}/attachments`, { url, title }),
-  uploadFile: async (issueId: string, file: File) => {
-    const res = await fetch(`/api/issues/${issueId}/files?name=${encodeURIComponent(file.name || 'pasted-image.png')}`, {
+  /** a picture for an editor (owner = "issue:<id>", "doc:<id>", "project:<id>", "initiative:<id>", "team:<id>") */
+  uploadImage: async (owner: string, file: File) => {
+    const res = await fetch(`/api/files?owner=${encodeURIComponent(owner)}&name=${encodeURIComponent(file.name || 'pasted-image.png')}`, {
       method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
-    return res.json() as Promise<{ attachment: Attachment }>;
+    return res.json() as Promise<{ file: StoredFile }>;
   },
   renameAttachment: (id: string, title: string) => req<{ ok: true }>('PATCH', `/api/attachments/${id}`, { title }),
   deleteAttachment: (id: string) => req<{ ok: true }>('DELETE', `/api/attachments/${id}`),
@@ -124,6 +126,50 @@ export const api = {
   createMilestone: (b: Record<string, unknown>) => req<{ milestone: Milestone }>('POST', '/api/milestones', b),
   updateMilestone: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/milestones/${id}`, patch),
   deleteMilestone: (id: string) => req<{ ok: true }>('DELETE', `/api/milestones/${id}`),
+  createInitiative: (b: Record<string, unknown>) => req<{ initiative: Initiative }>('POST', '/api/initiatives', b),
+  updateInitiative: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/initiatives/${id}`, b),
+  deleteInitiative: (id: string) => req<{ ok: true }>('DELETE', `/api/initiatives/${id}`),
+  addInitiativeProject: (id: string, projectId: string) => req<{ ok: true }>('POST', `/api/initiatives/${id}/projects`, { projectId }),
+  removeInitiativeProject: (id: string, projectId: string) => req<{ ok: true }>('DELETE', `/api/initiatives/${id}/projects/${projectId}`),
+  addInitiativeUpdate: (id: string, body: string, health?: string | null) => req<{ ok: true }>('POST', `/api/initiatives/${id}/updates`, { body, health }),
+  toggleInitiativeUpdateReaction: (updateId: string, reaction: string) => req<{ ok: true }>('PATCH', `/api/initiative-updates/${updateId}`, { reaction }),
+  addInitiativeLink: (id: string, url: string, title?: string) => req<{ ok: true }>('POST', `/api/initiatives/${id}/links`, { url, title }),
+  deleteInitiativeLink: (id: string) => req<{ ok: true }>('DELETE', `/api/initiative-links/${id}`),
+  createInitiativeLabel: (b: Record<string, unknown>) => req<{ ok: true }>('POST', '/api/initiative-labels', b),
+  updateInitiativeLabel: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/initiative-labels/${id}`, b),
+  deleteInitiativeLabel: (id: string) => req<{ ok: true }>('DELETE', `/api/initiative-labels/${id}`),
+  createRelease: (b: Record<string, unknown>) => req<{ release: Release }>('POST', '/api/releases', b),
+  updateRelease: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/releases/${id}`, b),
+  deleteRelease: (id: string) => req<{ ok: true }>('DELETE', `/api/releases/${id}`),
+  createSlaRule: (b: Record<string, unknown>) => req<{ rule: SlaRule }>('POST', '/api/sla-rules', b),
+  updateSlaRule: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/sla-rules/${id}`, b),
+  deleteSlaRule: (id: string) => req<{ ok: true }>('DELETE', `/api/sla-rules/${id}`),
+  createAskForm: (b: Record<string, unknown>) => req<{ form: AskForm }>('POST', '/api/asks', b),
+  updateAskForm: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/asks/${id}`, b),
+  deleteAskForm: (id: string) => req<{ ok: true }>('DELETE', `/api/asks/${id}`),
+  submitAsk: (id: string, values: Record<string, string>) => req<{ issue: Issue }>('POST', `/api/asks/${id}/submit`, { values }),
+  createLoop: (b: Record<string, unknown>) => req<{ loop: Loop }>('POST', '/api/loops', b),
+  updateLoop: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/loops/${id}`, b),
+  deleteLoop: (id: string) => req<{ ok: true }>('DELETE', `/api/loops/${id}`),
+  runLoop: (id: string, issueId?: string | null) => req<{ run: LoopRun }>('POST', `/api/loops/${id}/run`, { issueId: issueId ?? null }),
+  setTeamSubscription: (teamId: string, flags: Record<string, boolean>) => req<{ ok: true }>('PUT', `/api/teams/${teamId}/subscription`, flags),
+  gitStatus: () => req<{ ghInstalled: boolean; ghUser: string | null; repos: Array<{ location: string; path: string; repo: string | null }>; lastSyncAt: string | null; lastError: string | null }>('GET', '/api/git/status'),
+  gitSync: () => req<{ prs: number; commits: number; error?: string }>('POST', '/api/git/sync'),
+  gitAutomation: (teamId: string) => req<PrAutomation>('GET', `/api/git/automation/${teamId}`),
+  setGitAutomation: (teamId: string, b: Partial<PrAutomation>) => req<{ ok: true }>('PUT', `/api/git/automation/${teamId}`, b),
+  unlinkPr: (issueId: string, prId: string) => req<{ ok: true }>('POST', '/api/git/unlink', { issueId, prId }),
+  webhookConfig: () => req<WebhookConfig>('GET', '/api/github/webhook/config'),
+  setWebhookUrl: (publicUrl: string) => req<WebhookConfig>('PUT', '/api/github/webhook/config', { publicUrl }),
+  rotateWebhookSecret: () => req<{ secret: string }>('POST', '/api/github/webhook/secret'),
+  turnOffWebhooks: () => req<{ ok: true }>('DELETE', '/api/github/webhook/secret'),
+  webhookDeliveries: (limit = 20) => req<{ deliveries: WebhookDelivery[] }>('GET', `/api/github/webhook/deliveries?limit=${limit}`),
+  importGithubIssues: (repo: string, teamId: string, follow: boolean) => req<{ imported: number; skipped: number }>('POST', '/api/github/issues/import', { repo, teamId, follow }),
+  followGithubIssues: (repo: string, teamId: string | null) => req<WebhookConfig>('PUT', '/api/github/issues/follow', { repo, teamId }),
+  apiKeys: (all = false) => req<{ keys: ApiKey[] }>('GET', `/api/api-keys${all ? '?all=1' : ''}`),
+  createApiKey: (b: { name: string; scopes: ApiKeyScope[] | null; teamIds: string[] | null }) => req<{ key: ApiKey; token: string }>('POST', '/api/api-keys', b),
+  renameApiKey: (id: string, name: string) => req<{ ok: true }>('PATCH', `/api/api-keys/${id}`, { name }),
+  revokeApiKey: (id: string) => req<{ ok: true }>('DELETE', `/api/api-keys/${id}`),
+  setTeamWorkflow: (teamId: string, patch: Record<string, unknown>) => req<{ workflow: unknown }>('PUT', `/api/teams/${teamId}/workflow`, patch),
   setFeatures: (patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', '/api/features', patch),
   createProjectLabel: (b: Record<string, unknown>) => req<{ label: ProjectLabel }>('POST', '/api/project-labels', b),
   updateProjectLabel: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/project-labels/${id}`, b),
@@ -139,6 +185,11 @@ export const api = {
     const res = await fetch(`/api/emojis?name=${encodeURIComponent(name)}&file=${encodeURIComponent(file.name || 'emoji.png')}`, { method: 'POST', headers: { 'Content-Type': file.type || 'image/png' }, body: file });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
     return res.json() as Promise<{ emoji: CustomEmoji }>;
+  },
+  uploadAvatar: async (userId: string, file: File | null) => {
+    const res = await fetch(`/api/users/${userId}/avatar${file ? `?file=${encodeURIComponent(file.name || 'avatar.png')}` : ''}`, { method: 'POST', headers: { 'Content-Type': file?.type || 'image/png' }, body: file ?? '' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
+    return res.json() as Promise<{ avatarUrl: string | null }>;
   },
   deleteEmoji: (id: string) => req<{ ok: true }>('DELETE', `/api/emojis/${id}`),
   createCustomer: (b: Record<string, unknown>) => req<{ customer: Customer }>('POST', '/api/customers', b),
@@ -171,13 +222,15 @@ export const api = {
   deleteNotification: (id: string) => req<{ ok: true }>('DELETE', `/api/notifications/${id}`),
   deleteReadNotifications: () => req<{ ok: true }>('POST', '/api/notifications/delete-read'),
   snoozeNotification: (id: string, until: string | null) => req<{ ok: true }>('POST', `/api/notifications/${id}/snooze`, { until }),
-  updatePreferences: (patch: Partial<Preferences>) => req<{ ok: true }>('PATCH', '/api/preferences', patch),
+  updatePreferences: (patch: PreferencesPatch) => req<{ ok: true }>('PATCH', '/api/preferences', patch),
   updateUser: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/users/${id}`, patch),
   updateCycle: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/cycles/${id}`, patch),
   updateWorkspace: (b: Record<string, unknown>) => req<{ ok: true }>('PATCH', '/api/workspace', b),
   importWorkspace: (json: string) => req<{ ok: true }>('POST', '/api/import', { json }),
   search: (q: string) => req<{ issues: Issue[]; projects: Project[] }>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   reseed: () => req<{ ok: true }>('POST', '/api/seed', {}),
+  /** the sample workspace, added next to what's already here (once per workspace) */
+  loadSampleData: () => req<{ ok: true; already?: boolean }>('POST', '/api/seed', { into: true }),
 };
 
 export type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate };

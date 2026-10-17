@@ -80,8 +80,8 @@ export function Lockup({ size = 44, tone = 'var(--brand-paper)' }: { size?: numb
           style={{
             fontFamily: 'var(--font-display)',
             fontSize: size,
-            fontWeight: 400,
-            letterSpacing: '-0.015em',
+            fontWeight: 590,
+            letterSpacing: '-0.03em',
             lineHeight: 1,
             color: tone,
           }}

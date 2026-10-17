@@ -8,9 +8,12 @@ import { Menu, MenuItem, MenuSep, Modal, useMenu } from './ui.js';
 import { Avatar, StateIcon, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { Markdown } from './Markdown.js';
-import { LogoMark } from './Logo.js';
-import { IconPlus, IconSearch, IconTrash, IconClose, IconStar, IconCheck, IconEdit, IconPulse, IconCustomers } from './icons.js';
+import {
+  IconPlus, IconSearch, IconTrash, IconClose, IconStar, IconCheck, IconEdit, IconPulse, IconCustomers, IconCycle, IconBox,
+  IconInbox, IconMyIssues, IconDrafts, IconInitiative, IconViews, IconRelease, IconAsk, IconTeam, IconMembers, IconChevronDown,
+} from './icons.js';
 import { SIDEBAR_DEFAULTS, type SidebarVisibility } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 const refresh = () => useApp.getState().bootstrap();
@@ -45,7 +48,7 @@ export function PulsePage() {
         {!snap.workspace.features.pulseEnabled ? (
           <div className="empty-state"><div className="empty-title">Pulse is off</div><div className="empty-desc">Turn it on in Settings › Pulse to see every project update in one feed.</div><div className="empty-actions"><button className="btn primary" onClick={async () => { await api.setFeatures({ pulseEnabled: true }); await refresh(); }}>Enable Pulse</button></div></div>
         ) : !updates.length ? (
-          <div className="empty-state"><div className="empty-mark"><LogoMark size={30} /></div><div className="empty-title">No updates yet</div><div className="empty-desc">Project updates posted from a project's overview show up here.</div></div>
+          <div className="empty-state"><Illustration name="updates" /><div className="empty-title">No updates yet</div><div className="empty-desc">Project updates posted from a project's overview show up here.</div></div>
         ) : (
           <div className="pulse-feed">
             {[...days.entries()].map(([day, list]) => (
@@ -89,7 +92,7 @@ export function CustomersPage() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
         <TopBar crumbs={[{ label: 'Customers' }]} />
-        <div className="empty-state"><div className="empty-mark"><IconCustomers size={28} /></div><div className="empty-title">Customer requests are off</div>
+        <div className="empty-state"><Illustration name="customers" /><div className="empty-title">Customer requests are off</div>
           <div className="empty-desc">Track which customers asked for which issues and projects.</div>
           <div className="empty-actions"><button className="btn primary" onClick={async () => { await api.setFeatures({ customerRequestsEnabled: true }); await refresh(); }}>Enable customer requests</button></div></div>
       </div>
@@ -101,7 +104,7 @@ export function CustomersPage() {
       <div className="subnav"><div className="set-filter" style={{ border: 0, margin: 0, flex: 1 }}><IconSearch size={13} /><input placeholder="Find customers…" value={q} onChange={e => setQ(e.target.value)} /></div></div>
       <div className="content">
         {!snap.customers.length ? (
-          <div className="empty-state"><div className="empty-mark"><IconCustomers size={28} /></div><div className="empty-title">No customers</div><div className="empty-desc">Add the customers you hear from, then attach their requests to issues and projects.</div><div className="empty-actions"><button className="btn primary" onClick={() => setCreating(true)}>New customer</button></div></div>
+          <div className="empty-state"><Illustration name="customers" /><div className="empty-title">No customers</div><div className="empty-desc">Add the customers you hear from, then attach their requests to issues and projects.</div><div className="empty-actions"><button className="btn primary" onClick={() => setCreating(true)}>New customer</button></div></div>
         ) : (
           <div className="wtable">
             <div className="wt-head wt-cust"><span>Name</span><span>Status</span><span>Tier</span><span className="num">Requests</span><span className="num">Revenue</span><span className="num">Size</span><span>Owner</span></div>
@@ -275,7 +278,7 @@ function RequestRow(props: { request: Snap['customerRequests'][number]; showTarg
 }
 
 /** "Customer requests" on an issue or a project: who asked, what they said, add another */
-export function CustomerRequests(props: { issueId?: string; projectId?: string; compact?: boolean }) {
+export function CustomerRequests(props: { issueId?: string; projectId?: string; compact?: boolean; asButton?: boolean; hideWhenEmpty?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const menu = useMenu();
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -284,17 +287,21 @@ export function CustomerRequests(props: { issueId?: string; projectId?: string; 
   const [creatingName, setCreatingName] = useState<string | null>(null);
   if (!snap.workspace.features.customerRequestsEnabled) return null;
   const reqs = snap.customerRequests.filter(r => (props.issueId && r.issueId === props.issueId) || (props.projectId && r.projectId === props.projectId));
+  if (props.hideWhenEmpty && !reqs.length) return null;
   const add = async () => {
     if (!customerId) return;
     await api.addCustomerRequest({ customerId, issueId: props.issueId ?? null, projectId: props.projectId ?? null, body: body.trim() });
     setCustomerId(null); setBody(''); menu.close();
     await refresh();
   };
+  const opener = (e: React.MouseEvent) => { setCustomerId(null); setQ(''); menu.open(e); };
   return (
-    <div className="creq-section" data-customer-requests>
-      <div className="proj-section-label">Customer requests {reqs.length > 0 && <span className="dim">{reqs.length}</span>}</div>
-      {reqs.map(r => <RequestRow key={r.id} request={r} />)}
-      <button className="prop-line dim" onClick={e => { setCustomerId(null); setQ(''); menu.open(e); }}><IconPlus size={13} /><span className="prop-line-label">Add customer request…</span></button>
+    <div className={props.asButton ? 'creq-btn' : 'creq-section'} data-customer-requests={props.asButton ? undefined : ''}>
+      {props.asButton ? <button className="icon-btn" title="Add customer request" onClick={opener}><IconCustomers size={14} /></button> : <>
+        <div className="proj-section-label">Customer requests {reqs.length > 0 && <span className="dim">{reqs.length}</span>}</div>
+        {reqs.map(r => <RequestRow key={r.id} request={r} />)}
+        <button className="prop-line dim" onClick={opener}><IconPlus size={13} /><span className="prop-line-label">Add customer request…</span></button>
+      </>}
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={300}>
           {!customerId ? <>
@@ -340,7 +347,7 @@ export function TeamsPage() {
             return (
               <div key={t.id} className="wt-row wt-teams" onClick={() => navigate(`/team/${t.key}/overview`)}>
                 <span className="wt-name">{teamDisplayIcon(t)}<span>{t.name}</span><span className="dim mono">{t.key}</span></span>
-                <span className="dim wt-clip">{t.description?.replace(/\s+/g, ' ') || '—'}</span>
+                <span className="dim wt-clip">{t.description?.replace(/\s+/g, ' ') || ''}</span>
                 <span>
                   {/* join or leave right here; the row itself opens the team */}
                   <button className={`plabel-chip team-join${joined ? ' joined' : ''}`} title={joined ? 'Leave team' : 'Join team'}
@@ -349,8 +356,8 @@ export function TeamsPage() {
                   </button>
                 </span>
                 <span><AvatarStack size={18} people={members.slice(0, 5).map(u => ({ name: u!.name, initials: u!.initials, color: u!.color }))} /></span>
-                <span className="mono">{cur ? `#${cur.number}` : <span className="dim">—</span>}</span>
-                <span className="mono">{active}</span>
+                <span className="wt-iconnum">{cur ? <><IconCycle size={12} />{cur.number}</> : null}</span>
+                <span className="wt-iconnum"><IconBox size={12} />{active}</span>
               </div>
             );
           })}
@@ -381,18 +388,18 @@ export function MembersPage() {
       <div className="subnav"><div className="set-filter" style={{ border: 0, margin: 0, flex: 1 }}><IconSearch size={13} /><input placeholder="Find members…" value={q} onChange={e => setQ(e.target.value)} /></div></div>
       <div className="content">
         <div className="wtable">
-          <div className="wt-head wt-members"><span>Name</span><span>Status</span><span>Joined</span><span>Teams</span><span>Last seen</span></div>
+          <div className="wt-head wt-members"><span>Name ↓</span><span>Status</span><span>Joined</span><span>Teams</span><span>Last seen</span></div>
           {list.map(u => {
             const teams = snap.teams.filter(t => t.memberIds.includes(u.id));
             const joinedAt = u.createdAt ?? firstSeen.get(u.id) ?? snap.workspace.createdAt;
             const seenAt = u.lastSeenAt ?? lastSeen.get(u.id);
             const me = u.id === snap.currentUser.id;
             return (
-              <div key={u.id} className="wt-row wt-members" onClick={() => navigate(`/my-issues`)}>
-                <span className="wt-name"><Avatar user={u} size={22} /><span className="wt-stack"><span>{u.name}</span><span className="dim">{u.email}</span></span></span>
+              <div key={u.id} className="wt-row wt-members" onClick={() => navigate(`/profiles/${u.id}`)}>
+                <span className="wt-name"><Avatar user={u} size={22} /><span className="wt-stack"><span>{u.name}</span><span className="dim">{u.username || u.email}</span></span></span>
                 <span>{u.kind === 'agent' ? <span className="plabel-chip">Agent</span> : u.status === 'suspended' ? <span className="plabel-chip">Suspended</span> : u.admin ? <span className="plabel-chip admin">Admin</span> : <span className="plabel-chip">Member</span>}</span>
                 <span className="mono dim">{shortDate(joinedAt)}</span>
-                <span className="wt-teams-cell">{teams.map(t => <span key={t.id} className="plabel-chip">{t.key}</span>)}</span>
+                <span className="wt-teams-cell">{teams.map(t => <span key={t.id} className="wt-team"><span className="ws-avatar" style={{ background: t.color, borderRadius: 3, fontSize: 7, width: 13, height: 13 }}>{t.key[0]}</span>{t.key}</span>)}</span>
                 <span>{me ? <span className="online"><span className="online-dot" />Online</span> : <span className="dim mono">{seenAt ? relTime(seenAt) : '—'}</span>}</span>
               </div>
             );
@@ -437,7 +444,7 @@ export function DraftsPage() {
       <TopBar crumbs={[{ label: 'Drafts' }]} />
       <div className="content">
         {!drafts.length ? (
-          <div className="empty-state"><div className="empty-mark"><LogoMark size={30} /></div><div className="empty-title">No active drafts</div><div className="empty-desc">"Save draft" in the new-issue modal keeps an issue here until you finish it.</div></div>
+          <div className="empty-state"><Illustration name="drafts" /><div className="empty-title">No active drafts</div><div className="empty-desc">"Save draft" in the new-issue modal keeps an issue here until you finish it.</div></div>
         ) : (
           <div className="static-list">
             {drafts.map(d => {
@@ -462,43 +469,76 @@ export function DraftsPage() {
 /* ================= Customize sidebar ================= */
 export const SIDEBAR_ITEMS: Array<{ key: string; label: string; section: 'Personal' | 'Workspace' }> = [
   { key: 'inbox', label: 'Inbox', section: 'Personal' }, { key: 'my-issues', label: 'My issues', section: 'Personal' }, { key: 'drafts', label: 'Drafts', section: 'Personal' },
-  { key: 'projects', label: 'Projects', section: 'Workspace' }, { key: 'views', label: 'Views', section: 'Workspace' }, { key: 'pulse', label: 'Pulse', section: 'Workspace' },
+  { key: 'initiatives', label: 'Initiatives', section: 'Workspace' }, { key: 'projects', label: 'Projects', section: 'Workspace' }, { key: 'views', label: 'Views', section: 'Workspace' },
+  { key: 'releases', label: 'Releases', section: 'Workspace' }, { key: 'asks', label: 'Asks', section: 'Workspace' }, { key: 'pulse', label: 'Pulse', section: 'Workspace' },
   { key: 'customers', label: 'Customers', section: 'Workspace' }, { key: 'teams', label: 'Teams', section: 'Workspace' }, { key: 'members', label: 'Members', section: 'Workspace' },
 ];
 export function sidebarVisibility(snap: Snap, key: string): SidebarVisibility {
   return snap.workspace.preferences.sidebar.items[key] ?? SIDEBAR_DEFAULTS[key] ?? 'show';
 }
 
+const SIDEBAR_ICONS: Record<string, React.ReactNode> = {
+  inbox: <IconInbox />, 'my-issues': <IconMyIssues />, drafts: <IconDrafts />, initiatives: <IconInitiative />, projects: <IconBox />, views: <IconViews />,
+  releases: <IconRelease />, asks: <IconAsk />, pulse: <IconPulse />, customers: <IconCustomers />, teams: <IconTeam />, members: <IconMembers />,
+};
+const VISIBILITY_LABEL: Record<SidebarVisibility, string> = { show: 'Always show', badged: 'Show when badged', hide: "Don't show" };
+const BADGE_LABEL = { count: 'Count', dot: 'Dot', none: 'None' } as const;
+type BadgeStyle = keyof typeof BADGE_LABEL;
+function BadgePreview({ style }: { style: BadgeStyle }) {
+  return style === 'count' ? <span className="cs-badge-count">1</span> : style === 'dot' ? <span className="cs-badge-dot" /> : null;
+}
+
 export function CustomizeSidebar(props: { onClose: () => void }) {
   const snap = useApp(s => s.snap)!;
   const sb = snap.workspace.preferences.sidebar;
-  const save = async (patch: { badgeStyle?: 'count' | 'dot' | 'none'; items?: Record<string, SidebarVisibility> }) => { await api.updatePreferences({ sidebar: { ...sb, ...patch, items: { ...sb.items, ...(patch.items ?? {}) } } }); await refresh(); };
-  const LABEL: Record<SidebarVisibility, string> = { show: 'Always show', badged: 'Show when badged', hide: "Don't show" };
+  const menu = useMenu();
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const save = async (patch: { badgeStyle?: BadgeStyle; items?: Record<string, SidebarVisibility> }) => { await api.updatePreferences({ sidebar: { ...sb, ...patch, items: { ...sb.items, ...(patch.items ?? {}) } } }); await refresh(); };
+  // only items the sidebar can actually show: feature-gated pages are left out while their feature is off
+  const f = snap.workspace.features;
+  const off: Record<string, boolean> = { initiatives: !f.initiativesEnabled, releases: !f.releasesEnabled, pulse: !f.pulseEnabled, customers: !f.customerRequestsEnabled };
+  const items = SIDEBAR_ITEMS.filter(i => !off[i.key]);
+  const openMenu = (key: string) => (e: React.MouseEvent) => { setMenuFor(key); menu.open(e); };
+  const menuItem = items.find(i => i.key === menuFor);
   return (
-    <Modal onClose={props.onClose} className="small-modal wide">
-      <div className="sm-head"><span>Customize sidebar</span><button className="icon-btn" onClick={props.onClose}><IconClose size={14} /></button></div>
+    <Modal onClose={props.onClose} className="modal small-modal wide cs-modal">
+      <div className="sm-head"><span>Customize sidebar</span><button className="icon-btn" aria-label="Close" onClick={props.onClose}><IconClose size={14} /></button></div>
       <div className="sm-body">
-        <div className="card cs-row"><span>Default badge style</span>
-          <select className="text-input" aria-label="Default badge style" value={sb.badgeStyle} onChange={e => void save({ badgeStyle: e.target.value as 'count' | 'dot' | 'none' })}>
-            <option value="count">Count</option><option value="dot">Dot</option><option value="none">None</option>
-          </select>
+        <div className="cs-card">
+          <div className="cs-row">
+            <span className="cs-label">Default badge style</span>
+            <button className={`cs-pick${menuFor === 'badge' && menu.anchor ? ' open' : ''}`} aria-label="Default badge style" onClick={openMenu('badge')}>
+              <BadgePreview style={sb.badgeStyle} /><span>{BADGE_LABEL[sb.badgeStyle]}</span><IconChevronDown size={12} />
+            </button>
+          </div>
         </div>
         {(['Personal', 'Workspace'] as const).map(sec => (
-          <div key={sec}>
-            <div className="cs-sec">{sec}</div>
-            <div className="card">
-              {SIDEBAR_ITEMS.filter(i => i.section === sec).map(i => (
-                <div key={i.key} className="cs-row">
-                  <span className={sidebarVisibility(snap, i.key) === 'hide' ? 'dim' : ''}>{i.label}</span>
-                  <select className="text-input" aria-label={`${i.label} visibility`} value={sidebarVisibility(snap, i.key)} onChange={e => void save({ items: { [i.key]: e.target.value as SidebarVisibility } })}>
-                    {(['show', 'badged', 'hide'] as const).map(v => <option key={v} value={v}>{LABEL[v]}</option>)}
-                  </select>
-                </div>
-              ))}
+          <section key={sec} className="cs-section">
+            <h3 className="cs-sec">{sec}</h3>
+            <div className="cs-card">
+              {items.filter(i => i.section === sec).map(i => {
+                const v = sidebarVisibility(snap, i.key);
+                return (
+                  <div key={i.key} className={`cs-row${v === 'hide' ? ' hidden' : ''}`}>
+                    <span className="cs-icon">{SIDEBAR_ICONS[i.key]}</span>
+                    <span className="cs-label">{i.label}</span>
+                    <button className={`cs-pick${menuFor === i.key && menu.anchor ? ' open' : ''}`} aria-label={`${i.label} visibility`} onClick={openMenu(i.key)}>
+                      <span>{VISIBILITY_LABEL[v]}</span><IconChevronDown size={12} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          </div>
+          </section>
         ))}
       </div>
+      {menu.anchor && menuFor && (
+        <Menu anchor={menu.anchor} onClose={() => { menu.close(); setMenuFor(null); }} width={200}>
+          {menuFor === 'badge'
+            ? (Object.keys(BADGE_LABEL) as BadgeStyle[]).map(b => <MenuItem key={b} label={BADGE_LABEL[b]} selected={sb.badgeStyle === b} onClick={() => void save({ badgeStyle: b })} />)
+            : menuItem && (['show', 'badged', 'hide'] as const).map(v => <MenuItem key={v} label={VISIBILITY_LABEL[v]} selected={sidebarVisibility(snap, menuItem.key) === v} onClick={() => void save({ items: { [menuItem.key]: v } })} />)}
+        </Menu>
+      )}
     </Modal>
   );
 }

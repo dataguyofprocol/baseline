@@ -7,11 +7,13 @@ import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
 import { OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { PropertyMenu, PropertyMenuBody, propMenuWidth, PROP_KBD, type PropKind } from './propertyMenus.js';
-import { deleteIssues, toggleFavoriteIssue, toggleSubscription, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS } from './actions.js';
-import { LogoMark } from './Logo.js';
+import { deleteIssues, toggleFavoriteIssue, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS } from './actions.js';
 import { useLanding } from './motion.js';
-import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconBellOff, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc } from './icons.js';
-import { ESTIMATE_SCALES, type Issue, type Priority, type ViewFilters, type GroupBy, type OrderBy, type FilterCondition, type FilterGroup } from '../../src/core/types.js';
+import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc, IconRelease, IconSla, IconPr, IconSortDir, IconMore, IconLink, IconBranch, IconHandoff, IconExternal, IconSettings } from './icons.js';
+import { slaState, SlaBadge } from './AutomationUI.js';
+import { issuePrList, issuePrState, prSummary, PrIcon } from './GitHubUI.js';
+import { teamScale, pointsOf, type Issue, type Priority, type ViewFilters, type GroupBy, type OrderBy, type FilterCondition, type FilterGroup } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 
@@ -19,6 +21,8 @@ type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 export interface DisplayProps {
   id: boolean; status: boolean; assignee: boolean; priority: boolean; labels: boolean; project: boolean; due: boolean;
   cycle: boolean; milestone: boolean; estimate: boolean; created: boolean; updated: boolean; links: boolean; creator: boolean;
+  /** the linked pull requests' status icon */
+  prs: boolean;
 }
 export type CompletedWindow = 'all' | 'day' | 'week' | 'month' | 'none';
 export interface ViewOptions {
@@ -35,11 +39,13 @@ export interface ViewOptions {
   showTriage: boolean;
   /** finished issues sort by when they were finished, newest first */
   completedByRecency: boolean;
+  /** the ordering's direction flipped (the arrow beside Ordering) */
+  orderReversed?: boolean;
 }
 
 export const DEFAULT_DISPLAY: DisplayProps = {
   id: true, status: true, assignee: true, priority: true, labels: true, project: true, due: true,
-  cycle: false, milestone: false, estimate: false, created: true, updated: false, links: false, creator: false,
+  cycle: false, milestone: false, estimate: false, created: true, updated: false, links: false, creator: false, prs: true,
 };
 export const DEFAULT_VIEW_OPTIONS: Omit<ViewOptions, 'filters'> = {
   layout: 'list', groupBy: 'status', subgroupBy: 'none', orderBy: 'priority', showEmpty: false,
@@ -90,6 +96,9 @@ function testField(key: keyof ViewFilters, i: Issue, f: ViewFilters, snap: Snap)
     case 'labelIds': return f.labelIds!.some(l => l === 'none' ? i.labelIds.length === 0 : i.labelIds.includes(l));
     case 'projectIds': return f.projectIds!.includes(i.projectId ?? 'none');
     case 'milestoneIds': return f.milestoneIds!.includes(i.milestoneId ?? 'none');
+    case 'releaseIds': return f.releaseIds!.includes(i.releaseId ?? 'none');
+    case 'sla': return f.sla!.includes(slaState(i) ?? 'none');
+    case 'prs': { const st = issuePrState(snap, i.id); return f.prs!.some(v => v === 'none' ? !st : st === v); }
     case 'cycleIds': {
       const now = new Date().toISOString();
       return f.cycleIds!.some(c => {
@@ -140,7 +149,7 @@ function testField(key: keyof ViewFilters, i: Issue, f: ViewFilters, snap: Snap)
   }
 }
 
-const FILTER_KEYS: Array<keyof ViewFilters> = ['states', 'stateTypes', 'priority', 'assigneeIds', 'creatorIds', 'labelIds', 'projectIds', 'milestoneIds', 'cycleIds', 'estimates', 'due', 'created', 'updated', 'hierarchy', 'relations', 'subscriberIds', 'links', 'query'];
+const FILTER_KEYS: Array<keyof ViewFilters> = ['states', 'stateTypes', 'priority', 'assigneeIds', 'creatorIds', 'labelIds', 'projectIds', 'milestoneIds', 'releaseIds', 'sla', 'prs', 'cycleIds', 'estimates', 'due', 'created', 'updated', 'hierarchy', 'relations', 'subscriberIds', 'links', 'query'];
 const isSet = (f: ViewFilters, k: keyof ViewFilters) => { const v = f[k]; return Array.isArray(v) ? v.length > 0 : !!v; };
 
 export function applyFilters(issues: Issue[], f: ViewFilters, _states?: unknown): Issue[] {
@@ -189,7 +198,7 @@ export function applyDisplay(issues: Issue[], opts: Pick<ViewOptions, 'completed
   });
 }
 
-export function orderIssues(issues: Issue[], orderBy: string, completedByRecency = false): Issue[] {
+export function orderIssues(issues: Issue[], orderBy: string, completedByRecency = false, reversed = false): Issue[] {
   const arr = [...issues];
   const snap = useApp.getState().snap;
   const stateRank = (i: Issue) => {
@@ -208,6 +217,7 @@ export function orderIssues(issues: Issue[], orderBy: string, completedByRecency
       default: return arr.sort((a, b) => a.sortOrder - b.sortOrder);
     }
   })();
+  if (reversed && orderBy !== 'manual') sorted.reverse();
   if (!completedByRecency) return sorted;
   const closedAt = (i: Issue) => i.completedAt ?? i.canceledAt;
   const open = sorted.filter(i => !closedAt(i));
@@ -313,7 +323,10 @@ let lastCheckedId: string | null = null;
 /** shift-click a checkbox: extend the selection across the visible list from the last clicked row */
 function shiftSelectRange(id: string) {
   const list = visibleList.issues.map(i => i.id);
-  const from = lastCheckedId ? list.indexOf(lastCheckedId) : -1;
+  // extend from the last row you selected — by click or with X — like Linear
+  const sel = useSelection.getState().ids;
+  const anchor = lastCheckedId && sel.includes(lastCheckedId) ? lastCheckedId : sel[sel.length - 1];
+  const from = anchor ? list.indexOf(anchor) : -1;
   const to = list.indexOf(id);
   lastCheckedId = id;
   if (from === -1 || to === -1 || from === to) {
@@ -393,7 +406,7 @@ function dateShort(iso: string) {
 export function estimateLabel(issue: Issue, snap: Snap): string | null {
   if (issue.estimate == null) return null;
   const team = snap.teams.find(t => t.id === issue.teamId);
-  if (team?.estimateScale === 'tshirt') return ESTIMATE_SCALES.tshirt.find(s => s.value === issue.estimate)?.label ?? String(issue.estimate);
+  if (team?.estimateScale === 'tshirt') return teamScale(team).find(s => s.value === issue.estimate)?.label ?? String(issue.estimate);
   return String(issue.estimate);
 }
 
@@ -498,6 +511,8 @@ export function IssueRow(props: {
         {display.cycle && cycle && <span className="proj-chip" title={cycle.name || `Cycle ${cycle.number}`}><IconCycle size={11} /> {cycle.number}</span>}
         {est && <span className="proj-chip" title={`${issue.estimate} points`}><IconEstimate size={11} /> {est}</span>}
         {display.links && links > 0 && <span className="proj-chip" title={`${links} link${links === 1 ? '' : 's'}`}><IconAttach size={11} /> {links}</span>}
+        {display.prs !== false && (() => { const pr = issuePrState(snap, issue.id); return pr ? <PrIcon state={pr} size={13} title={prSummary(issuePrList(snap, issue.id))} /> : null; })()}
+        {issue.slaBreachesAt && !closed && <SlaBadge issue={issue} />}
         {display.due && due && (
           <span className={`due-chip ${overdue ? 'overdue' : ''}`} title={overdue ? `Overdue — due ${shortDate(due)}` : `Due ${shortDate(due)}`}>
             <IconCalendar size={11} /> {shortDate(due + 'T12:00')}
@@ -517,6 +532,13 @@ export function IssueRow(props: {
    Linear's menu: properties as flyouts (each the same filterable menu the
    shortcut opens), then create-related / mark-as / copy / open-in, favorite,
    remind, delete. Right-clicking a selected row acts on the whole selection. */
+/** open an issue's page, then act there (rename, add link) once it has rendered */
+function openOnPage(issue: Issue, then: () => void) {
+  const snap = useApp.getState().snap!;
+  location.hash = `#/issue/${snap.teams.find(t => t.id === issue.teamId)?.key}-${issue.number}`;
+  setTimeout(then, 450);
+}
+
 export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const openCreate = useApp(s => s.openCreate);
@@ -526,7 +548,6 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
     : [props.issue];
   const many = targets.length > 1;
   const handoff = useHandoffActions(props.issue);
-  const subscribed = snap.subscriptions.some(s => s.issueId === props.issue.id && s.userId === snap.currentUser.id);
   const faved = snap.favorites.some(f => f.type === 'issue' && f.refId === props.issue.id);
 
   const prop = (kind: PropKind, label: string, icon: React.ReactNode) => (
@@ -544,9 +565,13 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
       {prop('due', 'Due date', <IconCalendar size={14} />)}
       {prop('labels', 'Labels', <IconTag size={14} />)}
       {prop('project', 'Project', <IconBox size={14} />)}
-      {targets.every(t => t.projectId && t.projectId === targets[0].projectId) && prop('milestone', 'Milestone', <IconMilestone size={14} />)}
       {prop('estimate', 'Estimate', <IconEstimate size={14} />)}
       {prop('cycle', 'Cycle', <IconCycle size={14} />)}
+      <MenuSub icon={<IconMore size={14} />} label="More properties" width={220}>
+        {targets.every(t => t.projectId && t.projectId === targets[0].projectId) && prop('milestone', 'Milestone', <IconMilestone size={14} />)}
+        {!many && <MenuItem icon={<IconLink size={14} />} label="Add link…" right={<span className="mi-kbd">⌃L</span>} onClick={() => openOnPage(props.issue, () => document.querySelector<HTMLElement>('.issue-page [data-add-link]')?.click())} />}
+        {!many && <MenuItem icon={<IconEdit size={14} />} label="Rename…" right={<span className="mi-kbd">⇧R</span>} onClick={() => openOnPage(props.issue, () => window.dispatchEvent(new CustomEvent('baseline:rename-issue')))} />}
+      </MenuSub>
       <MenuSep />
       {!many && (
         <MenuSub icon={<IconPlus size={14} />} label="Create related" width={220}>
@@ -567,36 +592,45 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
       </MenuSub>
       <MenuSep />
       {!many && (
-        <MenuSub icon={<IconCopy size={14} />} label="Copy" width={290}>
-          <MenuItem label="Copy ID" right={<span className="mi-kbd">⌘.</span>} onClick={() => void handoff.copyId()} />
-          <MenuItem label="Copy URL" right={<span className="mi-kbd">⌘⇧,</span>} onClick={() => void handoff.copyUrl()} />
-          <MenuItem label="Copy title" right={<span className="mi-kbd">⌘⇧'</span>} onClick={() => void handoff.copyTitle()} />
-          <MenuItem label="Copy issue as Markdown" right={<span className="mi-kbd">⌘⌥C</span>} onClick={() => void handoff.copyMarkdown()} />
-          <MenuItem label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={() => void handoff.copyBranch()} />
-          <MenuItem label="Copy as prompt" right={<span className="mi-kbd">⌘⌥P</span>} onClick={() => void handoff.copyPrompt()} />
+        <MenuSub icon={<IconCopy size={14} />} label="Copy" width={300}>
+          <MenuItem icon={<IconCopy size={14} />} label="Copy ID" right={<span className="mi-kbd">⌘.</span>} onClick={() => void handoff.copyId()} />
+          <MenuItem icon={<IconLink size={14} />} label="Copy URL" right={<span className="mi-kbd">⌘⇧,</span>} onClick={() => void handoff.copyUrl()} />
+          <MenuItem icon={<IconTextAa size={14} />} label="Copy title" right={<span className="mi-kbd">⌘⇧'</span>} onClick={() => void handoff.copyTitle()} />
+          <MenuItem icon={<IconLink size={14} />} label="Copy title as link" onClick={() => void handoff.copyTitleLink()} />
+          <MenuItem icon={<IconDoc size={14} />} label="Copy issue as Markdown" onClick={() => void handoff.copyMarkdown()} />
+          <MenuItem icon={<IconDoc size={14} />} label="Copy everything as Markdown" right={<span className="mi-kbd">⌘⌥C</span>} onClick={() => void handoff.copyEverything()} />
+          <MenuItem icon={<IconBranch size={14} />} label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={e => void handoff.copyBranch({ skipStart: e.altKey })} />
+          <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" right={<span className="mi-kbd">⌘⌥P</span>} onClick={e => void handoff.copyPrompt({ skipStart: e.altKey })} />
         </MenuSub>
       )}
-      {!many && (
-        <MenuSub icon={<IconSpark size={14} />} label="Open in Claude Code">
-          <OpenInClaudeItems issue={props.issue} actions={handoff} />
-        </MenuSub>
-      )}
-      {!many && <MenuItem icon={<IconTeam size={14} />} label="Move to team…" right={<span className="mi-kbd">⌘⇧M</span>} onClick={() => useApp.getState().setQuickMenu({ issueIds: [props.issue.id], kind: 'team', anchor: props.anchor })} />}
       {!many && <MenuSub icon={<IconBox size={14} />} label="Convert to" width={220}>
-          <MenuItem icon={<IconBox size={14} />} label="Project" onClick={() => void convertToProject(props.issue.id, to => { location.hash = `#${to}`; })} />
-          <MenuItem icon={<IconDoc size={14} />} label="Template" onClick={() => void convertToTemplate(props.issue.id)} />
-          <MenuSub icon={<IconCycle size={14} />} label="Recurring issue" width={200}>
+          <MenuItem icon={<IconBox size={14} />} label="Project…" onClick={() => void convertToProject(props.issue.id, to => { location.hash = `#${to}`; })} />
+          <MenuItem icon={<IconDoc size={14} />} label="Template…" onClick={() => void convertToTemplate(props.issue.id)} />
+          <MenuSub icon={<IconCycle size={14} />} label="Recurring issue…" width={200}>
             {(Object.keys(CADENCE_LABELS) as Array<keyof typeof CADENCE_LABELS>).map(c => <MenuItem key={c} label={CADENCE_LABELS[c]} onClick={() => void makeRecurring(props.issue.id, c)} />)}
           </MenuSub>
         </MenuSub>}
+      {!many && <MenuItem icon={<IconDuplicate size={14} />} label="Make a copy…" onClick={() => openCreate({ teamId: props.issue.teamId, copyFrom: props.issue.id })} />}
+      {!many && (
+        <MenuSub icon={<IconTeam size={14} />} label="Move" width={220}>
+          <MenuItem icon={<IconTeam size={14} />} label="Move to team…" right={<span className="mi-kbd">⌘⇧M</span>} onClick={() => useApp.getState().setQuickMenu({ issueIds: [props.issue.id], kind: 'team', anchor: props.anchor })} />
+        </MenuSub>
+      )}
+      {!many && (
+        <MenuSub icon={<IconExternal size={14} />} label="Open in" width={240}>
+          <MenuSub icon={<IconSpark size={14} />} label="Open in Claude Code">
+            <OpenInClaudeItems issue={props.issue} actions={handoff} />
+          </MenuSub>
+          <MenuItem icon={<IconSettings size={14} />} label="Configure coding tools…" onClick={() => { location.hash = '#/settings/handoff'; }} />
+        </MenuSub>
+      )}
       <MenuSep />
       {!many && <MenuItem icon={<IconStar size={14} filled={faved} />} label={faved ? 'Unfavorite' : 'Favorite'} right={<span className="mi-kbd">⌥F</span>} onClick={() => void toggleFavoriteIssue(props.issue.id)} />}
-      {!many && <MenuItem icon={subscribed ? <IconBellOff size={14} /> : <IconBell size={14} />} label={subscribed ? 'Unsubscribe' : 'Subscribe'} right={<span className="mi-kbd">⇧S</span>} onClick={() => void toggleSubscription(props.issue.id)} />}
       <MenuSub icon={<IconClock size={14} />} label="Remind me" right={<span className="mi-kbd">⇧H</span>} width={propMenuWidth('remind')}>
         <PropertyMenuBody kind="remind" issues={targets} onClose={props.onClose} />
       </MenuSub>
       <MenuSep />
-      <MenuItem icon={<IconTrash size={14} />} danger label={many ? `Delete ${targets.length} issues` : 'Delete'} right={<span className="mi-kbd">⌘⌫</span>} onClick={() => void deleteIssues(targets.map(t => t.id))} />
+      <MenuItem icon={<IconTrash size={14} />} label={many ? `Delete ${targets.length} issues` : 'Delete'} right={<span className="mi-kbd">⌘⌫</span>} onClick={() => void deleteIssues(targets.map(t => t.id))} />
     </Menu>
   );
 }
@@ -613,7 +647,7 @@ export function QuickMenus() {
 }
 
 /* ================= filters ================= */
-type FieldKey = 'states' | 'assigneeIds' | 'creatorIds' | 'priority' | 'labelIds' | 'projectIds' | 'milestoneIds' | 'cycleIds' | 'estimates' | 'due' | 'created' | 'updated' | 'hierarchy' | 'relations' | 'subscriberIds' | 'links' | 'query';
+type FieldKey = 'states' | 'assigneeIds' | 'creatorIds' | 'priority' | 'labelIds' | 'projectIds' | 'milestoneIds' | 'releaseIds' | 'sla' | 'prs' | 'cycleIds' | 'estimates' | 'due' | 'created' | 'updated' | 'hierarchy' | 'relations' | 'subscriberIds' | 'links' | 'query';
 interface FieldValue { id: string; label: string; icon?: React.ReactNode }
 interface FieldDef { key: FieldKey; label: string; plural: string; icon: React.ReactNode; single?: boolean }
 
@@ -632,9 +666,19 @@ const FIELDS: FieldDef[] = [
   { key: 'projectIds', label: 'Project', plural: 'projects', icon: <IconBox size={14} /> },
   { key: 'milestoneIds', label: 'Milestone', plural: 'milestones', icon: <IconMilestone size={14} /> },
   { key: 'cycleIds', label: 'Cycle', plural: 'cycles', icon: <IconCycle size={14} /> },
+  { key: 'releaseIds', label: 'Release', plural: 'releases', icon: <IconRelease size={14} /> },
+  { key: 'sla', label: 'SLA status', plural: 'statuses', icon: <IconSla size={14} /> },
+  { key: 'prs', label: 'Pull requests', plural: 'states', icon: <IconPr size={14} /> },
   { key: 'subscriberIds', label: 'Subscribers', plural: 'people', icon: <IconBell size={14} /> },
   { key: 'links', label: 'Links', plural: 'kinds', icon: <IconAttach size={14} /> },
   { key: 'query', label: 'Content', plural: 'texts', icon: <IconTextAa size={14} /> },
+];
+
+const DATE_FIELDS: FieldKey[] = ['due', 'created', 'updated'];
+const FIELD_GROUPS: FieldKey[][] = [
+  ['states', 'assigneeIds', 'creatorIds', 'priority', 'estimates', 'labelIds', 'relations', 'hierarchy'],
+  ['projectIds', 'milestoneIds', 'cycleIds', 'releaseIds'],
+  ['subscriberIds', 'sla', 'prs', 'links', 'query'],
 ];
 
 function fieldValues(key: FieldKey, snap: Snap, teamId?: string): FieldValue[] {
@@ -679,7 +723,7 @@ function fieldValues(key: FieldKey, snap: Snap, teamId?: string): FieldValue[] {
     ];
     case 'estimates': {
       const vals = new Set<number>();
-      for (const t of snap.teams.filter(t2 => !teamId || t2.id === teamId)) for (const v of ESTIMATE_SCALES[t.estimateScale]) vals.add(v.value);
+      for (const t of snap.teams.filter(t2 => !teamId || t2.id === teamId)) for (const v of teamScale(t)) vals.add(v.value);
       return [{ id: '-1', label: 'No estimate', icon: <IconEstimate size={13} /> }, ...[...vals].sort((a, b) => a - b).map(v => ({ id: String(v), label: `${v} point${v === 1 ? '' : 's'}`, icon: <IconEstimate size={13} /> }))];
     }
     case 'due': return [
@@ -701,6 +745,9 @@ function fieldValues(key: FieldKey, snap: Snap, teamId?: string): FieldValue[] {
       ...snap.users.filter(u => u.id !== me.id).map(u => ({ id: u.id, label: u.name, icon: <Avatar user={u} size={16} /> })),
     ];
     case 'links': return [{ id: 'any', label: 'Has links or files', icon: <IconAttach size={13} /> }, { id: 'none', label: 'No links', icon: <IconAttach size={13} /> }];
+    case 'releaseIds': return [{ id: 'none', label: 'No release', icon: <IconRelease size={13} /> }, ...snap.releases.map(r => ({ id: r.id, label: r.name, icon: <IconRelease size={13} /> }))];
+    case 'sla': return [{ id: 'breached', label: 'Breached' }, { id: 'risk', label: 'Breaching within a day' }, { id: 'ok', label: 'Within SLA' }, { id: 'none', label: 'No SLA' }].map(v => ({ ...v, icon: <IconSla size={13} /> }));
+    case 'prs': return [{ id: 'open', label: 'Open PR' }, { id: 'draft', label: 'Draft PR' }, { id: 'merged', label: 'Merged PR' }, { id: 'none', label: 'No pull requests' }].map(v => ({ ...v, icon: <IconPr size={13} /> }));
     case 'query': return [];
   }
 }
@@ -732,6 +779,7 @@ function withValues(f: ViewFilters, key: FieldKey, vals: string[]): ViewFilters 
 function FilterMenu(props: { anchor: DOMRect; onClose: () => void; filters: ViewFilters; onChange: (f: ViewFilters) => void; teamId?: string; startField?: FieldKey; pool?: Issue[]; onAdvanced?: () => void; onGroup?: () => void }) {
   const snap = useApp(s => s.snap)!;
   const [field, setField] = useState<FieldKey | null>(props.startField ?? null);
+  const [dates, setDates] = useState(false);
   const [q, setQ] = useState('');
   useEffect(() => setQ(''), [field]);
   const toggle = (key: FieldKey, id: string) => {
@@ -789,21 +837,44 @@ function FilterMenu(props: { anchor: DOMRect; onClose: () => void; filters: View
 
   // field list, or cross-field value search while typing
   const hits = q.trim() ? FIELDS.flatMap(fd => fieldValues(fd.key, snap, props.teamId).filter(v => match(v.label)).map(v => ({ fd, v }))).slice(0, 14) : [];
-  const fields = FIELDS.filter(fd => match(fd.label));
+  const fieldRow = (fd: FieldDef) => (
+    <button key={fd.key} className="menu-item" onClick={e => { e.stopPropagation(); setField(fd.key); }}>
+      <span className="mi-icon">{fd.icon}</span>
+      <span className="mi-label">{fd.label}</span>
+      <span className="mi-right">{isSet(props.filters, fd.key) && <span className="mi-dot" />}<IconChevronRight size={12} /></span>
+    </button>
+  );
+  // Linear's order and grouping: issue fields with the dates folded into "Dates", then planning, then the rest
+  if (dates && !q.trim()) return (
+    <Menu anchor={props.anchor} onClose={props.onClose} width={220}>
+      <div className="menu-input menu-filter" onClick={e => e.stopPropagation()}>
+        <button className="mi-back" title="Back" onClick={() => setDates(false)}><IconChevronRight size={12} style={{ transform: 'rotate(180deg)' }} /></button>
+        <input autoFocus value="" readOnly placeholder="Dates…" />
+      </div>
+      {FIELDS.filter(fd => DATE_FIELDS.includes(fd.key)).map(fieldRow)}
+    </Menu>
+  );
+  const groups: FieldKey[][] = q.trim() ? [FIELDS.filter(fd => match(fd.label)).map(fd => fd.key)] : FIELD_GROUPS;
   return (
-    <Menu anchor={props.anchor} onClose={props.onClose} width={260}>
+    <Menu anchor={props.anchor} onClose={props.onClose} width={220}>
       <div className="menu-input menu-filter" onClick={e => e.stopPropagation()}>
         <input autoFocus value={q} placeholder="Add filter…" spellCheck={false} onChange={e => setQ(e.target.value)} />
         <span className="kbd">F</span>
       </div>
       {props.onAdvanced && !q.trim() && <><MenuItem icon={<IconFilter size={14} />} label="Advanced filter" onClick={props.onAdvanced} /><MenuSep /></>}
       {props.onGroup && !q.trim() && <><MenuItem icon={<span className="grp-glyph">( )</span>} label="Add filter group" onClick={props.onGroup} /><MenuSep /></>}
-      {fields.map(fd => (
-        <button key={fd.key} className="menu-item" onClick={e => { e.stopPropagation(); setField(fd.key); }}>
-          <span className="mi-icon">{fd.icon}</span>
-          <span className="mi-label">{fd.label}</span>
-          <span className="mi-right">{isSet(props.filters, fd.key) && <span className="mi-dot" />}<IconChevronRight size={12} /></span>
-        </button>
+      {groups.map((g, gi) => (
+        <div key={gi} style={{ display: 'contents' }}>
+          {gi > 0 && <MenuSep />}
+          {g.map(k => FIELDS.find(fd => fd.key === k)!).map(fieldRow)}
+          {gi === 0 && !q.trim() && (
+            <button className="menu-item" onClick={e => { e.stopPropagation(); setDates(true); }}>
+              <span className="mi-icon"><IconCalendar size={14} /></span>
+              <span className="mi-label">Dates</span>
+              <span className="mi-right">{DATE_FIELDS.some(k => isSet(props.filters, k)) && <span className="mi-dot" />}<IconChevronRight size={12} /></span>
+            </button>
+          )}
+        </div>
       ))}
       {hits.length > 0 && <MenuSep />}
       {hits.map(({ fd, v }) => (
@@ -1055,7 +1126,7 @@ export function DisplayOptionsMenu(props: {
   const propRows: Array<[keyof DisplayProps, string]> = [
     ['id', 'ID'], ['status', 'Status'], ['assignee', 'Assignee'], ['creator', 'Creator'], ['priority', 'Priority'], ['project', 'Project'],
     ['due', 'Due date'], ['milestone', 'Milestone'], ['cycle', 'Cycle'], ['estimate', 'Estimate'], ['labels', 'Labels'], ['links', 'Links'],
-    ['created', 'Created'], ['updated', 'Updated'],
+    ['prs', 'Pull requests'], ['created', 'Created'], ['updated', 'Updated'],
   ];
   return (
     <Menu anchor={props.anchor} onClose={props.onClose} width={300}>
@@ -1071,6 +1142,7 @@ export function DisplayOptionsMenu(props: {
         <div className="dopts-row"><span>{board ? 'Rows' : 'Sub-grouping'}</span>
           <InlineSelect value={opts.subgroupBy} options={[['none', 'No grouping'], ...groups.filter(g => g[0] !== 'none' && g[0] !== opts.groupBy)] as Array<[GroupBy | 'none', string]>} onChange={v => onPatch({ subgroupBy: v })} /></div>
         <div className="dopts-row"><span>Ordering</span>
+          {opts.orderBy !== 'manual' && <button className={`icon-btn dopts-dir${opts.orderReversed ? ' on' : ''}`} title={opts.orderReversed ? 'Ascending' : 'Descending'} onClick={() => onPatch({ orderReversed: !opts.orderReversed })}><IconSortDir size={14} style={{ transform: opts.orderReversed ? 'scaleY(-1)' : undefined }} /></button>}
           <InlineSelect value={opts.orderBy} options={Object.entries(ORDER_LABELS) as Array<[OrderBy, string]>} onChange={v => onPatch({ orderBy: v })} /></div>
         <div className="dopts-row"><span>Order completed by recency</span><Toggle on={!!opts.completedByRecency} onChange={v => onPatch({ completedByRecency: v })} /></div>
         <div className="dopts-sep" />
@@ -1091,7 +1163,7 @@ export function DisplayOptionsMenu(props: {
         {props.onReset && (
           <>
             <div className="dopts-sep" />
-            <div className="dopts-foot"><button className="btn ghost" onClick={props.onReset}>Reset to default</button></div>
+            <div className="dopts-foot"><button className="btn ghost" onClick={props.onReset}>Reset</button></div>
           </>
         )}
       </div>
@@ -1176,7 +1248,7 @@ export function GroupedList(props: {
   const estimatesOn = props.teamId ? snap.teams.find(t => t.id === props.teamId)?.estimateScale !== 'none' : true;
 
   const { render, flat } = useMemo(() => {
-    const ordered = orderIssues(pool, props.opts.orderBy, props.opts.completedByRecency);
+    const ordered = orderIssues(pool, props.opts.orderBy, props.opts.completedByRecency, props.opts.orderReversed);
     const renderItems: RenderItem[] = [];
     const flatIssues: Issue[] = [];
     if (props.opts.groupBy === 'none') {
@@ -1190,7 +1262,7 @@ export function GroupedList(props: {
     if (!props.opts.showEmpty) groups = groups.filter(g => g.issues.length > 0);
     else if (props.opts.groupBy === 'milestone') groups = groups.filter(g => g.issues.length > 0 || props.issues.some(i => i.projectId === snap.milestones.find(m => m.id === g.spec.id)?.projectId));
     for (const g of groups) {
-      renderItems.push({ kind: 'header', spec: g.spec, count: g.issues.length, points: g.issues.reduce((a, i) => a + (i.estimate ?? 0), 0) });
+      renderItems.push({ kind: 'header', spec: g.spec, count: g.issues.length, points: g.issues.reduce((a, i) => a + pointsOf(i, snap.teams), 0) });
       if (collapsed[g.spec.id]) continue;
       if (props.opts.subgroupBy !== 'none') {
         const subSpecs = groupsFor(props.opts.subgroupBy as GroupBy, snap, props.teamId).filter(ss => ss.id !== g.spec.id);
@@ -1236,6 +1308,7 @@ export function GroupedList(props: {
       );
     }
   }, [collapsed]);
+  useKeyColumn(listRef, render);
 
   const hiddenFooter = hiddenByFilters > 0 && (
     <div className="hidden-by-filters">
@@ -1248,8 +1321,8 @@ export function GroupedList(props: {
     return (
       <>
         <div className="empty-state">
-          {/* the containerless mark is the only illustration the product uses */}
-          <div className="empty-mark"><LogoMark size={30} /></div>
+          {/* line-art illustration, as on Linear's empty views */}
+          <Illustration name="issues" />
           <div className="empty-title">{hiddenByFilters ? 'No matching issues' : props.emptyTitle ?? 'All issues'}</div>
           <div className="empty-desc">{hiddenByFilters ? 'No issues match the current filters.' : props.emptyDesc ?? 'All issues is the place where you can see all your team’s work in one view. Once you have created issues for this team, they will show up here.'}</div>
           <div className="empty-actions">
@@ -1284,7 +1357,7 @@ export function GroupedList(props: {
   };
 
   return (
-    <div style={{ paddingBottom: 40 }} ref={listRef}>
+    <div className="issue-list" style={{ paddingBottom: 40 }} ref={listRef}>
       {render.map((item, idx) => {
         if (item.kind === 'header') {
           return (
@@ -1346,14 +1419,35 @@ export function GroupedList(props: {
   );
 }
 
+/** Like Linear, the ID column is as wide as the list's longest key, so every title starts on one line. */
+function useKeyColumn(ref: React.RefObject<HTMLElement | null>, dep: unknown) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      el.style.removeProperty('--key-w');
+      let w = 0;
+      for (const k of el.querySelectorAll<HTMLElement>('.issue-key')) w = Math.max(w, k.getBoundingClientRect().width);
+      if (w) el.style.setProperty('--key-w', `${Math.ceil(w)}px`);
+    };
+    measure();
+    // the first paint can land before Inter does; its wider glyphs need a second pass
+    let live = true;
+    void document.fonts?.ready.then(() => { if (live) measure(); });
+    return () => { live = false; };
+  }, [ref, dep]);
+}
+
 /* helper used by pages to render rows outside a group */
 export function FlatIssueList(props: { issues: Issue[]; teamId?: string; display?: RowDisplay }) {
   const cursorIndex = useCursor(s => s.index);
   const selection = useSelection(s => s.ids);
   const flat = props.issues;
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { registerVisibleList(flat, props.teamId ?? ''); }, [flat, props.teamId]);
+  useKeyColumn(ref, flat);
   return (
-    <div>
+    <div className="issue-list" ref={ref}>
       {flat.map((i, idx) => (
         <IssueRow key={i.id} issue={i} display={props.display} cursor={idx === cursorIndex} selected={selection.includes(i.id)}
           onHover={() => { if (useCursor.getState().index !== idx) useCursor.setState({ index: idx }); }} />

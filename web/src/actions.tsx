@@ -8,7 +8,7 @@ import type { Issue } from '../../src/core/types.js';
    - can be undone with ⌘Z (the inverse patch is recorded first),
    - refreshes from the server afterwards so derived data (activity, notifications) catches up. */
 
-type IssuePatch = Partial<Pick<Issue, 'stateId' | 'priority' | 'assigneeId' | 'labelIds' | 'projectId' | 'milestoneId' | 'cycleId' | 'estimate' | 'dueDate' | 'parentId' | 'title' | 'description' | 'locationId'>>;
+type IssuePatch = Partial<Pick<Issue, 'stateId' | 'priority' | 'assigneeId' | 'labelIds' | 'projectId' | 'milestoneId' | 'cycleId' | 'estimate' | 'dueDate' | 'parentId' | 'title' | 'description' | 'locationId' | 'releaseId'>>;
 
 interface UndoEntry { label: string; revert: () => Promise<void> }
 const undoStack: UndoEntry[] = [];
@@ -44,7 +44,7 @@ function applyLocal(ids: string[], patchFor: (i: Issue) => Partial<Issue>) {
 const FIELD_LABELS: Record<string, string> = {
   stateId: 'status', priority: 'priority', assigneeId: 'assignee', labelIds: 'labels', projectId: 'project',
   milestoneId: 'milestone', cycleId: 'cycle', estimate: 'estimate', dueDate: 'due date', parentId: 'parent',
-  title: 'title', description: 'description', locationId: 'location',
+  title: 'title', description: 'description', locationId: 'location', releaseId: 'release',
 };
 
 /** set the same properties on one or more issues */

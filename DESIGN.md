@@ -48,7 +48,7 @@ Extracted from live app pixel samples (✅) + reference knowledge (📖). Dark i
 | toast/success | green check `#4cb782` | ✅ "Issue created" toast |
 
 ## Typography
-- Font: Inter Variable (bundled, OFL); code: JetBrains Mono
+- Font: Inter Variable with the optical-size axis (bundled, OFL), `font-feature-settings: 'cv01', 'ss03'` — what linear.app ships. Weight stops 400 / 510 / 590 / 680. Code: Berkeley Mono when installed (Linear's, commercial), else bundled JetBrains Mono
 - Base UI: 13px / line 20px(1.45); small/dim 12px; issue page title ~20px 590wt tracking -0.02em; modal title 15px 560wt; group headers 13px 590wt; nav 13px; menu item 13px; keycaps 11px
 - Letter-spacing: -0.01em globally-ish, tighter on large titles
 

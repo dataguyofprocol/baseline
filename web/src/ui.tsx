@@ -76,6 +76,12 @@ export function Menu(props: {
     if (i >= 0) els[i]?.scrollIntoView({ block: 'nearest' });
   });
 
+  // moving to another page closes whatever menu was open
+  useEffect(() => {
+    window.addEventListener('hashchange', close);
+    return () => window.removeEventListener('hashchange', close);
+  }, [close]);
+
   // typing in a filter field re-ranks the list: the highlight goes back to the top match
   useEffect(() => {
     const el = ref.current;
@@ -99,9 +105,23 @@ export function Menu(props: {
     let x = a.left;
     let y = a.bottom + 6;
     let flipped = false;
-    if (y + h > window.innerHeight - 12) { y = Math.max(12, a.top - h - 6); flipped = true; }
+    let maxHeight: number | undefined;
+    // a point (right-click): open there, shifted up or left just enough to fit whole
+    if (a.width === 0 && a.height === 0) {
+      const px = a.left + w > window.innerWidth - 12 ? Math.max(12, a.left - w) : a.left;
+      const py = Math.max(12, Math.min(a.top, window.innerHeight - h - 12));
+      return { left: px, top: py, width: w, ...(h > window.innerHeight - 24 ? { maxHeight: window.innerHeight - 24 } : {}), '--menu-dy': '-4px', transformOrigin: '0 0' };
+    }
+    const below = window.innerHeight - 12 - y, above = a.top - 6 - 12;
+    // as in Linear: below the trigger when it fits; above when only that fits;
+    // otherwise on the roomier side, cut to fit and scrolling (never over the trigger)
+    if (h > below) {
+      if (h <= above) { y = a.top - h - 6; flipped = true; }
+      else if (above > below) { maxHeight = above; y = 12; flipped = true; }
+      else maxHeight = below;
+    }
     if (x + w > window.innerWidth - 12) x = window.innerWidth - w - 12;
-    return { left: x, top: y, width: w, '--menu-dy': flipped ? '4px' : '-4px', transformOrigin: `${Math.max(12, a.left + Math.min(a.width, 40) / 2 - x)}px ${flipped ? '100%' : '0'}` };
+    return { left: x, top: y, width: w, ...(maxHeight ? { maxHeight } : {}), '--menu-dy': flipped ? '4px' : '-4px', transformOrigin: `${Math.max(12, a.left + Math.min(a.width, 40) / 2 - x)}px ${flipped ? '100%' : '0'}` };
   };
   const [pos, setPos] = useState<React.CSSProperties>(place);
   useLayoutEffect(() => { setPos(place()); /* eslint-disable-line */ }, []);
@@ -202,7 +222,9 @@ export function useMenu() {
   const open = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setAnchor((e.currentTarget as HTMLElement).getBoundingClientRect());
+    // a right-click opens at the pointer, like Linear's context menus
+    if (e.type === 'contextmenu' && 'clientX' in e) setAnchor(new DOMRect(e.clientX, e.clientY, 0, 0));
+    else setAnchor((e.currentTarget as HTMLElement).getBoundingClientRect());
   }, []);
   const close = useCallback(() => setAnchor(null), []);
   return { anchor, setAnchor, open, close, isOpen: anchor !== null };

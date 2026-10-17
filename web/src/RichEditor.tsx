@@ -199,12 +199,17 @@ const SlashCommands = Extension.create({
 });
 
 /* ---------- the editor ---------- */
+const uploadOwner = (p: { issueId?: string; uploadTo?: string }) => p.uploadTo ?? (p.issueId ? `issue:${p.issueId}` : undefined);
+const EMOTICONS: Record<string, string> = { ':)': '🙂', ':-)': '🙂', ':(': '🙁', ':D': '😄', ';)': '😉', ':P': '😛', ':p': '😛', '<3': '❤️', ':O': '😮', ":'(": '😢' };
+
 export function RichEditor(props: {
   value: string;
   placeholder?: string;
   autoFocus?: boolean;
-  /** uploads (paste / drop) attach to this issue */
+  /** pasted / dropped images belong to this issue */
   issueId?: string;
+  /** elsewhere, pasted / dropped images belong to this owner — "doc:<id>", "project:<id>", "initiative:<id>", "team:<id>" */
+  uploadTo?: string;
   className?: string;
   /** fires (debounced) as you type */
   onChange?: (markdown: string) => void;
@@ -222,18 +227,18 @@ export function RichEditor(props: {
   const lastValue = useRef(props.value);
 
   const upload = async (editor: Editor, files: File[], pos?: number) => {
-    const issueId = propsRef.current.issueId;
-    if (!issueId) return false;
-    for (const f of files) {
+    const owner = uploadOwner(propsRef.current);
+    if (!owner) return false;
+    // only small images are hosted; other files are linked to wherever they live
+    if (files.some(f => !f.type.startsWith('image/'))) useApp.getState().toast({ title: 'Only images can be added', line: 'Paste a link to other files instead' });
+    for (const f of files.filter(f => f.type.startsWith('image/'))) {
       try {
-        const { attachment } = await api.uploadFile(issueId, f);
-        if (f.type.startsWith('image/')) editor.chain().focus().insertContentAt(pos ?? editor.state.selection.to, { type: 'image', attrs: { src: attachment.url, alt: attachment.title } }).run();
-        else editor.chain().focus().insertContentAt(pos ?? editor.state.selection.to, `<a href="${attachment.url}">${attachment.title}</a> `).run();
+        const { file } = await api.uploadImage(owner, f);
+        editor.chain().focus().insertContentAt(pos ?? editor.state.selection.to, { type: 'image', attrs: { src: file.url, alt: file.name } }).run();
       } catch (err) {
         useApp.getState().toast({ title: 'Upload failed', line: String((err as Error).message) });
       }
     }
-    await useApp.getState().bootstrap();
     return true;
   };
 
@@ -258,7 +263,9 @@ export function RichEditor(props: {
       attributes: { class: `rte ${props.className ?? ''}`, spellcheck: 'true' },
       handleKeyDown: (_view, e) => {
         if (usePopup.getState().open) return false;
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        // "Send comments on" (Settings › Preferences): Enter alone sends in composers, ⇧↵ adds a line
+        const enterSends = useApp.getState().snap?.workspace.preferences.sendCommentsOn === 'enter' && !!propsRef.current.clearOnSubmit;
+        if (e.key === 'Enter' && ((e.metaKey || e.ctrlKey) || (enterSends && !e.shiftKey && !e.altKey))) {
           e.preventDefault();
           const ed = editorInstance.current;
           if (ed && propsRef.current.onSubmit) {
@@ -270,15 +277,24 @@ export function RichEditor(props: {
         if (e.key === 'Escape' && propsRef.current.onEscape) { e.stopPropagation(); propsRef.current.onEscape(); return true; }
         return false;
       },
+      handleTextInput: (view, from, to, text) => {
+        // Convert text emoticons into emojis (Settings › Preferences)
+        if (text !== ' ' || !useApp.getState().snap?.workspace.preferences.convertEmoticons) return false;
+        const before = view.state.doc.textBetween(Math.max(0, from - 3), from, '\n', '\n');
+        const hit = Object.entries(EMOTICONS).find(([k]) => before.endsWith(k) && (before.length === k.length || /\s/.test(before[before.length - k.length - 1] ?? ' ')));
+        if (!hit) return false;
+        view.dispatch(view.state.tr.insertText(`${hit[1]} `, from - hit[0].length, to));
+        return true;
+      },
       handlePaste: (_view, e) => {
         const files = [...(e.clipboardData?.files ?? [])];
-        if (!files.length || !propsRef.current.issueId || !editorInstance.current) return false;
+        if (!files.length || !uploadOwner(propsRef.current) || !editorInstance.current) return false;
         void upload(editorInstance.current, files);
         return true;
       },
       handleDrop: (view, e) => {
         const files = [...((e as DragEvent).dataTransfer?.files ?? [])];
-        if (!files.length || !propsRef.current.issueId || !editorInstance.current) return false;
+        if (!files.length || !uploadOwner(propsRef.current) || !editorInstance.current) return false;
         const pos = view.posAtCoords({ left: (e as DragEvent).clientX, top: (e as DragEvent).clientY })?.pos;
         void upload(editorInstance.current, files, pos);
         return true;

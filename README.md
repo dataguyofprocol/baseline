@@ -66,9 +66,10 @@ How hosted mode differs:
 `npm run test:auth` covers sign-in, invites, domains and roles.
 
 **Production data:** the work DB was wiped of all seed/demo data on 2026-08-29 — the workspace
-starts empty (create your team in Settings) and only real work lives there now. The app auto-seeds
-any database whose `meta` table is empty, so never point dev tools or experiments at
-`~/.baseline/baseline.db`; deleting or resetting that file would resurrect the sample data.
+starts empty (create your team in Settings) and only real work lives there now. A database whose
+`meta` table is empty starts blank in the web app (a first-run flow names your team and offers
+the sample data) and seeded from the CLI, so never point dev tools or experiments at
+`~/.baseline/baseline.db`; deleting or resetting that file would lose your work.
 Pre-wipe backups: `~/.baseline/backups/`.
 
 ## What's inside
@@ -106,7 +107,7 @@ label create "Bug" -t CORE -c "#eb5757" · label update … · label delete …
 location list · location add ~/code/api [-n api] [-j "Project"] · location rename api backend · location remove backend
 issue update CORE-3 --location api     # every task works in exactly one location ("none" clears); sub-issues inherit the parent's; a project's locations are only suggestions
 agent config [--terminal Terminal|iTerm|Ghostty|Warp|kitty|Alacritty|WezTerm]   # where `issue open` sessions launch
-export [--out file] · import <file>    # full workspace backup / restore
+export [--out file] · import <file>    # full workspace backup / restore (images included — they live in the database)
 seed [--reset]
 ```
 

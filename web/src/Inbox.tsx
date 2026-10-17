@@ -1,37 +1,45 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, relTime, useCursor, registerVisibleList } from './store.js';
+import { useApp, relTime, useCursor, registerVisibleList, nameOf } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
 import { IssueDetail } from './IssueDetail.js';
 import { Avatar, StateIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
-import { LogoMark } from './Logo.js';
 import { parseReminder } from './propertyMenus.js';
 import { Markdown } from './Markdown.js';
+import { PrIcon, prStateOfNotice } from './GitHubUI.js';
+import { InitiativeIcon } from './Initiatives.js';
 import {
   IconAssignArrow, IconComment, IconMention, IconCycle, IconFilter, IconDisplay, IconCheck, IconTrash,
   IconClock, IconSettings, IconReply, IconBell, IconClose, IconPulse, IconPlus, IconEdit,
+  IconEmoji, IconDoc,
 } from './icons.js';
-import type { Notification, NotificationType } from '../../src/core/types.js';
+import { notifyCategory, type Notification, type NotificationType, type NotifyCategory } from '../../src/core/types.js';
+import { Illustration } from './illustrations.js';
 
 /* Linear's inbox: notifications on the left (newest first, merged per issue and kind),
    the issue on the right. U toggles read, ⌫ deletes, H snoozes, ⇧⌫ deletes everything
    read. Snoozed notifications and reminders stay out of sight until their time. */
 
 type Row = { lead: Notification; actors: string[]; ids: string[]; unread: boolean };
-interface InboxPrefs { order: 'newest' | 'oldest'; showSnoozed: boolean; unreadFirst: boolean; types: NotificationType[]; from: string[]; priority: boolean; groupUnreads: 'none' | 'focus' }
+interface InboxPrefs { order: 'newest' | 'oldest'; showSnoozed: boolean; unreadFirst: boolean; types: NotificationType[]; from: string[]; priority: boolean; groupUnreads: 'none' | 'focus'; priorityCats?: NotifyCategory[] }
 const PREFS_KEY = 'baseline:inboxPrefs';
+/** what Priority inbox lifts to the top (Settings › Notifications › Priority notifications) */
+export const DEFAULT_PRIORITY_CATS: NotifyCategory[] = ['assignments', 'mentions', 'comments', 'reminders', 'updates'];
+/** the inbox's display settings live in this browser; Settings › Notifications edits the same ones */
+export function readInboxPrefs(): Partial<InboxPrefs> { try { return JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}'); } catch { return {}; } }
+export function writeInboxPrefs(p: Partial<InboxPrefs>) { try { localStorage.setItem(PREFS_KEY, JSON.stringify({ ...readInboxPrefs(), ...p })); } catch { /* ignore */ } }
 const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
-  issueAssignedToYou: 'Assignments', issueCommented: 'Comments', issueReplied: 'Replies', issueMentioned: 'Mentions',
+  issueAssignedToYou: 'Assignments', issueCommented: 'Comments', issueReplied: 'Replies', issueMentioned: 'Mentions', commentReacted: 'Reactions',
   issueStatusChanged: 'Status changes', issueReminder: 'Reminders', systemUpdate: 'Updates',
-  projectUpdate: 'Project updates', projectIssueAdded: 'Project activity', projectUpdateReminder: 'Update reminders', pulseDigest: 'Pulse',
+  projectUpdate: 'Project updates', projectIssueAdded: 'Project activity', projectUpdateReminder: 'Update reminders', initiativeUpdateReminder: 'Initiative update reminders', pulseDigest: 'Pulse',
+  slaBreached: 'SLA breaches', prActivity: 'Pull requests', loopFailed: 'Loops', teamActivity: 'Team activity',
 };
 /* one filter value covers several kinds */
 const TYPE_ALIASES: Partial<Record<NotificationType, NotificationType[]>> = { projectIssueAdded: ['projectIssueAdded', 'projectIssueClosed', 'projectChanged'] };
 
-const PRIORITY_TYPES: NotificationType[] = ['issueAssignedToYou', 'issueMentioned', 'issueReplied', 'issueReminder', 'projectUpdateReminder'];
 const FOCUS_LABELS: Partial<Record<NotificationType, string>> = {
   issueAssignedToYou: 'Assigned to you', issueMentioned: 'Mentions', issueReplied: 'Replies', issueReminder: 'Reminders',
   issueStatusChanged: 'Status changes', issueCommented: 'Comments',
@@ -105,7 +113,7 @@ export function InboxPage() {
      the sections so J/K walks them top to bottom. */
   const sectionOf = (r: Row): string | null => {
     if (prefs.groupUnreads === 'focus' && r.unread) return FOCUS_LABELS[r.lead.type] ?? 'Other updates';
-    if (prefs.priority) return PRIORITY_TYPES.includes(r.lead.type) ? 'Priority' : 'Other';
+    if (prefs.priority) { const c = notifyCategory(r.lead.type, r.lead.body); return c && (prefs.priorityCats ?? DEFAULT_PRIORITY_CATS).includes(c) ? 'Priority' : 'Other'; }
     if (prefs.groupUnreads === 'focus') return 'Read';
     return null;
   };
@@ -181,6 +189,8 @@ export function InboxPage() {
       case 'issueAssignedToYou': return { icon: <IconAssignArrow size={12} />, what: 'assigned the issue to you' };
       case 'issueCommented': return { icon: <IconComment size={12} />, what: 'commented' };
       case 'issueReplied': return { icon: <IconReply size={12} />, what: 'replied to your thread' };
+      case 'docChanged': return { icon: <IconDoc size={12} />, what: 'edited your document' };
+      case 'commentReacted': return { icon: <IconEmoji size={12} />, what: `reacted ${n.body.split(' ')[0]} to your comment` };
       case 'issueMentioned': return { icon: <IconMention size={12} />, what: 'mentioned you' };
       case 'issueStatusChanged': return { icon: <IconCycle size={12} />, what: n.body ? `changed status to ${n.body}` : 'changed the status' };
       case 'issueReminder': return { icon: <IconClock size={12} />, what: 'Reminder' };
@@ -190,7 +200,12 @@ export function InboxPage() {
       case 'projectIssueClosed': return { icon: <IconCheck size={12} />, what: n.body.startsWith('Canceled') ? 'canceled an issue in the project' : 'completed an issue in the project' };
       case 'projectChanged': return { icon: <IconEdit size={12} />, what: 'changed the project description' };
       case 'projectUpdateReminder': return { icon: <IconClock size={12} />, what: 'Project update due' };
+      case 'initiativeUpdateReminder': return { icon: <IconClock size={12} />, what: 'Initiative update due' };
       case 'pulseDigest': return { icon: <IconPulse size={12} />, what: 'Pulse summary' };
+      case 'slaBreached': return { icon: <IconClock size={12} />, what: 'SLA breached' };
+      case 'prActivity': return { icon: <PrIcon state={prStateOfNotice(n.body)} size={14} title="Pull request" />, what: n.body };
+      case 'loopFailed': return { icon: <IconClose size={12} />, what: `loop failed — ${n.body}` };
+      case 'teamActivity': return { icon: <IconBell size={12} />, what: n.body };
       default: return { icon: <IconComment size={12} />, what: 'updated the issue' };
     }
   };
@@ -220,7 +235,7 @@ export function InboxPage() {
         <div className="content">
           {rows.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-mark"><LogoMark size={30} /></div>
+              <Illustration name="inbox" />
               <div className="empty-title">You're all caught up</div>
               <div className="empty-desc">Assignments, mentions, comments and status changes on issues you follow land here.</div>
             </div>
@@ -235,7 +250,9 @@ export function InboxPage() {
             const excerpt = ['issueCommented', 'issueMentioned', 'issueReplied'].includes(n.type) ? n.body : '';
             const st = issue ? snap.states.find(s => s.id === issue.stateId) : undefined;
             const project = !issue && n.projectId ? snap.projects.find(p => p.id === n.projectId) : undefined;
-            const projTitle = project ? `${project.icon} ${project.name}` : n.type === 'pulseDigest' ? 'Pulse' : '';
+            const doc = n.type === 'docChanged' ? { id: n.body.split('|')[0], title: n.body.split('|').slice(1).join('|') } : null;
+            const ini = n.type === 'initiativeUpdateReminder' ? snap.initiatives.find(i => i.id === n.body.split('|')[0]) : undefined;
+            const projTitle = doc ? `📄 ${doc.title}` : ini ? ini.name : project ? `${project.icon} ${project.name}` : n.type === 'pulseDigest' ? 'Pulse' : '';
             const snoozed = n.snoozedUntil && n.snoozedUntil > now;
             return (
               <div key={n.id}>
@@ -243,10 +260,10 @@ export function InboxPage() {
               <div
                 className={`inbox-row${row.unread ? ' unread' : ''}${isSel || openRow?.lead.id === n.id ? ' selected' : ''}${idx < 0 ? ' static' : ''}${snoozed ? ' snoozed' : ''}`}
                 onClick={() => { if (idx >= 0) { useCursor.setState({ index: idx }); setOpenRow(null); } else { setOpenRow(row); if (row.unread) void markRead(row, true); } }}
-                onDoubleClick={() => { const k = keyOf(n); if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); else if (n.type === 'pulseDigest') navigate('/pulse'); }}
+                onDoubleClick={() => { const k = keyOf(n); if (doc) navigate(`/docs/${doc.id}`); else if (ini) navigate(`/initiatives/${ini.id}`); else if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); else if (n.type === 'pulseDigest') navigate('/pulse'); }}
                 onContextMenu={e => { setMenuRow(row); rowMenu.open(e); }}>
                 <span className="inbox-lead">
-                  {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? <span className="inbox-sys">{d.icon}</span>
+                  {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'initiativeUpdateReminder' || n.type === 'pulseDigest' || n.type === 'prActivity' ? <span className="inbox-sys">{d.icon}</span>
                     : actors.length > 1 ? <AvatarStack size={20} people={actors.map(a => ({ name: a.name, initials: a.initials, color: a.color }))} />
                     : actors.length === 1 ? <Avatar user={actors[0]} size={20} />
                     : <span className="inbox-sys">{d.icon}</span>}
@@ -260,7 +277,7 @@ export function InboxPage() {
                   <div className="inbox-line2">
                     {keyOf(n) && <span className="inbox-key">{keyOf(n)}</span>}
                     <span className="inbox-what">
-                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? n.body : <>{actors[0] ? <>{actors[0].name}{actors.length > 1 ? ` +${actors.length - 1}` : ''} </> : null}{d.what}</>}
+                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? n.body : n.type === 'initiativeUpdateReminder' ? n.body.split('|').slice(1).join('|') : <>{actors[0] ? <>{nameOf(actors[0])}{actors.length > 1 ? ` +${actors.length - 1}` : ''} </> : null}{d.what}</>}
                       {(n.type === 'projectIssueAdded' || n.type === 'projectIssueClosed' || n.type === 'projectUpdate') && n.body && <>: <span className="inbox-excerpt">{n.body.replace(/^(Completed|Canceled): /, '')}</span></>}
                       {excerpt && <>: <span className="inbox-excerpt">{excerpt}</span></>}
                     </span>
@@ -275,7 +292,7 @@ export function InboxPage() {
       <div className="inbox-preview">
         {openRow ? <ProjectNotice n={openRow.lead} /> : selectedIssue ? <IssueDetail key={selectedIssue.id} issue={selectedIssue} /> : (
           <div className="empty-state">
-            <div className="empty-mark"><LogoMark size={26} /></div>
+            <Illustration name="inbox" small />
             <div className="empty-title">{rows.length ? 'No notification selected' : 'Nothing to preview'}</div>
             {rows.length > 0 && <div className="empty-desc"><span className="kbd">J</span> <span className="kbd">K</span> to move · <span className="kbd">U</span> read/unread · <span className="kbd">⌫</span> delete · <span className="kbd">H</span> snooze</div>}
           </div>
@@ -353,6 +370,30 @@ function ProjectNotice({ n }: { n: Notification }) {
   const p = n.projectId ? snap.projects.find(x => x.id === n.projectId) : undefined;
   const update = n.type === 'projectUpdate' && p ? snap.projectUpdates.find(u => u.projectId === p.id && Math.abs(new Date(u.createdAt).getTime() - new Date(n.createdAt).getTime()) < 5000) ?? snap.projectUpdates.find(u => u.projectId === p.id) : undefined;
   const issue = n.issueId ? snap.issues.find(i => i.id === n.issueId) : undefined;
+  if (n.type === 'docChanged') {
+    const [docId, ...rest] = n.body.split('|');
+    return (
+      <div className="proj-notice">
+        <div className="pn-title"><span>📄</span>{rest.join('|')}</div>
+        <div className="pn-body">{snap.users.find(u => u.id === n.actorId)?.name ?? 'Someone'} edited this document{p ? ` in ${p.name}` : ''}.</div>
+        <div style={{ display: 'flex', gap: 8 }}><button className="btn primary sm" onClick={() => navigate(`/docs/${docId}`)}>Open document</button></div>
+      </div>
+    );
+  }
+  if (n.type === 'initiativeUpdateReminder') {
+    const [iniId, ...rest] = n.body.split('|');
+    const ini = snap.initiatives.find(i => i.id === iniId);
+    return (
+      <div className="proj-notice">
+        <div className="pn-title">{ini ? <><InitiativeIcon ini={ini} size={16} />{ini.name}</> : 'Initiative'}</div>
+        <div className="pn-body">{rest.join('|')}</div>
+        {ini && <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn primary sm" onClick={() => navigate(`/initiatives/${ini.id}/updates`, { state: { compose: true } })}>Write update</button>
+          <button className="btn secondary sm" onClick={() => navigate(`/initiatives/${ini.id}`)}>Open initiative</button>
+        </div>}
+      </div>
+    );
+  }
   return (
     <div className="proj-notice">
       <div className="pn-title">{p ? <><span>{p.icon}</span>{p.name}</> : 'Pulse'}</div>
