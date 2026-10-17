@@ -55,10 +55,13 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const files = new FileService(db, join(dirname(dbPath), 'attachments'));
   const moved = files.migrateLegacy();
   if (moved) console.error(`[baseline] moved ${moved} upload(s) into the database`);
-  // Loops' "Open in Claude Code" action opens the same interactive session as the manual hand-off
-  automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
-  // the git integration polls gh / git log every two minutes while it's on
-  setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
+  // Loops' "Open in Claude Code" action opens the same interactive session as the manual hand-off.
+  // Hosted, that would open it on the server's machine — it waits for a companion on each person's laptop
+  if (hosted) automation.launcherMissing = 'needs a connected companion';
+  else automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
+  // the git integration polls gh / git log in each location every two minutes while it's on —
+  // those are this machine's folders, so a hosted server leaves GitHub to its webhooks
+  if (!hosted) setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
 
   // first run: a laptop gets the sample workspace to play with; a hosted one starts empty —
   // its people come from Google sign-in, and onboarding asks for the first team
@@ -401,6 +404,9 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (!isDirectory(path)) return c.json({ error: `Directory not found: ${path || '(empty)'}` }, 400);
     return c.json({ location: store.createLocation(path, b.name) }, 201);
   });
+  // existing ones (say, from a laptop workspace moved to a server) can be tidied away, by admins
+  app.patch('/api/locations/:id', adminOnly);
+  app.delete('/api/locations/:id', adminOnly);
   app.patch('/api/locations/:id', async (c) => {
     const b = await c.req.json() as { name?: string };
     try { if (b.name) store.renameLocation(c.req.param('id'), b.name); } catch (err) { return c.json({ error: (err as Error).message }, 400); }
@@ -643,7 +649,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const b = await c.req.json();
     store.setFeatures(b);
     // turning GitHub on adds Linear's "In Review" state and syncs straight away
-    if (b.githubEnabled === true) { git.ensureInReview(); void git.sync().catch(() => {}); }
+    if (b.githubEnabled === true) { git.ensureInReview(); if (!hosted) void git.sync().catch(() => {}); }
     return c.json({ ok: true });
   });
 
@@ -687,7 +693,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- git / GitHub ----------
   app.get('/api/git/status', async (c) => c.json(await git.status()));
-  app.post('/api/git/sync', async (c) => c.json(await git.sync()));
+  app.post('/api/git/sync', async (c) => c.json(hosted ? { prs: 0, commits: 0, error: 'The hosted app gets GitHub activity from webhooks, not gh' } : await git.sync()));
   app.get('/api/git/automation/:teamId', (c) => c.json(git.automation(c.req.param('teamId'))));
   app.put('/api/git/automation/:teamId', async (c) => { git.setAutomation(c.req.param('teamId'), await c.req.json()); return c.json({ ok: true }); });
   // webhook setup (the secret is shown once, when it's made) and one-way GitHub Issues import

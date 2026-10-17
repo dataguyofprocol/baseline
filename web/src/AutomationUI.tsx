@@ -264,7 +264,9 @@ function LoopEditor({ draft, setDraft, onSave }: { draft: { name: string; teamId
           {a.kind === 'label' && <select className="text-input" value={a.labelId} onChange={e => setAction(i, { kind: 'label', labelId: e.target.value })}>{snap.labels.map(l => <option key={l.id} value={l.id}>{snap.teams.find(x => x.id === l.teamId)?.key} · {l.name}</option>)}</select>}
           {a.kind === 'status' && <select className="text-input" value={a.stateType} onChange={e => setAction(i, { kind: 'status', stateType: e.target.value as WorkflowStateType })}>{STATE_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>}
           {a.kind === 'createIssue' && <input className="text-input grow" placeholder="Title — {date} fills in" value={a.title} onChange={e => setAction(i, { ...a, title: e.target.value })} />}
-          {a.kind === 'claudeCode' && <span className="set-meta">opens an interactive session in the issue's location</span>}
+          {a.kind === 'claudeCode' && <span className="set-meta">{snap.workspace.auth === 'google'
+            ? 'skipped on the hosted app for now — it needs a connected companion on your computer (coming in Phase 2)'
+            : 'opens an interactive session in the issue\'s location'}</span>}
           <button className="icon-btn" title="Remove action" onClick={() => setDraft({ ...draft, actions: draft.actions.filter((_, n) => n !== i) })}><IconClose size={12} /></button>
         </div>
       ))}

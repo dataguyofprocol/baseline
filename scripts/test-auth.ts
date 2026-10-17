@@ -168,6 +168,27 @@ check('subscribing subscribes yourself, not the userId sent', store.isSubscribed
     && (await req('/api/locations', { ...json({ path: '/etc' }), cookie: ownerCookie })).status === 403);
 }
 
+// ---- coding agents: nothing runs on, or reaches into, the server's machine ----
+{
+  // a location left over from a laptop workspace moved onto the server
+  const loc = store.createLocation(work, 'Old checkout');
+  const at = (cookie: string, method: string, body?: unknown) => req(`/api/locations/${loc.id}`, { method, cookie, headers: { 'content-type': 'application/json', origin: ORIGIN }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const rename = await at(adaCookie, 'PATCH', { name: 'Mine now' });
+  const remove = await at(adaCookie, 'DELETE');
+  check('a member can\'t rename or remove a location', rename.status === 403 && remove.status === 403 && store.getLocation(loc.id)?.name === 'Old checkout', `${rename.status}/${remove.status}`);
+  const renamed = await at(ownerCookie, 'PATCH', { name: 'Archive' });
+  check('…an admin can rename one', renamed.status === 200 && store.getLocation(loc.id)?.name === 'Archive');
+  check('…and remove it', (await at(ownerCookie, 'DELETE')).status === 200 && !store.getLocation(loc.id));
+
+  check('loops get no launcher on a hosted server', store.ext.automation.launcher === null);
+  const loop = (await (await req('/api/loops', { ...json({ name: 'Hand off', trigger: { kind: 'labelAdded', labelId: 'none' }, actions: [{ kind: 'claudeCode' }] }), cookie: ownerCookie })).json() as { loop: { id: string } }).loop;
+  const run = (await (await req(`/api/loops/${loop.id}/run`, { ...json({ issueId: issue.id }), cookie: ownerCookie })).json() as { run: { ok: boolean; detail: string } }).run;
+  check('a loop\'s Open in Claude Code is skipped, saying it needs the companion', !run.ok && /needs a connected companion, skipped/.test(run.detail), run.detail);
+
+  const sync = await (await req('/api/git/sync', { ...json({}), cookie: ownerCookie })).json() as { prs: number; error?: string };
+  check('git sync doesn\'t run gh on a hosted server', sync.prs === 0 && /webhooks/.test(sync.error ?? ''), JSON.stringify(sync));
+}
+
 // ---- per-person state ----
 const patch = (path: string, body: unknown, cookie: string) => req(path, { ...json(body), method: 'PATCH', cookie });
 type Boot = { favorites: Array<{ refId: string }>; views: Array<{ id: string; shared: boolean }>; notifications: Array<{ type: string; body: string; readAt: string | null; issueId: string | null }>; workspace: { preferences: { homeView: string } } };

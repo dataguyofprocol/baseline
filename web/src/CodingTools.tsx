@@ -1,7 +1,8 @@
 // Hand an issue to a coding agent: the issue toolbar (copy link / ID / branch / prompt, plus the
 // "Open in Claude Code" flyout), the shortcuts behind it, and the location pickers. Every task works
 // in exactly one location — a registered directory, usually a git repo — and nothing is guessed:
-// an issue with no location asks for one. Launching goes through the local server.
+// an issue with no location asks for one. Launching goes through the local server — so on a hosted
+// workspace, where that server isn't your computer, only the copy actions are offered for now.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -10,6 +11,10 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
 import { IconLink, IconCopyId, IconBranch, IconHandoff, IconChevronDown, IconSpark, IconFolder, IconTools, IconPlus, IconCheck, IconClose } from './icons.js';
 import type { Issue, Location } from '../../src/core/types.js';
+
+/** hosted: the server can't open programs or folders on your computer — that waits for the companion */
+export const hostedWorkspace = () => useApp.getState().snap?.workspace.auth === 'google';
+export const COMPANION_NOTE = 'Opening Claude Code and adding folders need the Baseline companion on your computer — coming in Phase 2.';
 
 /** /Users/me/code/app → ~/code/app */
 export function tildify(path: string, home?: string): string {
@@ -29,6 +34,7 @@ export function locationChoices(issue: Issue): { pinned?: Location; project: Loc
 /** folder picker → registered locations (idempotent by path); `multiple` lets you ⌘-click several */
 export async function pickLocations(prompt: string, multiple = false): Promise<Location[]> {
   const { toast } = useApp.getState();
+  if (hostedWorkspace()) { toast({ title: 'Can’t add folders here yet', line: COMPANION_NOTE }); return []; }
   const r = await api.pickDirectory(prompt, multiple);
   if (r.error) { toast({ title: 'Could not open the folder picker', line: r.error }); return []; }
   const out: Location[] = [];
@@ -108,6 +114,7 @@ export function handoffActions(issue: Issue) {
   };
   /** the issue's own location, or the one given (which then becomes the issue's) — never a guess */
   const openInClaude = async (locationId?: string): Promise<void> => {
+    if (hostedWorkspace()) { toast({ title: 'Copy the prompt instead', line: COMPANION_NOTE }); return; }
     const r = await api.openClaude(issue.id, { locationId });
     const home = useApp.getState().snap?.workspace.homeDir;
     if ('code' in r) {
@@ -165,6 +172,14 @@ function LocationItem(props: { loc: Location; selected?: boolean; onPick: () => 
 /** the "Open in Claude Code" flyout body — shared by the toolbar menu and row context menus */
 export function OpenInClaudeItems(props: { issue: Issue; actions: HandoffActions }) {
   const c = locationChoices(props.issue);
+  if (hostedWorkspace()) return (
+    <>
+      <div className="menu-header"><span>Claude Code</span></div>
+      <div className="menu-empty">{COMPANION_NOTE}</div>
+      <MenuSep />
+      <MenuItem icon={<IconHandoff size={14} />} label="Copy as prompt" onClick={e => void props.actions.copyPrompt({ skipStart: e.altKey })} />
+    </>
+  );
   return (
     <>
       <div className="menu-header"><span>Claude Code</span></div>
@@ -251,8 +266,11 @@ export function IssueLocationRow(props: { issue: Issue }) {
   const loc = snap.locations.find(l => l.id === props.issue.locationId);
   // every open task should say where it happens — not just the ones handed to Claude Code
   const stateType = snap.states.find(s => s.id === props.issue.stateId)?.type;
-  const needs = !loc && stateType !== 'completed' && stateType !== 'canceled';
+  const hosted = snap.workspace.auth === 'google';
+  // hosted: nothing launches from a location yet, so don't ask for one — existing ones can still be set
+  const needs = !hosted && !loc && stateType !== 'completed' && stateType !== 'canceled';
   const c = locationChoices(props.issue);
+  if (hosted && !snap.locations.length) return null;
   return (
     <>
       <button className={`prop-line ${loc ? '' : needs ? 'warn' : 'dim'}`} onClick={menu.open}
@@ -269,7 +287,7 @@ export function IssueLocationRow(props: { issue: Issue }) {
           {c.others.length > 0 && <div className="menu-header"><span>{c.pinned || c.project.length ? 'Other locations' : 'Locations'}</span></div>}
           {c.others.map(l => <LocationItem key={l.id} loc={l} onPick={() => void actions.setLocation(l.id)} />)}
           <MenuSep />
-          <MenuItem icon={<IconPlus size={14} />} label="Add a folder…" onClick={() => void actions.chooseAndPin()} />
+          {!hosted && <MenuItem icon={<IconPlus size={14} />} label="Add a folder…" onClick={() => void actions.chooseAndPin()} />}
           {loc && <MenuItem icon={<IconClose size={13} />} label="No location" onClick={() => void actions.setLocation(null)} />}
           <MenuItem icon={<IconTools size={14} />} label="Manage locations…" onClick={() => navigate('/settings/handoff')} />
         </Menu>
@@ -286,6 +304,7 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
   const navigate = useNavigate();
   const { project } = props;
   const linked = project.locationIds.map(id => snap.locations.find(l => l.id === id)).filter((l): l is Location => !!l);
+  const hosted = snap.workspace.auth === 'google';
   // the menu stays open for several toggles, so each one builds on the last — not on props a refresh hasn't caught up with
   const ids = useRef(project.locationIds);
   useEffect(() => { ids.current = project.locationIds; }, [project.locationIds]);
@@ -297,6 +316,7 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
     await save([...ids.current.filter(x => !locs.some(l => l.id === x)), ...locs.map(l => l.id)]);
     toast({ title: locs.length === 1 ? `${locs[0]!.name} added to ${project.name}` : `${locs.length} locations added to ${project.name}`, line: locs.length > 1 ? locs.map(l => l.name).join(', ') : undefined });
   };
+  if (hosted && !snap.locations.length) return null;
   return (
     <>
       <button className="rail-kv" onClick={menu.open} title={linked.map(l => tildify(l.path, snap.workspace.homeDir)).join('\n') || 'Where this project\'s work happens'}>
@@ -319,9 +339,9 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
           ))}
           {snap.locations.length > 0 && <MenuSep />}
           {/* a raw row: the menu stays open, so the new folders show up ticked and you can keep going */}
-          <button className="menu-item" onClick={() => void add()}>
+          {!hosted && <button className="menu-item" onClick={() => void add()}>
             <span className="mi-icon"><IconPlus size={14} /></span><span className="mi-label">Add folders…</span>
-          </button>
+          </button>}
           <MenuItem icon={<IconTools size={14} />} label="Manage locations…" onClick={() => navigate('/settings/handoff')} />
         </Menu>
       )}
@@ -334,9 +354,13 @@ export function LocationsSettings() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const home = snap.workspace.homeDir;
+  const hosted = snap.workspace.auth === 'google';
+  // hosted, locations can't be added, and only admins can rename or remove the ones a moved workspace brought
+  const canEdit = !hosted || snap.currentUser.admin;
   const [missing, setMissing] = useState<Record<string, boolean>>({});
   useEffect(() => {
     let live = true;
+    if (hosted) return;
     void Promise.all(snap.locations.map(async l => [l.id, !(await api.checkDirectory(l.path)).exists] as const))
       .then(rows => { if (live) setMissing(Object.fromEntries(rows)); });
     return () => { live = false; };
@@ -356,9 +380,10 @@ export function LocationsSettings() {
           <div className="field-label">Locations</div>
           <div className="field-help">Folders coding agents work in — usually git repos. Link them to projects on the project page; each issue picks one.</div>
         </div>
-        <button className="btn" onClick={() => void add()}><IconPlus size={12} /> Add folders…</button>
+        {!hosted && <button className="btn" onClick={() => void add()}><IconPlus size={12} /> Add folders…</button>}
       </div>
-      {snap.locations.length === 0 && <div className="field-help" style={{ padding: '10px 0 2px' }}>No locations yet.</div>}
+      {hosted && <div className="field-help" style={{ padding: '10px 0 2px' }}>{COMPANION_NOTE}</div>}
+      {!hosted && snap.locations.length === 0 && <div className="field-help" style={{ padding: '10px 0 2px' }}>No locations yet.</div>}
       {snap.locations.map(l => {
         const projects = snap.projects.filter(p => p.locationIds.includes(l.id));
         const issues = snap.issues.filter(i => i.locationId === l.id && !i.deletedAt && !i.archivedAt).length;
@@ -366,7 +391,7 @@ export function LocationsSettings() {
           <div key={l.id} className="loc-row">
             <IconFolder size={14} />
             <div className="loc-main">
-              <LocationName loc={l} />
+              {canEdit ? <LocationName loc={l} /> : <span className="loc-name">{l.name}</span>}
               <code className="loc-path">{tildify(l.path, home)}</code>
               {missing[l.id] && <span className="dir-field-warn">Missing on this machine</span>}
             </div>
@@ -374,16 +399,16 @@ export function LocationsSettings() {
               {projects.map(p => <span key={p.id} className="loc-chip"><span className="fav-emoji">{p.icon}</span>{p.name}</span>)}
               {issues > 0 && <span className="loc-count">{issues} issue{issues === 1 ? '' : 's'}</span>}
             </div>
-            <button className="icon-btn" title={issues ? `Remove — ${issues} issue${issues === 1 ? '' : 's'} will need a new location` : 'Remove location'}
+            {canEdit && <button className="icon-btn" title={issues ? `Remove — ${issues} issue${issues === 1 ? '' : 's'} will need a new location` : 'Remove location'}
               onClick={async () => { await api.deleteLocation(l.id); await useApp.getState().bootstrap(); toast({ title: `Removed ${l.name}` }); }}>
               <IconClose size={12} />
-            </button>
+            </button>}
           </div>
         );
       })}
-      <div className="loc-add-path">
+      {!hosted && <div className="loc-add-path">
         <DirectoryField value="" placeholder="…or paste a path, e.g. ~/code/my-repo" pickPrompt="Add a location" onSave={dir => { if (dir) void add(dir); }} />
-      </div>
+      </div>}
     </div>
   );
 }

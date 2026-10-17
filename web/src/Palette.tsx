@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp, useSelection, copyText, visibleList, type PaletteScope } from './store.js';
 import { api } from './api.js';
-import { handoffActions } from './CodingTools.js';
+import { handoffActions, hostedWorkspace } from './CodingTools.js';
 import { setIssueProps, archiveIssues, deleteIssues, assignToMe, toggleSubscription, undoLast } from './actions.js';
 import { shortcutTargets } from './nav.js';
 import type { PropKind } from './propertyMenus.js';
@@ -339,8 +339,9 @@ function bulkRootItems(setSub: (p: SubPage) => void): PaletteItem[] {
       { id: 'ctx-copy-branch', icon: <IconCopyIdLocal />, label: 'Copy git branch name', section, hint: '⌘⇧.', keywords: 'copy git branch', action: () => void h.copyBranch() },
       { id: 'ctx-copy-md', icon: <IconCopyIdLocal />, label: 'Copy issue as Markdown', section, hint: '⌘⌥C', keywords: 'copy markdown', action: () => void h.copyMarkdown() },
       { id: 'ctx-copy-prompt', icon: <IconHandoff />, label: 'Copy as prompt', section, hint: '⌘⌥P', keywords: 'handoff agent prompt', action: () => void h.copyPrompt() },
-      { id: 'ctx-claude', icon: <IconSpark />, label: 'Open in Claude Code', section, keywords: 'handoff agent terminal', action: () => void h.openInClaude() },
     );
+    // hosted, Claude Code can't be opened from the server yet (the companion comes in Phase 2)
+    if (!hostedWorkspace()) extra.push({ id: 'ctx-claude', icon: <IconSpark />, label: 'Open in Claude Code', section, keywords: 'handoff agent terminal', action: () => void h.openInClaude() });
   }
   const base = bulkRootItemsBase(setSub).map(i => ({ ...i, section }));
   return [...base.slice(0, -2), ...extra, ...base.slice(-2)];

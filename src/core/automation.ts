@@ -18,6 +18,8 @@ export function agentUser(store: Store, db: DatabaseSync, name: string): string 
 export class Automation {
   /** set by the server: opens an interactive Claude Code session for an issue (the CLI has none) */
   launcher: ((issueId: string) => Promise<void>) | null = null;
+  /** why a run with no launcher skips the Claude Code action */
+  launcherMissing = 'the app isn’t running';
   private running = false;
 
   constructor(private store: Store, private db: DatabaseSync) {
@@ -294,7 +296,7 @@ export class Automation {
         else if (a.kind === 'comment') { this.store.addComment(issue.id, bot, a.body.replace(/\{issue\.key\}/g, key).replace(/\{issue\.title\}/g, issue.title)); done.push('commented'); }
         else if (a.kind === 'claudeCode') {
           if (this.launcher) { void this.launcher(issue.id).catch(() => {}); done.push('opened Claude Code'); }
-          else { done.push('Claude Code: the app isn’t running, skipped'); ok = false; }
+          else { done.push(`Claude Code: ${this.launcherMissing}, skipped`); ok = false; }
         }
       }
     } catch (e) { ok = false; done.push(`error: ${(e as Error).message}`); }

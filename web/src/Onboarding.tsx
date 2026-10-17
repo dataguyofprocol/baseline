@@ -13,8 +13,10 @@ const keyFromName = (name: string) => name.replace(/[^a-zA-Z0-9]/g, '').slice(0,
 /* Linear's first minute: welcome, theme, team, GitHub, sample data, a ⌘K lesson, then the
    first issue. Every step can be skipped (Esc) and continued (Enter); where you are is saved
    in preferences, so a reload picks the flow back up. */
-const STEPS = ['welcome', 'theme', 'team', 'github', 'sample', 'palette'] as const;
-const TEAM_STEP = STEPS.indexOf('team');
+const ALL_STEPS = ['welcome', 'theme', 'team', 'github', 'sample', 'palette'] as const;
+// the GitHub step links folders on this machine and reads them with its gh — a hosted server has neither
+const HOSTED_STEPS = ALL_STEPS.filter(s => s !== 'github');
+const TEAM_STEP = ALL_STEPS.indexOf('team'); // the same in both: team comes before github
 
 /** Enter continues and Esc skips, wherever focus is — except Enter on an ordinary button,
  *  which presses that button. Choice buttons (theme pills, option cards) carry data-choice. */
@@ -42,10 +44,11 @@ export function Onboarding() {
   const snap = useApp(s => s.snap)!;
   const gs = snap.workspace.preferences.gettingStarted;
   const hasTeam = snap.teams.length > 0;
+  const steps = snap.workspace.auth === 'google' ? HOSTED_STEPS : ALL_STEPS;
   // without a team the flow can't get past naming one (a workspace whose teams were all deleted lands there too)
-  const [step, setStep] = useState(() => Math.min(gs.step, hasTeam ? STEPS.length - 1 : TEAM_STEP));
+  const [step, setStep] = useState(() => Math.min(gs.step, hasTeam ? steps.length - 1 : TEAM_STEP));
   const go = (n: number) => { setStep(n); void setGettingStarted({ step: n }); };
-  const next = () => (step < STEPS.length - 1 ? go(step + 1) : void finish());
+  const next = () => (step < steps.length - 1 ? go(step + 1) : void finish());
   const back = step > 0 ? () => go(step - 1) : undefined;
 
   /** the last step is the product itself: the team's issues with a blank issue open, cursor in the title */
@@ -59,11 +62,11 @@ export function Onboarding() {
   };
 
   const props: StepProps = { next, back, finish };
-  const name = STEPS[step];
+  const name = steps[step];
   return (
     <div className="onb">
-      <div className="onb-progress" aria-label={`Step ${step + 1} of ${STEPS.length}`}>
-        {STEPS.map((s, i) => <span key={s} className={i === step ? 'on' : i < step ? 'done' : ''} />)}
+      <div className="onb-progress" aria-label={`Step ${step + 1} of ${steps.length}`}>
+        {steps.map((s, i) => <span key={s} className={i === step ? 'on' : i < step ? 'done' : ''} />)}
       </div>
       <div className="onb-stage" key={name}>
         {name === 'welcome' && <WelcomeStep {...props} />}
@@ -113,17 +116,20 @@ function Frame(props: {
 /* ================= 1 · welcome ================= */
 function WelcomeStep({ next }: StepProps) {
   const ws = useApp(s => s.snap!.workspace.name);
+  const hosted = useApp(s => s.snap!.workspace.auth === 'google');
   useStepKeys(next, next);
   return (
     <Frame
       lead={<div className="onb-lockup"><Lockup size={30} tone="var(--text-primary)" /></div>}
       title={<>Welcome to {ws}</>}
-      sub="A local-first tracker for you and your coding agents. A minute of setup and you're in — every step can be skipped."
+      sub={hosted
+        ? 'A shared tracker for your team and its coding agents. A minute of setup and you\'re in — every step can be skipped.'
+        : 'A local-first tracker for you and your coding agents. A minute of setup and you\'re in — every step can be skipped.'}
       primary={{ label: 'Get started', onClick: next }}
       onSkip={next}
     >
       <div className="onb-points">
-        <div><IconIssues size={15} /><span><b>Issues, projects and cycles</b> — stored in SQLite on this machine.</span></div>
+        <div><IconIssues size={15} /><span><b>Issues, projects and cycles</b> — {hosted ? 'shared with everyone you invite.' : 'stored in SQLite on this machine.'}</span></div>
         <div><IconPr size={15} /><span><b>GitHub-aware</b> — pull requests move their issues along.</span></div>
         <div><IconSearch size={15} /><span><b>Keyboard-first</b> — <span className="kbd">⌘</span><span className="kbd">K</span> reaches everything.</span></div>
       </div>

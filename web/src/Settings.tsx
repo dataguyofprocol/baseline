@@ -1141,7 +1141,8 @@ function HandoffSettings() {
         an interactive session in a terminal window, in the issue's location. Every issue works in exactly one location; nothing runs without one.
       </div>
       <LocationsSettings />
-      <ClaudeCodeSettings />
+      {/* the terminal Claude Code opens in is this machine's — hosted, that's the companion's to know */}
+      {snap.workspace.auth !== 'google' && <ClaudeCodeSettings />}
       <h2 className="settings-h2">Prompt template</h2>
       <div className="field-help" style={{ marginBottom: 10 }}>
         The same brief is used by the toolbar, <code>baseline issue handoff</code>, the palette and both Claude Code launchers.
