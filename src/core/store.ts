@@ -646,16 +646,14 @@ export class Store {
     this.db.prepare('INSERT INTO comments (id, issue_id, user_id, body, created_at, reactions, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(c.id, issueId, userId, body, now, '{}', threadId);
     this.logActivity({ issueId, type: 'commented', data: { commentId: c.id } }, userId);
     this.subscribe(issueId, userId);
-    const me = this.inboxOwner();
     const mentioned = this.mentions(body);
     for (const uid of mentioned) this.subscribe(issueId, uid);
-    if (userId !== me && me) {
-      // a mention outranks a reply, which outranks the plain comment notification — never raise two
-      const threadAuthors = threadId ? (this.db.prepare('SELECT DISTINCT user_id FROM comments WHERE id = ? OR parent_id = ?').all(threadId, threadId) as Array<{ user_id: string }>).map(r => r.user_id) : [];
-      if (mentioned.includes(me)) this.notifyMention(issueId, me, userId, body);
-      else if (threadAuthors.includes(me)) { this.notify('issueReplied', { actorId: userId, issueId, body: body.slice(0, 140), createdAt: now }); }
-      else this.notifySubscribed(issueId, 'issueCommented', userId, body.slice(0, 140), 'comments');
-    }
+    // a mention outranks a reply, which outranks the plain comment notification — never raise two for one person
+    const threadAuthors = threadId ? (this.db.prepare('SELECT DISTINCT user_id FROM comments WHERE id = ? OR parent_id = ?').all(threadId, threadId) as Array<{ user_id: string }>).map(r => r.user_id) : [];
+    for (const uid of mentioned) this.notifyMention(issueId, uid, userId, body);
+    const replied = threadAuthors.filter(u => !mentioned.includes(u));
+    this.notifyEach(replied, 'issueReplied', { actorId: userId, issueId, body: body.slice(0, 140), createdAt: now });
+    this.notifySubscribed(issueId, 'issueCommented', userId, body.slice(0, 140), 'comments', [...mentioned, ...replied]);
     return c;
   }
   updateComment(commentId: string, body: string): void { this.db.prepare('UPDATE comments SET body = ?, edited_at = ? WHERE id = ?').run(body, ts(), commentId); }
@@ -707,8 +705,7 @@ export class Store {
     this.db.prepare('UPDATE comments SET reactions = ? WHERE id = ?').run(JSON.stringify(r), commentId);
     // someone else reacting to your comment reaches your inbox (Notifications › Reactions)
     const c = this.db.prepare('SELECT issue_id, user_id, body FROM comments WHERE id = ?').get(commentId) as { issue_id: string; user_id: string; body: string };
-    const me = getMeta(this.db, 'currentUser');
-    if (!arr.includes(userId) && me && c.user_id === me && userId !== me) this.notify('commentReacted', { actorId: userId, issueId: c.issue_id, body: `${emoji} ${c.body.slice(0, 120)}` });
+    if (!arr.includes(userId)) this.notifyEach([c.user_id], 'commentReacted', { actorId: userId, issueId: c.issue_id, body: `${emoji} ${c.body.slice(0, 120)}` });
   }
 
   // ---------- relations ----------
@@ -790,11 +787,10 @@ export class Store {
     this.db.prepare(`UPDATE documents SET ${pairs.map(([k]) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...(pairs.map(([, v]) => v) as string[]), ts(), docId);
     // someone else (an agent, a teammate) changing a document you wrote reaches your inbox
     const d = this.db.prepare('SELECT title, creator_id, project_id FROM documents WHERE id = ?').get(docId) as { title: string; creator_id: string | null; project_id: string | null } | undefined;
-    const me = getMeta(this.db, 'currentUser');
-    if (d && me && actorId && actorId !== me && d.creator_id === me) {
+    if (d?.creator_id && actorId && actorId !== d.creator_id) {
       // one notification per document per hour, not one per keystroke
-      const recent = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'docChanged' AND body LIKE ? AND created_at > ?").get(`${docId}|%`, new Date(Date.now() - 3600_000).toISOString());
-      if (!recent) this.notify('docChanged', { actorId, projectId: d.project_id, body: `${docId}|${d.title || 'Untitled document'}` });
+      const recent = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'docChanged' AND user_id = ? AND body LIKE ? AND created_at > ?").get(d.creator_id, `${docId}|%`, new Date(Date.now() - 3600_000).toISOString());
+      if (!recent) this.notifyEach([d.creator_id], 'docChanged', { actorId, projectId: d.project_id, body: `${docId}|${d.title || 'Untitled document'}` });
     }
   }
   deleteDoc(docId: string): void { this.db.prepare('DELETE FROM documents WHERE id = ?').run(docId); }
@@ -1041,34 +1037,43 @@ export class Store {
   // ---------- notifications ----------
   // only notify when someone else assigned it to you — never for self-assignment
   private notifyAssign(issueId: string, assigneeId: string, actorId?: string): void {
-    const me = this.inboxOwner();
-    if (assigneeId === me && assigneeId !== (actorId ?? this.actor())) {
-      // the actor is who the inbox row leads with — without it the row falls back
-      // to the app's own tile, which reads as a system message it isn't
-      this.notify('issueAssignedToYou', { actorId: actorId ?? this.actor(), issueId, body: 'You were assigned this issue' });
-    }
+    // the actor is who the inbox row leads with — without it the row falls back
+    // to the app's own tile, which reads as a system message it isn't
+    this.notifyEach([assigneeId], 'issueAssignedToYou', { actorId, issueId, body: 'You were assigned this issue' });
   }
   /** single insert point for every notification the store raises; `userId` is whose inbox it lands in */
-  notify(type: NotificationType, o: { userId?: string; actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string }): void {
+  notify(type: NotificationType, o: { userId: string; actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string }): void {
     this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, project_id, body, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id('n'), type, o.actorId ?? null, o.issueId ?? null, o.projectId ?? null, plainMentions(o.body ?? ''), o.createdAt ?? ts(), o.userId ?? this.inboxOwner());
+      .run(id('n'), type, o.actorId ?? null, o.issueId ?? null, o.projectId ?? null, plainMentions(o.body ?? ''), o.createdAt ?? ts(), o.userId);
+  }
+  /** one notification in each recipient's inbox — once per person, never to agents (they have no
+   *  inbox), and never to whoever is acting unless `selfToo` (as in Linear: your own action isn't news) */
+  notifyEach(recipients: Iterable<string | null | undefined>, type: NotificationType, o: { actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string; selfToo?: boolean }): void {
+    const { selfToo, ...rest } = o;
+    const actorId = o.actorId === undefined ? this.actor() : o.actorId;
+    const agent = this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'agent'");
+    for (const userId of new Set(recipients)) {
+      if (!userId || (!selfToo && userId === actorId) || agent.get(userId)) continue;
+      this.notify(type, { ...rest, actorId, userId });
+    }
   }
   /** who a text mentions: `@[Name](user:id)` tokens, plus plain "@Name" when the name is unambiguous */
   private mentions(body: string): string[] {
     return mentionedIds(body, this.db.prepare('SELECT id, name FROM users').all() as unknown as Array<{ id: string; name: string }>);
   }
-  /** notifications are this install's person's: raise one when they follow the issue and
-   *  someone else acted. Everything lands in the inbox, as in Linear; Settings › Notifications
-   *  only chooses what is pushed to the desktop and what counts as priority. */
-  private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, _pref: keyof Preferences['notify']): void {
-    const me = this.inboxOwner();
-    if (!me || (actorId ?? this.actor()) === me || !this.isSubscribed(issueId, me)) return;
-    this.notify(type, { actorId: actorId ?? this.actor(), issueId, body });
+  /** everyone following an issue */
+  subscribers(issueId: string): string[] {
+    return (this.db.prepare('SELECT user_id FROM subscriptions WHERE issue_id = ?').all(issueId) as Array<{ user_id: string }>).map(r => r.user_id);
+  }
+  /** raise one for each person following the issue, except whoever acted. Everything lands in the
+   *  inbox, as in Linear; Settings › Notifications only chooses what is pushed to the desktop and
+   *  what counts as priority. `skip`: people a stronger notification already reached. */
+  private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, _pref: keyof Preferences['notify'], skip: Iterable<string> = []): void {
+    const done = new Set(skip);
+    this.notifyEach(this.subscribers(issueId).filter(u => !done.has(u)), type, { actorId, issueId, body });
   }
   private notifyMention(issueId: string, userId: string, actorId: string | undefined, body: string): void {
-    const me = this.inboxOwner();
-    if (userId !== me || (actorId ?? this.actor()) === me) return;
-    this.notify('issueMentioned', { actorId: actorId ?? this.actor(), issueId, body: body.slice(0, 140) });
+    this.notifyEach([userId], 'issueMentioned', { actorId, issueId, body: body.slice(0, 140) });
   }
   listNotifications(): Notification[] { return this.snapshot().notifications; }
   // everyone reads, snoozes and clears only their own inbox
@@ -1191,14 +1196,11 @@ export class Store {
     this.db.prepare('INSERT INTO project_subscriptions (project_id, user_id, issue_added, issue_closed, comments, updates) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id) DO UPDATE SET issue_added = excluded.issue_added, issue_closed = excluded.issue_closed, comments = excluded.comments, updates = excluded.updates')
       .run(projectId, userId, v.issue_added ? 1 : 0, v.issue_closed ? 1 : 0, v.comments ? 1 : 0, v.updates ? 1 : 0);
   }
-  /** notify you about a project event you follow — never about your own changes */
+  /** notify everyone following a project for this kind of event — never about their own changes */
   private notifyProject(projectId: string, flag: 'issueAdded' | 'issueClosed' | 'comments' | 'updates', type: NotificationType, actorId: string | undefined | null, body: string, issueId?: string): void {
-    const me = this.inboxOwner();
-    if (!me || (actorId ?? this.actor()) === me) return;
     const col = { issueAdded: 'issue_added', issueClosed: 'issue_closed', comments: 'comments', updates: 'updates' }[flag];
-    const sub = this.db.prepare(`SELECT ${col} v FROM project_subscriptions WHERE project_id = ? AND user_id = ?`).get(projectId, me) as { v: number } | undefined;
-    if (!sub?.v) return;
-    this.notify(type, { actorId: actorId ?? this.actor(), projectId, issueId: issueId ?? null, body });
+    const subs = this.db.prepare(`SELECT user_id FROM project_subscriptions WHERE project_id = ? AND ${col} = 1`).all(projectId) as Array<{ user_id: string }>;
+    this.notifyEach(subs.map(r => r.user_id), type, { actorId: actorId ?? this.actor(), projectId, issueId: issueId ?? null, body });
   }
 
   // ---------- update schedule & pulse ----------
@@ -1210,26 +1212,28 @@ export class Store {
     const last = this.db.prepare('SELECT MAX(created_at) t FROM project_updates WHERE project_id = ?').get(project.id) as { t: string | null };
     return new Date(new Date(last.t ?? project.createdAt).getTime() + days * 86400000).toISOString();
   }
+  /** each project's lead gets one inbox reminder each time an update falls due */
   private remindUpdates(now: Date): void {
-    const me = this.inboxOwner();
-    if (!me) return;
-    for (const row of this.db.prepare("SELECT * FROM projects WHERE lead_id = ? AND status NOT IN ('completed', 'canceled')").all(me) as Array<Record<string, unknown>>) {
+    for (const row of this.db.prepare("SELECT * FROM projects WHERE lead_id IS NOT NULL AND status NOT IN ('completed', 'canceled')").all() as Array<Record<string, unknown>>) {
       const p = this.mapProject(row);
       const due = this.updateDueAt(p);
       if (!due || due > now.toISOString()) continue;
-      const already = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'projectUpdateReminder' AND project_id = ? AND created_at >= ?").get(p.id, due);
-      if (!already) this.notify('projectUpdateReminder', { projectId: p.id, body: `An update on ${p.name} is due`, createdAt: now.toISOString() });
+      const already = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'projectUpdateReminder' AND project_id = ? AND user_id = ? AND created_at >= ?").get(p.id, p.leadId, due);
+      if (!already) this.notifyEach([p.leadId], 'projectUpdateReminder', { actorId: null, projectId: p.id, body: `An update on ${p.name} is due`, createdAt: now.toISOString() });
     }
   }
+  /** every active person gets their own summary on the workspace's schedule */
   private pulseDigest(now: Date): void {
     const f = this.getFeatures();
     if (!f.pulseEnabled || f.pulseSchedule === 'never') return;
     const days = f.pulseSchedule === 'daily' ? 1 : 7;
-    const last = (this.db.prepare("SELECT MAX(created_at) t FROM notifications WHERE type = 'pulseDigest'").get() as { t: string | null }).t;
-    if (last && now.getTime() - new Date(last).getTime() < days * 86400000) return;
-    const since = last ?? new Date(now.getTime() - days * 86400000).toISOString();
-    const n = (this.db.prepare('SELECT COUNT(*) n FROM project_updates WHERE created_at > ?').get(since) as { n: number }).n;
-    if (n) this.notify('pulseDigest', { body: `${n} project update${n === 1 ? '' : 's'} since your last summary`, createdAt: now.toISOString() });
+    for (const { id: userId } of this.db.prepare("SELECT id FROM users WHERE kind != 'agent' AND status = 'active'").all() as Array<{ id: string }>) {
+      const last = (this.db.prepare("SELECT MAX(created_at) t FROM notifications WHERE type = 'pulseDigest' AND user_id = ?").get(userId) as { t: string | null }).t;
+      if (last && now.getTime() - new Date(last).getTime() < days * 86400000) continue;
+      const since = last ?? new Date(now.getTime() - days * 86400000).toISOString();
+      const n = (this.db.prepare('SELECT COUNT(*) n FROM project_updates WHERE created_at > ?').get(since) as { n: number }).n;
+      if (n) this.notify('pulseDigest', { userId, body: `${n} project update${n === 1 ? '' : 's'} since your last summary`, createdAt: now.toISOString() });
+    }
   }
 
   // ---------- document templates ----------
@@ -1333,9 +1337,6 @@ export class Store {
   setWorkspaceName(name: string): void { setMeta(this.db, 'workspaceName', name); }
   /** who this write is by: the signed-in person on a server request, else the workspace's own user */
   actor(): string { return actingUser.getStore() ?? getMeta(this.db, 'currentUser') ?? ''; }
-  /** whose inbox the notification emitters fill. Until notifications get a recipient per row
-   *  this stays the workspace's own user, whoever is acting. */
-  inboxOwner(): string { return getMeta(this.db, 'currentUser') ?? ''; }
   setCurrentUser(userId: string): void { setMeta(this.db, 'currentUser', userId); }
 
   // ---------- export / import / reset ----------

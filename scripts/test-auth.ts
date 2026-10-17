@@ -170,7 +170,7 @@ check('subscribing subscribes yourself, not the userId sent', store.isSubscribed
 
 // ---- per-person state ----
 const patch = (path: string, body: unknown, cookie: string) => req(path, { ...json(body), method: 'PATCH', cookie });
-type Boot = { favorites: Array<{ refId: string }>; views: Array<{ id: string; shared: boolean }>; notifications: Array<{ type: string; body: string; readAt: string | null; issueId: string | null }>; workspace: { preferences: { homeView: string } } };
+type Boot = { favorites: Array<{ refId: string }>; views: Array<{ id: string; shared: boolean }>; notifications: Array<{ id: string; type: string; body: string; readAt: string | null; issueId: string | null }>; workspace: { preferences: { homeView: string } } };
 const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { cookie })).json() as Boot;
 {
   await req('/api/favorites/toggle', { ...json({ type: 'issue', refId: issue.id }), cookie: ownerCookie });
@@ -231,6 +231,61 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   const png = await req(pngUp.file.url, { cookie: adaCookie });
   check('a PNG shows inline as image/png, whatever type the upload claimed', png.headers.get('content-type') === 'image/png' && png.headers.get('content-disposition')!.startsWith('inline'));
   check('files need a session', (await req(pngUp.file.url)).status === 401);
+}
+
+// ---- each person's own inbox: two people on one issue ----
+{
+  const ownerId = boot.currentUser.id;
+  type Row = Boot['notifications'][number];
+  const inbox = async (cookie: string, issueId: string) => (await bootOf(cookie)).notifications.filter(n => n.issueId === issueId);
+  const has = (rows: Row[], type: string) => rows.some(n => n.type === type);
+  const shared = (await (await req('/api/issues', { ...json({ teamId: team.team.id, title: 'Shared work' }), cookie: ownerCookie })).json() as { issue: { id: string } }).issue;
+
+  await patch(`/api/issues/${shared.id}`, { assigneeId: ada.id }, ownerCookie);
+  let [o, a] = [await inbox(ownerCookie, shared.id), await inbox(adaCookie, shared.id)];
+  check('assigning Ada lands in Ada\'s inbox, not the assigner\'s', has(a, 'issueAssignedToYou') && !has(o, 'issueAssignedToYou'));
+
+  await req(`/api/issues/${shared.id}/comments`, { ...json({ body: `@[Ada Osei](user:${ada.id}) can you look?` }), cookie: ownerCookie });
+  [o, a] = [await inbox(ownerCookie, shared.id), await inbox(adaCookie, shared.id)];
+  check('a mention reaches the person mentioned, not the writer', has(a, 'issueMentioned') && !has(o, 'issueMentioned'));
+  check('…once: no plain comment notification on top of the mention', !has(a, 'issueCommented'));
+  await req(`/api/issues/${shared.id}/comments`, { ...json({ body: `@[Owner Person](user:${ownerId}) on it` }), cookie: adaCookie });
+  [o, a] = [await inbox(ownerCookie, shared.id), await inbox(adaCookie, shared.id)];
+  check('Ada mentioning the owner lands in the owner\'s inbox only', has(o, 'issueMentioned') && a.filter(n => n.type === 'issueMentioned').length === 1);
+
+  const root = (await (await req(`/api/issues/${shared.id}/comments`, { ...json({ body: 'Plan: ship it Friday' }), cookie: ownerCookie })).json() as { comment: { id: string } }).comment;
+  [o, a] = [await inbox(ownerCookie, shared.id), await inbox(adaCookie, shared.id)];
+  check('a plain comment reaches the other subscriber (the assignee)', has(a, 'issueCommented') && !has(o, 'issueCommented'));
+  const reply = (await (await req(`/api/issues/${shared.id}/comments`, { ...json({ body: 'Friday works', parentId: root.id }), cookie: adaCookie })).json() as { comment: { id: string } }).comment;
+  [o, a] = [await inbox(ownerCookie, shared.id), await inbox(adaCookie, shared.id)];
+  check('a reply reaches the thread\'s author as a reply, not the replier', has(o, 'issueReplied') && !has(o, 'issueCommented') && !has(a, 'issueReplied'));
+
+  await patch(`/api/comments/${root.id}`, { reaction: '👍' }, adaCookie);
+  [o, a] = [await inbox(ownerCookie, shared.id), await inbox(adaCookie, shared.id)];
+  check('a reaction reaches the comment\'s author, not the reactor', has(o, 'commentReacted') && !has(a, 'commentReacted'));
+  await patch(`/api/comments/${reply.id}`, { reaction: '🎉' }, ownerCookie);
+  [o, a] = [await inbox(ownerCookie, shared.id), await inbox(adaCookie, shared.id)];
+  check('…both ways', has(a, 'commentReacted') && o.filter(n => n.type === 'commentReacted').length === 1);
+
+  await patch(`/api/issues/${shared.id}`, { stateId: store.stateOfType(team.team.id, 'started') }, ownerCookie);
+  [o, a] = [await inbox(ownerCookie, shared.id), await inbox(adaCookie, shared.id)];
+  check('a status change reaches subscribers other than whoever changed it', has(a, 'issueStatusChanged') && !has(o, 'issueStatusChanged'));
+
+  const rows = (uid: string) => (db.prepare('SELECT id FROM notifications WHERE issue_id = ? AND user_id = ?').all(shared.id, uid) as Array<{ id: string }>).map(r => r.id).sort();
+  const ids = (rs: Row[]) => rs.map(n => n.id).sort().join();
+  check('each inbox is exactly that person\'s rows, and the two never overlap', ids(o) === rows(ownerId).join() && ids(a) === rows(ada.id).join() && !o.some(n => a.some(m => m.id === n.id)), `${o.length}/${a.length}`);
+
+  const adaRow = a[0]!;
+  await req(`/api/notifications/${adaRow.id}/read`, { ...json({ read: true }), cookie: ownerCookie });
+  await req(`/api/notifications/${adaRow.id}/snooze`, { ...json({ until: new Date(Date.now() + 86400_000).toISOString() }), cookie: ownerCookie });
+  const after = db.prepare('SELECT read_at, snoozed_until FROM notifications WHERE id = ?').get(adaRow.id) as { read_at: string | null; snoozed_until: string | null };
+  check('nobody can read or snooze someone else\'s notification', !after.read_at && !after.snoozed_until);
+
+  // team bells are per person too
+  await req(`/api/teams/${team.team.id}/subscription`, { ...json({ issueAdded: true }), method: 'PUT', cookie: ownerCookie });
+  const added = (await (await req('/api/issues', { ...json({ teamId: team.team.id, title: 'From Ada' }), cookie: adaCookie })).json() as { issue: { id: string } }).issue;
+  const adaTeams = (await (await req('/api/bootstrap', { cookie: adaCookie })).json() as { teamSubscriptions: Record<string, unknown> }).teamSubscriptions;
+  check('a team bell is yours alone, and hears about others\' new issues', has(await inbox(ownerCookie, added.id), 'teamActivity') && !adaTeams[team.team.id]);
 }
 
 // ---- live updates ----

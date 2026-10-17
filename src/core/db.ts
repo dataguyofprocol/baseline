@@ -307,6 +307,28 @@ function migrate(db: DatabaseSync): void {
     if (old && own && db.prepare('SELECT 1 FROM users WHERE id = ?').get(own)) db.prepare('INSERT INTO user_preferences (user_id, json) VALUES (?, ?)').run(own, old.value);
     db.prepare("DELETE FROM meta WHERE key = 'preferences'").run();
   }
+  // team bells are per person too; the old workspace-wide set was the workspace's own user's
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'team_subscriptions'").get()) {
+    db.exec(`
+      CREATE TABLE team_subscriptions (
+        team_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        issue_added INTEGER NOT NULL DEFAULT 0,
+        issue_closed INTEGER NOT NULL DEFAULT 0,
+        triage INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (team_id, user_id)
+      );
+    `);
+    const old = db.prepare("SELECT value FROM meta WHERE key = 'teamSubscriptions'").get() as { value: string } | undefined;
+    if (old && own) {
+      let subs: Record<string, { issueAdded?: boolean; issueClosed?: boolean; triage?: boolean }> = {};
+      try { subs = JSON.parse(old.value); } catch { /* nothing to keep */ }
+      for (const [teamId, s] of Object.entries(subs)) {
+        db.prepare('INSERT INTO team_subscriptions (team_id, user_id, issue_added, issue_closed, triage) VALUES (?, ?, ?, ?, ?)').run(teamId, own, s.issueAdded ? 1 : 0, s.issueClosed ? 1 : 0, s.triage ? 1 : 0);
+      }
+    }
+    db.prepare("DELETE FROM meta WHERE key = 'teamSubscriptions'").run();
+  }
 
   // threads, milestones on issues, creators, snoozed notifications, team automation
   if (!columns('comments').includes('parent_id')) db.exec('ALTER TABLE comments ADD COLUMN parent_id TEXT');
