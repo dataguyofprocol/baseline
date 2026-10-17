@@ -1105,7 +1105,7 @@ function ProjectOverview(props: { project: Project }) {
 
       <div className="proj-section-label">Description</div>
       <div className="proj-desc">
-        <RichEditor key={p.id} value={p.description} placeholder="Add description…" onChange={md => md !== p.description && void patchProject(p.id, { description: md })} onBlur={md => md !== p.description && void patchProject(p.id, { description: md })} />
+        <RichEditor key={p.id} value={p.description} uploadTo={`project:${p.id}`} placeholder="Add description…" onChange={md => md !== p.description && void patchProject(p.id, { description: md })} onBlur={md => md !== p.description && void patchProject(p.id, { description: md })} />
       </div>
 
       <Milestones project={p} />
@@ -1217,7 +1217,7 @@ function UpdateComposer(props: { project: Project; latest?: Snap['projectUpdates
         <div className="update-health-row">
           {HEALTH.map(([v, l, c]) => <button key={v} className={`health-pick${health === v ? ' on' : ''}`} onClick={() => setHealth(v)}><span className="health-dot" style={{ background: c }} />{l}</button>)}
         </div>
-        <RichEditor value="" autoFocus editorRef={editorRef} placeholder="How is the project going? What's next?" onChange={setBody} onSubmit={post} onEscape={() => setOpen(false)} />
+        <RichEditor value="" autoFocus editorRef={editorRef} uploadTo={`project:${props.project.id}`} placeholder="How is the project going? What's next?" onChange={setBody} onSubmit={post} onEscape={() => setOpen(false)} />
         <div className="cbox-foot"><span className="cbox-hint">⌘↵ to post</span><button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => setOpen(false)}>Cancel</button><button className="btn primary" style={{ height: 26, fontSize: 12 }} onClick={() => void post(editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : body)}>Post update</button></div>
       </div>
     );

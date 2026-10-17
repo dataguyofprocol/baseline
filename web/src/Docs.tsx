@@ -113,7 +113,7 @@ export function DocumentPage() {
             onChange={e => setTitle(e.target.value)} onBlur={() => title !== doc.title && void save({ title })}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (document.querySelector('.doc-page .ProseMirror') as HTMLElement | null)?.focus(); } }} />
           <div className="doc-meta">{author && <><Avatar user={author} size={16} /> {author.name} · </>}edited {relTime(doc.updatedAt)}</div>
-          <RichEditor key={doc.id} value={doc.content} placeholder="Write something, or type / for blocks…" className="doc-body"
+          <RichEditor key={doc.id} value={doc.content} uploadTo={`doc:${doc.id}`} placeholder="Write something, or type / for blocks…" className="doc-body"
             onChange={md => md !== doc.content && void save({ content: md })} onBlur={md => md !== doc.content && void save({ content: md })} />
         </div>
       </div>
@@ -153,7 +153,7 @@ export function TeamHomePage() {
                 <span className="ws-avatar" style={{ background: team.color, borderRadius: 8, width: 36, height: 36, fontSize: 15 }}>{team.icon?.match(/\p{Emoji}/u) ? team.icon : team.key[0]}</span>
                 <input className="proj-hero-name" value={name} onChange={e => setName(e.target.value)} onBlur={async () => { if (name.trim() && name !== team.name) { await api.updateTeam(team.id, { name: name.trim() }); await useApp.getState().bootstrap(); } }} />
               </div>
-              <RichEditor key={team.id} value={team.description} placeholder="Add a description…"
+              <RichEditor key={team.id} value={team.description} uploadTo={`team:${team.id}`} placeholder="Add a description…"
                 onBlur={async md => { if (md !== team.description) { await api.updateTeam(team.id, { description: md }); await useApp.getState().bootstrap(); } }} />
               <div className="proj-section-label">Team resources</div>
               <Resources teamId={team.id} label={false} />

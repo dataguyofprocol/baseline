@@ -1369,7 +1369,7 @@ function DataSettings() {
     <div className="settings-card">
       <h1>Import & export</h1>
       <div className="field-row">
-        <div><div className="field-label">Export workspace</div><div className="field-help">Download the full workspace as JSON.</div></div>
+        <div><div className="field-label">Export workspace</div><div className="field-help">Download the full workspace as JSON, images included.</div></div>
         <a className="btn" href="/api/export" download>Export JSON</a>
       </div>
       <div className="field-row">

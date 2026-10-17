@@ -4,8 +4,9 @@ import { openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
 import { seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
-import { API_KEY_SCOPES, type ApiKey, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
-import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { API_KEY_SCOPES, type ApiKey, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
+import { FileError, FileService, MAX_EMOJI_BYTES, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +37,10 @@ export function createApp(dbPath: string) {
   const db = openDb(dbPath);
   const store = new Store(db);
   const { planning, automation, git, apiKeys } = store.ext;
+  // images (avatars, emoji, pasted pictures) live in the database; pick up any from the old uploads folder
+  const files = new FileService(db, join(dirname(dbPath), 'attachments'));
+  const moved = files.migrateLegacy();
+  if (moved) console.error(`[baseline] moved ${moved} upload(s) into the database`);
   // Loops' "Open in Claude Code" action opens the same interactive session as the manual hand-off
   automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
   // the git integration polls gh / git log every two minutes while it's on
@@ -93,6 +98,15 @@ export function createApp(dbPath: string) {
     }
   });
 
+  // a delete may have taken an image's owner with it (an issue purged, a doc, a team, an emoji):
+  // sweep orphaned images after each delete, and hourly for deletes that happen on their own (trash expiry)
+  const sweepFiles = () => { const n = files.gc(); if (n) console.error(`[baseline] deleted ${n} image(s) whose owner is gone`); };
+  app.use('/api/*', async (c, next) => {
+    await next();
+    if (c.req.method === 'DELETE') sweepFiles();
+  });
+  setInterval(sweepFiles, 3_600_000).unref();
+
   // ---------- API keys ----------
   app.get('/api/api-keys', (c) => {
     const me = actor(c);
@@ -147,10 +161,10 @@ export function createApp(dbPath: string) {
   });
   app.delete('/api/issues/:id', (c) => { store.deleteIssue(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/issues/:id/restore', (c) => { store.restoreIssue(c.req.param('id')); return c.json({ ok: true }); });
-  app.delete('/api/issues/:id/purge', (c) => {
+  app.delete('/api/issues/:id/purge', async (c) => {
     const issueId = c.req.param('id');
-    for (const a of store.snapshot().attachments.filter(x => x.issueId === issueId && x.kind === 'file')) rmSync(join(attachmentsDir, a.id), { recursive: true, force: true });
     store.purgeIssue(issueId);
+    files.removeOwner('issue', issueId);
     return c.json({ ok: true });
   });
   app.post('/api/issues/:id/convert-project', (c) => {
@@ -181,31 +195,45 @@ export function createApp(dbPath: string) {
     return c.json({ ok: true });
   });
 
-  // ---------- attachments ----------
-  const attachmentsDir = join(dirname(dbPath), 'attachments');
+  // ---------- images ----------
+  /** the request body is the image; a Content-Length over the limit is refused before reading */
+  const readUpload = async (c: Context, max: number): Promise<Buffer> => {
+    if (Number(c.req.header('content-length')) > max) throw new FileError(`Images are limited to ${formatBytes(max)} — link to bigger files instead`, 413);
+    return Buffer.from(await c.req.arrayBuffer());
+  };
+  const uploadFailed = (c: Context, err: unknown) => err instanceof FileError
+    ? c.json({ error: err.message }, err.status)
+    : c.json({ error: `Upload failed: ${(err as Error).message}` }, 500);
+
+  // a picture pasted into an issue's, doc's, project's, initiative's or team's editor; ?owner=issue:<id>, ?name= its filename
+  const EDITOR_OWNERS: FileOwnerType[] = ['issue', 'doc', 'project', 'initiative', 'team'];
+  app.post('/api/files', async (c) => {
+    const [type, ownerId = ''] = String(c.req.query('owner') ?? '').split(':');
+    if (!EDITOR_OWNERS.includes(type as FileOwnerType)) return c.json({ error: 'owner must be issue:<id>, doc:<id>, project:<id>, initiative:<id> or team:<id>' }, 400);
+    try {
+      const file = files.upload({ data: await readUpload(c, MAX_IMAGE_BYTES), name: c.req.query('name'), ownerType: type as FileOwnerType, ownerId, uploadedBy: actor(c) });
+      return c.json({ file }, 201);
+    } catch (err) { return uploadFailed(c, err); }
+  });
+  const serveFile = (c: Context, fileId: string) => {
+    const f = files.get(fileId);
+    const data = f && files.data(f.id);
+    if (!f || !data) return c.json({ error: 'not found' }, 404);
+    const headers = fileHeaders(f);
+    if (c.req.header('if-none-match') === headers.ETag) return new Response(null, { status: 304, headers });
+    return new Response(c.req.method === 'HEAD' ? null : new Uint8Array(data), { headers: { ...headers, 'Content-Length': String(data.length) } });
+  };
+  app.get('/api/files/:id/:name?', (c) => serveFile(c, c.req.param('id')));
+  // URLs from before images moved into the database, already pasted into descriptions and comments
+  app.get('/api/attachments/:id/:name', (c) => serveFile(c, c.req.param('id')));
+  app.get('/api/emoji-files/:id/:name', (c) => serveFile(c, c.req.param('id')));
+
+  // ---------- attachments (links; file attachments from older versions stay listed) ----------
   app.post('/api/issues/:id/attachments', async (c) => {
     const b = await c.req.json();
     if (!b.url) return c.json({ error: 'url is required' }, 400);
     const attachment = store.addAttachment({ issueId: c.req.param('id'), kind: 'link', url: String(b.url), title: b.title });
     return c.json({ attachment }, 201);
-  });
-  // raw upload: the body is the file, ?name= its filename (images pasted into the editor land here)
-  app.post('/api/issues/:id/files', async (c) => {
-    const name = basename(c.req.query('name') || 'file').replace(/[^\w.\- ]+/g, '_').slice(0, 120) || 'file';
-    const buf = Buffer.from(await c.req.arrayBuffer());
-    if (buf.length > 25 * 1024 * 1024) return c.json({ error: 'Files are limited to 25 MB' }, 413);
-    const attId = `att_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    mkdirSync(join(attachmentsDir, attId), { recursive: true });
-    writeFileSync(join(attachmentsDir, attId, name), buf);
-    const attachment = store.addAttachment({ id: attId, issueId: c.req.param('id'), kind: 'file', url: `/api/attachments/${attId}/${encodeURIComponent(name)}`, title: name, mime: c.req.header('content-type') ?? 'application/octet-stream', size: buf.length });
-    return c.json({ attachment }, 201);
-  });
-  app.get('/api/attachments/:id/:name', (c) => {
-    const a = store.getAttachment(c.req.param('id'));
-    if (!a || a.kind !== 'file') return c.json({ error: 'not found' }, 404);
-    const file = join(attachmentsDir, a.id, basename(decodeURIComponent(c.req.param('name'))));
-    if (!existsSync(file)) return c.json({ error: 'not found' }, 404);
-    return c.body(readFileSync(file), 200, { 'Content-Type': a.mime || 'application/octet-stream', 'Cache-Control': 'private, max-age=31536000, immutable' });
   });
   app.patch('/api/attachments/:id', async (c) => {
     const b = await c.req.json();
@@ -214,8 +242,8 @@ export function createApp(dbPath: string) {
   });
   app.delete('/api/attachments/:id', (c) => {
     const a = store.getAttachment(c.req.param('id'));
-    if (a?.kind === 'file') rmSync(join(attachmentsDir, a.id), { recursive: true, force: true });
     store.deleteAttachment(c.req.param('id'));
+    if (a?.kind === 'file') files.remove(a.id);
     return c.json({ ok: true });
   });
   app.post('/api/issues/:id/archive', (c) => {
@@ -606,38 +634,27 @@ export function createApp(dbPath: string) {
   app.delete('/api/doc-templates/:id', (c) => { store.deleteDocTemplate(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/emojis', async (c) => {
     const name = String(c.req.query('name') ?? '');
-    const file = basename(c.req.query('file') || 'emoji.png').replace(/[^\w.\-]+/g, '_').slice(0, 80) || 'emoji.png';
-    const buf = Buffer.from(await c.req.arrayBuffer());
-    if (!buf.length) return c.json({ error: 'Pick an image' }, 400);
-    if (buf.length > 1024 * 1024) return c.json({ error: 'Emoji images are limited to 1 MB' }, 413);
-    const dirId = `emoji_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    mkdirSync(join(attachmentsDir, dirId), { recursive: true });
-    writeFileSync(join(attachmentsDir, dirId, file), buf);
-    writeFileSync(join(attachmentsDir, dirId, '.mime'), c.req.header('content-type') ?? 'image/png');
-    try { return c.json({ emoji: store.addEmoji(name, `/api/emoji-files/${dirId}/${encodeURIComponent(file)}`) }, 201); }
-    catch (err) { return c.json({ error: (err as Error).message }, 400); }
+    try {
+      const f = files.upload({ data: await readUpload(c, MAX_EMOJI_BYTES), name: c.req.query('file') || 'emoji.png', ownerType: 'workspace', ownerId: '', uploadedBy: actor(c), maxBytes: MAX_EMOJI_BYTES });
+      try {
+        const emoji = store.addEmoji(name, f.url);
+        files.reassign(f.id, 'emoji', emoji.id);
+        return c.json({ emoji }, 201);
+      } catch (err) { files.remove(f.id); return c.json({ error: (err as Error).message }, 400); }
+    } catch (err) { return uploadFailed(c, err); }
   });
-  // Settings › Profile › Profile picture
+  // Settings › Profile › Profile picture (an empty body removes it)
   app.post('/api/users/:id/avatar', async (c) => {
-    const buf = Buffer.from(await c.req.arrayBuffer());
-    if (!buf.length) { store.updateUser(c.req.param('id'), { avatarUrl: null }); return c.json({ avatarUrl: null }); }
-    if (buf.length > 4 * 1024 * 1024) return c.json({ error: 'Profile pictures are limited to 4 MB' }, 413);
-    const file = basename(c.req.query('file') || 'avatar.png').replace(/[^\w.\-]+/g, '_').slice(0, 80) || 'avatar.png';
-    const dirId = `avatar_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    mkdirSync(join(attachmentsDir, dirId), { recursive: true });
-    writeFileSync(join(attachmentsDir, dirId, file), buf);
-    writeFileSync(join(attachmentsDir, dirId, '.mime'), c.req.header('content-type') ?? 'image/png');
-    const avatarUrl = `/api/emoji-files/${dirId}/${encodeURIComponent(file)}`;
-    store.updateUser(c.req.param('id'), { avatarUrl });
-    return c.json({ avatarUrl }, 201);
-  });
-  app.get('/api/emoji-files/:dir/:name', (c) => {
-    const dir = basename(c.req.param('dir'));
-    if (!dir.startsWith('emoji_') && !dir.startsWith('avatar_')) return c.json({ error: 'not found' }, 404);
-    const file = join(attachmentsDir, dir, basename(decodeURIComponent(c.req.param('name'))));
-    if (!existsSync(file)) return c.json({ error: 'not found' }, 404);
-    const mime = existsSync(join(attachmentsDir, dir, '.mime')) ? readFileSync(join(attachmentsDir, dir, '.mime'), 'utf8') : 'image/png';
-    return c.body(readFileSync(file), 200, { 'Content-Type': mime, 'Cache-Control': 'private, max-age=31536000, immutable' });
+    const userId = c.req.param('id');
+    if (!files.ownerExists('avatar', userId)) return c.json({ error: 'not found' }, 404);
+    try {
+      const data = await readUpload(c, MAX_IMAGE_BYTES);
+      const previous = files.byOwner('avatar', userId);
+      const avatarUrl = data.length ? files.upload({ data, name: c.req.query('file') || 'avatar.png', ownerType: 'avatar', ownerId: userId, uploadedBy: actor(c) }).url : null;
+      store.updateUser(userId, { avatarUrl });
+      for (const p of previous) files.remove(p.id);
+      return c.json({ avatarUrl }, avatarUrl ? 201 : 200);
+    } catch (err) { return uploadFailed(c, err); }
   });
   app.delete('/api/emojis/:id', (c) => { store.deleteEmoji(c.req.param('id')); return c.json({ ok: true }); });
 
@@ -687,6 +704,8 @@ export function createApp(dbPath: string) {
     if (!b?.json) return c.json({ error: 'missing json payload' }, 400);
     try {
       store.importJson(b.json);
+      // an export from before images moved into the database still points at the old folder
+      files.migrateLegacy();
       return c.json({ ok: true });
     } catch (err) {
       return c.json({ error: String(err) }, 400);
@@ -711,7 +730,7 @@ export function createApp(dbPath: string) {
     return c.body(readFileSync(join(WEB_DIST, 'index.html')), 200, { 'Content-Type': 'text/html' });
   });
 
-  return { app, store, db };
+  return { app, store, db, files };
 }
 
 export function serve(opts: ServeOptions = {}): { server: ServerType; port: number } {

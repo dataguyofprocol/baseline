@@ -1277,7 +1277,13 @@ export class Store {
     const snap = this.snapshot();
     // the snapshot hides archived and trashed issues; a backup keeps them
     const issues = (this.db.prepare('SELECT * FROM issues').all() as unknown as IssueRow[]).map(this.mapIssue);
-    return JSON.stringify({ exportedAt: ts(), ...snap, issues }, null, 2);
+    // uploaded images ride along as base64 — they're small, so the JSON stays a complete backup
+    const files = (this.db.prepare('SELECT * FROM files ORDER BY created_at').all() as Array<Record<string, unknown>>).map(f => ({
+      id: f.id, name: f.name, mime: f.mime, size: f.size, sha256: f.sha256,
+      ownerType: f.owner_type, ownerId: f.owner_id, uploadedBy: f.uploaded_by, createdAt: f.created_at,
+      data: Buffer.from(f.data as Uint8Array).toString('base64'),
+    }));
+    return JSON.stringify({ exportedAt: ts(), ...snap, issues, files }, null, 2);
   }
   /** restore a full workspace from an exportJson payload (keeps ids) */
   importJson(json: string): void {
@@ -1342,6 +1348,12 @@ export class Store {
     for (const x of arr<Record<string, unknown>>(data.projectStatuses)) insert('project_statuses', ['id', 'type', 'name', 'color', 'description', 'position'], { ...x, description: x.description ?? '', position: x.position ?? 0 });
     for (const x of arr<Record<string, unknown>>(data.projectSubscriptions)) insert('project_subscriptions', ['project_id', 'user_id', 'issue_added', 'issue_closed', 'comments', 'updates'], { project_id: x.projectId, user_id: x.userId, issue_added: x.issueAdded ? 1 : 0, issue_closed: x.issueClosed ? 1 : 0, comments: x.comments ? 1 : 0, updates: x.updates ? 1 : 0 });
     for (const x of arr<Record<string, unknown>>(data.docTemplates)) insert('doc_templates', ['id', 'name', 'title', 'content', 'created_at'], { ...x, title: x.title ?? '', content: x.content ?? '', created_at: x.createdAt ?? ts() });
+    for (const f of arr<Record<string, unknown>>(data.files)) {
+      if (typeof f.data !== 'string') continue;
+      const bytes = Buffer.from(f.data, 'base64');
+      this.db.prepare('INSERT INTO files (id, name, mime, size, sha256, owner_type, owner_id, uploaded_by, created_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(String(f.id), String(f.name ?? 'image'), String(f.mime ?? 'application/octet-stream'), bytes.length, String(f.sha256 ?? ''), String(f.ownerType), String(f.ownerId ?? ''), (f.uploadedBy as string | null) ?? null, String(f.createdAt ?? ts()), bytes);
+    }
     for (const x of arr<Record<string, unknown>>(data.emojis)) insert('emojis', ['id', 'name', 'url', 'created_at'], { ...x, created_at: x.createdAt ?? ts() });
     for (const x of arr<Record<string, unknown>>(data.customerStatuses)) insert('customer_statuses', ['id', 'name', 'color', 'position'], { ...x, position: x.position ?? 0 });
     for (const x of arr<Record<string, unknown>>(data.customerTiers)) insert('customer_tiers', ['id', 'name', 'color', 'position'], { ...x, position: x.position ?? 0 });
@@ -1357,7 +1369,7 @@ export class Store {
   }
   wipe(): void {
     for (const t of this.ext.tables) this.db.exec(`DELETE FROM ${t};`);
-    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'teams', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
     ensureDefaults(this.db);

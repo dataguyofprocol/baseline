@@ -69,7 +69,7 @@ label create "Bug" -t CORE -c "#eb5757" · label update … · label delete …
 location list · location add ~/code/api [-n api] [-j "Project"] · location rename api backend · location remove backend
 issue update CORE-3 --location api     # every task works in exactly one location ("none" clears); sub-issues inherit the parent's; a project's locations are only suggestions
 agent config [--terminal Terminal|iTerm|Ghostty|Warp|kitty|Alacritty|WezTerm]   # where `issue open` sessions launch
-export [--out file] · import <file>    # full workspace backup / restore
+export [--out file] · import <file>    # full workspace backup / restore (images included — they live in the database)
 seed [--reset]
 ```
 

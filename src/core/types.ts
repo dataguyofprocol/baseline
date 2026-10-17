@@ -168,6 +168,26 @@ export interface Attachment {
   createdAt: string;
 }
 
+/** what an uploaded file belongs to; the file is deleted when its owner is */
+export type FileOwnerType = 'issue' | 'doc' | 'project' | 'initiative' | 'team' | 'avatar' | 'emoji' | 'workspace';
+export const FILE_OWNER_TYPES: FileOwnerType[] = ['issue', 'doc', 'project', 'initiative', 'team', 'avatar', 'emoji', 'workspace'];
+
+/** an uploaded image (profile picture, emoji, picture pasted into an editor); its bytes live in SQLite */
+export interface StoredFile {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  sha256: string;
+  ownerType: FileOwnerType;
+  /** the issue/doc/project… id; a user id for avatars; '' for workspace */
+  ownerId: string;
+  uploadedBy: string | null;
+  createdAt: string;
+  /** the app URL serving it */
+  url: string;
+}
+
 /** issue → users who get notified about it */
 export interface Subscription {
   issueId: string;

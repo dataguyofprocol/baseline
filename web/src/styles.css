@@ -2121,8 +2121,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .go-link { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; border-radius: 6px; color: var(--text-secondary); font-size: 13px; text-align: left; }
 .go-link:hover { background: var(--bg-hover); color: var(--text-primary); }
 @media (max-width: 860px) { .team-home { grid-template-columns: 1fr; } .team-home-rail { border-left: 0; padding-left: 0; } }
-.cm-files { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 10px; }
-.cm-attach { width: 28px; height: 28px; color: var(--text-secondary); margin-right: 4px; }
 /* lists keep their markers in the editor and rendered Markdown (the base reset strips them) */
 .rte ul:not([data-type='taskList']), .md ul:not(.contains-task-list) { list-style: disc; }
 .rte ol, .md ol { list-style: decimal; }
@@ -2400,7 +2398,6 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 .cm-pills .prop-chip:hover { background: var(--bg-hover); }
 .cm-pills .cm-more-chip, .cm-pills .cm-icon-chip { width: 32px; padding: 0; justify-content: center; }
 .cm-footer { border-top: 0; padding: 4px 12px 12px; }
-.cm-footer .cm-attach { width: 28px; height: 28px; border-radius: 9999px; border: 0.5px solid var(--border-strong); }
 .cm-footer .btn.primary.cm-create { height: 28px; padding: 0 12px; border-radius: 9999px; font-size: 12px; font-weight: 510; }
 
 /* ---------- command palette, matched to Linear ---------- */

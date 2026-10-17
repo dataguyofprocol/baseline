@@ -26,7 +26,7 @@ import { navFor, neighbour } from './nav.js';
 import { Logo } from './Logo.js';
 import { useLanding } from './motion.js';
 import {
-  IconAttach, IconPlus, IconClose, IconArchive, IconRestore, IconTrash, IconEdit, IconDuplicate,
+  IconPlus, IconClose, IconArchive, IconRestore, IconTrash, IconEdit, IconDuplicate,
   IconEstimate, IconCycle, IconCalendar, IconBox, IconBranch, IconHandoff, IconSpark, IconCopyId,
   IconMilestone, IconLink, IconFile, IconReply, IconResolve, IconChevronDown, IconChevronUp, IconExternal,
   IconBell, IconBellOff, IconTeam, IconClock, IconTriage, IconCheck, IconEmoji, IconMore, IconDoc,
@@ -584,7 +584,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
   const linkMenu = useMenu();
-  const fileInput = useRef<HTMLInputElement>(null);
   const handoff = useHandoffActions(issue);
   const nav = props.full ? navFor(issue.id) : { ids: [], origin: null };
   const navIndex = nav.ids.indexOf(issue.id);
@@ -650,13 +649,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const postComment = async (md: string) => {
     if (isBlank(md)) return;
     await api.addComment(issue.id, md);
-    await useApp.getState().bootstrap();
-  };
-  const uploadFiles = async (files: FileList | null) => {
-    if (!files) return;
-    for (const f of [...files]) {
-      try { await api.uploadFile(issue.id, f); } catch (err) { toast({ title: 'Upload failed', line: String((err as Error).message) }); }
-    }
     await useApp.getState().bootstrap();
   };
   const go = (delta: 1 | -1) => {
@@ -765,10 +757,8 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
               </div>
               <div className="issue-under-desc">
                 <CustomerRequests issueId={issue.id} asButton />
-                <button className="icon-btn" title="Attach files" onClick={() => fileInput.current?.click()}><IconAttach size={14} /></button>
                 <button className="icon-btn" data-add-link title="Add link (⌃L)" onClick={linkMenu.open}><IconLink size={14} /></button>
                 <button className="icon-btn" title="Add sub-issue (⌘⇧O)" onClick={() => useApp.getState().openCreate({ teamId: issue.teamId, parentId: issue.id, projectId: issue.projectId, cycleId: issue.cycleId })}><IconPlus size={14} /></button>
-                <input ref={fileInput} type="file" multiple hidden onChange={e => { void uploadFiles(e.target.files); e.target.value = ''; }} />
               </div>
               <Attachments issue={issue} />
               <SubIssuesSection issue={issue} />
@@ -802,7 +792,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                   <RichEditor key={`c-${issue.id}`} value="" issueId={issue.id} placeholder="Leave a comment…" clearOnSubmit onSubmit={postComment} editorRef={commentEditor} />
                   <div className="cbox-foot">
                     <span style={{ flex: 1 }} />
-                    <button className="icon-btn" title="Attach files" onClick={() => fileInput.current?.click()}><IconAttach size={14} /></button>
                     <button className="icon-btn cbox-send" title="Comment (⌘↵)" onClick={async () => { const ed = commentEditor.current; if (!ed) return; const md = htmlToMarkdown(ed.getHTML()); if (isBlank(md)) return; ed.commands.clearContent(); await postComment(md); }}><IconArrowUp size={14} /></button>
                   </div>
                 </div>

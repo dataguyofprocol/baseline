@@ -4,7 +4,7 @@ import { api } from './api.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
-import { IconClose, IconPlus, IconExpand, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck, IconCycle, IconMilestone, IconAttach } from './icons.js';
+import { IconClose, IconPlus, IconExpand, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck, IconCycle, IconMilestone } from './icons.js';
 import { teamScale, type Priority, type Team } from '../../src/core/types.js';
 import type { Editor } from '@tiptap/react';
 import { RichEditor, htmlToMarkdown } from './RichEditor.js';
@@ -53,8 +53,6 @@ export function CreateIssueModal() {
   const [estimate, setEstimate] = useState<number | null>(null);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [milestoneId, setMilestoneId] = useState<string | null>(null);
-  const [files, setFiles] = useState<File[]>([]);
-  const fileInput = useRef<HTMLInputElement>(null);
   const [createMore, setCreateMore] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -93,7 +91,6 @@ export function CreateIssueModal() {
       setEstimate(null);
       setCycleId(state.cycleId ?? null);
       setMilestoneId(null);
-      setFiles([]);
       setCreateMore(false);
       setMoreOpen(false);
       setAppliedTemplateId(undefined);
@@ -228,8 +225,6 @@ export function CreateIssueModal() {
       parentId: state.parentId ?? null, cycleId, milestoneId: project && milestoneId ? milestoneId : null,
       dueDate, estimate,
     });
-    // files picked with the paperclip upload once the issue exists
-    for (const f of files) await api.uploadFile(issue.id, f).catch(err => useApp.getState().toast({ title: 'Upload failed', line: <>{f.name}: {String((err as Error).message)}</> }));
     try { localStorage.removeItem(draftKey(team.id)); } catch { /* ignore */ }
     window.dispatchEvent(new Event('baseline:drafts'));
     // "Create related": wire the new issue to the one it was created from
@@ -426,18 +421,7 @@ export function CreateIssueModal() {
         )}
       </div>
 
-      {files.length > 0 && (
-        <div className="cm-files">
-          {files.map((f, i) => (
-            <span key={i} className="res-chip"><IconAttach size={12} /><span className="res-title">{f.name}</span>
-              <button className="res-x" title="Remove" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}><IconClose size={10} /></button>
-            </span>
-          ))}
-        </div>
-      )}
       <div className="cm-footer">
-        <button className="icon-btn cm-attach" title="Attach files" onClick={() => fileInput.current?.click()}><IconAttach size={15} /></button>
-        <input ref={fileInput} type="file" multiple hidden onChange={e => { const list = Array.from(e.target.files ?? []); if (list.length) setFiles(prev => [...prev, ...list]); e.target.value = ''; }} />
         {/* always laid out, only shown once there's something to save — no reflow */}
         <button className="cm-link" style={{ visibility: title.trim() ? 'visible' : 'hidden' }} onClick={saveDraft}>Save draft</button>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>

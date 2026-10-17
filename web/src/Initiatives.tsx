@@ -571,7 +571,7 @@ function InitiativeOverview({ ini }: { ini: Initiative }) {
       <InitiativeUpdateCard ini={ini} latest={latest} />
 
       <div className="proj-section-label">Description</div>
-      <div className="proj-desc"><RichEditor key={ini.id} value={ini.description} placeholder="Add a description — the goal, why it matters, how you'll know it worked…" onBlur={md => md !== ini.description && void patch({ description: md })} /></div>
+      <div className="proj-desc"><RichEditor key={ini.id} value={ini.description} uploadTo={`initiative:${ini.id}`} placeholder="Add a description — the goal, why it matters, how you'll know it worked…" onBlur={md => md !== ini.description && void patch({ description: md })} /></div>
 
       <InitiativeGraph ini={ini} />
       <InitiativeProjects ini={ini} />
@@ -597,7 +597,7 @@ function UpdateComposer({ ini, onDone }: { ini: Initiative; onDone: () => void }
   return (
     <div className="update-card composing">
       <div className="update-health-row">{HEALTH.map(([v, l, c]) => <button key={v} className={`health-pick${health === v ? ' on' : ''}`} style={health === v ? { color: c } : undefined} onClick={() => setHealth(v)}><HealthIcon health={v} size={13} />{l}</button>)}</div>
-      <RichEditor value="" autoFocus editorRef={editorRef} placeholder="How is the initiative going? What changed, what's at risk, what's next?" onChange={setBody} onSubmit={post} onEscape={onDone} />
+      <RichEditor value="" autoFocus editorRef={editorRef} uploadTo={`initiative:${ini.id}`} placeholder="How is the initiative going? What changed, what's at risk, what's next?" onChange={setBody} onSubmit={post} onEscape={onDone} />
       <div className="cbox-foot"><span className="cbox-hint">⌘↵ to post</span><button className="btn sm" onClick={onDone}>Cancel</button><button className="btn primary sm" onClick={() => void post(editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : body)}>Post update</button></div>
     </div>
   );

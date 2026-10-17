@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, Preferences, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope } from '../../src/core/types.js';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -78,12 +78,13 @@ export const api = {
   deletedIssues: (teamId?: string) => req<{ issues: Issue[] }>('GET', `/api/issues/deleted${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ''}`),
   purgeIssue: (id: string) => req<{ ok: true }>('DELETE', `/api/issues/${id}/purge`),
   addLink: (issueId: string, url: string, title?: string) => req<{ attachment: Attachment }>('POST', `/api/issues/${issueId}/attachments`, { url, title }),
-  uploadFile: async (issueId: string, file: File) => {
-    const res = await fetch(`/api/issues/${issueId}/files?name=${encodeURIComponent(file.name || 'pasted-image.png')}`, {
+  /** a picture for an editor (owner = "issue:<id>", "doc:<id>", "project:<id>", "initiative:<id>", "team:<id>") */
+  uploadImage: async (owner: string, file: File) => {
+    const res = await fetch(`/api/files?owner=${encodeURIComponent(owner)}&name=${encodeURIComponent(file.name || 'pasted-image.png')}`, {
       method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
-    return res.json() as Promise<{ attachment: Attachment }>;
+    return res.json() as Promise<{ file: StoredFile }>;
   },
   renameAttachment: (id: string, title: string) => req<{ ok: true }>('PATCH', `/api/attachments/${id}`, { title }),
   deleteAttachment: (id: string) => req<{ ok: true }>('DELETE', `/api/attachments/${id}`),

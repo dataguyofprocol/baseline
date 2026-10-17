@@ -84,6 +84,15 @@ export class ApiKeys {
     }
     const teamId = /^\/api\/(?:teams|git\/automation)\/([^/]+)/.exec(path)?.[1];
     if (teamId && !teams.includes(teamId)) return false;
+    // an uploaded file or attachment belongs to its issue's (or team's) team
+    const fileId = /^\/api\/(?:files|attachments|emoji-files)\/([^/]+)/.exec(path)?.[1];
+    if (fileId) {
+      const fid = decodeURIComponent(fileId);
+      const f = this.db.prepare('SELECT owner_type AS type, owner_id AS owner FROM files WHERE id = ?').get(fid) as { type: string; owner: string } | undefined
+        ?? (this.db.prepare("SELECT 'issue' AS type, issue_id AS owner FROM attachments WHERE id = ?").get(fid) as { type: string; owner: string } | undefined);
+      const ownerTeam = f?.type === 'issue' ? this.store.getIssue(f.owner)?.teamId : f?.type === 'team' ? f.owner : undefined;
+      if (ownerTeam && !teams.includes(ownerTeam)) return false;
+    }
     if (body) {
       if (typeof body.teamId === 'string' && !teams.includes(body.teamId)) return false;
       if (Array.isArray(body.ids) && body.ids.some(i => { const issue = typeof i === 'string' ? this.store.getIssue(i) : undefined; return issue && !teams.includes(issue.teamId); })) return false;

@@ -398,6 +398,26 @@ function migrate(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_attachments_issue ON attachments(issue_id);
   `);
+  // a pre-release build kept file bytes outside the database; its table was never populated
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'files'").get() && !columns('files').includes('data')) db.exec('DROP TABLE files');
+  // uploaded images (avatars, emoji, pictures pasted into editors) — small by design, so the
+  // bytes live here too; owners are polymorphic, so files.ts deletes a file when its owner
+  // goes rather than a foreign key
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS files (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+      size INTEGER NOT NULL DEFAULT 0,
+      sha256 TEXT NOT NULL DEFAULT '',
+      owner_type TEXT NOT NULL,
+      owner_id TEXT NOT NULL DEFAULT '',
+      uploaded_by TEXT,
+      created_at TEXT NOT NULL,
+      data BLOB NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_type, owner_id);
+  `);
   if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'subscriptions'").get()) {
     db.exec(`
       CREATE TABLE subscriptions (

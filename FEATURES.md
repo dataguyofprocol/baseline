@@ -45,7 +45,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Save as draft (localStorage per team, restored on reopen with Discard), Create more toggle, ⌘⏎ creates
 - ✅ Sub-issue mode: opens with parent pre-wired from issue detail or cycle page
 - ✅ Draft state persists; toasts on create with View issue link
-- ✅ Cycle pill (current / upcoming cycles), Milestone pill once the project has milestones, paperclip to attach files (uploaded on create); ⌘↵ works after picking from any pill menu
+- ✅ Cycle pill (current / upcoming cycles), Milestone pill once the project has milestones; ⌘↵ works after picking from any pill menu
 - ✅ On the triage page, C (or "+") files the new issue straight into triage
 
 ## 4. Issue detail
@@ -62,8 +62,8 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Hand-off is always explicit (Copy as prompt, Open in Claude Code): nothing picks up assigned issues on its own
 - ✅ Sub-issues: list rows nest under their parent (elbow + indent), show "› parent" when apart, and parents show a closed/total progress ring; issue page shows "Sub-issue of ◐ KEY title  ◌ n/m"; inline sub-issue composer inherits the parent's priority, assignee, cycle and project, and Enter creates and keeps it open for the next one
 - ✅ Breadcrumb names the list you came from, "3 / 27" with ↓↑, J/K steps through it; every issue shortcut works on the open issue (menus anchor at the rail)
-- ✅ Rich-text description and comments (TipTap, stored as Markdown): headings, lists, checklists, code, quotes, `/` commands, @mentions of people and issues, pasted/dropped images and files
-- ✅ One activity timeline; comment threads with reply / resolve / reactions; real subscriptions (subscribers shown, ⇧S); links and file attachments (⌃L); Remind me (⇧H); move to team (⌘⇧M); Make a copy
+- ✅ Rich-text description and comments (TipTap, stored as Markdown): headings, lists, checklists, code, quotes, `/` commands, @mentions of people and issues, pasted/dropped images (images only, up to 2 MB, stored in the database — the same in docs, project, initiative and team descriptions)
+- ✅ One activity timeline; comment threads with reply / resolve / reactions; real subscriptions (subscribers shown, ⇧S); link attachments (⌃L) — files aren't hosted, link to them; Remind me (⇧H); move to team (⌘⇧M); Make a copy
 - ✅ Triage banner (Accept / Duplicate / Decline) on issues waiting in triage; archived and trashed URLs open with Restore
 
 ## 5. Board view
