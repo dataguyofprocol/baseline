@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Store } from './store.js';
-import { getMeta } from './db.js';
 import { id } from './util.js';
 import type { DateResolution, Initiative, InitiativeLabel, InitiativeLink, InitiativeUpdate, InitiativeStatus, Priority, ProjectHealth, Release, ReleaseStage, UpdateCadence } from './types.js';
 
@@ -78,14 +77,13 @@ export class Planning {
   }
   addProject(initiativeId: string, projectId: string): void { this.db.prepare('INSERT OR IGNORE INTO initiative_projects (initiative_id, project_id) VALUES (?, ?)').run(initiativeId, projectId); }
   removeProject(initiativeId: string, projectId: string): void { this.db.prepare('DELETE FROM initiative_projects WHERE initiative_id = ? AND project_id = ?').run(initiativeId, projectId); }
-  /** an initiative update also sets its health, and notifies you when someone else posts on one you own */
+  /** an initiative update also sets its health, and notifies the owner when someone else posts on it */
   addInitiativeUpdate(initiativeId: string, userId: string, body: string, health?: ProjectHealth | null): InitiativeUpdate {
     const u: InitiativeUpdate = { id: id('iu'), initiativeId, userId, body, health: health ?? null, createdAt: ts(), reactions: {} };
     this.db.prepare('INSERT INTO initiative_updates (id, initiative_id, user_id, body, health, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(u.id, initiativeId, userId, body, u.health, u.createdAt);
     if (health) this.updateInitiative(initiativeId, { health });
     const ini = this.db.prepare('SELECT name, owner_id FROM initiatives WHERE id = ?').get(initiativeId) as { name: string; owner_id: string | null } | undefined;
-    const me = getMeta(this.db, 'currentUser');
-    if (ini && ini.owner_id === me && userId !== me) this.store.notify('projectUpdate', { actorId: userId, body: `New update on ${ini.name}: ${body.replace(/\s+/g, ' ').slice(0, 120)}` });
+    if (ini) this.store.notifyEach([ini.owner_id], 'projectUpdate', { actorId: userId, body: `New update on ${ini.name}: ${body.replace(/\s+/g, ' ').slice(0, 120)}` });
     return u;
   }
 
@@ -134,13 +132,11 @@ export class Planning {
   }
   /** the owner gets one inbox reminder each time an update falls due (as project leads do) */
   private remindUpdates(now: Date): void {
-    const me = getMeta(this.db, 'currentUser');
-    if (!me) return;
-    for (const r of this.rows<{ id: string; name: string; status: InitiativeStatus; update_cadence: UpdateCadence | null; created_at: string }>('SELECT id, name, status, update_cadence, created_at FROM initiatives WHERE owner_id = ?', me)) {
+    for (const r of this.rows<{ id: string; name: string; status: InitiativeStatus; update_cadence: UpdateCadence | null; created_at: string; owner_id: string }>('SELECT id, name, status, update_cadence, created_at, owner_id FROM initiatives WHERE owner_id IS NOT NULL')) {
       const due = this.updateDueAt({ id: r.id, status: r.status, updateCadence: r.update_cadence, createdAt: r.created_at });
       if (!due || due > now.toISOString()) continue;
-      const already = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'initiativeUpdateReminder' AND body LIKE ? AND created_at >= ?").get(`${r.id}|%`, due);
-      if (!already) this.store.notify('initiativeUpdateReminder', { body: `${r.id}|An update on ${r.name} is due`, createdAt: now.toISOString() });
+      const already = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'initiativeUpdateReminder' AND user_id = ? AND body LIKE ? AND created_at >= ?").get(r.owner_id, `${r.id}|%`, due);
+      if (!already) this.store.notifyEach([r.owner_id], 'initiativeUpdateReminder', { actorId: null, body: `${r.id}|An update on ${r.name} is due`, createdAt: now.toISOString() });
     }
   }
 

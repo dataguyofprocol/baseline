@@ -245,12 +245,12 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   const themeKey = theme.id;
   const cmdk = store.listIssues({ teamId: core.id }).find(i => i.title.startsWith('Cmd+K'));
   const wal = store.listIssues({ teamId: agents.id }).find(i => i.title.startsWith('Concurrent writer'));
-  store.notify('issueMentioned', { actorId: ada.id, issueId: cmdk?.id ?? themeKey, body: `@${me.name} scroll jumps a row when the list re-scores — can you take it?`, createdAt: hoursAgo(2) });
-  store.notify('issueCommented', { actorId: jun.id, issueId: cmdk?.id ?? themeKey, body: 'Repro is the fuzzy re-rank, not the scroll container.', createdAt: hoursAgo(2.4) });
-  store.notify('issueAssignedToYou', { actorId: jun.id, issueId: wal?.id ?? themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(5) });
-  store.notify('systemUpdate', { issueId: null, body: `Cycle ${prevCycle.number} closed — 3 issues rolled over into Cycle ${currentCycle.number}`, createdAt: hoursAgo(9) });
-  store.notify('issueCommented', { actorId: ada.id, issueId: themeKey, body: 'Light theme needs a second pass before the toggle ships.', createdAt: hoursAgo(27) });
-  store.notify('issueAssignedToYou', { actorId: ada.id, issueId: themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(74) });
+  store.notify('issueMentioned', { userId: me.id, actorId: ada.id, issueId: cmdk?.id ?? themeKey, body: `@${me.name} scroll jumps a row when the list re-scores — can you take it?`, createdAt: hoursAgo(2) });
+  store.notify('issueCommented', { userId: me.id, actorId: jun.id, issueId: cmdk?.id ?? themeKey, body: 'Repro is the fuzzy re-rank, not the scroll container.', createdAt: hoursAgo(2.4) });
+  store.notify('issueAssignedToYou', { userId: me.id, actorId: jun.id, issueId: wal?.id ?? themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(5) });
+  store.notify('systemUpdate', { userId: me.id, issueId: null, body: `Cycle ${prevCycle.number} closed — 3 issues rolled over into Cycle ${currentCycle.number}`, createdAt: hoursAgo(9) });
+  store.notify('issueCommented', { userId: me.id, actorId: ada.id, issueId: themeKey, body: 'Light theme needs a second pass before the toggle ships.', createdAt: hoursAgo(27) });
+  store.notify('issueAssignedToYou', { userId: me.id, actorId: ada.id, issueId: themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(74) });
 
   // project update
   store.addProjectUpdate(project.id, me.id, 'Scope locked: CLI-first agent story, UI polish tracked in Core.', 'onTrack');

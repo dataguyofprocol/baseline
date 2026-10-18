@@ -118,22 +118,27 @@ export class Automation {
   }
 
   // ================= team bell =================
-  teamSubscriptions(): Record<string, TeamSubscription> { try { return JSON.parse(getMeta(this.db, 'teamSubscriptions') ?? '{}'); } catch { return {}; } }
-  setTeamSubscription(teamId: string, flags: Partial<TeamSubscription>): void {
-    const all = this.teamSubscriptions();
-    const base: TeamSubscription = { issueAdded: false, issueClosed: false, triage: false };
-    all[teamId] = Object.assign(base, all[teamId], flags);
-    setMeta(this.db, 'teamSubscriptions', JSON.stringify(all));
+  /** someone's team bells (the acting person's by default), by team */
+  teamSubscriptions(userId = this.store.actor()): Record<string, TeamSubscription> {
+    const rows = this.rows<{ team_id: string; issue_added: number; issue_closed: number; triage: number }>('SELECT * FROM team_subscriptions WHERE user_id = ?', userId);
+    return Object.fromEntries(rows.map(r => [r.team_id, { issueAdded: !!r.issue_added, issueClosed: !!r.issue_closed, triage: !!r.triage }]));
   }
+  setTeamSubscription(teamId: string, flags: Partial<TeamSubscription>, userId = this.store.actor()): void {
+    const v: TeamSubscription = Object.assign({ issueAdded: false, issueClosed: false, triage: false }, this.teamSubscriptions(userId)[teamId], flags);
+    this.db.prepare('INSERT INTO team_subscriptions (team_id, user_id, issue_added, issue_closed, triage) VALUES (?, ?, ?, ?, ?) ON CONFLICT(team_id, user_id) DO UPDATE SET issue_added = excluded.issue_added, issue_closed = excluded.issue_closed, triage = excluded.triage')
+      .run(teamId, userId, v.issueAdded ? 1 : 0, v.issueClosed ? 1 : 0, v.triage ? 1 : 0);
+  }
+  /** each person with the team's bell on hears about the events they chose — never their own */
   private notifyTeam(before: Issue | null, after: Issue, actorId?: string): void {
-    const me = getMeta(this.db, 'currentUser');
-    const sub = this.teamSubscriptions()[after.teamId];
-    if (!sub || !me || (actorId ?? me) === me) return;
     const type = this.stateType(after.stateId);
     const key = this.store.keyOf(after);
-    if (!before && sub.triage && type === 'triage') this.store.notify('teamActivity', { actorId, issueId: after.id, body: `added ${key} to triage` });
-    else if (!before && sub.issueAdded) this.store.notify('teamActivity', { actorId, issueId: after.id, body: `added ${key} to the team` });
-    else if (before && sub.issueClosed && before.stateId !== after.stateId && (type === 'completed' || type === 'canceled')) this.store.notify('teamActivity', { actorId, issueId: after.id, body: `${type === 'completed' ? 'completed' : 'canceled'} ${key}` });
+    const closed = !!before && before.stateId !== after.stateId && (type === 'completed' || type === 'canceled');
+    for (const s of this.rows<{ user_id: string; issue_added: number; issue_closed: number; triage: number }>('SELECT * FROM team_subscriptions WHERE team_id = ?', after.teamId)) {
+      const body = !before && s.triage && type === 'triage' ? `added ${key} to triage`
+        : !before && s.issue_added ? `added ${key} to the team`
+        : closed && s.issue_closed ? `${type === 'completed' ? 'completed' : 'canceled'} ${key}` : null;
+      if (body) this.store.notifyEach([s.user_id], 'teamActivity', { actorId, issueId: after.id, body });
+    }
   }
 
   // ================= SLAs =================
@@ -183,12 +188,11 @@ export class Automation {
   }
   private checkBreaches(now: Date): void {
     const due = this.rows<{ id: string; assignee_id: string | null; title: string }>('SELECT id, assignee_id, title FROM issues WHERE sla_breaches_at IS NOT NULL AND sla_breaches_at <= ? AND deleted_at IS NULL AND archived_at IS NULL', now.toISOString());
-    const me = getMeta(this.db, 'currentUser');
     for (const i of due) {
       if (this.db.prepare("SELECT 1 FROM activity WHERE issue_id = ? AND type = 'slaBreached'").get(i.id)) continue;
       const bot = agentUser(this.store, this.db, 'Automation');
       this.store.logActivity({ issueId: i.id, type: 'slaBreached', data: {} }, bot);
-      if (i.assignee_id === me) this.store.notify('slaBreached', { actorId: bot, issueId: i.id, body: 'SLA breached' });
+      this.store.notifyEach([i.assignee_id], 'slaBreached', { actorId: bot, issueId: i.id, body: 'SLA breached' });
     }
   }
 
@@ -303,7 +307,8 @@ export class Automation {
     this.db.prepare('INSERT INTO loop_runs (id, loop_id, issue_id, ok, detail, created_at) VALUES (?,?,?,?,?,?)').run(run.id, loopId, target, ok ? 1 : 0, run.detail, run.createdAt);
     this.db.prepare('UPDATE loops SET last_run_at = ? WHERE id = ?').run(now.toISOString(), loopId);
     if (target) this.store.logActivity({ issueId: target, type: 'loopRan', data: { loop: l.name, detail: run.detail } }, bot);
-    if (!ok) this.store.notify('loopFailed', { actorId: bot, issueId: target, body: `${l.name}: ${run.detail}` });
+    // loops are workspace settings, so a failing one is the admins' to look at
+    if (!ok) this.store.notifyEach(this.rows<{ id: string }>("SELECT id FROM users WHERE admin = 1 AND kind != 'agent' AND status = 'active'").map(u => u.id), 'loopFailed', { actorId: bot, issueId: target, body: `${l.name}: ${run.detail}` });
     return run;
   }
 }

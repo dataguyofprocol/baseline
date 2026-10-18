@@ -172,7 +172,6 @@ export class GitSync {
       .run(pr.id, pr.repo, pr.number, pr.title, pr.body, pr.url, pr.state, pr.branch, pr.base, pr.author, pr.reviewDecision, pr.checks, pr.updatedAt, pr.mergedAt);
     const author = this.userByGithub(pr.author);
     const actor = author ?? agentUser(this.store, this.db, 'GitHub');
-    const me = getMeta(this.db, 'currentUser');
     const links = parseLinks(pr);
     for (const teamKey of parseNewIssueKeys(pr)) { const key = this.issueFromPr(pr, teamKey, author, actor); if (key) links.set(key, 'closing'); }
     for (const [key, kind] of links) {
@@ -188,9 +187,11 @@ export class GitSync {
         if (kind === 'closing' && author && !issue.assigneeId && pr.state !== 'closed') this.store.updateIssue(issue.id, { assigneeId: author }, actor);
       } else if (link.kind !== kind) this.db.prepare('UPDATE issue_prs SET kind = ? WHERE issue_id = ? AND pr_id = ?').run(kind, issue.id, pr.id);
       const changed = !prev || prev.state !== pr.state || (prev.review_decision ?? null) !== pr.reviewDecision;
-      if (changed && me && (this.store.isSubscribed(issue.id, me))) {
+      if (changed) {
         const what = pr.state === 'merged' ? 'merged' : pr.state === 'closed' ? 'closed' : pr.reviewDecision === 'approved' ? 'approved' : pr.reviewDecision === 'changes_requested' ? 'changes requested' : prev ? 'updated' : 'opened';
-        this.store.notify('prActivity', { actorId: actor, issueId: issue.id, body: `PR #${pr.number} ${what}: ${pr.title}` });
+        // the assignee and everyone following the issue — the PR's author too: the "actor" is the
+        // PR, and a review or merge by someone else is news to them
+        this.store.notifyEach([issue.assigneeId, ...this.store.subscribers(issue.id)], 'prActivity', { actorId: actor, issueId: issue.id, body: `PR #${pr.number} ${what}: ${pr.title}`, selfToo: true });
       }
       this.applyAutomation(issue.id);
     }
