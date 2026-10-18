@@ -12,7 +12,7 @@ Linear is the reference throughout. Where this plan copies a Linear behaviour, i
 | Hosting | One GCP VM per company. One Node server, SQLite (WAL) on a persistent disk, HTTPS through Caddy. One workspace per deployment, not multi-tenant. |
 | Sign-in | Google only. No passwords and no magic links. |
 | Joining | Admins invite by email. Anyone with a verified Google email at an approved domain (e.g. `acme.dev`) joins as a Member automatically. |
-| Local tools | A local companion: `baseline connect` runs on each laptop. It opens Claude Code in that person's terminal, runs the folder picker, and holds that person's repo paths. |
+| Coding agents | Linear's model: agents are members you delegate issues to, and each request is a session with visible progress. Agents run on runners (`baseline connect`) that dial out to the server: each person's laptop, or a shared team machine. The server never runs an agent itself. |
 | GitHub | A GitHub App with webhooks, now possible because the server has a public URL. This replaces the `gh` polling idea from the single-user plan. Read-only. Links PRs by branch, title or body; magic words decide what closes an issue. Adds an "In Review" state. |
 | Email | SMTP, credentials in env. GCP blocks outbound port 25, so use 587 or 465 through Google Workspace SMTP relay, SES, Postmark or similar. |
 
@@ -98,31 +98,115 @@ After this phase, the team can sign in to the hosted app at, for example, `https
 
 ---
 
-## Phase 2: CLI over HTTP and the local companion
+## Phase 2: Coding agents on a hosted server
 
-Claude Code hand-off has to keep working once the server is remote.
+Today, hand-off to Claude Code assumes the server is your laptop. Open in Claude Code starts a terminal on the server's own machine. The CLI writes straight to the SQLite file and names itself with `BASELINE_AS`. Nothing records a run, and nothing reports back. This phase copies Linear's agent model (Linear: Settings → AI & agents, and the "Linear for Agents" developer docs):
+- agents are workspace members you delegate issues to;
+- every request is a session people can watch and steer;
+- the code runs on machines the team controls: each person's laptop, or a shared runner. The server never runs an agent itself.
 
-### Personal API keys (Linear: Settings → API)
-- New `api_keys` table: `user_id`, `name`, hashed `token`, `last_used_at`, `revoked_at`. Requests use `Authorization: Bearer`, accepted alongside the session cookie.
-- **Agent attribution.** A request may send `X-Baseline-As: <agent user>`, but only agent-kind users are allowed. Activity then records the agent as the actor and the human in a `via_user_id` field, shown as "Claude Code via Parth". Today's `BASELINE_AS` keeps working.
+### The model (copying Linear)
+- **Agents are installed members.** Agent users (`kind = 'agent'`) stay as they are. Admins add them in Settings → Agents and choose the teams each one may work in. An agent shows in assignee and @mention menus only on those teams.
+- **Delegate, not assignee.** New column `issues.delegate_id`.
+  - **Ownership:** assigning an issue to an agent sets it as the delegate. The assignee stays the person who delegated, or becomes them if the issue had none, so the issue stays in their My issues.
+  - **Views:** Delegate is a filter, a display property and a grouping, as in Linear.
+  - **Status:** when an agent starts on an issue that isn't started yet, the issue moves to the team's first started status (Linear's rule).
+  - **Automations:** an issue an automation delegated stays in triage and keeps no assignee, so a person decides who owns it.
+- **Agent sessions.** New table `agent_sessions(id, issue_id, comment_id, agent_id, requested_by, runner_id, state, plan, external_urls, branch, created_at, updated_at, ended_at)`.
+  - **Created by:** delegating an issue to an agent, @mentioning an agent in a comment, or Open in Claude Code.
+  - **States** are Linear's: `pending`, `active`, `awaitingInput`, `error`, `complete`, `stale`. A session's state follows its last activity, so nobody sets it by hand.
+- **Activities.** New table `agent_activities(id, session_id, type, body, ephemeral, created_at)`.
+  - **Types:** `prompt` (from a person), `thought`, `action`, `elicitation` (a question for the person), `response`, `error`.
+  - **Ephemeral:** a `thought` or `action` marked ephemeral is replaced by the next activity.
+  - **Questions, answers, errors:** an `elicitation`, `response` or `error` also posts a comment in the issue's thread, as Linear does. It lands in the requester's inbox.
+  - **Steering:** replying in the session adds a `prompt`, and the runner continues the same run.
+  - **Snapshots:** activities never change after they're written, so a runner rebuilds the conversation from them, not from editable comments.
+- **Plan.** A session-level checklist (`content`, `status`: pending, inProgress, completed, canceled). The agent replaces it whole each time.
+- **Timing (Linear's limits).** A runner must acknowledge a new session within 10 seconds, or the session shows as unresponsive. A session with no activity for 30 minutes becomes `stale`, and another activity brings it back.
+- **Guidance.** Markdown instructions at workspace level and team level, with history. Team guidance wins when both say something.
+  - **Contents:** which repo to use, how to name branches and reference issues, what review to ask for.
+  - **Prompt:** it goes into the prompt with the issue, its comments and the existing hand-off template (Settings → Coding tools).
+- **Attribution.** An agent's writes record the agent as the actor and the requester in a new `via_user_id` field. This covers comments, status and property changes, and activity. It shows as "Claude Code via Parth".
 
-### CLI
-- `baseline login --server https://baseline.example.com` opens the browser, you approve, and the key is stored in `~/.baseline/config.json` (mode 0600).
-- CLI commands call the REST API instead of `createApp(dbPath)`. The snapshot-reading commands use `/api/bootstrap`, and the write commands use the existing routes. Add routes for anything the CLI does that has no route yet.
-- `scripts/test-cli.sh` runs against a local server.
+### Runners: where the code runs
+A runner is a `baseline connect` process. It keeps an outbound SSE connection to the server and takes sessions down it.
+- **Why outbound.** The hosted page can't safely call into a laptop: it would hit Chrome's Private Network Access rules, CORS and Safari quirks. The server can't reach machines behind NAT either. So every runner dials out, and the server sends work down the open connection.
+- **Personal runner** (each person's laptop):
+  - **Setup:** `baseline connect`, with `--install` adding a launchd agent so it starts at login. It's authenticated with that person's API key, and it only takes sessions that person requested.
+  - **Interactive (Open in Claude Code):** opens Claude Code in that person's terminal, in the issue's repo, as `openInClaudeCode` (`src/server/launch.ts`) does today. The session shows "Opened in Parth's terminal", and the agent reports progress through `baseline session …` commands as it works.
+  - **Background:** when someone delegates to Claude Code and picks "on my machine", the runner runs `claude -p` with streaming JSON output in a new git worktree. It maps that output to activities:
 
-### Companion (`baseline connect`)
-- A long-running process on each laptop that holds an SSE connection to the server, authenticated with the person's key. `baseline connect --install` adds a launchd agent so it starts at login.
-- **Why outbound.** The hosted page can't safely call into your laptop: it would hit Chrome's Private Network Access rules, CORS, and Safari quirks. Instead the companion keeps an outbound connection open and the server sends requests down it.
-- **Open in Claude Code:** the web app calls `POST /api/issues/:id/open-claude`, the server sends `{open, issue, repo}` to *that person's* connected companions, and the companion runs today's `openInClaudeCode` (`src/server/launch.ts`) locally. `BASELINE_AS` is set to the Claude Code agent, and the companion passes its own key to the session.
-- **Folder picker and directory check** use the same channel as a request and reply.
-- **Locations get split in two:**
+    | Claude Code output | Activity or session field |
+    |---|---|
+    | text | `thought` |
+    | tool calls | `action` |
+    | its to-do list | plan |
+    | the result | `response` |
+    | a failure | `error` |
+
+    A reply in the session resumes the same Claude Code conversation.
+- **Shared runner** (a team VM or Mac mini):
+  - **Registration:** an admin registers it with a runner token. It's bound to an agent identity, such as "Claude Code", and to the teams that agent works in, and anyone on those teams can delegate to it.
+  - **Each session:** it works in a fresh git worktree of the repo, on a branch named by the workspace branch format. It pushes the branch and opens a draft PR (`gh pr create --draft`), then adds the PR's URL to the session's links.
+  - **Credentials:** tool setup and credentials live on that machine, never on the server.
+  - **Loops:** this is where the "Open in Claude Code" loop action runs on a hosted server.
+- **Which runner takes a session:**
+  - **Interactive:** always the requester's personal runner.
+  - **Delegated, "on my machine" chosen:** the requester's personal runner, if it's online.
+  - **Delegated otherwise:** a shared runner bound to that agent.
+  - **No runner online:** the session stays `pending` with "No runner online", and starts when one connects.
+- **Repos and paths.**
   - **Repos** are workspace-level: a name plus an optional GitHub `owner/repo`. Projects and issues point at repos.
-  - **Paths** are per person: `user_repo_paths(user_id, repo_id, path)`. They're filled in by the companion, which reads `git remote get-url origin` from folders you pick.
-  - Moving today's data: each `location` becomes a repo, and your own paths come with it.
-- Settings → Coding tools shows "Companion connected on Parth's MacBook · last seen 10s ago", or how to install it.
+  - **Paths** are per person: `user_repo_paths(user_id, repo_id, path)`. The personal runner fills them in by reading `git remote get-url origin` from folders you pick. A shared runner keeps its own clones.
+  - **Moving today's data:** each `location` becomes a repo, and your own paths come with it.
+  - **Picking the repo:** a session uses the issue's repo, then the project's repos (still only suggestions). If it's still unsure, it asks with an `elicitation`, as Linear's repo suggestions do.
+- **Folder picker and directory check** use the same channel as a request and reply.
 
-**Done when:** on a laptop running only `baseline connect`, Open in Claude Code from the hosted app opens the right repo in your terminal. Claude Code's `baseline` CLI calls work, and its comments show as "Claude Code via Parth".
+### API keys, session keys and the CLI over HTTP
+- **API keys on a hosted server.** Personal keys exist already (`api_keys`, with scopes and team limits, Settings → Security & access). On a hosted server, though, the sign-in guard runs first and refuses any request without a cookie. Accept a valid key in place of the cookie, still checking the host, scopes and teams.
+- **Session keys.** When a runner starts a session, the server gives it a key that belongs to that session only. The key:
+  - acts as the agent via the requester;
+  - is limited to the issue's team;
+  - stops working when the session ends.
+
+  The runner hands it to Claude Code as `BASELINE_URL` and `BASELINE_TOKEN`, with `BASELINE_SESSION` naming the session. On a hosted server these replace `BASELINE_DB` and `BASELINE_AS`; local mode keeps today's variables.
+- **Acting as an agent with a personal key.** For CLI use outside a session, `--as <agent>` is allowed only for agent users and records you as `via_user_id`.
+- **CLI.**
+  - **Login:** `baseline login --server https://baseline.example.com` opens the browser, you approve, and the key is stored in `~/.baseline/config.json` (mode 0600).
+  - **Over HTTP:** commands call the REST API instead of `createApp(dbPath)`. Snapshot reads use `/api/bootstrap`, writes use the existing routes, and anything the CLI does without a route gets one.
+  - **Tests:** `scripts/test-cli.sh` runs against a local server.
+- **Session commands** for the agent itself: `baseline session thought|action|ask|reply|error "text"`, `session plan`, and `session link <url>`. They act on `BASELINE_SESSION`.
+  - **Manual runs:** `baseline session start <KEY>` opens a session for a Claude Code run someone started by hand.
+  - **Agent instructions:** the skill (`skills/baseline/SKILL.md`) and the hand-off prompt's footer teach these commands.
+
+### UI
+- **Issue page:** a Delegate chip next to the assignee. Each session appears in the activity feed with:
+  - the agent, the requester and the state;
+  - the plan;
+  - activities, with tool actions collapsed;
+  - links, including the PR;
+  - a reply box and a Stop button.
+- **My issues** includes issues you delegated, and Delegate is in filters, display options and grouping.
+- **Inbox:** questions, replies and errors from sessions you started.
+- **Settings → Agents** (admins): agents and their teams, workspace and team guidance, shared runners with "last seen", and recent sessions.
+- **Settings → Coding tools** (personal):
+  - runner status, such as "Runner connected on Parth's MacBook · last seen 10s ago", or how to install it;
+  - your repo paths and terminal;
+  - whether delegating runs on your machine or a shared runner.
+
+### Order inside the phase
+1. **API keys on hosted, CLI over HTTP, attribution.** This must ship before you move your own work to the server, or Claude Code hand-off breaks.
+2. **Delegate, sessions, activities, guidance, the session UI and `baseline session` commands.** These are useful before any runner exists, because a hand-started Claude Code run can report into its session.
+3. **Personal runner:** interactive first, then background.
+4. **Shared runner and Loops.**
+
+**Done when:**
+- On a laptop running only `baseline connect`, Open in Claude Code from the hosted app opens the right repo in that person's terminal, and the session shows on the issue.
+- Delegating ENG-42 to Claude Code with a shared runner online:
+  - the session acknowledges within 10 seconds and shows its plan and progress;
+  - its question reaches the requester's inbox, and it carries on after the reply;
+  - it ends with a draft PR linked on the issue.
+- Every agent write shows as "Claude Code via <person>". A session key can't reach another team, and it stops working when its session ends.
 
 ---
 
@@ -201,6 +285,7 @@ Claude Code hand-off has to keep working once the server is remote.
 - **Commits:** magic words in commit messages on `push` events. Pushed means In Progress, and reaching the default branch means Done.
 - **One issue, many PRs:** status changes when the last linked PR reaches the required state, as in Linear. Closed-unmerged PRs don't count.
 - Unlink from the PR row's menu. A dismissed link is never re-created.
+- **Agent sessions (Phase 2):** a PR whose branch is an agent session's branch is also added to that session's links. A PR opened by a shared runner is attributed to the agent via the person who delegated.
 
 ### Status automation (Linear: Team → Workflows & automations → Pull request automations)
 - Per team, these events map to a state or "No action":
@@ -228,11 +313,11 @@ Claude Code hand-off has to keep working once the server is remote.
 ---
 
 ## Later (deliberately out of these phases)
-Guests with team-scoped visibility (this needs a per-person filtered snapshot); private teams; desktop push; replying to notification emails to add a comment; GitHub Issues sync both ways; linkback comments on PRs; auto-closing PRs when an issue is canceled; Slack; GitLab; priority inbox; view subscriptions; SAML/SCIM.
+Guests with team-scoped visibility (this needs a per-person filtered snapshot); private teams; desktop push; replying to notification emails to add a comment; GitHub Issues sync both ways; linkback comments on PRs; auto-closing PRs when an issue is canceled; Slack; GitLab; priority inbox; view subscriptions; SAML/SCIM; outside agents (Codex cloud, Cursor, Devin) through an outgoing webhook for session events plus the activity API, close to Linear's protocol; cloud sandboxes like Linear's coding sessions.
 
 ## Order and size
 1. **Phase 1: accounts and hosting.** The largest phase, because it touches most routes and store methods. Split it into PRs: identity and sessions → Google and invites → per-person state and hardening → SSE and scheduler → deploy.
-2. **Phase 2: CLI and companion.** It must ship before you move your own work to the server, or Claude Code hand-off breaks.
+2. **Phase 2: coding agents.** Its first step (API keys on hosted, CLI over HTTP) must ship before you move your own work to the server, or Claude Code hand-off breaks.
 3. **Phase 3: notifications and email.**
 4. **Phase 4: GitHub.**
 
