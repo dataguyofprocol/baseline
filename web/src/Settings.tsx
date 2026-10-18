@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useApp, shortDate } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, AdminLock, ADMIN_NOTE, useCanConfigure } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
 import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconRelease, IconAsk, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
@@ -38,6 +38,12 @@ const SETTINGS_ICONS: Record<string, React.ReactNode> = {
   workspace: <IconSettings size={14} />, teams: <IconTeam size={14} />, members: <IconUsers size={14} />, handoff: <IconAgent size={14} />, data: <IconArchive size={14} />,
 };
 
+// hosted, these pages set up the workspace or a team: admins change them, members can read them
+const ADMIN_SECTIONS = new Set(['workspace', 'data', 'labels', 'templates', 'slas', 'project-labels', 'project-templates', 'project-statuses', 'project-updates',
+  'initiatives', 'documents', 'customer-requests', 'releases', 'pulse', 'asks', 'loops', 'github']);
+const ADMIN_TEAM_PAGES = new Set(['general', 'labels', 'templates', 'statuses', 'triage', 'workflow']);
+const LABELS_NOTE = 'Only admins can change labels. Anyone can add one from a label menu.';
+
 const STATE_TYPES: Array<[WorkflowStateType, string]> = [
   ['backlog', 'Backlog'], ['unstarted', 'Todo'], ['started', 'Started'], ['completed', 'Completed'], ['canceled', 'Canceled'],
 ];
@@ -45,9 +51,11 @@ const STATE_COLORS = ['#95a2b3', '#8a8f98', '#f2c94c', '#5e6ad2', '#7d8084', '#4
 const LABEL_COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
 
 export function SettingsLayout() {
-  const { section = 'workspace', teamKey, sub } = useParams();
+  const { section = 'workspace', teamKey, sub, page } = useParams();
   const snap = useApp(s => s.snap)!;
   const [q, setQ] = useState('');
+  const lockable = teamKey ? ADMIN_TEAM_PAGES.has(page ?? '') : ADMIN_SECTIONS.has(section);
+  const lockNote = (teamKey ? page : section)?.endsWith('labels') ? LABELS_NOTE : ADMIN_NOTE;
   const match = (label: string, sec: string) => !q.trim() || `${label} ${sec}`.toLowerCase().includes(q.trim().toLowerCase());
   return (
     <div className="settings-layout">
@@ -81,39 +89,49 @@ export function SettingsLayout() {
         </div>
       </nav>
       <div className="settings-content">
-        {teamKey && <TeamSettingsPage teamKey={teamKey} />}
-        {!teamKey && section === 'preferences' && <PreferencesSettings />}
-        {!teamKey && section === 'profile' && <ProfileSettings />}
-        {!teamKey && section === 'notifications' && <NotificationSettings key={sub ?? ''} />}
-        {section === 'security' && (sub === 'new-api-key' ? <NewApiKey /> : <SecuritySettings />)}
-        {section === 'api' && <ApiAdminSettings />}
-        {!teamKey && section === 'workspace' && <WorkspaceSettings />}
-        {section === 'teams' && <TeamsSettings />}
-        {section === 'new-team' && <NewTeamSettings />}
-        {section === 'members' && (snap.workspace.auth === 'google' ? <HostedMembersSettings /> : <MembersSettings />)}
-        {section === 'workspace-security' && snap.workspace.auth === 'google' && <WorkspaceSecuritySettings />}
-        {section === 'labels' && <LabelsSettings />}
-        {section === 'templates' && <TemplatesSettings />}
-        {section === 'handoff' && <HandoffSettings />}
-        {section === 'appearance' && <PreferencesSettings />}
-        {section === 'data' && <DataSettings />}
-        {section === 'shortcuts' && <ShortcutSettings />}
-        {section === 'project-labels' && <ProjectLabelsSettings />}
-        {section === 'project-templates' && <div className="settings-card"><h1>Project templates</h1><ProjectTemplatesSection /></div>}
-        {section === 'project-statuses' && <ProjectStatusesSettings />}
-        {section === 'project-updates' && <ProjectUpdatesSettings />}
-        {section === 'documents' && <DocumentsSettings />}
-        {section === 'customer-requests' && <CustomerRequestsSettings />}
-        {section === 'pulse' && <PulseSettings />}
-        {section === 'emojis' && <EmojisSettings />}
-        {section === 'slas' && <SlaSettings />}
-        {section === 'asks' && <AsksSettings />}
-        {section === 'loops' && <LoopsSettings />}
-        {section === 'github' && <GitHubSettings />}
-        {section === 'initiatives' && <InitiativesSettings />}
-        {section === 'releases' && <FeatureToggle title="Releases" flag="releasesEnabled" help="Track which issues ship in each release: give issues a Release, move releases from Planned to In progress to Released." link={['/releases', 'Open releases']} />}
+        {lockable ? <AdminLock note={lockNote}><SettingsPage /></AdminLock> : <SettingsPage />}
       </div>
     </div>
+  );
+}
+
+function SettingsPage() {
+  const { section = 'workspace', teamKey, sub } = useParams();
+  const snap = useApp(s => s.snap)!;
+  return (
+    <>
+      {teamKey && <TeamSettingsPage teamKey={teamKey} />}
+      {!teamKey && section === 'preferences' && <PreferencesSettings />}
+      {!teamKey && section === 'profile' && <ProfileSettings />}
+      {!teamKey && section === 'notifications' && <NotificationSettings key={sub ?? ''} />}
+      {section === 'security' && (sub === 'new-api-key' ? <NewApiKey /> : <SecuritySettings />)}
+      {section === 'api' && <ApiAdminSettings />}
+      {!teamKey && section === 'workspace' && <WorkspaceSettings />}
+      {section === 'teams' && <TeamsSettings />}
+      {section === 'new-team' && <NewTeamSettings />}
+      {section === 'members' && (snap.workspace.auth === 'google' ? <HostedMembersSettings /> : <MembersSettings />)}
+      {section === 'workspace-security' && snap.workspace.auth === 'google' && <WorkspaceSecuritySettings />}
+      {section === 'labels' && <LabelsSettings />}
+      {section === 'templates' && <TemplatesSettings />}
+      {section === 'handoff' && <HandoffSettings />}
+      {section === 'appearance' && <PreferencesSettings />}
+      {section === 'data' && <DataSettings />}
+      {section === 'shortcuts' && <ShortcutSettings />}
+      {section === 'project-labels' && <ProjectLabelsSettings />}
+      {section === 'project-templates' && <div className="settings-card"><h1>Project templates</h1><ProjectTemplatesSection /></div>}
+      {section === 'project-statuses' && <ProjectStatusesSettings />}
+      {section === 'project-updates' && <ProjectUpdatesSettings />}
+      {section === 'documents' && <DocumentsSettings />}
+      {section === 'customer-requests' && <CustomerRequestsSettings />}
+      {section === 'pulse' && <PulseSettings />}
+      {section === 'emojis' && <EmojisSettings />}
+      {section === 'slas' && <SlaSettings />}
+      {section === 'asks' && <AsksSettings />}
+      {section === 'loops' && <LoopsSettings />}
+      {section === 'github' && <GitHubSettings />}
+      {section === 'initiatives' && <InitiativesSettings />}
+      {section === 'releases' && <FeatureToggle title="Releases" flag="releasesEnabled" help="Track which issues ship in each release: give issues a Release, move releases from Planned to In progress to Released." link={['/releases', 'Open releases']} />}
+    </>
   );
 }
 
@@ -224,6 +242,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
   const navigate = useNavigate();
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
+  const canConfigure = useCanConfigure();
   const team = snap.teams.find(t => t.key.toLowerCase() === props.teamKey.toLowerCase());
   const [name, setName] = useState(team?.name ?? '');
   const [key, setKey] = useState(team?.key ?? '');
@@ -305,6 +324,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
       {back}
       <h1>Cycles</h1>
       <div className="field-help" style={{ marginBottom: 12 }}>Focus your team over short, time-boxed windows</div>
+      <AdminLock>
       <div className="card set-list">
         <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Enable cycles</div><div className="field-help">Keep the current cycle and upcoming ones scheduled, laid end to end.</div></div><SettingSwitch on={team.autoCycles} onChange={v => void patch({ autoCycles: v })} /></div>
         {team.autoCycles && <>
@@ -317,6 +337,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
         </>}
         <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Roll over unfinished work</div><div className="field-help">When a cycle ends, its open issues move into the next cycle.</div></div><SettingSwitch on={team.cycleRollover} onChange={v => void patch({ cycleRollover: v })} /></div>
       </div>
+      </AdminLock>
       <div className="settings-h2">All cycles</div>
       <TeamEditor teamId={team.id} part="cycles" />
     </div>
@@ -385,11 +406,13 @@ function TeamSettingsPage(props: { teamKey: string }) {
         {link('triage', <IconTriage size={14} />, 'Triage', 'Streamline how you handle requests from outside your team', team.triageEnabled ? 'Enabled' : 'Off')}
         {link('cycles', <IconCycle size={14} />, 'Cycles', 'Focus your team over short, time-boxed windows', team.autoCycles ? `Every ${team.cycleDuration === 1 ? 'week' : `${team.cycleDuration} weeks`}` : 'Off')}
       </div>
+      {canConfigure && <>
       <div className="settings-h2">Danger zone</div>
       <div className="card set-list">
         <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Delete team</div><div className="field-help">Permanently delete this team and all its issues</div></div>
           <ConfirmButton className="btn ghost sm" label="Delete…" confirmLabel="Delete team?" onConfirm={async () => { await api.deleteTeam(team.id); await useApp.getState().bootstrap(); toast({ title: `${team.name} deleted` }); navigate('/settings/teams'); }} /></div>
       </div>
+      </>}
     </div>
   );
 }

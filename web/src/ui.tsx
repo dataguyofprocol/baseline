@@ -457,3 +457,17 @@ export function ConfirmButton(props: {
     </button>
   );
 }
+
+/** hosted, how teams and the workspace are set up is admins' to change (TEAM_PLAN.md › Who changes what) */
+export function useCanConfigure(): boolean {
+  return useApp(s => !s.snap || s.snap.workspace.auth !== 'google' || s.snap.currentUser.admin);
+}
+export const ADMIN_NOTE = 'Only admins can change this.';
+/** the same controls, disabled under a note, for someone who can't change them */
+export function AdminLock(props: { children: React.ReactNode; note?: string }) {
+  if (useCanConfigure()) return <>{props.children}</>;
+  return <>
+    <div className="field-help admin-note">{props.note ?? ADMIN_NOTE}</div>
+    <fieldset disabled className="admin-locked">{props.children}</fieldset>
+  </>;
+}

@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useApp, useHelpers, relTime, shortDate, nameOf } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure } from './ui.js';
 import { IssueToolbar, IssueLocationRow, OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { CustomerRequests } from './Workspace.js';
 import { IssuePullRequests } from './GitHubUI.js';
@@ -580,6 +580,8 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const snap = useApp(s => s.snap)!;
   const issue = props.issue;
   const helpers = useHelpers();
+  // issue templates are team setup (admins', hosted)
+  const canConfigure = useCanConfigure();
   const key = helpers.keyOf(issue);
   const team = helpers.teamById(issue.teamId)!;
   const activityText = useActivityText();
@@ -702,7 +704,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
             </MenuSub>
             <MenuSub icon={<IconBox size={14} />} label="Convert to" width={220}>
               <MenuItem icon={<IconBox size={14} />} label="Project" onClick={() => void convertToProject(issue.id, navigate)} />
-              <MenuItem icon={<IconDoc size={14} />} label="Template" onClick={() => void convertToTemplate(issue.id)} />
+              {canConfigure && <MenuItem icon={<IconDoc size={14} />} label="Template" onClick={() => void convertToTemplate(issue.id)} />}
               <MenuSub icon={<IconCycle size={14} />} label="Recurring issue" width={200}>
                 {(Object.keys(CADENCE_LABELS) as Array<keyof typeof CADENCE_LABELS>).map(c => <MenuItem key={c} label={CADENCE_LABELS[c]} onClick={() => void makeRecurring(issue.id, c)} />)}
               </MenuSub>
