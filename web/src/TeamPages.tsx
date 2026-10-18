@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useApp, relTime, shortDate, useCursor, registerVisibleList } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, ConfirmButton } from './ui.js';
+import { Menu, MenuItem, ConfirmButton, useCanConfigure } from './ui.js';
 import { IssueDetail } from './IssueDetail.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { PropertyMenuBody, propMenuWidth, parseReminder } from './propertyMenus.js';
@@ -33,6 +33,7 @@ export function TriagePage() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const team = teamFromKey(teamKey);
+  const canConfigure = useCanConfigure();
   const cursor = useCursor(s => s.index);
   const dup = useMenu();
   const triageState = team ? snap.states.find(s => s.teamId === team.id && s.type === 'triage') : undefined;
@@ -90,7 +91,9 @@ export function TriagePage() {
           <div className="empty-title">Triage is off for {team.name}</div>
           <div className="empty-desc">With triage on, issues that agents and teammates file through the CLI land in a review queue before they reach the backlog.</div>
           <div className="empty-actions">
-            <button className="btn primary" onClick={async () => { await api.updateTeam(team.id, { triageEnabled: true }); await useApp.getState().bootstrap(); }}>Turn on triage</button>
+            {canConfigure
+              ? <button className="btn primary" onClick={async () => { await api.updateTeam(team.id, { triageEnabled: true }); await useApp.getState().bootstrap(); }}>Turn on triage</button>
+              : <span className="dim">Only admins can turn on triage.</span>}
           </div>
         </div>
       </div>

@@ -181,6 +181,28 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   };
   for (const path of ['/api/workspace', '/api/features', '/api/export', '/api/import', '/api/seed']) app.use(path, adminOnly);
   app.post('/api/users', adminOnly);
+  // so is how teams and the workspace are set up (TEAM_PLAN.md › Who changes what). Issues, projects,
+  // docs, cycles and comments stay everyone's, and so does creating a team or adding a label from a picker
+  const configRoutes: Array<[string, string]> = [
+    ['PATCH', '/api/teams/:id'], ['DELETE', '/api/teams/:id'], ['PUT', '/api/teams/:id/workflow'],
+    ['POST', '/api/states'], ['PATCH', '/api/states/:id'], ['DELETE', '/api/states/:id'],
+    ['PATCH', '/api/labels/:id'], ['DELETE', '/api/labels/:id'],
+    ['PATCH', '/api/project-labels/:id'], ['DELETE', '/api/project-labels/:id'],
+    ['PATCH', '/api/initiative-labels/:id'], ['DELETE', '/api/initiative-labels/:id'],
+    ['POST', '/api/project-statuses'], ['PATCH', '/api/project-statuses/:id'], ['DELETE', '/api/project-statuses/:id'],
+    ['POST', '/api/issue-templates'], ['PATCH', '/api/issue-templates/:id'], ['DELETE', '/api/issue-templates/:id'],
+    ['POST', '/api/project-templates'], ['PATCH', '/api/project-templates/:id'], ['DELETE', '/api/project-templates/:id'],
+    ['POST', '/api/doc-templates'], ['PATCH', '/api/doc-templates/:id'], ['DELETE', '/api/doc-templates/:id'],
+    ['POST', '/api/sla-rules'], ['PATCH', '/api/sla-rules/:id'], ['DELETE', '/api/sla-rules/:id'],
+    ['POST', '/api/asks'], ['PATCH', '/api/asks/:id'], ['DELETE', '/api/asks/:id'],
+    ['POST', '/api/loops'], ['PATCH', '/api/loops/:id'], ['DELETE', '/api/loops/:id'], ['POST', '/api/loops/:id/run'],
+    ['PUT', '/api/git/automation/:teamId'],
+    ['PUT', '/api/github/webhook/config'], ['POST', '/api/github/webhook/secret'], ['DELETE', '/api/github/webhook/secret'],
+    ['POST', '/api/github/issues/import'], ['PUT', '/api/github/issues/follow'],
+    ['DELETE', '/api/emojis/:id'],
+    ['POST', '/api/customer-attrs/*'], ['PATCH', '/api/customer-attrs/*'], ['DELETE', '/api/customer-attrs/*'],
+  ];
+  for (const [method, path] of configRoutes) app.on(method, path, adminOnly);
   mountMembers(app, { store, accounts, mailer, publicUrl: hosted ? auth.publicUrl : null });
 
   // ---------- bootstrap ----------

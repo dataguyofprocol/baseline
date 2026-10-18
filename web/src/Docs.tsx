@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useApp, relTime, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, useMenu, RegisterMark } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, RegisterMark, useCanConfigure, ADMIN_NOTE } from './ui.js';
+import { Markdown } from './Markdown.js';
 import { RichEditor } from './RichEditor.js';
 import { Avatar, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
@@ -137,6 +138,8 @@ export function TeamHomePage() {
   const navigate = useNavigate();
   const team = snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase());
   const tab = rawTab === 'documents' || rawTab === 'members' ? rawTab : 'overview';
+  // a team's name and description are its settings (admins', hosted)
+  const canConfigure = useCanConfigure();
   const [name, setName] = useState(team?.name ?? '');
   useEffect(() => { setName(team?.name ?? ''); }, [team?.id, team?.name]);
   if (!team) return <TeamMissingRedirect />;
@@ -160,10 +163,11 @@ export function TeamHomePage() {
             <div className="team-home-main">
               <div className="team-hero">
                 <span className="ws-avatar" style={{ background: team.color, borderRadius: 8, width: 36, height: 36, fontSize: 15 }}>{team.icon?.match(/\p{Emoji}/u) ? team.icon : team.key[0]}</span>
-                <input className="proj-hero-name" value={name} onChange={e => setName(e.target.value)} onBlur={async () => { if (name.trim() && name !== team.name) { await api.updateTeam(team.id, { name: name.trim() }); await useApp.getState().bootstrap(); } }} />
+                <input className="proj-hero-name" value={name} readOnly={!canConfigure} title={canConfigure ? undefined : ADMIN_NOTE} onChange={e => setName(e.target.value)} onBlur={async () => { if (name.trim() && name !== team.name) { await api.updateTeam(team.id, { name: name.trim() }); await useApp.getState().bootstrap(); } }} />
               </div>
-              <RichEditor key={team.id} value={team.description} uploadTo={`team:${team.id}`} placeholder="Add a description…"
+              {canConfigure ? <RichEditor key={team.id} value={team.description} uploadTo={`team:${team.id}`} placeholder="Add a description…"
                 onBlur={async md => { if (md !== team.description) { await api.updateTeam(team.id, { description: md }); await useApp.getState().bootstrap(); } }} />
+                : team.description ? <Markdown text={team.description} /> : null}
               <div className="proj-section-label">Team resources</div>
               <Resources teamId={team.id} label={false} />
             </div>

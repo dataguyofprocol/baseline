@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, visibleList, LIST_GROUP_ORDER } from './store.js';
-import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure } from './ui.js';
 import { OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { PropertyMenu, PropertyMenuBody, propMenuWidth, PROP_KBD, type PropKind } from './propertyMenus.js';
@@ -541,6 +541,7 @@ function openOnPage(issue: Issue, then: () => void) {
 
 export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; issue: Issue }) {
   const snap = useApp(s => s.snap)!;
+  const canConfigure = useCanConfigure();
   const openCreate = useApp(s => s.openCreate);
   const selection = useSelection(s => s.ids);
   const targets = selection.includes(props.issue.id)
@@ -605,7 +606,7 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
       )}
       {!many && <MenuSub icon={<IconBox size={14} />} label="Convert to" width={220}>
           <MenuItem icon={<IconBox size={14} />} label="Project…" onClick={() => void convertToProject(props.issue.id, to => { location.hash = `#${to}`; })} />
-          <MenuItem icon={<IconDoc size={14} />} label="Template…" onClick={() => void convertToTemplate(props.issue.id)} />
+          {canConfigure && <MenuItem icon={<IconDoc size={14} />} label="Template…" onClick={() => void convertToTemplate(props.issue.id)} />}
           <MenuSub icon={<IconCycle size={14} />} label="Recurring issue…" width={200}>
             {(Object.keys(CADENCE_LABELS) as Array<keyof typeof CADENCE_LABELS>).map(c => <MenuItem key={c} label={CADENCE_LABELS[c]} onClick={() => void makeRecurring(props.issue.id, c)} />)}
           </MenuSub>

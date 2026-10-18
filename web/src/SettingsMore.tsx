@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from './store.js';
 import { api } from './api.js';
-import { ConfirmButton } from './ui.js';
+import { ConfirmButton, useCanConfigure } from './ui.js';
 import { IconPlus, IconTrash, IconSearch } from './icons.js';
 import { ProjectStatusIcon, PROJECT_STATUS } from './Projects.js';
 import { UPDATE_CADENCE_LABELS, type UpdateCadence, type WorkspaceFeatures } from '../../src/core/types.js';
@@ -339,6 +339,8 @@ export function PulseSettings() {
 /* ---------------- emojis ---------------- */
 export function EmojisSettings() {
   const snap = useApp(s => s.snap)!;
+  // anyone can add an emoji; removing one is admins' (hosted)
+  const canConfigure = useCanConfigure();
   const [name, setName] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [err, setErr] = useState('');
@@ -351,7 +353,7 @@ export function EmojisSettings() {
   return (
     <div className="settings-card">
       <h1>Emojis</h1>
-      <div className="field-help" style={{ marginBottom: 14 }}>Custom emojis work in reactions and as <code>:name:</code> in descriptions and comments.</div>
+      <div className="field-help" style={{ marginBottom: 14 }}>Custom emojis work in reactions and as <code>:name:</code> in descriptions and comments.{canConfigure ? '' : ' Only admins can remove one.'}</div>
       <div className="card set-list">
         <div className="set-row">
           <button className="btn secondary sm" onClick={() => input.current?.click()}>{file ? file.name : 'Choose image…'}</button>
@@ -364,7 +366,7 @@ export function EmojisSettings() {
           <div key={e.id} className="set-row group">
             <img src={e.url} alt={e.name} width={20} height={20} style={{ objectFit: 'contain' }} />
             <code style={{ flex: 1 }}>:{e.name}:</code>
-            <ConfirmButton className="btn ghost sm" label="Delete" confirmLabel="Delete?" onConfirm={async () => { await api.deleteEmoji(e.id); await refresh(); }} />
+            {canConfigure && <ConfirmButton className="btn ghost sm" label="Delete" confirmLabel="Delete?" onConfirm={async () => { await api.deleteEmoji(e.id); await refresh(); }} />}
           </div>
         ))}
         {!snap.emojis.length && <div className="set-empty">No emojis</div>}

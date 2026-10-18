@@ -168,6 +168,88 @@ check('subscribing subscribes yourself, not the userId sent', store.isSubscribed
     && (await req('/api/locations', { ...json({ path: '/etc' }), cookie: ownerCookie })).status === 403);
 }
 
+// ---- team and workspace configuration is admins' (TEAM_PLAN.md › Who changes what) ----
+{
+  const send = (cookie: string, method: string, path: string, body?: unknown) =>
+    req(path, { method, cookie, headers: { 'content-type': 'application/json', origin: ORIGIN }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+  const idOf = async (r: Response, key: string) => ((await r.json()) as Record<string, { id: string }>)[key]!.id;
+  // what members still do: start a team, and add a label from an issue's (or project's, or initiative's) picker
+  const own = await send(adaCookie, 'POST', '/api/teams', { key: 'ADA', name: 'Ada\'s team' });
+  check('a member can create a team', own.status === 201);
+  const ownId = await idOf(own, 'team');
+  const labelRes = await send(adaCookie, 'POST', '/api/labels', { teamId: team.team.id, name: 'bug', color: '#eb5757' });
+  const projectLabelRes = await send(adaCookie, 'POST', '/api/project-labels', { name: 'Q3' });
+  const initiativeLabelRes = await send(adaCookie, 'POST', '/api/initiative-labels', { name: 'Bet' });
+  check('…and add issue, project and initiative labels', labelRes.status === 201 && projectLabelRes.status === 201 && initiativeLabelRes.status === 201,
+    `${labelRes.status}/${projectLabelRes.status}/${initiativeLabelRes.status}`);
+  const ids: Record<string, string> = {
+    team: team.team.id, doomed: store.createTeam('TMP', 'Temporary').id, label: await idOf(labelRes, 'label'),
+    projectLabel: await idOf(projectLabelRes, 'label'), initiativeLabel: await idOf(initiativeLabelRes, 'label'),
+    emoji: store.addEmoji('shipit', '/files/shipit.png').id,
+  };
+
+  // each route a member is refused and an admin isn't; `save` keeps the id an admin's create returns
+  const routes: Array<{ name: string; method: string; path: () => string; body?: unknown; save?: [string, string]; adminStatus?: number }> = [
+    { name: 'rename a team', method: 'PATCH', path: () => `/api/teams/${ids.team}`, body: { name: 'Engineering' } },
+    { name: 'change a team\'s workflow automations', method: 'PUT', path: () => `/api/teams/${ids.team}/workflow`, body: { autoCloseDays: 30 } },
+    { name: 'add a workflow state', method: 'POST', path: () => '/api/states', body: { teamId: ids.team, name: 'QA', type: 'started', color: '#f2c94c' }, save: ['state', 'state'] },
+    { name: 'edit a workflow state', method: 'PATCH', path: () => `/api/states/${ids.state}`, body: { name: 'Testing' } },
+    { name: 'remove a workflow state', method: 'DELETE', path: () => `/api/states/${ids.state}` },
+    { name: 'edit a label', method: 'PATCH', path: () => `/api/labels/${ids.label}`, body: { name: 'Bug' } },
+    { name: 'remove a label', method: 'DELETE', path: () => `/api/labels/${ids.label}` },
+    { name: 'edit a project label', method: 'PATCH', path: () => `/api/project-labels/${ids.projectLabel}`, body: { name: 'Q4' } },
+    { name: 'remove a project label', method: 'DELETE', path: () => `/api/project-labels/${ids.projectLabel}` },
+    { name: 'edit an initiative label', method: 'PATCH', path: () => `/api/initiative-labels/${ids.initiativeLabel}`, body: { name: 'Big bet' } },
+    { name: 'remove an initiative label', method: 'DELETE', path: () => `/api/initiative-labels/${ids.initiativeLabel}` },
+    { name: 'add a project status', method: 'POST', path: () => '/api/project-statuses', body: { name: 'On ice', type: 'paused' }, save: ['status', 'projectStatus'] },
+    { name: 'edit a project status', method: 'PATCH', path: () => `/api/project-statuses/${ids.projectStatus}`, body: { name: 'Frozen' } },
+    { name: 'remove a project status', method: 'DELETE', path: () => `/api/project-statuses/${ids.projectStatus}` },
+    { name: 'add an issue template', method: 'POST', path: () => '/api/issue-templates', body: { teamId: ids.team, name: 'Bug report' }, save: ['template', 'issueTemplate'] },
+    { name: 'edit an issue template', method: 'PATCH', path: () => `/api/issue-templates/${ids.issueTemplate}`, body: { name: 'Bug' } },
+    { name: 'remove an issue template', method: 'DELETE', path: () => `/api/issue-templates/${ids.issueTemplate}` },
+    { name: 'add a project template', method: 'POST', path: () => '/api/project-templates', body: { name: 'Launch' }, save: ['template', 'projectTemplate'] },
+    { name: 'edit a project template', method: 'PATCH', path: () => `/api/project-templates/${ids.projectTemplate}`, body: { name: 'Big launch' } },
+    { name: 'remove a project template', method: 'DELETE', path: () => `/api/project-templates/${ids.projectTemplate}` },
+    { name: 'add a document template', method: 'POST', path: () => '/api/doc-templates', body: { name: 'RFC' }, save: ['template', 'docTemplate'] },
+    { name: 'edit a document template', method: 'PATCH', path: () => `/api/doc-templates/${ids.docTemplate}`, body: { name: 'Design doc' } },
+    { name: 'remove a document template', method: 'DELETE', path: () => `/api/doc-templates/${ids.docTemplate}` },
+    { name: 'add an SLA', method: 'POST', path: () => '/api/sla-rules', body: { name: 'Urgent', priorities: [1], hours: 24 }, save: ['rule', 'sla'] },
+    { name: 'edit an SLA', method: 'PATCH', path: () => `/api/sla-rules/${ids.sla}`, body: { hours: 12 } },
+    { name: 'remove an SLA', method: 'DELETE', path: () => `/api/sla-rules/${ids.sla}` },
+    { name: 'add an Ask form', method: 'POST', path: () => '/api/asks', body: { name: 'IT request', teamId: ids.team }, save: ['form', 'ask'] },
+    { name: 'edit an Ask form', method: 'PATCH', path: () => `/api/asks/${ids.ask}`, body: { name: 'IT help' } },
+    { name: 'remove an Ask form', method: 'DELETE', path: () => `/api/asks/${ids.ask}` },
+    { name: 'add a loop', method: 'POST', path: () => '/api/loops', body: { name: 'Triage bot', trigger: { kind: 'labelAdded', labelId: 'none' } }, save: ['loop', 'loop'] },
+    { name: 'edit a loop', method: 'PATCH', path: () => `/api/loops/${ids.loop}`, body: { name: 'Triage helper' } },
+    { name: 'run a loop', method: 'POST', path: () => `/api/loops/${ids.loop}/run`, body: { issueId: issue.id } },
+    { name: 'remove a loop', method: 'DELETE', path: () => `/api/loops/${ids.loop}` },
+    { name: 'change PR automations', method: 'PUT', path: () => `/api/git/automation/${ids.team}`, body: { linkOnBranch: false } },
+    { name: 'set the GitHub webhook URL', method: 'PUT', path: () => '/api/github/webhook/config', body: { publicUrl: ORIGIN } },
+    { name: 'make a GitHub webhook secret', method: 'POST', path: () => '/api/github/webhook/secret' },
+    { name: 'turn GitHub webhooks off', method: 'DELETE', path: () => '/api/github/webhook/secret' },
+    // the admin gets past the gate to the repo-name check (a real import would run gh)
+    { name: 'import GitHub issues', method: 'POST', path: () => '/api/github/issues/import', body: { repo: 'not a repo', teamId: ids.team }, adminStatus: 400 },
+    { name: 'follow a GitHub repo\'s issues', method: 'PUT', path: () => '/api/github/issues/follow', body: { repo: 'acme/app', teamId: ids.team } },
+    { name: 'remove a custom emoji', method: 'DELETE', path: () => `/api/emojis/${ids.emoji}` },
+    { name: 'add a customer status', method: 'POST', path: () => '/api/customer-attrs/status', body: { name: 'Churned' }, save: ['id', 'customerStatus'] },
+    { name: 'edit a customer status', method: 'PATCH', path: () => `/api/customer-attrs/status/${ids.customerStatus}`, body: { name: 'Lost' } },
+    { name: 'remove a customer status', method: 'DELETE', path: () => `/api/customer-attrs/status/${ids.customerStatus}` },
+    { name: 'delete a team', method: 'DELETE', path: () => `/api/teams/${ids.doomed}` },
+  ];
+  for (const r of routes) {
+    const member = await send(adaCookie, r.method, r.path(), r.body);
+    const admin = await send(ownerCookie, r.method, r.path(), r.body);
+    const want = r.adminStatus ?? (r.method === 'POST' && r.save ? 201 : null);
+    const adminOk = want ? admin.status === want : admin.status === 200 || admin.status === 201;
+    if (r.save && admin.ok) { const b = await admin.json() as Record<string, unknown>; const v = b[r.save[0]]; ids[r.save[1]] = typeof v === 'string' ? v : (v as { id: string }).id; }
+    check(`a member can't ${r.name}; an admin can`, member.status === 403 && adminOk, `member ${member.status}, admin ${admin.status}`);
+  }
+  // (on their own team, so Eng's bells stay as the inbox tests expect)
+  check('a member can still subscribe to a team and add its resources',
+    (await send(adaCookie, 'PUT', `/api/teams/${ownId}/subscription`, { issueAdded: true })).status === 200
+    && (await send(adaCookie, 'POST', `/api/teams/${ownId}/links`, { url: 'https://example.com/runbook' })).status === 201);
+}
+
 // ---- coding agents: nothing runs on, or reaches into, the server's machine ----
 {
   // a location left over from a laptop workspace moved onto the server

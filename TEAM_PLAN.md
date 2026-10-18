@@ -72,6 +72,22 @@ After this phase, the team can sign in to the hosted app at, for example, `https
 - New `team_members(team_id, user_id)` table. "Your teams" in the sidebar, team pickers and default team filters follow membership. Every member can still see and join any team; private teams come later.
 - Issue triage changes from "creator isn't me" to Linear's rule: an issue lands in triage when it's created by someone who isn't a member of the team, or by an agent.
 
+#### Who changes what
+This follows Linear's split. Admins set up the workspace and its teams. Members do the work. Linear lets team owners restrict team settings, but Baseline has no team owners yet, so admins hold those settings. The rules apply only on a hosted server, where the server returns 403 to a member. A local workspace stays fully open, because its one person is every role. In the web app, a member sees these settings pages with their controls disabled under "Only admins can change this".
+
+| Area | Members | Admins only |
+|---|---|---|
+| Teams | Create a team. Join or leave a team. Turn on a team's bell. Add team resources (links). | Rename, re-key or describe a team. Set estimates, triage and the cycle schedule. Set workflow automations (auto-close, auto-archive, re-order). Delete a team. |
+| Workflow states | | Add, edit, reorder and remove states. |
+| Labels (issue, project, initiative) | Add a label, for example from a label menu (Linear's default). | Rename, recolor or remove a label. |
+| Templates (issue, project, document) | Apply a template. | Add, edit and remove templates, including "Save as template" on an issue. |
+| Project statuses, customer statuses and tiers | | Add, edit and remove them. |
+| SLAs, Asks, Loops | Submit an Ask. | Add, edit and remove SLA rules, Ask forms and loops. Run a loop by hand. |
+| GitHub | Unlink a PR from an issue. | PR automations, webhook URL and secret, issue import and follow. |
+| Emojis | Add a custom emoji. | Remove one. |
+| Workspace | | Name, feature toggles, people, invites when restricted, security, import/export, locations (this was already the rule). |
+| Everyday work | Issues, projects, milestones, documents, comments, cycles, recurring issues, initiatives, releases, customers and their requests, views, favorites, and their own profile, preferences and inbox. | |
+
 ### Per-person state
 - `favorites.user_id`; `views.owner_id` with `shared` (personal versus workspace views, as in Linear).
 - New `user_preferences(user_id, json)` table that replaces `meta.preferences`. Terminal app and handoff overrides move here too. The workspace handoff template stays as the default.
