@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# vb — launch, check, drive and tear down an isolated Baseline instance for verification.
+#
+#   vb start                 build if stale, seed a scratch DB, start server + harness server; prints RUN id
+#   vb doctor  <run>         read-only: is this instance worth driving?
+#   vb cli     <run> <args>  run the Baseline CLI against the run's scratch DB
+#   vb api     <run> <path>  GET an API path on the run's server (JSON to stdout)
+#   vb info    <run>         print url, harness url, db, evidence dir as KEY=VALUE
+#   vb stop    <run>         kill only the processes this run started, delete its instance dir; keeps evidence
+#   vb list                  list runs and whether they are alive
+#
+# Layout:  $VB_HOME/<run>/instance/  (DB, logs, pids — deleted by stop)
+#          $VB_HOME/<run>/evidence/  (proof artifacts — never deleted by stop)
+# VB_HOME defaults to ~/.cache/baseline-verify.
+set -uo pipefail
+
+REPO="$(cd "$(dirname "$0")/../../../.." && pwd -P)"
+VB_HOME="${VB_HOME:-$HOME/.cache/baseline-verify}"
+die() { echo "vb: $*" >&2; exit 1; }
+
+rundir() { [[ -n "${1:-}" ]] || die "missing <run> (see: vb list)"; local d="$VB_HOME/$1"; [[ -d "$d" ]] || die "no run $1 under $VB_HOME"; echo "$d"; }
+load() { # load <run>: sets RD INST EVID PORT HPORT DB URL HURL
+  RD="$(rundir "$1")" || exit 1; INST="$RD/instance"; EVID="$RD/evidence"
+  [[ -f "$INST/env" ]] || die "run $1 has no instance (stopped?)"
+  # shellcheck disable=SC1091
+  source "$INST/env"
+}
+alive() { [[ -n "${1:-}" ]] && kill -0 "$1" 2>/dev/null; }
+port_free() { ! lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+free_port() { local p=$1; while ! port_free "$p"; do p=$((p+1)); done; echo "$p"; }
+guard_db() { # never point at the real workspace
+  case "$1" in "$HOME/.baseline/"*|"$HOME/.baseline") die "refusing to use $1 — that is a real Baseline database";; esac
+}
+
+needs_build() {
+  [[ -d "$REPO/node_modules" ]] || return 0
+  [[ -f "$REPO/dist/server/index.js" && -f "$REPO/web/dist/index.html" ]] || return 0
+  [[ -n "$(find "$REPO/src" "$REPO/web/src" "$REPO/web/index.html" -newer "$REPO/dist/server/index.js" -type f -print -quit 2>/dev/null)" ]] && return 0
+  [[ -n "$(find "$REPO/web/src" -newer "$REPO/web/dist/index.html" -type f -print -quit 2>/dev/null)" ]] && return 0
+  return 1
+}
+
+cmd_start() {
+  cd "$REPO" || die "no repo"
+  if needs_build; then
+    echo "vb: building (deps/dist missing or stale)…"
+    [[ -d node_modules ]] || npm ci >/dev/null 2>&1 || die "npm ci failed"
+    npm run build >"$VB_HOME.build.log" 2>&1 || { mkdir -p "$VB_HOME"; die "build failed — see $VB_HOME.build.log"; }
+  fi
+  local run; run="run-$(date +%Y%m%d-%H%M%S)-$$"
+  RD="$VB_HOME/$run"; INST="$RD/instance"; EVID="$RD/evidence"; mkdir -p "$INST" "$EVID"
+  DB="$INST/baseline.db"; guard_db "$DB"
+  PORT="$(free_port 7390)"; HPORT="$(free_port $((PORT+1)))"
+  [[ "$HPORT" == "$PORT" ]] && HPORT="$(free_port $((PORT+2)))"
+  URL="http://localhost:$PORT"; HURL="http://127.0.0.1:$HPORT/journey-harness.js"
+
+  # seed the sample workspace (teams CORE, AGO…, users Ada…, issues CORE-1…) into the scratch DB
+  node bin/baseline.js seed --reset --db "$DB" >"$INST/seed.log" 2>&1 || die "seed failed — see $INST/seed.log"
+
+  # server: built app, scratch DB, private port, loopback only (BASELINE_HOST unset), no --open
+  env -u BASELINE_HOST -u GOOGLE_CLIENT_ID BASELINE_DB="$DB" BASELINE_PORT="$PORT" \
+    nohup node dist/server/index.js >"$INST/server.log" 2>&1 &
+  local spid=$!
+
+  # harness server: serves scripts/journey-harness.js so the page can load it with a <script> tag
+  nohup node -e '
+    const http=require("http"),fs=require("fs"),f=process.argv[1];
+    http.createServer((q,r)=>{ if(!q.url.startsWith("/journey-harness.js")){r.writeHead(404);return r.end();}
+      r.writeHead(200,{"Content-Type":"text/javascript","Cache-Control":"no-store","Access-Control-Allow-Origin":"*"}); r.end(fs.readFileSync(f)); })
+      .listen(Number(process.argv[2]),"127.0.0.1");' "$REPO/scripts/journey-harness.js" "$HPORT" >"$INST/harness.log" 2>&1 &
+  local hpid=$!
+
+  cat >"$INST/env" <<EOF
+RUN=$run
+PORT=$PORT
+HPORT=$HPORT
+DB='$DB'
+URL=$URL
+HURL=$HURL
+SERVER_PID=$spid
+HARNESS_PID=$hpid
+EOF
+
+  # ready = log line + bootstrap answers with the seeded CORE team (not just "a process listens")
+  local ok=""
+  for _ in $(seq 1 60); do
+    if grep -q '\[baseline\] serving on' "$INST/server.log" 2>/dev/null &&
+       curl -sf "$URL/api/bootstrap" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);process.exit(j.teams?.some(t=>t.key==="CORE")?0:1)})' 2>/dev/null &&
+       curl -sf -o /dev/null "$HURL"; then ok=1; break; fi
+    alive "$spid" || break
+    sleep 0.5
+  done
+  if [[ -z "$ok" ]]; then
+    echo "vb: instance did not become ready; server log:" >&2; tail -20 "$INST/server.log" >&2
+    cmd_stop "$run" >/dev/null; die "start failed ($run stopped; evidence dir kept)"
+  fi
+  echo "RUN=$run"; echo "URL=$URL"; echo "HARNESS=$HURL"; echo "EVIDENCE=$EVID"
+}
+
+cmd_doctor() {
+  load "$1"; local bad=0
+  say() { printf '%-8s %s\n' "$1" "$2"; if [[ "$1" == FAIL ]]; then bad=1; fi; return 0; }
+  alive "$SERVER_PID" && say OK "server pid $SERVER_PID alive" || say FAIL "server pid $SERVER_PID not running"
+  local owner; owner="$(lsof -nP -t -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | head -1)"
+  [[ "$owner" == "$SERVER_PID" ]] && say OK "port $PORT owned by our server" || say FAIL "port $PORT owned by '${owner:-nobody}', expected $SERVER_PID"
+  grep -q "(db: $DB)" "$INST/server.log" && say OK "server reports db $DB" || say FAIL "server log does not name our scratch db"
+  local boot; boot="$(curl -sf "$URL/api/bootstrap")" && say OK "GET /api/bootstrap 200" || say FAIL "GET /api/bootstrap failed"
+  [[ -n "$boot" ]] && echo "$boot" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log("OK       teams "+j.teams.map(t=>t.key).join(",")+"; issues "+j.issues.length+"; current user "+(j.currentUser?.name??"?"))})'
+  alive "$HARNESS_PID" && curl -sf -o /dev/null "$HURL" && say OK "harness served at $HURL" || say FAIL "harness server down ($HURL)"
+  if needs_build; then say WARN "dist/ is older than src/ — this instance runs a stale build; stop, then vb start rebuilds"; else say OK "build is current with src/"; fi
+  return $bad
+}
+
+cmd_cli() { local r="$1"; shift; load "$r"; guard_db "$DB"; cd "$REPO" && BASELINE_DB="$DB" BASELINE_URL="$URL" BASELINE_PORT="$PORT" node bin/baseline.js "$@"; }
+cmd_api() { load "$1"; curl -sf "$URL${2:-/api/bootstrap}"; }
+cmd_info() { load "$1"; cat "$INST/env"; echo "EVIDENCE=$EVID"; }
+
+cmd_stop() {
+  local RD; RD="$(rundir "$1")" || exit 1; local INST="$RD/instance"
+  if [[ -f "$INST/env" ]]; then
+    # shellcheck disable=SC1091
+    source "$INST/env"
+    for p in "${SERVER_PID:-}" "${HARNESS_PID:-}"; do
+      alive "$p" || continue
+      kill "$p" 2>/dev/null
+      for _ in 1 2 3 4 5 6 7 8 9 10; do alive "$p" || break; sleep 0.2; done
+      alive "$p" && kill -9 "$p" 2>/dev/null
+    done
+  fi
+  rm -rf "$INST"
+  echo "stopped $1; evidence kept at $RD/evidence"
+}
+
+cmd_list() {
+  [[ -d "$VB_HOME" ]] || { echo "no runs"; return; }
+  for d in "$VB_HOME"/run-*; do
+    [[ -d "$d" ]] || continue
+    local st="stopped"
+    if [[ -f "$d/instance/env" ]]; then ( source "$d/instance/env"; alive "$SERVER_PID" ) && st="alive" || st="dead (run vb stop)"; fi
+    echo "$(basename "$d")  $st  evidence: $(ls "$d/evidence" 2>/dev/null | wc -l | tr -d ' ') files"
+  done
+}
+
+case "${1:-}" in
+  start) cmd_start ;;
+  doctor) cmd_doctor "${2:-}" ;;
+  cli) [[ $# -ge 2 ]] || die "usage: vb cli <run> <args…>"; r="$2"; shift 2; cmd_cli "$r" "$@" ;;
+  api) cmd_api "${2:-}" "${3:-}" ;;
+  info) cmd_info "${2:-}" ;;
+  stop) cmd_stop "${2:-}" ;;
+  list) cmd_list ;;
+  *) sed -n '2,13p' "$0"; exit 2 ;;
+esac
