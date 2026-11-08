@@ -6,9 +6,8 @@ import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, Modal, useMenu } from './ui.js';
 import { Avatar, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
-import { Markdown } from './Markdown.js';
 import {
-  IconPlus, IconSearch, IconTrash, IconClose, IconCheck, IconPulse, IconCycle, IconBox,
+  IconPlus, IconSearch, IconTrash, IconClose, IconCheck, IconCycle, IconBox,
   IconInbox, IconMyIssues, IconDrafts, IconInitiative, IconViews, IconTeam, IconMembers, IconChevronDown,
 } from './icons.js';
 import { SIDEBAR_DEFAULTS, type SidebarVisibility, type Team } from '../../src/core/types.js';
@@ -16,66 +15,6 @@ import { Illustration } from './illustrations.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 const refresh = () => useApp.getState().bootstrap();
-const HEALTH_COLOR: Record<string, string> = { onTrack: '#4cb782', atRisk: '#f2994a', offTrack: '#eb5757' };
-const HEALTH_LABEL: Record<string, string> = { onTrack: 'On track', atRisk: 'At risk', offTrack: 'Off track' };
-
-/* ================= Pulse: every project update in one feed ================= */
-export function PulsePage() {
-  const snap = useApp(s => s.snap)!;
-  const navigate = useNavigate();
-  const [scope, setScope] = useState<'all' | 'following' | 'lead'>('all');
-  const me = snap.currentUser.id;
-  const updates = snap.projectUpdates.filter(u => {
-    const p = snap.projects.find(x => x.id === u.projectId);
-    if (!p) return false;
-    if (scope === 'lead') return p.leadId === me || p.memberIds.includes(me);
-    if (scope === 'following') return snap.projectSubscriptions.some(s => s.projectId === p.id && s.userId === me && s.updates);
-    return true;
-  });
-  // group by day, newest first
-  const days = new Map<string, typeof updates>();
-  for (const u of updates) { const d = u.createdAt.slice(0, 10); days.set(d, [...(days.get(d) ?? []), u]); }
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Pulse', icon: <IconPulse size={14} /> }]} right={<button className="btn ghost sm" onClick={() => navigate('/settings/pulse')}>Summary settings</button>} />
-      <div className="subnav">
-        {([['all', 'All updates'], ['following', 'Following'], ['lead', 'My projects']] as const).map(([k, l]) => (
-          <button key={k} className={`seg ${scope === k ? 'selected' : ''}`} onClick={() => setScope(k)}>{l}</button>
-        ))}
-      </div>
-      <div className="content">
-        {!snap.workspace.features.pulseEnabled ? (
-          <div className="empty-state"><div className="empty-title">Pulse is off</div><div className="empty-desc">Turn it on in Settings › Pulse to see every project update in one feed.</div><div className="empty-actions"><button className="btn primary" onClick={async () => { await api.setFeatures({ pulseEnabled: true }); await refresh(); }}>Enable Pulse</button></div></div>
-        ) : !updates.length ? (
-          <div className="empty-state"><Illustration name="updates" /><div className="empty-title">No updates yet</div><div className="empty-desc">Project updates posted from a project's overview show up here.</div></div>
-        ) : (
-          <div className="pulse-feed">
-            {[...days.entries()].map(([day, list]) => (
-              <div key={day}>
-                <div className="pulse-day">{new Date(day + 'T12:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-                {list.map(u => {
-                  const p = snap.projects.find(x => x.id === u.projectId)!;
-                  const author = snap.users.find(x => x.id === u.userId);
-                  return (
-                    <article key={u.id} className="pulse-card">
-                      <header>
-                        <button className="pulse-proj" onClick={() => navigate(`/projects/${p.id}`)}><span>{p.icon}</span>{p.name}</button>
-                        {u.health && <span className="pulse-health"><span className="health-dot" style={{ background: HEALTH_COLOR[u.health] }} />{HEALTH_LABEL[u.health]}</span>}
-                        <span style={{ flex: 1 }} />
-                        <Avatar user={author} size={18} /><span className="pulse-meta">{author?.name} · {relTime(u.createdAt)}</span>
-                      </header>
-                      <div className="pulse-body"><Markdown text={u.body} /></div>
-                    </article>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /* ================= Teams & Members (workspace directories) ================= */
 /** join or leave a team right in a list whose row opens the team; "Joined" leaves on click */
@@ -233,7 +172,6 @@ export function DraftsPage() {
 export const SIDEBAR_ITEMS: Array<{ key: string; label: string; section: 'Personal' | 'Workspace' }> = [
   { key: 'inbox', label: 'Inbox', section: 'Personal' }, { key: 'my-issues', label: 'My issues', section: 'Personal' }, { key: 'drafts', label: 'Drafts', section: 'Personal' },
   { key: 'initiatives', label: 'Initiatives', section: 'Workspace' }, { key: 'projects', label: 'Projects', section: 'Workspace' }, { key: 'views', label: 'Views', section: 'Workspace' },
-  { key: 'pulse', label: 'Pulse', section: 'Workspace' },
   { key: 'teams', label: 'Teams', section: 'Workspace' }, { key: 'members', label: 'Members', section: 'Workspace' },
 ];
 export function sidebarVisibility(snap: Snap, key: string): SidebarVisibility {
@@ -242,7 +180,7 @@ export function sidebarVisibility(snap: Snap, key: string): SidebarVisibility {
 
 const SIDEBAR_ICONS: Record<string, React.ReactNode> = {
   inbox: <IconInbox />, 'my-issues': <IconMyIssues />, drafts: <IconDrafts />, initiatives: <IconInitiative />, projects: <IconBox />, views: <IconViews />,
-  pulse: <IconPulse />, teams: <IconTeam />, members: <IconMembers />,
+  teams: <IconTeam />, members: <IconMembers />,
 };
 const VISIBILITY_LABEL: Record<SidebarVisibility, string> = { show: 'Always show', badged: 'Show when badged', hide: "Don't show" };
 const BADGE_LABEL = { count: 'Count', dot: 'Dot', none: 'None' } as const;
@@ -259,7 +197,7 @@ export function CustomizeSidebar(props: { onClose: () => void }) {
   const save = async (patch: { badgeStyle?: BadgeStyle; items?: Record<string, SidebarVisibility> }) => { await api.updatePreferences({ sidebar: { ...sb, ...patch, items: { ...sb.items, ...(patch.items ?? {}) } } }); await refresh(); };
   // only items the sidebar can actually show: feature-gated pages are left out while their feature is off
   const f = snap.workspace.features;
-  const off: Record<string, boolean> = { initiatives: !f.initiativesEnabled, pulse: !f.pulseEnabled };
+  const off: Record<string, boolean> = { initiatives: !f.initiativesEnabled };
   const items = SIDEBAR_ITEMS.filter(i => !off[i.key]);
   const openMenu = (key: string) => (e: React.MouseEvent) => { setMenuFor(key); menu.open(e); };
   const menuItem = items.find(i => i.key === menuFor);

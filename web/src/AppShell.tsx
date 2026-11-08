@@ -13,7 +13,7 @@ import { GettingStartedMenu } from './GettingStarted.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues, IconCycle, IconTeam, IconHelp, IconCaret,
   IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
-  IconTriage, IconArchive, IconTrash, IconLink, IconPlus, IconPulse, IconDrafts, IconMembers, IconHome, IconInitiative, IconKeyboard,
+  IconTriage, IconArchive, IconTrash, IconLink, IconPlus, IconDrafts, IconMembers, IconHome, IconInitiative, IconKeyboard,
 } from './icons.js';
 
 /** Panel-with-a-left-rail glyph: the standard "toggle the nav" affordance. */
@@ -82,7 +82,6 @@ export function Sidebar() {
     ...(f.initiativesEnabled ? [{ key: 'initiatives', to: '/initiatives', icon: <IconInitiative />, label: 'Initiatives', badge: 0, section: 'workspace' }] : []),
     { key: 'projects', to: '/projects', icon: <IconBox />, label: 'Projects', badge: 0, section: 'workspace' },
     { key: 'views', to: '/views', icon: <IconViews />, label: 'Views', badge: 0, section: 'workspace' },
-    ...(f.pulseEnabled ? [{ key: 'pulse', to: '/pulse', icon: <IconPulse />, label: 'Pulse', badge: 0, section: 'workspace' }] : []),
     { key: 'teams', to: '/teams', icon: <IconTeam />, label: 'Teams', badge: 0, section: 'workspace' },
     { key: 'members', to: '/members', icon: <IconMembers />, label: 'Members', badge: 0, section: 'workspace' },
   ];

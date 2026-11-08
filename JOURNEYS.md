@@ -10,7 +10,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 ## 1. Find my way around (shell & navigation)
 | Journey | Status | Check | How it works |
 |---|---|---|---|
-| Sidebar: Inbox, My issues, Drafts (when you have some), Workspace (Projects, Views, Pulse, More), Favorites, Your teams | ✅ | 1.1 | |
+| Sidebar: Inbox, My issues, Drafts (when you have some), Workspace (Projects, Views, More), Favorites, Your teams | ✅ | 1.1 | |
 | Team sub-items: Home, Triage (count), Issues, Cycles › Current / Upcoming, Projects, Views | ✅ | 1.2, 1.4 | |
 | Team row "…" menu | ✅ | 1.3 | Team overview, Issues, Cycles, Triage, Archive, Team settings, Copy link |
 | Team Home: Overview (description, team resources), Documents, Members, Go to | ✅ | 1.5 | |
@@ -95,7 +95,6 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Project labels with groups (P then L) | ✅ | 6.12 | Settings › Projects › Labels |
 | Project bell: per-project inbox notifications + update schedule | ✅ | 6.13 | |
 | Update schedule: due hint, lead reminders | ✅ | 6.14, 9.4 | reminder timing also checked against the store on a scratch database |
-| Pulse: feed of project updates | ✅ | 9.7 | |
 
 ## 7. Run iterations (cycles)
 | Journey | Status | Check | How it works |

@@ -53,8 +53,8 @@
   /* ================= 1. shell & navigation ================= */
   S('shell', async t => {
     await t.nav('/inbox');
-    await t.run('1.1 Sidebar: Inbox, My issues, Workspace (Projects, Views, Pulse, More), Favorites, Your teams', () => {
-      const s = t.q('.sidebar').innerText; const miss = ['Inbox', 'My issues', 'Workspace', 'Projects', 'Views', 'Pulse', 'More', 'Favorites', 'Your teams'].filter(n => !s.includes(n));
+    await t.run('1.1 Sidebar: Inbox, My issues, Workspace (Projects, Views, More), Favorites, Your teams', () => {
+      const s = t.q('.sidebar').innerText; const miss = ['Inbox', 'My issues', 'Workspace', 'Projects', 'Views', 'More', 'Favorites', 'Your teams'].filter(n => !s.includes(n));
       if (miss.length) t.fail('missing ' + miss); return 'all present';
     });
     await t.run('1.2 Team sub-items: Home, Triage (count), Issues, Cycles › Current/Upcoming, Projects, Views', async () => {
@@ -519,7 +519,7 @@
   /* ================= 9. settings & workspace pages ================= */
   S('settings', async t => {
     await t.run('9.1 Settings nav mirrors Linear: Account · Issues · Projects · Features · Administration · Your teams', async () => {
-      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Documents', 'Pulse', 'Emojis', 'Security & access', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
+      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Documents', 'Emojis', 'Security & access', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
       if (miss.length) t.fail('missing ' + miss); return 'all sections';
     });
     await t.run('9.2 Account pages: Preferences, Profile, Notifications', async () => {
@@ -537,10 +537,6 @@
     });
     await t.run('9.5 Documents settings: document templates', async () => {
       await t.nav('/settings/documents', 800); if (!t.text().includes('Spec')) t.fail('no template'); return 'template listed (used in 6.7)';
-    });
-    await t.run('9.7 Pulse settings and Pulse feed', async () => {
-      await t.nav('/settings/pulse', 800); const f = (await t.snap()).workspace.features;
-      await t.nav('/pulse', 900); const cards = t.qa('.pulse-card').length; if (!f.pulseEnabled || !cards) t.fail(`${f.pulseEnabled} cards ${cards}`); return `${cards} updates in the feed`;
     });
     await t.run('9.8 Custom emojis: upload, react with it, :name: renders', async () => {
       await t.nav('/settings/emojis', 800); const svg = new File([`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#5e6ad2"/></svg>`], 'shipit.svg', { type: 'image/svg+xml' });
@@ -717,9 +713,9 @@
   S('routes', async t => {
     await t.run('10.1 Every route renders without console errors', async () => {
       const s = await t.snap(); const p = s.projects[0].id; const d = s.docs[0].id; const cyc = s.cycles.find(x => x.teamId === s.teams[0].id).id;
-      const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/pulse', '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`),
+      const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`),
         '/team/CORE/all', '/team/CORE/active', '/team/CORE/backlog', '/team/CORE/overview', '/team/CORE/overview/documents', '/team/CORE/overview/members', '/team/CORE/cycles', `/team/CORE/cycles/${cyc}`, '/team/CORE/projects', '/team/CORE/views', '/team/CORE/views/projects', '/team/AGO/triage', '/team/CORE/archive', '/trash', '/search', `/docs/${d}`, '/issue/CORE-1',
-        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'pulse', 'emojis', 'slas', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
+        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'emojis', 'slas', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
       const errs = []; const orig = console.error; console.error = (...a) => { errs.push(location.hash + ' ' + a.map(String).join(' ').slice(0, 120)); orig(...a); };
       for (const r of routes) { location.hash = '#' + r; await sleep(420); }
       console.error = orig; if (errs.length) t.fail(errs.slice(0, 4).join(' | ')); return routes.length + ' routes, no console errors';

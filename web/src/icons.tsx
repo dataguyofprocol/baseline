@@ -202,7 +202,7 @@ export const IconExternal = (p: P) => (
 export const IconTriage = (p: P) => (
   <S {...p}><path d="M2.3 5h8.4M8.6 2.9 10.7 5 8.6 7.1M12.7 10H4.3M6.4 7.9 4.3 10l2.1 2.1" {...stroke} /></S>
 );
-export const IconPulse = (p: P) => <S {...p}><path d="M1.8 7.6h2.6l1.6-4 2.6 7.6 1.7-3.6h3" {...stroke} /></S>;
+export const IconUpdates = (p: P) => <S {...p}><path d="M1.8 7.6h2.6l1.6-4 2.6 7.6 1.7-3.6h3" {...stroke} /></S>;
 export const IconDrafts = (p: P) => <S {...p}><path d="M3 2.6h6.4l2.6 2.6v7.2H3z" {...stroke} /><path d="M5.2 7h4.6M5.2 9.4h3" {...stroke} /></S>;
 export const IconMembers = (p: P) => <S {...p}><circle cx="5.6" cy="5.4" r="2" {...stroke} /><path d="M2 12c.5-2 2-3 3.6-3s3.1 1 3.6 3" {...stroke} /><path d="M9.8 3.6a1.8 1.8 0 1 1 0 3.6M11 9.2c1 .4 1.7 1.3 2 2.6" {...stroke} /></S>;
 /* Linear's initiative mark: an up-pointing arrowhead */

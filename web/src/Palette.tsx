@@ -16,7 +16,7 @@ import {
   IconSearch, IconPlus, IconSettings, IconInbox, IconBox, IconViews, IconMyIssues,
   IconCycle, IconTeam, IconMoon, IconSun, IconHandoff, IconSpark, IconPanel, IconCopyId,
   IconArchive, IconBack, IconCalendar, IconCheck, IconClose, IconEstimate, IconTag, IconTrash, IconUser,
-  IconDoc, IconFilter, IconStar, IconIssues, IconDrafts, IconTriage, IconInitiative, IconUsers, IconPulse, IconKeyboard,
+  IconDoc, IconFilter, IconStar, IconIssues, IconDrafts, IconTriage, IconInitiative, IconUsers, IconKeyboard,
 } from './icons.js';
 import { teamScale, type Issue, type Priority } from '../../src/core/types.js';
 
@@ -458,7 +458,6 @@ export function CommandPalette() {
       { id: 'nav-views', icon: <IconViews size={14} />, label: 'Go to views', section: 'Navigation', hint: 'G then U', action: () => navigate('/views') },
       { id: 'nav-teams', icon: <IconTeam size={14} />, label: 'Go to teams', section: 'Navigation', action: () => navigate('/teams') },
       { id: 'nav-members', icon: <IconUsers size={14} />, label: 'Go to members', section: 'Navigation', action: () => navigate('/members') },
-      { id: 'nav-pulse', icon: <IconPulse size={14} />, label: 'Go to Pulse', section: 'Navigation', keywords: 'updates feed', action: () => navigate('/pulse') },
       { id: 'nav-trash', icon: <IconTrash size={14} />, label: 'Go to recently deleted issues', section: 'Navigation', keywords: 'trash deleted restore', action: () => navigate('/trash') },
       { id: 'nav-settings', icon: <IconSettings size={14} />, label: 'Go to settings', section: 'Navigation', hint: 'G then S', action: () => navigate('/settings/workspace') },
       { id: 'pick-settings', icon: <IconSettings size={14} />, label: 'Open settings…', section: 'Navigation', hint: 'O then S', keepOpen: true, action: pick('settings') },

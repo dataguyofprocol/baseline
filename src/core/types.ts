@@ -398,7 +398,6 @@ export interface WorkspaceFeatures {
   updateCadence: UpdateCadence;
   /** default initiative update schedule (Settings › Initiatives) */
   initiativeUpdateCadence: UpdateCadence;
-  pulseEnabled: boolean;
   initiativesEnabled: boolean;
   /** git / GitHub: poll `gh` for pull requests in your locations' repos */
   githubEnabled: boolean;
@@ -448,7 +447,7 @@ export interface InviteResult {
   error?: string;
 }
 
-export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', pulseEnabled: true, initiativesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
+export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', initiativesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
 
 /** a directory on this machine that coding agents can work in — usually a git repo */
 export interface Location {
@@ -813,7 +812,7 @@ export function notifyCategory(type: NotificationType, body = ''): NotifyCategor
     default: return null;
   }
 }
-export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', pulse: 'show', teams: 'hide', members: 'hide' };
+export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', teams: 'hide', members: 'hide' };
 
 export const DEFAULT_PREFERENCES: Preferences = {
   homeView: 'inbox', firstDayOfWeek: 1,

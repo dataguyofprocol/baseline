@@ -21,7 +21,7 @@ import { TriagePage, ArchivePage, TrashPage, SearchPage } from './TeamPages.js';
 import { CycleDetailPage, CyclesPage, CycleAlias } from './Cycles.js';
 import { InboxPage } from './Inbox.js';
 import { DocumentPage, TeamHomePage } from './Docs.js';
-import { PulsePage, TeamsPage, MembersPage, DraftsPage } from './Workspace.js';
+import { TeamsPage, MembersPage, DraftsPage } from './Workspace.js';
 import { InitiativesPage, InitiativePage } from './Initiatives.js';
 import { ProjectsPage, NewProjectPage, ProjectPage } from './Projects.js';
 import { IssuePage } from './IssueDetail.js';
@@ -422,7 +422,6 @@ export function App() {
                 <Route path="/views/projects" element={<ViewsIndexPage kind="projects" />} />
                 <Route path="/views/:viewId" element={<SavedViewPage />} />
                 <Route path="/docs/:docId" element={<DocumentPage />} />
-                <Route path="/pulse" element={<PulsePage />} />
                 <Route path="/initiatives" element={<InitiativesPage />} />
                 <Route path="/initiatives/view/:tab" element={<InitiativesPage />} />
                 <Route path="/initiatives/:initiativeId" element={<InitiativePage />} />

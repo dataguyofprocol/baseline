@@ -8,7 +8,7 @@ import { ProjectStatusIcon, PROJECT_STATUS } from './Projects.js';
 import { UPDATE_CADENCE_LABELS, type UpdateCadence, type WorkspaceFeatures } from '../../src/core/types.js';
 
 /* Settings pages Linear keeps under Projects (Labels, Statuses, Updates) and Features
-   (Documents, Pulse, Emojis). */
+   (Documents, Emojis). */
 
 const COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
 const nextColor = (c: string) => COLORS[(COLORS.indexOf(c) + 1) % COLORS.length];
@@ -255,22 +255,6 @@ export function DocumentsSettings() {
         ))}
         {!snap.docTemplates.length && <div className="set-empty">No document templates</div>}
         <div className="set-row"><button className="btn secondary sm" onClick={startNew}><IconPlus size={12} /> New template</button></div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- pulse ---------------- */
-export function PulseSettings() {
-  const snap = useApp(s => s.snap)!;
-  const f = snap.workspace.features;
-  return (
-    <div className="settings-card">
-      <h1>Pulse</h1>
-      <div className="field-help" style={{ marginBottom: 16 }}>Pulse puts every project update into one feed. Your own summary of updates is in Settings › Notifications.</div>
-      <div className="field-row">
-        <div><div className="field-label">Enable Pulse</div><div className="field-help">Workspace-wide feed of updates, in the sidebar under Workspace.</div></div>
-        <Switch on={f.pulseEnabled} label="Enable Pulse" onChange={v => void setFeatures({ pulseEnabled: v })} />
       </div>
     </div>
   );

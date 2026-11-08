@@ -2207,16 +2207,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .custom-emoji { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align: -0.25em; display: inline-block; }
 .nav-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); margin-left: auto; margin-right: 4px; flex: none; }
 
-/* ---------- pulse ---------- */
-.pulse-feed { max-width: 760px; margin: 0 auto; padding: 24px 32px 80px; }
-.pulse-day { margin: 18px 0 8px; font-size: 12px; font-weight: 590; color: var(--text-secondary); }
-.pulse-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 10px; background: var(--bg-overlay, var(--bg-main)); }
-.pulse-card header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.pulse-proj { display: inline-flex; align-items: center; gap: 6px; font-weight: 590; color: var(--text-primary); }
-.pulse-proj:hover { text-decoration: underline; }
-.pulse-health { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
-.pulse-meta { font-size: 12px; color: var(--text-secondary); }
-
 /* ---------- workspace tables (teams, members) ---------- */
 .wtable { padding: 0 16px 40px; }
 .wt-head, .wt-row { display: grid; align-items: center; gap: 12px; padding: 0 12px; }

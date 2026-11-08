@@ -16,7 +16,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Search page (`/`), Trash page, team Archive page; ⌘Z undo for every issue change; `[` toggles the sidebar
 - ✅ Team Home (team "…" › Team overview): Overview (icon, name, description, team resources), Documents, Members; right rail with members and Go to links
 - ✅ "+" beside Your teams opens Create a new team (name, identifier derived from it)
-- ✅ Team sub-items start with Home; Workspace adds Pulse; Drafts shows when you have drafts
+- ✅ Team sub-items start with Home; Workspace has Initiatives, Projects and Views; Drafts shows when you have drafts
 - ✅ Customize sidebar (More › Customize sidebar): badge style (count / dot / none) and per-item Always show / Show when badged / Don't show — hidden items live in More
 - ✅ Teams and Members directory pages; Drafts page
 
@@ -90,7 +90,6 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Named project statuses (Settings › Projects › Statuses): add, rename, recolour or delete statuses inside each category
 - ✅ Project bell: choose which project events reach your inbox (issue added, issue completed/canceled, description changes, new update) and the project's update schedule
 - ✅ Update schedule (Settings › Projects › Updates, or per project): next-due hint under the update card; leads get an inbox reminder when an update is due
-- ✅ Pulse: one feed of every project update (All / Following / My projects)
 - ✅ Project updates summary in the inbox: daily / weekly (default) / off per person in Settings › Notifications; counts new updates on projects you lead, are a member of, or follow; the preview lists each update
 - ✅ Document templates (Settings › Documents) offered in "Add document or link…"
 - ✅ Custom emojis (Settings › Emojis): reactions and :name: in Markdown

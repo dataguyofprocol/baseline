@@ -14,7 +14,7 @@ import { InitiativeIcon } from './Initiatives.js';
 import { healthColor, healthLabel } from './Projects.js';
 import {
   IconAssignArrow, IconComment, IconMention, IconCycle, IconFilter, IconDisplay, IconCheck, IconTrash,
-  IconClock, IconSettings, IconReply, IconBell, IconClose, IconPulse, IconPlus, IconEdit,
+  IconClock, IconSettings, IconReply, IconBell, IconClose, IconUpdates, IconPlus, IconEdit,
   IconEmoji, IconDoc,
 } from './icons.js';
 import { notifyCategory, type Notification, type NotificationType, type NotifyCategory, type Snapshot } from '../../src/core/types.js';
@@ -198,13 +198,13 @@ export function InboxPage() {
       case 'issueStatusChanged': return { icon: <IconCycle size={12} />, what: n.body ? `changed status to ${n.body}` : 'changed the status' };
       case 'issueReminder': return { icon: <IconClock size={12} />, what: 'Reminder' };
       case 'systemUpdate': return { icon: <IconBell size={12} />, what: '' };
-      case 'projectUpdate': return { icon: <IconPulse size={12} />, what: 'posted a project update' };
+      case 'projectUpdate': return { icon: <IconUpdates size={12} />, what: 'posted a project update' };
       case 'projectIssueAdded': return { icon: <IconPlus size={12} />, what: 'added an issue to the project' };
       case 'projectIssueClosed': return { icon: <IconCheck size={12} />, what: n.body.startsWith('Canceled') ? 'canceled an issue in the project' : 'completed an issue in the project' };
       case 'projectChanged': return { icon: <IconEdit size={12} />, what: 'changed the project description' };
       case 'projectUpdateReminder': return { icon: <IconClock size={12} />, what: 'Project update due' };
       case 'initiativeUpdateReminder': return { icon: <IconClock size={12} />, what: 'Initiative update due' };
-      case 'updatesDigest': return { icon: <IconPulse size={12} />, what: 'Project updates summary' };
+      case 'updatesDigest': return { icon: <IconUpdates size={12} />, what: 'Project updates summary' };
       case 'slaBreached': return { icon: <IconClock size={12} />, what: 'SLA breached' };
       case 'prActivity': return { icon: <PrIcon state={prStateOfNotice(n.body)} size={14} title="Pull request" />, what: n.body };
       case 'loopFailed': return { icon: <IconClose size={12} />, what: `loop failed — ${n.body}` };
@@ -416,7 +416,7 @@ function ProjectNotice({ n }: { n: Notification }) {
     const updates = summaryUpdates(snap, n);
     return (
       <div className="proj-notice">
-        <div className="pn-title"><IconPulse size={16} />Project updates summary</div>
+        <div className="pn-title"><IconUpdates size={16} />Project updates summary</div>
         <div className="pn-body">{n.body}</div>
         {updates.map(u => {
           const up = snap.projects.find(x => x.id === u.projectId)!;
