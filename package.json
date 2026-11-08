@@ -26,7 +26,9 @@
     "test:auth": "tsx scripts/test-auth.ts",
     "test:guards": "tsx scripts/test-state-guards.ts",
     "test:route-policy": "tsx scripts/test-route-policy.ts",
-    "test:cli-legacy": "tsx scripts/check-cli-legacy.ts"
+    "test:cli-legacy": "tsx scripts/check-cli-legacy.ts",
+    "test:ops": "tsx scripts/check-ops-parity.ts && tsx scripts/test-ops.ts",
+    "gen:skill": "tsx scripts/check-ops-parity.ts --write"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",

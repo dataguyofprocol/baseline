@@ -233,13 +233,15 @@ BASELINE_DB=/tmp/scratch.db baseline import /tmp/ws.json
 A human hands you an issue one of two ways: copies its brief into your prompt (web toolbar, or `baseline issue handoff KEY --copy`), or opens it with **Open in Claude Code** (a terminal session started in the issue's location, with `BASELINE_DB`/`BASELINE_AS` already set, so your CLI writes post as "Claude Code"). Nothing is ever picked up automatically — assigning an issue to an agent user is just a label. The brief names the issue key and a suggested branch. Your side of the loop:
 
 ```bash
-baseline issue show CORE-3 --json          # full context: description, comments, blockers
-git checkout -b core-3-short-token-audit   # branch from the brief ("Branch:" line); main as base
-baseline issue update CORE-3 -s "In Progress"   # claim it so the human sees it's picked up
+baseline agent start-issue CORE-3          # claims it (In Progress; assigned to the person if nobody is), prints the brief and the branch
+git checkout -b <branch from the output>   # main as base
 # …do the work, committing in small steps…
-baseline issue comment CORE-3 "Shipped X; Y still open because Z"   # progress note
-baseline issue update CORE-3 -s Done       # only when truly finished; otherwise leave the state and say what remains
+baseline agent post-progress CORE-3 --did "Reproduced in Safari" --left "Fix + test"   # one note per issue, rewritten in place
+baseline agent file-followup CORE-3 "Session cookie lacks SameSite" --description "src/auth.ts:88"   # new work goes to Triage
+baseline agent finish-issue CORE-3 --outcome in_review --summary "…" --pr-url https://github.com/o/r/pull/12
 ```
+
+Each command is described in **Agent loop** below. Prefer them to `issue update` / `issue comment` for your own work: they converge on retries, keep one progress note instead of a pile of comments, and return an `op_id` the person can ask you to undo.
 
 - Report back even on partial work — the comment is the deliverable the human reads. Shape it to the work:
   - **Code:** branch, commit or PR link, files changed, how you verified it (tests/commands run).
@@ -253,6 +255,77 @@ baseline issue update CORE-3 -s Done       # only when truly finished; otherwise
 - Locations: every task works in exactly one **location** (a registered directory, usually a git repo). There is no default directory — an issue without a location is never run anywhere by guess. Sub-issues start in their parent's location; nothing else is defaulted — a project's linked locations are only suggestions in the picker, so every other issue needs one chosen (the UI shows "Needs a location"). Set one with `issue update KEY --location <name>`.
 - Where sessions open: `baseline agent config --terminal Terminal|iTerm|Ghostty|Warp|kitty|Alacritty|WezTerm`. Session briefs live in `~/.baseline/sessions/` (owner-only, pruned after a week).
 - Template overrides live in the web app under Settings ▸ Coding tools; `issue handoff --json` always reflects the current template.
+
+<!-- agent-loop:start — generated from src/ops/index.ts by `npm run gen:skill`; edit the operations, not this block -->
+## Agent loop (your work on an issue, as your agent identity)
+
+Each command is one agent operation; an MCP client gets the same operations as tools, with the same descriptions, input and `--json` output. Set `BASELINE_AS` to your agent user (e.g. `"Claude Code"`) so every write shows as "Claude Code via <person>"; set `BASELINE_SESSION` only to keep two parallel sessions on one issue apart. Every write prints an `op_id` (or null when nothing changed); repeating a call is safe.
+
+### `get_issue` (read)
+
+```bash
+baseline agent get-issue <issue> [--json]
+```
+
+Get one Baseline issue by key: description, state, assignee, comments, sub-issues, blockers, links, and the progress that agents posted. Call this before you work on an issue that you did not start in this conversation.
+
+### `list_issues` (read)
+
+```bash
+baseline agent list-issues [--query <text>] [--assignee <text>] [--state <text>] [--team <text>] [--project <text>] [--limit <n>] [--json]
+```
+
+List Baseline issues, most recently updated first. With no filters it lists the open issues assigned to you (the person the agent works for). Use query to search titles and descriptions. Use assignee "any" to list everyone's issues. Names match without case; an unknown name returns the valid names.
+
+### `start_issue` (write)
+
+```bash
+baseline agent start-issue <issue> [--json]
+```
+
+Tell Baseline that you start work on an issue now. If the issue is not started (Triage, Backlog or Todo), it moves to the team's first started state, usually In Progress. If nobody is assigned, it is assigned to the person you work for. Returns the work brief and the git branch name to use. If you already started this issue, nothing changes: you get the same brief and your last progress, so you can continue. Call this once, before you change code for the issue.
+
+### `post_progress` (write)
+
+```bash
+baseline agent post-progress <issue> [--did <text>] [--left <text>] [--blocked <text>] [--links <url...>] [--pr-url <url>] [--json]
+```
+
+Update your progress note on an issue. You have one progress note per issue: the first call creates it as a comment, and later calls rewrite it in place, so post after each meaningful step without making noise. A field you leave out keeps its last value; an empty string clears it. Put PR, commit or doc URLs in links or pr_url; each URL is attached to the issue once. Calling again with the same text changes nothing.
+
+### `file_followup` (write)
+
+```bash
+baseline agent file-followup <from_issue> <title> [--description <text>] [--team <text>] [--json]
+```
+
+File new work that you found while you work on an issue, but that is not part of it. The new issue goes to the team's Triage queue, where a person accepts or declines it, and it is linked to the issue you came from. Do not use this for steps of your current task; put those in post_progress. Filing the same title from the same issue again returns the first follow-up.
+
+### `finish_issue` (write)
+
+```bash
+baseline agent finish-issue <issue> --outcome <in_review|done|stopped> --summary <text> [--left <text>] [--links <url...>] [--pr-url <url>] [--json]
+```
+
+Close out your work on an issue. Your progress note becomes the final summary. outcome "in_review": a pull request or another review waits for a person; the issue moves to In Review when the team has that state. outcome "done": the work is complete and needs no review; the issue moves to Done. outcome "stopped": you stop before the work is complete; the state does not change, and left must say what remains. Calling again with the same outcome and summary changes nothing.
+
+### `draft_project_update` (write)
+
+```bash
+baseline agent draft-project-update <project> [--body <text>] [--health <onTrack|atRisk|offTrack>] [--json]
+```
+
+Draft a status update for a project. Baseline collects what changed since the last published update (issues completed, in review, in progress, blocked, new) and returns those facts with the draft. Pass body to use your own words, and health if you can judge it. The draft is not published: only the person you work for sees it, and they publish, edit or discard it in Baseline. Tell them it is ready. Calling again replaces the draft.
+
+### `undo` (revert)
+
+```bash
+baseline agent undo <op_id> [--json]
+```
+
+Reverse one change that you made in Baseline, by the op_id that the change returned. It reverts the state, the assignee, a filed follow-up, attached links and the progress note of that change. If a person changed the same issue field since, nothing is undone and the error says what changed. Use this only when the person asks you to undo, or when you made a change in error. Calling again changes nothing.
+
+<!-- agent-loop:end -->
 
 ## Conventions the store enforces (why your updates look the way they do)
 
