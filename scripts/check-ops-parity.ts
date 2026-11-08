@@ -2,6 +2,9 @@
 //   - an op has no `baseline agent` command, or `baseline agent` has a command that is no op
 //     (read from the real CLI's --help, so a wiring mistake shows);
 //   - a generated command lacks an argument or flag for an input field, or a field can't be a flag;
+//   - an op is not an MCP tool of `baseline mcp` with the same description, an input schema with
+//     exactly its fields, an output schema, and annotations from its effect (asked over MCP);
+//   - the block `baseline connect` writes misses an op, isn't idempotent, or leaves a stale block;
 //   - an op module reaches past the Baseline client (store, database, server, process, console);
 //   - the "Agent loop" block in skills/baseline/SKILL.md, or the hand-off brief's {{tracking}} text
 //     (src/core/tracking.ts), differs from the one generated from OPERATIONS. `--write`
@@ -15,7 +18,11 @@ import { Command } from 'commander';
 import { OPERATIONS } from '../src/ops/index.js';
 import { cliVerb, fieldsOf, usageOf, type AnyOperation } from '../src/ops/operation.js';
 import { mountOperations } from '../src/cli/ops.js';
-import { handoffTracking } from '../src/ops/guide.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { agentBlock, BLOCK_END, BLOCK_START, handoffTracking } from '../src/ops/guide.js';
+import { createMcpServer } from '../src/mcp/server.js';
+import { HARNESSES, planConnect, type FileEdit } from '../src/connect/plan.js';
 
 const root = join(import.meta.dirname, '..');
 /** `baseline agent` commands that are settings, not agent operations */
@@ -96,5 +103,49 @@ if (trackingNow !== tracking) {
   else problems.push('src/core/tracking.ts (the hand-off {{tracking}} text) is stale: run `npm run gen:skill`');
 }
 
+// 6. every op is a tool of the real MCP server, asked over the protocol
+{
+  const server = createMcpServer({ connect: async () => { throw new Error('not run'); }, as: undefined, session: undefined });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a);
+  const client = new Client({ name: 'parity-check', version: '0' });
+  await client.connect(b);
+  const { tools } = await client.listTools();
+  if (tools.map(t => t.name).join() !== OPERATIONS.map(o => o.name).join()) problems.push(`MCP tools/list is ${tools.map(t => t.name).join(', ')}; the operations are ${OPERATIONS.map(o => o.name).join(', ')}`);
+  for (const op of OPERATIONS as readonly AnyOperation[]) {
+    const t = tools.find(x => x.name === op.name);
+    if (!t) continue;
+    if (t.description !== op.description) problems.push(`${op.name}: the MCP tool's description differs from the op's`);
+    const props = Object.keys(t.inputSchema.properties ?? {}).sort().join();
+    let fields: ReturnType<typeof fieldsOf> = [];
+    try { fields = fieldsOf(op); } catch { /* reported in 2 */ }
+    if (props !== fields.map(f => f.name).sort().join()) problems.push(`${op.name}: the MCP input schema has ${props}; the op's fields are ${fields.map(f => f.name).sort().join()}`);
+    const required = [...(t.inputSchema.required ?? [])].sort().join();
+    if (required !== fields.filter(f => f.required).map(f => f.name).sort().join()) problems.push(`${op.name}: the MCP input schema requires ${required || 'nothing'}, the op ${fields.filter(f => f.required).map(f => f.name).join(',') || 'nothing'}`);
+    const outProps = Object.keys(t.outputSchema?.properties ?? {}).sort().join();
+    if (outProps !== Object.keys(op.output.shape).sort().join()) problems.push(`${op.name}: the MCP output schema has ${outProps || 'no fields'}; the op's output has ${Object.keys(op.output.shape).sort().join()}`);
+    const an = t.annotations ?? {};
+    if (an.readOnlyHint !== (op.effect.kind === 'read') || an.destructiveHint !== (op.effect.kind === 'revert') || an.idempotentHint !== true || an.title !== op.title) problems.push(`${op.name}: MCP annotations ${JSON.stringify(an)} don't follow from effect ${op.effect.kind}`);
+  }
+  if (!client.getInstructions()?.includes(agentBlock().slice(BLOCK_START.length + 1, -BLOCK_END.length - 1))) problems.push('the MCP server\'s instructions are not the generated agent guide');
+  await client.close();
+}
+
+// 7. the block `baseline connect` writes: every op, idempotent, and a stale block is replaced
+for (const harness of HARNESSES) {
+  const files = new Map<string, string>();
+  const server = { command: 'baseline', args: ['mcp'] };
+  const apply = (edits: FileEdit[]) => { for (const e of edits) files.set(e.path, e.after); return edits.filter(e => e.after !== e.before); };
+  apply(planConnect(harness, server, p => files.get(p) ?? null));
+  const again = apply(planConnect(harness, server, p => files.get(p) ?? null));
+  if (again.length) problems.push(`baseline connect ${harness} run twice changes ${again.map(e => e.path).join(', ')}`);
+  const doc = harness === 'claude' ? 'CLAUDE.md' : 'AGENTS.md';
+  const text = files.get(doc) ?? '';
+  for (const op of OPERATIONS) if (!text.includes(`\`${op.name}\``) || !text.includes(`baseline agent ${cliVerb(op)}`)) problems.push(`the connect block in ${doc} doesn't name ${op.name} and \`baseline agent ${cliVerb(op)}\``);
+  files.set(doc, `# notes\n\n${BLOCK_START}\nan older block\n${BLOCK_END}\n\nmore notes\n`);
+  apply(planConnect(harness, server, p => files.get(p) ?? null));
+  if (files.get(doc) !== `# notes\n\n${agentBlock()}\n\nmore notes\n`) problems.push(`baseline connect ${harness} doesn't replace a stale block in ${doc} in place`);
+}
+
 if (problems.length) { for (const p of problems) console.error(`✗ ${p}`); process.exit(1); }
-console.log(`✓ ${OPERATIONS.length} operations, each a \`baseline agent\` command with every input field (${listed.filter(c => NOT_OPS.includes(c)).join(', ')} are settings); the skill's agent loop is current`);
+console.log(`✓ ${OPERATIONS.length} operations, each a \`baseline agent\` command with every input field (${listed.filter(c => NOT_OPS.includes(c)).join(', ')} are settings); an MCP tool with the same schema and annotations; the skill's agent loop, the hand-off {{tracking}} and the connect block are current`);
