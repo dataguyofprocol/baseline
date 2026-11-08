@@ -533,8 +533,9 @@
     });
     await t.run('9.11 Customize sidebar: badge style and per-item visibility (hidden items move to More)', async () => {
       await t.nav('/inbox', 700); const more = t.qa('.sidebar .nav-item').find(b => b.innerText.trim() === 'More'); await t.click(more, 400); const mm = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Customize sidebar'), 700);
-      await t.type(t.q('select[aria-label="Teams visibility"]'), 'show', 800); const shown = t.q('.sidebar').innerText.includes('Teams'); await t.type(t.q('select[aria-label="Default badge style"]'), 'dot', 700); const dot = !!t.q('.nav-dot');
-      await t.type(t.q('select[aria-label="Teams visibility"]'), 'hide', 600); await t.type(t.q('select[aria-label="Default badge style"]'), 'count', 600);
+      const pick = async (label, item) => { await t.click(t.q(`button[aria-label="${label}"]`), 400); await t.click(t.menuItem(item), 700); };
+      await pick('Teams visibility', 'Always show'); const shown = t.q('.sidebar').innerText.includes('Teams'); await pick('Default badge style', 'Dot'); const dot = !!t.q('.nav-dot');
+      await pick('Teams visibility', "Don't show"); await pick('Default badge style', 'Count'); await t.closeAll();
       if (!mm.includes('Members') || !mm.includes('Teams') || !shown) t.fail(`more ${mm} shown ${shown}`); return `More: ${mm.replace(/\n/g, ', ')}; Teams shown when set; dot badges ${dot}`;
     });
     await t.run('9.12 Workspace settings: General, Teams, Members, Labels, Templates, Coding tools, Import & export', async () => {
@@ -570,10 +571,11 @@
     await t.run('11.1 Initiatives: sidebar, G then N, create, add project, post update, status', async () => {
       await t.nav('/inbox', 500); if (!t.q('.sidebar').innerText.includes('Initiatives')) t.fail('no sidebar item');
       await t.press('g', {}, 120); await t.press('n', {}, 600); if (location.hash !== '#/initiatives') t.fail('G then N → ' + location.hash);
-      await t.click(t.byText('New initiative'), 600); await t.type(t.q('.small-modal input'), 'Harness initiative', 200); await t.click(t.byText('Create initiative'), 1000);
+      await t.click(t.byText('New initiative'), 600); await t.type(t.q('.ini-modal-name'), 'Harness initiative', 200); await t.click(t.byText('Create initiative'), 1000);
       if (!location.hash.startsWith('#/initiatives/in_')) t.fail('not on the page: ' + location.hash);
-      await t.click(t.byText('Add project…'), 500); await t.click(t.qa('.menu:not(.closing) .menu-item')[0], 800); await t.closeAll();
-      await t.click(t.byText('Write an initiative update'), 400); await t.type(t.q('.ini-update-input'), 'Harness: kicking off', 200); await t.click(t.byText('Post update'), 900);
+      await t.click(t.byText('Add project'), 500); await t.click(t.qa('.menu:not(.closing) .menu-item')[0], 800); await t.closeAll();
+      await t.click(t.byText('Write the first initiative update'), 500); const post = t.byText('Post update'); let box = post; while (box && !box.querySelector('.ProseMirror')) box = box.parentElement;
+      await t.write(box.querySelector('.ProseMirror'), 'Harness: kicking off'); await t.click(t.byText('On track'), 300); await t.click(t.byText('Post update'), 900);
       await t.click('[data-iprop="status"]', 400); await t.click(t.menuItem('Active'), 800);
       const ini = (await t.snap()).initiatives.find(i => i.name === 'Harness initiative');
       if (!ini || ini.projectIds.length !== 1 || ini.status !== 'active' || ini.health !== 'onTrack') t.fail(`ini ${!!ini} projects ${ini?.projectIds.length} status ${ini?.status} health ${ini?.health}`);
