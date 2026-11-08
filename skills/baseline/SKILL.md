@@ -22,6 +22,20 @@ Don't use a plain variable like `baseline="node /path…"` — invoking it as an
 
 If `dist/` is missing, build once first: `cd /Users/parthbatra/sideones/baseline && npx tsc -p tsconfig.node.json`.
 
+## A hosted (team) server
+
+The same commands work against a shared Baseline server instead of a local file:
+
+```bash
+baseline login --server https://baseline.example.com   # browser sign-in; stores a personal key in ~/.baseline/config.json
+baseline whoami                                          # who the CLI acts as, and where commands go
+baseline logout                                          # revokes that key
+```
+
+Or set `BASELINE_URL` + `BASELINE_TOKEN` (a personal API key) for one shell; setting `BASELINE_DB` or `--db` instead targets a local file (both at once is an error). Commands not yet ported say so and exit 1.
+
+**Run as your agent identity:** export `BASELINE_AS="<agent name>"` (e.g. `"Claude Code"`, an agent user from `user list`) so your writes show as "Claude Code via <the signed-in person>" in activity and comments. A server refuses `--as` / `BASELINE_AS` naming another person.
+
 ## Before you write: know what you're touching
 
 - The **default database is production** — the user's real workspace (`~/.baseline/baseline.db`, UI at `localhost:7770`). It was wiped of all demo/seed data on 2026-08-29 and starts empty; everything in it now is real work. Reads are always safe. Writes change their real tracker — that is normally the goal when doing real tracking.
@@ -234,7 +248,7 @@ baseline issue update CORE-3 -s Done       # only when truly finished; otherwise
   - **Research / decision:** the recommendation, options weighed, links to sources.
   - Absolute paths for local files; backticks around paths, branches and commands; keep it short.
 - If the work splits into separate pieces, create sub-issues (`issue create "…" -t CORE --parent KEY`) instead of one long comment.
-- Attribute your writes to your agent identity: add `--as "Codex"` to write commands (`issue create|update|bulk|archive|relate|comment`, `project note`) so activity, comments and notifications land under that user instead of the human's. Agent identities are marked `agent` in `user list`.
+- Attribute your writes to your agent identity: add `--as "Codex"` to write commands (`issue create|update|bulk|archive|relate|comment`, `project note`) so activity, comments and notifications land under that user, recorded as "Codex via <the human>". Agent identities are marked `agent` in `user list`.
 - `BASELINE_AS=<name or user id>` does the same for every command without the flag (an explicit `--as` still wins) — export it once per agent session.
 - Locations: every task works in exactly one **location** (a registered directory, usually a git repo). There is no default directory — an issue without a location is never run anywhere by guess. Sub-issues start in their parent's location; nothing else is defaulted — a project's linked locations are only suggestions in the picker, so every other issue needs one chosen (the UI shows "Needs a location"). Set one with `issue update KEY --location <name>`.
 - Where sessions open: `baseline agent config --terminal Terminal|iTerm|Ghostty|Warp|kitty|Alacritty|WezTerm`. Session briefs live in `~/.baseline/sessions/` (owner-only, pruned after a week).
