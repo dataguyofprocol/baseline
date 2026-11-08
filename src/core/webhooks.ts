@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Store } from './store.js';
 import { getMeta, setMeta } from './db.js';
-import { run, type GitSync } from './git.js';
+import type { GitSync } from './git.js';
 import { agentUser } from './automation.js';
 import type { PullRequest, WebhookConfig, WebhookDelivery } from './types.js';
 
@@ -210,11 +210,11 @@ export class GitHubWebhooks {
     this.store.updateIssue(issue.id, { stateId: done }, agentUser(this.store, this.db, 'GitHub'));
     return `closed #${number}`;
   }
-  /** pull a repo's open issues into a team now (gh, read-only); `follow` keeps importing new ones from webhooks */
+  /** pull a repo's open issues into a team now (gh with the GitHub source, read-only); `follow` keeps importing new ones from webhooks */
   async importIssues(repo: string, teamId: string, follow: boolean): Promise<{ imported: number; skipped: number }> {
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('Repository must look like owner/name');
     if (!this.db.prepare('SELECT 1 FROM teams WHERE id = ?').get(teamId)) throw new Error('Unknown team');
-    const json = await run('gh', ['issue', 'list', '--repo', repo, '--state', 'open', '--limit', '200', '--json', 'number,title,body,url,labels,author']);
+    const json = await this.git.gh(['issue', 'list', '--repo', repo, '--state', 'open', '--limit', '200', '--json', 'number,title,body,url,labels,author']);
     let imported = 0; let skipped = 0;
     for (const gi of JSON.parse(json) as Json[]) { if (this.importOne(repo, teamId, gi)) imported++; else skipped++; }
     this.setFollow(repo, follow ? teamId : null);

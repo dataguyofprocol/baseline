@@ -5,7 +5,7 @@ import type { Store } from './store.js';
 import { getMeta, setMeta } from './db.js';
 import { id } from './util.js';
 import { agentUser } from './automation.js';
-import type { Commit, IssueCommit, IssuePr, PrAutomation, PrEvent, PrState, PullRequest, WorkflowStateType } from './types.js';
+import type { Commit, GitStatus, GithubSource, GithubTokenInfo, IssueCommit, IssuePr, PrAutomation, PrEvent, PrState, PullRequest, TrackedRepo, WorkflowStateType } from './types.js';
 
 /* Git / GitHub, following Linear's GitHub integration (and TEAM_PLAN.md Phase 4):
    - linking: an issue key in the branch name or PR title links it; magic words in the
@@ -18,7 +18,8 @@ import type { Commit, IssueCommit, IssuePr, PrAutomation, PrEvent, PrState, Pull
    - status automation per team: draft / opened / review / ready / merged map to a state;
      status only moves forward, canceled issues are never touched, every move is logged;
    - data: `ingestPullRequest` / `ingestPush` take PRs and commits from any source: `gh pr list`
-     and `git log` in your locations' repos (polled), and signed GitHub webhooks (webhooks.ts);
+     and `git log` (or the commits API) for the tracked repos (polled), and signed GitHub webhooks
+     (webhooks.ts);
    - read-only: nothing is ever written to GitHub (see `assertReadOnly`). */
 
 const CLOSING = ['close', 'closes', 'closed', 'closing', 'fix', 'fixes', 'fixed', 'fixing', 'resolve', 'resolves', 'resolved', 'resolving', 'complete', 'completes', 'completed', 'completing', 'implement', 'implements', 'implemented', 'implementing'];
@@ -91,18 +92,42 @@ export function assertReadOnly(cmd: string, args: string[]): void {
       const method = m[2] === '=' ? args[i].slice(args[i].indexOf('=') + 1) : args[i + 1];
       if (!/^(-X|--method)$/.test(m[1]) || method?.toUpperCase() !== 'GET') throw new Error(`read-only GitHub integration: \`gh api ${args[i]}\` would write`);
     }
-    if (args[1] === 'graphql') throw new Error('read-only GitHub integration: `gh api graphql` is not allowed');
+    // GraphQL takes mutations in the body of a "read", so the endpoint is refused wherever it sits
+    if (args.slice(1).some(a => /^\/?graphql\b/.test(a))) throw new Error('read-only GitHub integration: `gh api graphql` is not allowed');
   }
 }
-export const run = (cmd: string, args: string[], cwd?: string) => new Promise<string>((resolve, reject) => {
+export const run = (cmd: string, args: string[], cwd?: string, env?: Record<string, string>) => new Promise<string>((resolve, reject) => {
   try { assertReadOnly(cmd, args); } catch (e) { reject(e); return; }
-  execFile(cmd, args, { cwd, timeout: 20000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => err ? reject(new Error(String(stderr || err.message).trim().split('\n')[0])) : resolve(stdout));
+  execFile(cmd, args, { cwd, timeout: 20000, maxBuffer: 8 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) }, (err, stdout, stderr) => err ? reject(new Error(String(stderr || err.message).trim().split('\n')[0])) : resolve(stdout));
 });
 
-export interface GitStatus { ghInstalled: boolean; ghUser: string | null; repos: Array<{ location: string; path: string; repo: string | null }>; lastSyncAt: string | null; lastError: string | null }
+export const NO_SOURCE = 'Add a read-only GitHub token in Settings › Integrations › GitHub to sync';
+/** classic-token scopes that only read; anything else (repo, workflow, gist, user, …) can write */
+const READ_SCOPE = /^(read:[\w:]+|user:email)$/;
+/** what `gh api -i user` says about a token: its login, expiry, and (classic tokens only) scopes.
+ *  Refuses a classic token that can write. Pure, so it is tested with fixture responses. */
+export function parseTokenCheck(raw: string): { login: string; expiresAt: string | null; scopes: string[] | null } {
+  const [head = '', ...rest] = raw.replace(/\r\n/g, '\n').split('\n\n');
+  const headers = new Map(head.split('\n').slice(1).map(l => { const i = l.indexOf(':'); return [l.slice(0, i).trim().toLowerCase(), l.slice(i + 1).trim()] as const; }));
+  let login = '';
+  try { login = String(JSON.parse(rest.join('\n\n')).login ?? ''); } catch { /* not a user */ }
+  if (!login) throw new Error('GitHub didn\'t say whose token this is');
+  const scopeHeader = headers.get('x-oauth-scopes');
+  const scopes = scopeHeader === undefined ? null : scopeHeader.split(',').map(x => x.trim()).filter(Boolean);
+  const writes = (scopes ?? []).filter(x => !READ_SCOPE.test(x));
+  if (writes.length) throw new Error(`This classic token can write to GitHub (${writes.join(', ')}). Create a fine-grained token with every permission set to Read-only instead.`);
+  const exp = headers.get('github-authentication-token-expiration');
+  const at = exp ? new Date(exp.replace(/^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d) ?(UTC|[+-]\d\d):?(\d\d)?$/, (_, d, t, z, m) => `${d}T${t}${z === 'UTC' ? 'Z' : `${z}:${m ?? '00'}`}`)) : null;
+  return { login, expiresAt: at && !Number.isNaN(at.getTime()) ? at.toISOString() : null, scopes };
+}
+
+const REPO = /^[\w.-]+\/[\w.-]+$/;
+interface StoredToken { token: string; login: string; expiresAt: string | null }
 
 export class GitSync {
   private syncing = false;
+  /** a hosted server has no gh sign-in and no folders of its own: it reads with a token or not at all */
+  hosted = false;
   constructor(private store: Store, private db: DatabaseSync) {}
 
   private rows<T>(sql: string, ...args: Array<string | number | null>): T[] { return this.db.prepare(sql).all(...args) as unknown as T[]; }
@@ -245,28 +270,79 @@ export class GitSync {
     this.store.logActivity({ issueId, type: 'prStateMoved', data: { why } }, actor);
   }
 
-  // ---------- local source: gh + git in your locations ----------
+  // ---------- reading GitHub: the source, the token, the tracked repos ----------
+  private storedToken(): StoredToken | null {
+    try { const t = JSON.parse(getMeta(this.db, 'githubToken') || 'null') as StoredToken | null; return t?.token ? t : null; } catch { return null; }
+  }
+  source(): GithubSource {
+    const t = this.storedToken();
+    if (t) return { kind: 'token', token: t.token };
+    return this.hosted ? { kind: 'none' } : { kind: 'login' };
+  }
+  /** every gh call: read-only (run), with the source's credentials */
+  gh(args: string[], source: GithubSource = this.source()): Promise<string> {
+    if (source.kind === 'none') return Promise.reject(new Error(NO_SOURCE));
+    return run('gh', args, undefined, source.kind === 'token' ? { GH_TOKEN: source.token, GH_PROMPT_DISABLED: '1' } : undefined);
+  }
+  tokenInfo(): GithubTokenInfo | null {
+    const t = this.storedToken();
+    return t && { hint: `…${t.token.slice(-4)}`, login: t.login, expiresAt: t.expiresAt };
+  }
+  async saveToken(input: string): Promise<GithubTokenInfo> {
+    const token = input.trim();
+    if (!/^[\w-]{20,255}$/.test(token)) throw new Error('That doesn\'t look like a GitHub token');
+    let raw: string;
+    try { raw = await this.gh(['api', '-i', 'user'], { kind: 'token', token }); }
+    catch (e) { const m = (e as Error).message; throw new Error(/ENOENT/.test(m) ? 'The GitHub CLI (gh) isn\'t installed on this server' : `GitHub didn't accept that token: ${m}`); }
+    const { login, expiresAt } = parseTokenCheck(raw);
+    setMeta(this.db, 'githubToken', JSON.stringify({ token, login, expiresAt } satisfies StoredToken));
+    return this.tokenInfo()!;
+  }
+  removeToken(): void { setMeta(this.db, 'githubToken', ''); }
+
+  private picked(): string[] {
+    try { return JSON.parse(getMeta(this.db, 'githubRepos') ?? '[]'); } catch { return []; }
+  }
+  setPicked(repos: string[]): void {
+    const bad = repos.find(r => !REPO.test(r));
+    if (bad !== undefined) throw new Error(`“${bad}” isn't owner/name`);
+    const seen = new Set<string>();
+    setMeta(this.db, 'githubRepos', JSON.stringify(repos.filter(r => !seen.has(r.toLowerCase()) && seen.add(r.toLowerCase()))));
+  }
+  /** what the source can see, most recently pushed first */
+  async available(): Promise<string[]> {
+    return (await this.gh(['api', '--paginate', 'user/repos?per_page=100&sort=pushed', '--jq', '.[].full_name'])).split('\n').map(r => r.trim()).filter(Boolean);
+  }
+  /** picked repos and (laptop only) your locations' GitHub origins, once each; a checkout's path lets git log read it */
+  async repos(): Promise<TrackedRepo[]> {
+    const located = this.hosted ? [] : (await Promise.all(this.store.listLocations().map(async l => ({ repo: await this.remoteOf(l.path), path: l.path, location: l.name })))).filter(l => l.repo);
+    const out = new Map<string, TrackedRepo>();
+    for (const repo of this.picked()) { const l = located.find(x => x.repo!.toLowerCase() === repo.toLowerCase()); out.set(repo.toLowerCase(), { repo, path: l?.path ?? null, via: 'picked', location: l?.location ?? null }); }
+    for (const l of located) if (!out.has(l.repo!.toLowerCase())) out.set(l.repo!.toLowerCase(), { repo: l.repo!, path: l.path, via: 'location', location: l.location });
+    return [...out.values()];
+  }
+
   async status(): Promise<GitStatus> {
+    const source = this.source();
     let ghInstalled = false; let ghUser: string | null = null;
-    try { await run('gh', ['--version']); ghInstalled = true; ghUser = (await run('gh', ['api', 'user', '--jq', '.login'])).trim() || null; } catch { /* not installed or not signed in */ }
-    const repos = await Promise.all(this.store.listLocations().map(async l => ({ location: l.name, path: l.path, repo: await this.remoteOf(l.path) })));
-    return { ghInstalled, ghUser, repos, lastSyncAt: getMeta(this.db, 'gitLastSync'), lastError: getMeta(this.db, 'gitLastError') };
+    try { await run('gh', ['--version']); ghInstalled = true; if (source.kind === 'login') ghUser = (await this.gh(['api', 'user', '--jq', '.login'], source)).trim() || null; } catch { /* not installed or not signed in */ }
+    return { source: source.kind, token: this.tokenInfo(), ghInstalled, ghUser, repos: await this.repos(), lastSyncAt: getMeta(this.db, 'gitLastSync'), lastError: getMeta(this.db, 'gitLastError') };
   }
   private async remoteOf(path: string): Promise<string | null> {
     if (!existsSync(path)) return null;
     try { const url = (await run('git', ['remote', 'get-url', 'origin'], path)).trim(); return /github\.com[:/](.+?)(?:\.git)?$/.exec(url)?.[1] ?? null; } catch { return null; }
   }
-  /** pull recent PRs (gh) and commits (git log) from every location that's a GitHub repo */
+  /** recent PRs (gh) and commits (git log in a checkout, else the commits API) for every tracked repo */
   async sync(): Promise<{ prs: number; commits: number; error?: string }> {
+    const source = this.source();
+    if (source.kind === 'none') return { prs: 0, commits: 0, error: NO_SOURCE };
     if (this.syncing) return { prs: 0, commits: 0, error: 'already syncing' };
     this.syncing = true;
     let prs = 0; let commits = 0; const errors: string[] = [];
     try {
-      for (const loc of this.store.listLocations()) {
-        const repo = await this.remoteOf(loc.path);
-        if (!repo) continue;
+      for (const { repo, path } of await this.repos()) {
         try {
-          const json = await run('gh', ['pr', 'list', '--repo', repo, '--state', 'all', '--limit', '50', '--json', 'number,title,body,url,state,isDraft,headRefName,baseRefName,author,reviewDecision,statusCheckRollup,updatedAt,mergedAt']);
+          const json = await this.gh(['pr', 'list', '--repo', repo, '--state', 'all', '--limit', '50', '--json', 'number,title,body,url,state,isDraft,headRefName,baseRefName,author,reviewDecision,statusCheckRollup,updatedAt,mergedAt'], source);
           for (const p of JSON.parse(json) as Array<{ number: number; title: string; body: string; url: string; state: string; isDraft: boolean; headRefName: string; baseRefName: string; author?: { login: string }; reviewDecision?: string; statusCheckRollup?: Array<{ conclusion?: string; state?: string; status?: string }>; updatedAt: string; mergedAt?: string | null }>) {
             const rollup = p.statusCheckRollup ?? [];
             const checks = !rollup.length ? null : rollup.some(c => ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED'].includes(c.conclusion ?? c.state ?? '')) ? 'failure' : rollup.some(c => (c.status && c.status !== 'COMPLETED') || c.state === 'PENDING') ? 'pending' : 'success';
@@ -275,19 +351,28 @@ export class GitSync {
             prs++;
           }
         } catch (e) { errors.push(`${repo}: ${(e as Error).message}`); }
-        try {
-          const def = (await run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], loc.path).catch(() => 'origin/main')).trim();
-          const parse = (out: string, onDefault: boolean) => out.split('\x1e').map(r => r.trim()).filter(Boolean).map(r => { const [sha, author, at, ...msg] = r.split('\x1f'); return { sha, repo, author, committedAt: at, message: msg.join('\x1f'), branch: onDefault ? def.replace(/^origin\//, '') : '', onDefaultBranch: onDefault }; });
-          const fmt = '--pretty=format:%H%x1f%an%x1f%cI%x1f%B%x1e';
-          const onDefault = parse(await run('git', ['log', def, '--since=30.days', '-n', '300', fmt], loc.path).catch(() => ''), true);
-          const seen = new Set(onDefault.map(c => c.sha));
-          const others = parse(await run('git', ['log', '--all', '--since=30.days', '-n', '300', fmt], loc.path).catch(() => ''), false).filter(c => !seen.has(c.sha));
-          commits += this.ingestPush([...onDefault, ...others]);
-        } catch (e) { errors.push(`${loc.name}: ${(e as Error).message}`); }
+        try { commits += this.ingestPush(path ? await this.logCommits(repo, path) : await this.apiCommits(repo, source)); }
+        catch (e) { errors.push(`${repo}: ${(e as Error).message}`); }
       }
       setMeta(this.db, 'gitLastSync', new Date().toISOString());
       setMeta(this.db, 'gitLastError', errors.join(' · '));
       return { prs, commits, ...(errors.length ? { error: errors.join(' · ') } : {}) };
     } finally { this.syncing = false; }
+  }
+  private async logCommits(repo: string, path: string): Promise<Array<Commit & { onDefaultBranch: boolean }>> {
+    const def = (await run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], path).catch(() => 'origin/main')).trim();
+    const parse = (out: string, onDefault: boolean) => out.split('\x1e').map(r => r.trim()).filter(Boolean).map(r => { const [sha, author, at, ...msg] = r.split('\x1f'); return { sha, repo, author, committedAt: at, message: msg.join('\x1f'), branch: onDefault ? def.replace(/^origin\//, '') : '', onDefaultBranch: onDefault }; });
+    const fmt = '--pretty=format:%H%x1f%an%x1f%cI%x1f%B%x1e';
+    const onDefault = parse(await run('git', ['log', def, '--since=30.days', '-n', '300', fmt], path).catch(() => ''), true);
+    const seen = new Set(onDefault.map(c => c.sha));
+    const others = parse(await run('git', ['log', '--all', '--since=30.days', '-n', '300', fmt], path).catch(() => ''), false).filter(c => !seen.has(c.sha));
+    return [...onDefault, ...others];
+  }
+  /** the default branch's last 30 days, for a repo with no checkout here */
+  private async apiCommits(repo: string, source: GithubSource): Promise<Array<Commit & { onDefaultBranch: boolean }>> {
+    const branch = (await this.gh(['api', `repos/${repo}`, '--jq', '.default_branch'], source)).trim();
+    const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const list = JSON.parse(await this.gh(['api', `repos/${repo}/commits?since=${since}&per_page=100`], source)) as Array<{ sha: string; author?: { login?: string } | null; commit: { author?: { name?: string; date?: string } | null; committer?: { date?: string } | null; message: string } }>;
+    return list.map(c => ({ sha: c.sha, repo, author: c.author?.login || c.commit.author?.name || '', committedAt: c.commit.committer?.date ?? c.commit.author?.date ?? '', message: c.commit.message, branch, onDefaultBranch: true }));
   }
 }

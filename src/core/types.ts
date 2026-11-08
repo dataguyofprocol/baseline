@@ -334,6 +334,22 @@ export interface LoopRun { id: string; loopId: string; issueId: string | null; o
 /** a GitHub webhook delivery as Baseline handled it (Settings › GitHub shows the recent ones) */
 export interface WebhookDelivery { id: number; delivery: string; event: string; action: string | null; repo: string | null; status: 'processed' | 'ignored' | 'rejected'; detail: string; receivedAt: string }
 export interface WebhookConfig { enabled: boolean; secretHint: string | null; publicUrl: string; /** hosted: publicUrl is BASELINE_PUBLIC_URL's and can't be edited */ fixedUrl: boolean; events: readonly string[]; lastDelivery: WebhookDelivery | null; received: number; rejected: number; imports: Array<{ repo: string; teamId: string }> }
+/** where GitHub reads come from, decided once in GitSync.source() */
+export type GithubSource =
+  /** hosted with no token: webhooks only */
+  | { kind: 'none' }
+  /** laptop: the person's own `gh` sign-in */
+  | { kind: 'login' }
+  /** an admin-pasted read-only token, passed to gh as GH_TOKEN */
+  | { kind: 'token'; token: string };
+/** what the web app sees of a saved token (never the token itself) */
+export interface GithubTokenInfo { hint: string; login: string; expiresAt: string | null }
+/** a repository Baseline syncs: picked in settings, or a location's origin (laptop only) */
+export interface TrackedRepo { repo: string; path: string | null; via: 'picked' | 'location'; location: string | null }
+export interface GitStatus {
+  source: GithubSource['kind']; token: GithubTokenInfo | null; ghInstalled: boolean; ghUser: string | null;
+  repos: TrackedRepo[]; lastSyncAt: string | null; lastError: string | null;
+}
 export type PrState = 'draft' | 'open' | 'merged' | 'closed';
 export interface PullRequest {
   id: string; repo: string; number: number; title: string; body: string; url: string; state: PrState;

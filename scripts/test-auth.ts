@@ -7,6 +7,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/server/index.js';
+import { assertReadOnly, parseTokenCheck } from '../src/core/git.js';
+import { setMeta } from '../src/core/db.js';
 import type { MailMessage } from '../src/server/mail.js';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -240,6 +242,12 @@ check('…and so is its activity', created.user_id === ada.id);
     { name: 'turn GitHub webhooks off', method: 'DELETE', path: () => '/api/github/webhook/secret' },
     // the admin gets past the gate to the repo-name check (a real import would run gh)
     { name: 'import GitHub issues', method: 'POST', path: () => '/api/github/issues/import', body: { repo: 'not a repo', teamId: ids.team }, adminStatus: 400 },
+    // the admin gets past the gate to the token's shape check (a real one would be checked with GitHub)
+    { name: 'save a GitHub token', method: 'PUT', path: () => '/api/github/token', body: { token: 'nope' }, adminStatus: 400 },
+    { name: 'remove the GitHub token', method: 'DELETE', path: () => '/api/github/token' },
+    // …and to "add a token first": with no token a hosted server can't ask GitHub
+    { name: 'list the repos GitHub can see', method: 'GET', path: () => '/api/github/repos/available', adminStatus: 400 },
+    { name: 'pick the repos to sync', method: 'PUT', path: () => '/api/github/repos', body: { repos: ['acme/app'] } },
     { name: 'follow a GitHub repo\'s issues', method: 'PUT', path: () => '/api/github/issues/follow', body: { repo: 'acme/app', teamId: ids.team } },
     { name: 'remove a custom emoji', method: 'DELETE', path: () => `/api/emojis/${ids.emoji}` },
     { name: 'add a customer status', method: 'POST', path: () => '/api/customer-attrs/status', body: { name: 'Churned' }, save: ['id', 'customerStatus'] },
@@ -284,7 +292,46 @@ check('…and so is its activity', created.user_id === ada.id);
   check('…and setting it is refused, naming BASELINE_PUBLIC_URL', setUrl.status === 400 && /BASELINE_PUBLIC_URL/.test((await setUrl.json() as { error: string }).error) && store.ext.webhooks.config().publicUrl === ORIGIN);
 
   const sync = await (await req('/api/git/sync', { ...json({}), cookie: ownerCookie })).json() as { prs: number; error?: string };
-  check('git sync doesn\'t run gh on a hosted server', sync.prs === 0 && /webhooks/.test(sync.error ?? ''), JSON.stringify(sync));
+  const synced = (db.prepare("SELECT value FROM meta WHERE key = 'gitLastSync'").get() as { value: string } | undefined)?.value;
+  check('git sync on a hosted server with no token runs no gh and asks for a read-only token', sync.prs === 0 && /read-only GitHub token/.test(sync.error ?? '') && !synced, JSON.stringify(sync));
+  type Status = { source: string; token: { hint: string; login: string; expiresAt: string | null } | null; repos: Array<{ repo: string; via: string }> };
+  const gitStatus = async () => { const r = await req('/api/git/status', { cookie: ownerCookie }); return { raw: await r.clone().text(), body: await r.json() as Status }; };
+  const before = await gitStatus();
+  check('…its status says webhooks only, and tracks the picked repos but no locations', before.body.source === 'none' && !before.body.token && before.body.repos.map(r => `${r.repo}:${r.via}`).join() === 'acme/app:picked', before.raw);
+  const secret = 'github_pat_11AAAAAAA0secretsecretsecret9xyz';
+  setMeta(db, 'githubToken', JSON.stringify({ token: secret, login: 'octocat', expiresAt: '2027-01-31T00:00:00.000Z' }));
+  const withToken = await gitStatus();
+  check('a saved token makes the token the source, and status shows its hint, login and expiry but never the token',
+    withToken.body.source === 'token' && withToken.body.token?.hint === '…9xyz' && withToken.body.token.login === 'octocat' && withToken.body.token.expiresAt === '2027-01-31T00:00:00.000Z' && !withToken.raw.includes(secret)
+    && !JSON.stringify(await (await req('/api/bootstrap', { cookie: ownerCookie })).json()).includes(secret), withToken.raw);
+  await req('/api/github/token', { method: 'DELETE', cookie: ownerCookie, headers: { origin: ORIGIN } });
+  check('…and removing it goes back to webhooks only', (await gitStatus()).body.source === 'none');
+  const bad = await req('/api/github/repos', { ...json({ repos: ['acme/app', 'not a repo'] }), method: 'PUT', cookie: ownerCookie });
+  check('picking a repo that isn\'t owner/name is refused', bad.status === 400);
+}
+
+// ---- the token check and the read-only allowlist (pure: no GitHub involved) ----
+{
+  const response = (headers: string[], body = '{"login":"octocat","id":1}') => ['HTTP/2.0 200 OK', 'Content-Type: application/json; charset=utf-8', ...headers, '', body].join('\r\n');
+  const refusal = (raw: string) => { try { parseTokenCheck(raw); return ''; } catch (e) { return (e as Error).message; } };
+  const fine = parseTokenCheck(response(['Github-Authentication-Token-Expiration: 2027-01-31 00:00:00 UTC', 'X-Github-Media-Type: github.v3']));
+  check('a fine-grained token (no X-OAuth-Scopes) is accepted, with its login and expiry', fine.login === 'octocat' && fine.scopes === null && fine.expiresAt === '2027-01-31T00:00:00.000Z', JSON.stringify(fine));
+  check('…an expiry with an offset is read too', parseTokenCheck(response(['github-authentication-token-expiration: 2027-01-31 09:30:00 +0530'])).expiresAt === '2027-01-31T04:00:00.000Z');
+  check('…and a token with no expiry has none', parseTokenCheck(response([])).expiresAt === null);
+  check('a classic token with only read scopes is accepted', parseTokenCheck(response(['X-Oauth-Scopes: read:org, read:user, user:email'])).scopes?.join() === 'read:org,read:user,user:email');
+  check('…as is one with no scopes at all', parseTokenCheck(response(['X-Oauth-Scopes: '])).scopes?.length === 0);
+  for (const scope of ['repo', 'public_repo', 'workflow', 'delete_repo', 'write:packages', 'admin:org', 'gist', 'repo:status']) {
+    const why = refusal(response([`X-Oauth-Scopes: read:org, ${scope}`]));
+    check(`a classic token with ${scope} is refused, pointing to fine-grained tokens`, why.includes(scope) && /fine-grained/.test(why) && /Read-only/.test(why), why);
+  }
+  check('a response with no user is refused', /whose token/.test(refusal(response([], '{"message":"Bad credentials"}'))));
+
+  const reads = (args: string[]) => { try { assertReadOnly('gh', args); return true; } catch { return false; } };
+  check('the read-only allowlist lets the token check, repo listing and commits API through', reads(['api', '-i', 'user'])
+    && reads(['api', '--paginate', 'user/repos?per_page=100&sort=pushed', '--jq', '.[].full_name'])
+    && reads(['api', 'repos/acme/app/commits?since=2026-10-01T00:00:00.000Z&per_page=100']) && reads(['api', 'repos/acme/app', '--jq', '.default_branch']));
+  check('…and still refuses writes and GraphQL wherever they sit', !reads(['api', '-X', 'POST', 'repos/acme/app/issues']) && !reads(['api', 'repos/acme/app/issues', '-f', 'title=x'])
+    && !reads(['api', 'graphql', '-f', 'query=mutation{}']) && !reads(['api', '-i', 'graphql']) && !reads(['api', '--paginate', '/graphql']) && !reads(['pr', 'create']));
 }
 
 // ---- per-person state ----

@@ -58,10 +58,10 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // Hosted, that would open it on the server's machine — it waits for a companion on each person's laptop
   if (hosted) automation.launcherMissing = 'needs a connected companion';
   else automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
-  if (hosted) webhooks.fixedUrl = auth.publicUrl.origin;
-  // the git integration polls gh / git log in each location every two minutes while it's on —
-  // those are this machine's folders, so a hosted server leaves GitHub to its webhooks
-  if (!hosted) setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
+  if (hosted) { webhooks.fixedUrl = auth.publicUrl.origin; git.hosted = true; }
+  // the git integration polls the tracked repos every two minutes while it's on (a no-op until a
+  // hosted server has a read-only token)
+  setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
 
   // first run: a laptop gets the sample workspace to play with; a hosted one starts empty —
   // its owner is created on the setup screen (or by Google sign-in), and onboarding asks for the first team
@@ -190,6 +190,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     ['PUT', '/api/git/automation/:teamId'],
     ['PUT', '/api/github/webhook/config'], ['POST', '/api/github/webhook/secret'], ['DELETE', '/api/github/webhook/secret'],
     ['POST', '/api/github/issues/import'], ['PUT', '/api/github/issues/follow'],
+    ['PUT', '/api/github/token'], ['DELETE', '/api/github/token'], ['GET', '/api/github/repos/available'], ['PUT', '/api/github/repos'],
     ['DELETE', '/api/emojis/:id'],
     ['POST', '/api/customer-attrs/*'], ['PATCH', '/api/customer-attrs/*'], ['DELETE', '/api/customer-attrs/*'],
   ];
@@ -781,7 +782,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const b = await c.req.json();
     store.setFeatures(b);
     // turning GitHub on adds Linear's "In Review" state and syncs straight away
-    if (b.githubEnabled === true) { git.ensureInReview(); if (!hosted) void git.sync().catch(() => {}); }
+    if (b.githubEnabled === true) { git.ensureInReview(); void git.sync().catch(() => {}); }
     return c.json({ ok: true });
   });
 
@@ -825,7 +826,14 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- git / GitHub ----------
   app.get('/api/git/status', async (c) => c.json(await git.status()));
-  app.post('/api/git/sync', async (c) => c.json(hosted ? { prs: 0, commits: 0, error: 'The hosted app gets GitHub activity from webhooks, not gh' } : await git.sync()));
+  app.post('/api/git/sync', async (c) => c.json(await git.sync()));
+  app.put('/api/github/token', async (c) => { try { return c.json({ token: await git.saveToken(String((await c.req.json()).token ?? '')) }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
+  app.delete('/api/github/token', (c) => { git.removeToken(); return c.json({ ok: true }); });
+  app.get('/api/github/repos/available', async (c) => { try { return c.json({ repos: await git.available() }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
+  app.put('/api/github/repos', async (c) => {
+    const b = await c.req.json();
+    try { git.setPicked(Array.isArray(b.repos) ? b.repos.map(String) : []); return c.json({ repos: await git.repos() }); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  });
   app.get('/api/git/automation/:teamId', (c) => c.json(git.automation(c.req.param('teamId'))));
   app.put('/api/git/automation/:teamId', async (c) => { git.setAutomation(c.req.param('teamId'), await c.req.json()); return c.json({ ok: true }); });
   // webhook setup (the secret is shown once, when it's made) and one-way GitHub Issues import
