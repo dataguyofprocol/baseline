@@ -12,6 +12,7 @@ import { ChangeFeed, startScheduler } from './live.js';
 import { streamSSE } from 'hono/streaming';
 import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
 import { Accounts, AccountError } from '../core/accounts.js';
+import { attributing } from '../core/actor.js';
 import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
 import { isSnapshotSection, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
@@ -101,8 +102,15 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
 
   const actor = (c: Context) => principalUser(c, store);
-  /** the user a write is by: the one asked for when this request may name anyone (see attributedActor), else the request's own */
-  const who = (c: Context, given: unknown) => attributedActor(c, given) ?? actor(c);
+  /** run a write under its attribution (see attributedActor): `write` gets the actor to pass the
+   *  store (undefined: the store's default), and the store records the via beside that actor's rows */
+  const attributed = <T>(c: Context, requested: unknown, write: (actorId: string | undefined) => T): T => {
+    const a = attributedActor(c, requested, store);
+    return a ? attributing.run(a, () => write(a.actorId)) : write(undefined);
+  };
+  /** the same for writes that need an actor id: the one asked for, else the request's own */
+  const attributedTo = <T>(c: Context, requested: unknown, write: (actorId: string) => T): T =>
+    attributed(c, requested, (actorId) => write(actorId ?? actor(c)));
   const isAdmin = (userId: string) => !!(db.prepare('SELECT admin FROM users WHERE id = ?').get(userId) as { admin: number } | undefined)?.admin;
 
   // a delete may have taken an image's owner with it (an issue purged, a doc, a team, an emoji):
@@ -227,19 +235,19 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // ---------- issues ----------
   app.post('/api/issues', async (c) => {
     const b = await c.req.json();
-    const issue = store.createIssue({
+    const issue = attributed(c, b.actorId, (actorId) => store.createIssue({
       teamId: b.teamId, title: b.title, description: b.description, stateId: b.stateId,
       priority: b.priority, assigneeId: b.assigneeId ?? null, projectId: b.projectId ?? null,
       parentId: b.parentId ?? null, cycleId: b.cycleId ?? null, labelIds: b.labelIds,
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null, milestoneId: b.milestoneId ?? null,
       // omitted = a sub-issue inherits its parent's (nothing else is defaulted); null = explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
-    }, attributedActor(c, b.actorId));
+    }, actorId));
     return c.json({ issue }, 201);
   });
   app.patch('/api/issues/:id', async (c) => {
-    const { actorId, ...patch } = await c.req.json();
-    const issue = store.updateIssue(c.req.param('id'), patch, attributedActor(c, actorId));
+    const { actorId: requested, ...patch } = await c.req.json();
+    const issue = attributed(c, requested, (actorId) => store.updateIssue(c.req.param('id'), patch, actorId));
     if (!issue) return c.json({ error: 'not found' }, 404);
     return c.json({ issue });
   });
@@ -295,9 +303,10 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.post('/api/issues/:id/subscribe', async (c) => {
     const b = await c.req.json().catch(() => ({}));
-    const uid = who(c, b.userId);
-    if (b.subscribed === false) store.unsubscribe(c.req.param('id'), uid);
-    else store.subscribe(c.req.param('id'), uid);
+    attributedTo(c, b.userId, (uid) => {
+      if (b.subscribed === false) store.unsubscribe(c.req.param('id'), uid);
+      else store.subscribe(c.req.param('id'), uid);
+    });
     return c.json({ ok: true });
   });
 
@@ -447,12 +456,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // ---------- comments ----------
   app.post('/api/issues/:id/comments', async (c) => {
     const b = await c.req.json();
-    const comment = store.addComment(c.req.param('id'), who(c, b.userId), b.body, b.parentId ?? null);
+    const comment = attributedTo(c, b.userId, (userId) => store.addComment(c.req.param('id'), userId, b.body, b.parentId ?? null));
     return c.json({ comment }, 201);
   });
   app.patch('/api/comments/:id', async (c) => {
     const b = await c.req.json();
-    if (b.reaction) { store.toggleReaction(c.req.param('id'), b.reaction, who(c, b.userId)); return c.json({ ok: true }); }
+    if (b.reaction) { attributedTo(c, b.userId, (userId) => store.toggleReaction(c.req.param('id'), b.reaction, userId)); return c.json({ ok: true }); }
     if ('resolved' in b) { store.resolveComment(c.req.param('id'), !!b.resolved); return c.json({ ok: true }); }
     store.updateComment(c.req.param('id'), b.body);
     return c.json({ ok: true });
@@ -482,7 +491,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.delete('/api/projects/:id', (c) => { store.deleteProject(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/projects/:id/updates', async (c) => {
     const b = await c.req.json();
-    const update = store.addProjectUpdate(c.req.param('id'), who(c, b.userId), b.body, b.health);
+    const update = attributedTo(c, b.userId, (userId) => store.addProjectUpdate(c.req.param('id'), userId, b.body, b.health));
     return c.json({ update }, 201);
   });
   app.post('/api/projects/:id/links', async (c) => {
@@ -534,7 +543,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- documents & team links ----------
   app.post('/api/docs', async (c) => c.json({ doc: store.createDoc(await c.req.json()) }, 201));
-  app.patch('/api/docs/:id', async (c) => { const b = await c.req.json(); store.updateDoc(c.req.param('id'), b, attributedActor(c, b.actorId)); return c.json({ ok: true }); });
+  app.patch('/api/docs/:id', async (c) => { const b = await c.req.json(); attributed(c, b.actorId, (actorId) => store.updateDoc(c.req.param('id'), b, actorId)); return c.json({ ok: true }); });
   app.delete('/api/docs/:id', (c) => { store.deleteDoc(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/teams/:id/links', async (c) => {
     const b = await c.req.json();
@@ -696,8 +705,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.delete('/api/initiatives/:id', (c) => { planning.deleteInitiative(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/initiatives/:id/projects', async (c) => { const b = await c.req.json(); planning.addProject(c.req.param('id'), b.projectId); return c.json({ ok: true }, 201); });
   app.delete('/api/initiatives/:id/projects/:projectId', (c) => { planning.removeProject(c.req.param('id'), c.req.param('projectId')); return c.json({ ok: true }); });
-  app.post('/api/initiatives/:id/updates', async (c) => { const b = await c.req.json(); if (!b.body) return c.json({ error: 'body is required' }, 400); return c.json({ update: planning.addInitiativeUpdate(c.req.param('id'), who(c, b.userId), b.body, b.health) }, 201); });
-  app.patch('/api/initiative-updates/:id', async (c) => { const b = await c.req.json(); if (!b.reaction) return c.json({ error: 'reaction is required' }, 400); planning.toggleUpdateReaction(c.req.param('id'), String(b.reaction), who(c, b.userId)); return c.json({ ok: true }); });
+  app.post('/api/initiatives/:id/updates', async (c) => { const b = await c.req.json(); if (!b.body) return c.json({ error: 'body is required' }, 400); return c.json({ update: attributedTo(c, b.userId, (userId) => planning.addInitiativeUpdate(c.req.param('id'), userId, b.body, b.health)) }, 201); });
+  app.patch('/api/initiative-updates/:id', async (c) => { const b = await c.req.json(); if (!b.reaction) return c.json({ error: 'reaction is required' }, 400); attributedTo(c, b.userId, (userId) => planning.toggleUpdateReaction(c.req.param('id'), String(b.reaction), userId)); return c.json({ ok: true }); });
   app.post('/api/initiatives/:id/links', async (c) => { const b = await c.req.json(); if (!b.url) return c.json({ error: 'url is required' }, 400); return c.json({ link: planning.addLink(c.req.param('id'), String(b.url), b.title) }, 201); });
   app.delete('/api/initiative-links/:id', (c) => { planning.deleteLink(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/initiative-labels', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ label: planning.createLabel(b) }, 201); });

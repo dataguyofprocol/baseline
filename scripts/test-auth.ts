@@ -595,6 +595,71 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
   check('DELETE /api/me/key with a cookie is refused', (await req('/api/me/key', { method: 'DELETE', headers: { origin: ORIGIN }, cookie: ownerCookie })).status === 400);
 }
 
+// ---- agents: a key or a session may write as an agent user, recorded as "<agent> via <person>" ----
+{
+  const ownerId = boot.currentUser.id;
+  const agent = store.createUser('Claude Code', '', false, 'agent');
+  const key = store.ext.apiKeys.create({ name: 'agent cli', userId: ownerId, scopes: ['read', 'write'] });
+  const keyReq = (path: string, init: RequestInit = {}) =>
+    req(path, { ...init, headers: { authorization: `Bearer ${key.token}`, 'content-type': 'application/json' } });
+  const row = (sql: string, ...args: string[]) => db.prepare(sql).get(...args) as { user_id: string; via_user_id: string | null } | undefined;
+
+  const made = await keyReq('/api/issues', { method: 'POST', body: JSON.stringify({ teamId: team.team.id, title: 'Filed by an agent', actorId: agent.id }) });
+  const issue = (await made.json() as { issue: { id: string; creatorId: string } }).issue;
+  const created = row("SELECT user_id, via_user_id FROM activity WHERE issue_id = ? AND type = 'created'", issue.id);
+  check('a key acting as an agent creates as the agent, via the key\'s owner', made.status === 201 && issue.creatorId === agent.id && created?.user_id === agent.id && created.via_user_id === ownerId, JSON.stringify(created));
+
+  const todo = store.snapshot().states.find(s => s.teamId === team.team.id && s.type === 'started')!;
+  await keyReq(`/api/issues/${issue.id}`, { method: 'PATCH', body: JSON.stringify({ stateId: todo.id, actorId: agent.id }) });
+  const moved = row("SELECT user_id, via_user_id FROM activity WHERE issue_id = ? AND type = 'stateChanged'", issue.id);
+  check('…an update records the agent and the via', moved?.user_id === agent.id && moved.via_user_id === ownerId, JSON.stringify(moved));
+
+  const posted = await keyReq(`/api/issues/${issue.id}/comments`, { method: 'POST', body: JSON.stringify({ body: 'on it', userId: agent.id }) });
+  const comment = (await posted.json() as { comment: { id: string; userId: string; viaUserId: string | null } }).comment;
+  const stored = row('SELECT user_id, via_user_id FROM comments WHERE id = ?', comment.id);
+  check('…and so does a comment, in the response and the database', comment.userId === agent.id && comment.viaUserId === ownerId && stored?.via_user_id === ownerId);
+
+  const asAda = await keyReq(`/api/issues/${issue.id}/comments`, { method: 'POST', body: JSON.stringify({ body: 'as Ada', userId: ada.id }) });
+  check('a key acting as another person is still refused', asAda.status === 403 && !row('SELECT user_id, via_user_id FROM comments WHERE body = ?', 'as Ada'));
+
+  const mine = await (await keyReq(`/api/issues/${issue.id}/comments`, { method: 'POST', body: JSON.stringify({ body: 'by the owner' }) })).json() as { comment: { viaUserId: string | null } };
+  check('a key\'s own write has no via', mine.comment.viaUserId === null);
+
+  const sections = await (await keyReq('/api/bootstrap?sections=comments,activity')).json() as { comments: Array<{ id: string; viaUserId: string | null }>; activity: Array<{ issueId: string; type: string; viaUserId: string | null }> };
+  check('bootstrap exposes viaUserId on comments and activity',
+    sections.comments.find(c => c.id === comment.id)?.viaUserId === ownerId && sections.activity.find(a => a.issueId === issue.id && a.type === 'created')?.viaUserId === ownerId);
+
+  const project = store.createProject({ name: 'Agent project', teamId: team.team.id });
+  const update = await (await keyReq(`/api/projects/${project.id}/updates`, { method: 'POST', body: JSON.stringify({ body: 'Shipped', health: 'onTrack', userId: agent.id }) })).json() as { update: { id: string; viaUserId: string | null } };
+  const health = row("SELECT user_id, via_user_id FROM activity WHERE project_id = ? AND type = 'projectHealth'", project.id);
+  check('a project update as an agent records the via, on the update and its health change',
+    update.update.viaUserId === ownerId && row('SELECT user_id, via_user_id FROM project_updates WHERE id = ?', update.update.id)?.via_user_id === ownerId && health?.user_id === agent.id && health.via_user_id === ownerId);
+
+  const bySession = await (await req(`/api/issues/${issue.id}/comments`, { ...json({ body: 'from Ada\'s browser agent', userId: agent.id }), cookie: adaCookie })).json() as { comment: { userId: string; viaUserId: string | null } };
+  check('a session acting as an agent is recorded via that person', bySession.comment.userId === agent.id && bySession.comment.viaUserId === ada.id);
+  const sessionAsOwner = await req(`/api/issues/${issue.id}`, { ...json({ title: 'x', actorId: ownerId }), method: 'PATCH', cookie: adaCookie });
+  check('…and a session acting as another person is refused', sessionAsOwner.status === 403);
+  store.ext.apiKeys.revoke(key.key.id);
+}
+{
+  // local mode: any actor is honored; an agent acts for this machine's current user
+  const local = createApp(join(work, 'local.db'), { mode: 'local' }, { configured: false, send: async () => {} });
+  const me = local.store.workspaceMeta().currentUser;
+  const agent = local.store.createUser('Codex', '', false, 'agent');
+  const issueId = local.store.snapshot().issues[0]!.id;
+  const res = await local.app.fetch(new Request(`http://127.0.0.1/api/issues/${issueId}/comments`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body: 'local agent', userId: agent.id }),
+  }));
+  const c = (await res.json() as { comment: { id: string; userId: string; viaUserId: string | null } }).comment;
+  const act = local.db.prepare("SELECT via_user_id FROM activity WHERE type = 'commented' AND data LIKE ?").get(`%${c.id}%`) as { via_user_id: string | null };
+  check('local mode: an agent writes via the current user', c.userId === agent.id && c.viaUserId === me && act.via_user_id === me && !!me);
+  const other = local.store.snapshot().users.find(u => u.kind === 'human' && u.id !== me)!;
+  const asOther = await (await local.app.fetch(new Request(`http://127.0.0.1/api/issues/${issueId}/comments`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body: 'local person', userId: other.id }),
+  }))).json() as { comment: { userId: string; viaUserId: string | null } };
+  check('…and another person is still honored, with no via', asOther.comment.userId === other.id && asOther.comment.viaUserId === null);
+}
+
 // ---- `baseline login`: browser approval, loopback redirect, PKCE ----
 {
   const { createHash, randomBytes } = await import('node:crypto');

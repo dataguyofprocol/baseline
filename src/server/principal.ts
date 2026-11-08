@@ -1,6 +1,6 @@
 // Who a request is: one middleware decides it for every /api request, in both modes.
 import type { Context, MiddlewareHandler } from 'hono';
-import { actingUser } from '../core/actor.js';
+import { actingUser, attributionOf, type Attribution } from '../core/actor.js';
 import type { ApiKeys } from '../core/apikeys.js';
 import type { Store } from '../core/store.js';
 import { API_KEY_SCOPES, type ApiKey } from '../core/types.js';
@@ -48,17 +48,22 @@ export function principalUser(c: Context, store: Store): string {
 
 /**
  * Whom a write is attributed to, given the actor the client asked for (`actorId` / `userId` in the body).
- * Local mode honors any user (agents post as themselves with --as). A key or a session acts as its
- * owner only: asking for someone else is refused, never silently rewritten.
+ * Local mode honors any user; an agent there acts for this machine's current user. A key or a
+ * session acts as its owner, or as an agent user on its owner's behalf (--as "Claude Code" is
+ * recorded as "Claude Code via <owner>"); asking for another person is refused, never silently rewritten.
  * undefined: nothing was asked and no key is involved, so the store's own default applies.
  */
-export function attributedActor(c: Context, requested: unknown): string | undefined {
+export function attributedActor(c: Context, requested: unknown, store: Store): Attribution | undefined {
   const p = principalOf(c);
-  if (typeof requested === 'string' && requested) {
-    if (p.via === 'local' || requested === p.userId) return requested;
-    throw new Refusal(403, 'forbidden', 'This server attributes writes to whoever signed in; it won\'t write as another user (--as / BASELINE_AS)');
+  if (typeof requested !== 'string' || !requested) {
+    return p.via === 'key' ? { actor: 'person', actorId: p.userId, viaUserId: null } : undefined;
   }
-  return p.via === 'key' ? p.userId : undefined;
+  const self = p.via === 'local' ? store.actor() : p.userId;
+  if (requested === self) return { actor: 'person', actorId: self, viaUserId: null };
+  const kind = store.userKind(requested);
+  if (p.via === 'local') return attributionOf({ id: requested, kind: kind ?? 'human' }, self);
+  if (kind === 'agent') return attributionOf({ id: requested, kind }, self);
+  throw new Refusal(403, 'forbidden', 'This server attributes writes to whoever signed in: --as / BASELINE_AS may name an agent (recorded as "<agent> via you"), not another person');
 }
 
 export interface AuthenticateDeps {
