@@ -99,6 +99,7 @@ export class ApiKeys {
     }
     if (body) {
       if (typeof body.teamId === 'string' && !teams.includes(body.teamId)) return false;
+      if (Array.isArray(body.teamIds) && body.teamIds.some(t => typeof t === 'string' && !teams.includes(t))) return false;
       if (Array.isArray(body.ids) && body.ids.some(i => { const issue = typeof i === 'string' ? this.store.getIssue(i) : undefined; return issue && !teams.includes(issue.teamId); })) return false;
     }
     return true;

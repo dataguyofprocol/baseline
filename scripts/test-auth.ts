@@ -625,6 +625,11 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
     && mixedBy('newbie@example.com')?.status === 'invited' && JSON.stringify(mixedBy('newbie@example.com')?.invite?.teamIds) === JSON.stringify([team.team.id, t2.team.id]) && sent.some(m => m.to === 'newbie@example.com')
     && mixedBy('nope')?.status === 'invalid', JSON.stringify(mixed));
   await removeFrom(team.team.id, raj!.id, ownerCookie);
+  const opsKey = store.ext.apiKeys.create({ name: 'ops only', userId: ownerId, scopes: ['read', 'write'], teamIds: [t2.team.id] });
+  const keyInvite = (teamIds: string[]) => req('/api/invites', { method: 'POST', body: JSON.stringify({ userIds: [raj!.id], teamIds }), headers: { 'content-type': 'application/json', authorization: `Bearer ${opsKey.token}` } });
+  const otherTeam = await keyInvite([team.team.id]);
+  check('a key limited to one team can\'t add people to another team through an invite', otherTeam.status === 403 && !members(team.team.id).includes(raj!.id), String(otherTeam.status));
+  check('…but can for its own team', (await keyInvite([t2.team.id])).status === 201);
   await patch(`/api/users/${caraUser.id}`, { name: 'Cara <script>alert(1)</script>' }, caraCookie);
   sent.length = 0;
   await req('/api/invites', { ...json({ emails: 'q@example.com' }), cookie: caraCookie });

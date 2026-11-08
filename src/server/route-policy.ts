@@ -14,7 +14,7 @@ export type TeamRule =
   | 'team'
   /** an uploaded file or attachment id in the path: checked against its issue's (or team's) team */
   | 'file'
-  /** body.teamId (or body.ids, for bulk) is checked; nothing in the path names a team */
+  /** body.teamId, body.teamIds (or body.ids, for bulk) is checked; nothing in the path names a team */
   | 'body'
   /** a read whose JSON response is filtered down to the key's teams */
   | 'response'
@@ -224,7 +224,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'PATCH /api/users/:id': { scope: 'admin', team: 'workspace' },
   'POST /api/users/:id/avatar': { scope: 'admin', team: 'workspace' },
   'GET /api/invites': { scope: 'read', team: 'workspace' },
-  'POST /api/invites': { scope: 'write', team: 'workspace' },
+  'POST /api/invites': { scope: 'write', team: 'body' },
   'POST /api/invites/:id/resend': { scope: 'write', team: 'workspace' },
   'DELETE /api/invites/:id': { scope: 'write', team: 'workspace' },
   'PATCH /api/members/:id': { scope: 'write', team: 'workspace' },
