@@ -12,7 +12,7 @@ import { createApp } from '../src/server/index.js';
 import { HttpBaseline } from '../src/client/baseline.js';
 import type { Transport } from '../src/client/transport.js';
 import { OPERATIONS } from '../src/ops/index.js';
-import { actorFrom } from '../src/ops/identity.js';
+import { actorForClient, actorFrom, agentForClient } from '../src/ops/identity.js';
 import { annotationsOf, OpError, runOp, type AnyOperation, type OpContext, type OpName, type SessionKey } from '../src/ops/operation.js';
 
 const work = mkdtempSync(join(tmpdir(), 'baseline-ops-test-'));
@@ -63,6 +63,12 @@ check('8 operations, unique names', OPERATIONS.length === 8 && new Set(OPERATION
 check('annotations derive from effect: reads read-only, undo destructive, all idempotent',
   annotationsOf(op('get_issue')).readOnlyHint && !annotationsOf(op('start_issue')).readOnlyHint && annotationsOf(op('undo')).destructiveHint && OPERATIONS.every(o => annotationsOf(o).idempotentHint));
 check('a malformed issue key is refused at the boundary', (await refused('get_issue', { issue: 'not a key' }))?.code === 'invalid');
+check('clientInfo names map to agents: claude-code → Claude Code, codex-mcp-client → Codex, others → none',
+  agentForClient('claude-code') === 'Claude Code' && agentForClient('codex-mcp-client') === 'Codex' && agentForClient('cursor') === undefined);
+const noAdmin = await actorForClient(bl, undefined, 'codex-mcp-client').then(() => undefined, (e: unknown) => e);
+check('a key that may not add users gets a needs-human error naming BASELINE_AS, and no Codex user is added',
+  noAdmin instanceof OpError && noAdmin.code === 'needs-human' && /only an admin can add one/.test(noAdmin.message) && /BASELINE_AS/.test(noAdmin.message)
+  && !store.snapshot().users.some(u => u.name === 'Codex'), noAdmin instanceof Error ? noAdmin.message : noAdmin);
 check('BASELINE_AS naming a person is refused', await ctxFor('Ada Osei').then(() => false, e => e instanceof OpError && /a person/.test(e.message)));
 
 // ---------- start_issue ----------
