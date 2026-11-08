@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+.git
+.claude
+.agents
+**/*.db
+**/*.db-wal
+**/*.db-shm
+.env
+*.tgz
+screenshots
+design-polish
+.pi
+.github

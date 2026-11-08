@@ -72,6 +72,49 @@ the sample data) and seeded from the CLI, so never point dev tools or experiment
 `~/.baseline/baseline.db`; deleting or resetting that file would lose your work.
 Pre-wipe backups: `~/.baseline/backups/`.
 
+## Self-host with Docker
+
+One deployment per organization: one container, one SQLite database on the `/data` volume, any number of teams and people.
+
+**Start.** Copy `.env.example` to `.env` and fill in `BASELINE_PUBLIC_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `BASELINE_OWNER_EMAIL` (each variable is described there). Then:
+
+```bash
+docker compose up -d          # builds the image and serves on port 7770
+docker compose ps             # "healthy" once GET /healthz answers
+```
+
+The container refuses to start without sign-in configured, because anyone who can reach the port would otherwise act as any user. `BASELINE_REQUIRE_SIGN_IN=0` turns that check off, for a trusted private network only.
+
+**HTTPS.** In `.env`, uncomment `COMPOSE_FILE=compose.yaml:compose.https.yaml` and `BASELINE_DOMAIN`, set `BASELINE_PUBLIC_URL=https://<that domain>` and `BASELINE_PUBLISH=127.0.0.1:7770`, and point the domain's DNS at the machine. Caddy gets the certificate.
+
+**First sign-in.** Open `BASELINE_PUBLIC_URL` and sign in with Google as `BASELINE_OWNER_EMAIL`: you become the admin, and onboarding asks for the first team. Invite everyone else from Settings › Members.
+
+**Admin CLI.** `docker compose exec baseline baseline <command>` runs the CLI against the server's database, e.g. `user list`, `export --out /data/export.json`.
+
+**Back up.** Everything lives in `/data`. Stop the server so the copy is consistent, copy, start:
+
+```bash
+docker compose stop baseline && docker compose cp baseline:/data ./baseline-backup && docker compose start baseline
+```
+
+To restore, stop, copy back, and give the files to the container's user:
+
+```bash
+docker compose stop baseline
+docker compose cp ./baseline-backup/. baseline:/data
+docker compose run --rm --no-deps --user root --entrypoint chown baseline -R node:node /data
+docker compose start baseline
+```
+
+**Upgrade.** Back up, then `git pull && docker compose up -d --build`. The volume is kept, and the database schema migrates when the server starts.
+
+**Connect a coding agent.** Each person installs the CLI on their own machine (not on npm yet: `npm pack` in this repo, then `npm install -g baseline-<version>.tgz`; it needs Node 22.13 or later), then in each repo:
+
+```bash
+baseline login --server https://baseline.example.com   # approve in the browser
+baseline connect claude                                 # or: codex, pi
+```
+
 ## What's inside
 
 Issues with statuses, priorities, labels, sub-issues, relations, due dates, estimates and cycles · list & board views with grouping/sub-grouping/filters/display options · projects with updates, milestones and progress · issue templates & agent hand-off briefs (copy an issue as a ready-to-paste prompt) · inbox notifications · saved views & favorites · full keyboard model (press `?`) with undo toasts · command palette (⌘K) · dark & light themes · team settings with workflow-state and label editors. See `FEATURES.md` for the complete list.

@@ -1,0 +1,17 @@
+# Baseline for one organization. Copy .env.example to .env, fill it in, then `docker compose up -d`.
+# HTTPS with Caddy: compose.https.yaml (switch it on with COMPOSE_FILE in .env).
+services:
+  baseline:
+    build: .
+    image: baseline:local
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "${BASELINE_PUBLISH:-7770}:7770"
+    volumes:
+      - baseline-data:/data
+
+volumes:
+  baseline-data:
