@@ -24,7 +24,9 @@
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p web/tsconfig.json --noEmit",
     "test:cli": "bash scripts/test-cli.sh",
     "test:auth": "tsx scripts/test-auth.ts",
-    "test:guards": "tsx scripts/test-state-guards.ts"
+    "test:guards": "tsx scripts/test-state-guards.ts",
+    "test:route-policy": "tsx scripts/test-route-policy.ts",
+    "test:cli-legacy": "tsx scripts/check-cli-legacy.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
