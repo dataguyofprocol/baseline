@@ -1,7 +1,7 @@
 // Finds unslop punctuation (em dashes, en dashes, curly quotes) in comments and user-facing text.
-// Kept: a dash that is the whole value (an empty cell, `?? '—'`) or the whole separator between two
-// values (`${key} — ${title}`), and curly quotes and en-dash number ranges in UI text, which follow
-// Linear's typography.
+// Kept: a dash that is the whole value (an empty cell, `?? '—'`), the whole separator between two
+// values (`${key} — ${title}`), or the CLI comment byline a test asserts (`"— Ada"`). Curly quotes
+// and en-dash number ranges in UI text also stay, because they follow Linear's typography.
 //
 //   npx tsx scripts/unslop-scan.ts               lists every hit to fix; exits 1 if there are any
 //   npx tsx scripts/unslop-scan.ts --summary     counts by kind and directory
@@ -59,7 +59,10 @@ function scan(file: string): Hit[] {
     const source = lines[line - 1];
     if (KEEP_LINE.test(source)) continue;
     let kind: Kind;
-    if (file.endsWith('.sh')) kind = SH_COMMENT.test(source) ? 'comment' : 'text';
+    if (file.endsWith('.sh')) {
+      if (/["^]$/.test(src.slice(pos - 1, pos))) continue;
+      kind = SH_COMMENT.test(source) ? 'comment' : 'text';
+    }
     else if (file.endsWith('.css')) kind = comments.some(([a, b]) => pos >= a && pos < b) ? 'comment' : 'text';
     else {
       const span = spans.find(([a, b]) => pos >= a && pos < b);
