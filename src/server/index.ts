@@ -5,7 +5,7 @@ import { normalizeDir, Store } from '../core/store.js';
 import { blankWorkspace, seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
 import { authConfigFromEnv, cookieSessions, mountAuth, type AuthConfig } from './auth.js';
-import { attributedActor, authenticate, hostOf, isLoopback, originHostOf, principalUser, Refusal } from './principal.js';
+import { attributedActor, authenticate, hostOf, isLoopback, originHostOf, principalOf, principalUser, Refusal } from './principal.js';
 import { mountMembers } from './members.js';
 import { ChangeFeed, startScheduler } from './live.js';
 import { streamSSE } from 'hono/streaming';
@@ -13,7 +13,7 @@ import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
 import { Accounts, AccountError } from '../core/accounts.js';
 import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
-import { type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
+import { isSnapshotSection, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
 import { WEBHOOK_MAX_BYTES, WEBHOOK_PATH } from '../core/webhooks.js';
 import { FileError, FileService, MAX_EMOJI_BYTES, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
 import { existsSync, readFileSync } from 'node:fs';
@@ -168,13 +168,42 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   mountMembers(app, { store, accounts, mailer, publicUrl: hosted ? auth.publicUrl : null });
 
   // ---------- bootstrap ----------
+  // ?sections=teams,states,… returns only those parts (a CLI command needs a few, not the whole workspace)
   app.get('/api/bootstrap', (c) => {
+    const requested = c.req.query('sections')?.split(',').map(s => s.trim()).filter(Boolean);
+    const unknown = requested?.filter(s => !isSnapshotSection(s));
+    if (unknown?.length) return c.json({ error: `Unknown bootstrap section(s): ${unknown.join(', ')}`, code: 'invalid' }, 400);
     const snap = store.snapshot();
     snap.workspace.auth = auth.mode;
     // the home directory only means something when the server is this machine
     if (!hosted) snap.workspace.homeDir = homedir();
     if (LAN_OPEN) snap.workspace.lanHost = LISTEN_HOST;
-    return c.json(snap);
+    if (!requested) return c.json(snap);
+    // scope before picking: a team-limited key's response scoping drops comments and activity by
+    // their issue, which it can only do while the issues are in the same response
+    const p = principalOf(c);
+    const scoped = (p.via === 'key' ? apiKeys.scopeResponse(p.key, snap) : snap) as Record<string, unknown>;
+    return c.json(Object.fromEntries(requested.map(s => [s, scoped[s]])));
+  });
+
+  // ---------- who am I ----------
+  app.get('/api/me', (c) => {
+    const p = principalOf(c);
+    const user = store.snapshot().users.find(u => u.id === principalUser(c, store));
+    if (!user) return c.json({ error: 'not found' }, 404);
+    const ws = store.workspaceMeta();
+    return c.json({
+      user, workspace: { id: ws.id, name: ws.name }, via: p.via,
+      scopes: p.via === 'key' ? p.key.scopes : null, teamIds: p.via === 'key' ? p.key.teamIds : null,
+      keyId: p.via === 'key' ? p.key.id : null,
+    });
+  });
+  // signing out of the CLI: only ever the key that made the request (other keys are managed in Settings)
+  app.delete('/api/me/key', (c) => {
+    const p = principalOf(c);
+    if (p.via !== 'key') return c.json({ error: 'This request wasn\'t made with an API key', code: 'invalid' }, 400);
+    apiKeys.revoke(p.key.id);
+    return c.json({ ok: true });
   });
 
   // ---------- live updates ----------
@@ -211,6 +240,21 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const issue = store.updateIssue(c.req.param('id'), patch, attributedActor(c, actorId));
     if (!issue) return c.json({ error: 'not found' }, 404);
     return c.json({ issue });
+  });
+  app.get('/api/issues', (c) => {
+    const q = (k: string) => c.req.query(k) || undefined;
+    const priority = q('priority'), limit = q('limit');
+    return c.json({ issues: store.listIssues({
+      teamId: q('teamId'), stateId: q('stateId'), assigneeId: q('assigneeId'), projectId: q('projectId'),
+      priority: priority === undefined ? undefined : Number(priority) as Priority, query: q('query'),
+      includeArchived: q('includeArchived') === 'true', limit: limit === undefined ? undefined : Number(limit),
+    }) });
+  });
+  // by key (CORE-12), archived and deleted included. Writes take ids: a key in a write's path would
+  // slip past a team-limited key's check, which looks the path segment up as an issue id
+  app.get('/api/issues/by-key/:key', (c) => {
+    const issue = store.getByKey(c.req.param('key'));
+    return issue ? c.json({ issue }) : c.json({ error: 'not found' }, 404);
   });
   // archive & trash (registered before /api/issues/:id so the words don't read as ids)
   app.get('/api/issues/archived', (c) => c.json({ issues: store.listArchived(c.req.query('teamId') || undefined) }));
@@ -332,7 +376,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // branch copy / hand-off: backlog or unstarted → first started state, unassigned → you
   app.post('/api/issues/:id/start', (c) => c.json(store.startIssue(c.req.param('id'), actor(c))));
   app.get('/api/issues/:id/handoff', (c) => {
-    const handoff = store.handoffFor(c.req.param('id'));
+    const handoff = store.handoffFor(c.req.param('id'), hosted ? auth.publicUrl.origin : undefined);
     return handoff ? c.json({ handoff }) : c.json({ error: 'not found' }, 404);
   });
   // these routes start local processes (a terminal, a folder picker): only this machine's own

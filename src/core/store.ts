@@ -295,12 +295,12 @@ export class Store {
   }
 
   // ---------- handoff ----------
-  handoffFor(issueId: string): Handoff | undefined {
+  handoffFor(issueId: string, baseUrl?: string): Handoff | undefined {
     const issue = this.getIssue(issueId);
     if (!issue) return undefined;
     const snap = this.snapshot();
     const template = getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
-    return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels, branchFormat: snap.workspace.features.branchFormat, username: snap.currentUser?.username || snap.currentUser?.name }, template);
+    return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels, branchFormat: snap.workspace.features.branchFormat, username: snap.currentUser?.username || snap.currentUser?.name, baseUrl }, template);
   }
   getHandoffTemplate(): string {
     return getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;

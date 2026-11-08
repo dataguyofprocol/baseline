@@ -549,6 +549,52 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
   check('names in email HTML are escaped', html.includes('Cara &lt;script&gt;') && !/<script/i.test(html), html.slice(0, 200));
 }
 
+// ---- API keys on a hosted server (the CLI's way in) ----
+{
+  const { apiKeys } = store.ext;
+  const ownerId = boot.currentUser.id;
+  const keyReq = (path: string, token: string, init: RequestInit = {}) =>
+    req(path, { ...init, headers: { ...(init.headers as Record<string, string> ?? {}), authorization: `Bearer ${token}`, ...(init.body ? { 'content-type': 'application/json' } : {}) } });
+  const full = apiKeys.create({ name: 'cli', userId: ownerId, scopes: ['read', 'write'] });
+  check('a hosted server accepts a valid key', (await keyReq('/api/bootstrap?sections=teams', full.token)).status === 200);
+  check('a bad key is 401', (await keyReq('/api/bootstrap', 'bl_api_nope')).status === 401);
+  const rebound = await app.fetch(new Request('https://rebound.example.net/api/bootstrap', { headers: { authorization: `Bearer ${full.token}` } }));
+  check('a key still has to address the public host', rebound.status === 403);
+  const t = (await keyReq('/api/issues', full.token, { method: 'POST', body: JSON.stringify({ teamId: team.team.id, title: 'From the CLI' }) }));
+  const made = (await t.json() as { issue: { id: string; creatorId: string } }).issue;
+  check('a key writes without Origin or cookie, as its owner', t.status === 201 && made.creatorId === ownerId);
+  const me = await (await keyReq('/api/me', full.token)).json() as { user: { id: string }; via: string; scopes: string[]; keyId: string };
+  check('/api/me names the key\'s owner and limits', me.user.id === ownerId && me.via === 'key' && me.scopes.join() === 'read,write' && me.keyId === full.key.id);
+  check('a key can\'t mint keys', (await keyReq('/api/api-keys', full.token, { method: 'POST', body: JSON.stringify({ name: 'x' }) })).status === 403);
+  check('…or approve a CLI sign-in', (await keyReq('/api/cli-auth/approve', full.token, { method: 'POST', body: JSON.stringify({}) })).status === 403);
+  check('a read+write key can\'t change workspace settings', (await keyReq('/api/workspace', full.token, { method: 'PATCH', body: JSON.stringify({ name: 'x' }) })).status === 403);
+  const patchAs = await keyReq(`/api/issues/${made.id}`, full.token, { method: 'PATCH', body: JSON.stringify({ title: 'as Ada', actorId: ada.id }) });
+  check('a key can\'t write as another user', patchAs.status === 403 && store.getIssue(made.id)?.title === 'From the CLI');
+  const byKey = await (await keyReq(`/api/issues/by-key/${store.keyOf(made)}`, full.token)).json() as { issue: { id: string } };
+  check('an issue can be read by its key', byKey.issue?.id === made.id);
+  const sections = await (await keyReq('/api/bootstrap?sections=teams,currentUser', full.token)).json() as Record<string, unknown>;
+  check('bootstrap returns only the sections asked for', Object.keys(sections).sort().join() === 'currentUser,teams');
+  check('an unknown section is 400', (await keyReq('/api/bootstrap?sections=nope', full.token)).status === 400);
+
+  // a key limited to one team
+  const other = store.createTeam('OTH', 'Other');
+  const foreign = store.createIssue({ teamId: other.id, title: 'Not yours' }, ownerId);
+  store.addComment(foreign.id, ownerId, 'secret comment');
+  const limited = apiKeys.create({ name: 'eng only', userId: ownerId, scopes: ['read', 'write'], teamIds: [team.team.id] });
+  check('a team-limited key can\'t update another team\'s issue', (await keyReq(`/api/issues/${foreign.id}`, limited.token, { method: 'PATCH', body: JSON.stringify({ title: 'x' }) })).status === 403);
+  check('…or comment on it', (await keyReq(`/api/issues/${foreign.id}/comments`, limited.token, { method: 'POST', body: JSON.stringify({ body: 'x' }) })).status === 403);
+  check('…or read it by key', (await keyReq(`/api/issues/by-key/${store.keyOf(foreign)}`, limited.token)).status === 404);
+  const list = await (await keyReq('/api/issues', limited.token)).json() as { issues: Array<{ id: string }> };
+  check('…and its issue list leaves it out', list.issues.length > 0 && !list.issues.some(i => i.id === foreign.id));
+  const partial = await (await keyReq('/api/bootstrap?sections=comments,teams', limited.token)).json() as { comments: Array<{ body: string }>; teams: Array<{ id: string }> };
+  check('…and a sectioned bootstrap still drops its comments and team', !partial.comments.some(c => c.body === 'secret comment') && !partial.teams.some(x => x.id === other.id));
+
+  const gone = await keyReq('/api/me/key', full.token, { method: 'DELETE' });
+  check('a key can revoke itself', gone.status === 200 && !apiKeys.get(full.key.id));
+  check('…and then stops working', (await keyReq('/api/me', full.token)).status === 401);
+  check('DELETE /api/me/key with a cookie is refused', (await req('/api/me/key', { method: 'DELETE', headers: { origin: ORIGIN }, cookie: ownerCookie })).status === 400);
+}
+
 // ---- sessions ----
 {
   const out = await req('/api/auth/logout', { ...json({}), cookie: adaCookie });

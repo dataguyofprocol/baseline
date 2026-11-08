@@ -893,6 +893,21 @@ export interface Snapshot {
   currentUser: User;
 }
 
+export type SnapshotSection = keyof Snapshot;
+/** every part of a Snapshot, by name: `GET /api/bootstrap?sections=` accepts exactly these
+ *  (a Record over keyof Snapshot, so a new part that isn't listed here fails the build) */
+const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
+  workspace: true, users: true, teams: true, states: true, labels: true, templates: true, issues: true, comments: true,
+  attachments: true, subscriptions: true, relations: true, projects: true, projectLinks: true, docs: true, teamLinks: true,
+  projectTemplates: true, projectRelations: true, projectLabels: true, projectStatuses: true, projectSubscriptions: true,
+  docTemplates: true, emojis: true, customers: true, customerStatuses: true, customerTiers: true, customerRequests: true,
+  initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, releases: true, slaRules: true,
+  askForms: true, loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
+  teamSubscriptions: true, teamWorkflows: true, recurring: true, locations: true, projectUpdates: true, milestones: true,
+  cycles: true, views: true, favorites: true, notifications: true, activity: true, currentUser: true,
+};
+export const isSnapshotSection = (s: string): s is SnapshotSection => Object.hasOwn(SNAPSHOT_SECTIONS, s);
+
 export const PRIORITY_LABELS: Record<Priority, string> = {
   0: 'No priority',
   1: 'Urgent',
