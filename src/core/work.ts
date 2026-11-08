@@ -252,7 +252,9 @@ export class Work {
       let created: Issue | undefined;
       const opId = this.op('file_followup', lane, { issueId: source.id, dedupeKey }, () => {
         created = this.store.createIssue({ teamId: team.id, title: input.title.trim(), description: input.description, stateId: triage, projectId: source.projectId }, who.actorId);
+        // "related" is stored one way (store.setRelation), and an issue page lists its own rows: both pages should show the link
         this.store.setRelation(created.id, source.id, 'related', who.actorId);
+        this.store.setRelation(source.id, created.id, 'related', who.actorId);
         return { resultId: created.id };
       });
       return { opId, attributedTo: this.attributedTo(who), issue: created!, url: this.issueUrl(created!, baseUrl), source, deduplicated: false };
