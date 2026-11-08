@@ -3,8 +3,9 @@
 //     (read from the real CLI's --help, so a wiring mistake shows);
 //   - a generated command lacks an argument or flag for an input field, or a field can't be a flag;
 //   - an op module reaches past the Baseline client (store, database, server, process, console);
-//   - the "Agent loop" block in skills/baseline/SKILL.md differs from the one generated from
-//     OPERATIONS. `--write` regenerates it instead (npm run gen:skill).
+//   - the "Agent loop" block in skills/baseline/SKILL.md, or the hand-off brief's {{tracking}} text
+//     (src/core/tracking.ts), differs from the one generated from OPERATIONS. `--write`
+//     regenerates them instead (npm run gen:skill).
 //
 //   npx tsx scripts/check-ops-parity.ts [--write]
 import { spawnSync } from 'node:child_process';
@@ -14,6 +15,7 @@ import { Command } from 'commander';
 import { OPERATIONS } from '../src/ops/index.js';
 import { cliVerb, fieldsOf, usageOf, type AnyOperation } from '../src/ops/operation.js';
 import { mountOperations } from '../src/cli/ops.js';
+import { handoffTracking } from '../src/ops/guide.js';
 
 const root = join(import.meta.dirname, '..');
 /** `baseline agent` commands that are settings, not agent operations */
@@ -77,6 +79,21 @@ else {
     if (process.argv.includes('--write')) { writeFileSync(skillPath, skill.slice(0, at) + block + skill.slice(end + END.length)); console.log('✓ regenerated the agent-loop block in skills/baseline/SKILL.md'); }
     else problems.push('the agent-loop block in skills/baseline/SKILL.md is stale: run `npm run gen:skill`');
   }
+}
+
+// 5. the hand-off brief's {{tracking}} text, generated (core runs in the browser too, so it can't import the registry)
+const trackingPath = join(root, 'src/core/tracking.ts');
+const tracking = [
+  '// Generated from src/ops/index.ts by `npm run gen:skill`; edit the operations (or src/ops/guide.ts), not this file.',
+  '/** the hand-off brief\'s {{tracking}}: how the agent keeps the issue current; {{key}} is the issue key */',
+  `export const HANDOFF_TRACKING = ${JSON.stringify(handoffTracking())};`,
+  '',
+].join('\n');
+let trackingNow = '';
+try { trackingNow = readFileSync(trackingPath, 'utf8'); } catch { /* absent: written below, or reported */ }
+if (trackingNow !== tracking) {
+  if (process.argv.includes('--write')) { writeFileSync(trackingPath, tracking); console.log('✓ regenerated src/core/tracking.ts'); }
+  else problems.push('src/core/tracking.ts (the hand-off {{tracking}} text) is stale: run `npm run gen:skill`');
 }
 
 if (problems.length) { for (const p of problems) console.error(`✗ ${p}`); process.exit(1); }

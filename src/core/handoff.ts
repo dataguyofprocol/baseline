@@ -4,6 +4,7 @@
 import { issueKey, PRIORITY_SHORT } from './types.js';
 import type { Handoff, Issue, Label, Priority, Project, Team, WorkflowState } from './types.js';
 import { plainMentions } from './mentions.js';
+import { HANDOFF_TRACKING } from './tracking.js';
 
 export const DEFAULT_PROMPT_TEMPLATE = `Work on Baseline issue {{key}}: {{title}}
 
@@ -12,11 +13,8 @@ export const DEFAULT_PROMPT_TEMPLATE = `Work on Baseline issue {{key}}: {{title}
 Issue: {{url}}
 Branch: {{branch}} (if this changes code, create it from the repo's default branch).
 
-Track the work on {{key}} with the baseline CLI's agent commands (or the /baseline skill, if you have it):
-- Start: \`baseline agent start-issue {{key}}\` moves it to In Progress. Read the full context with \`baseline agent get-issue {{key}} --json\` (comments, sub-issues, blockers).
-- While you work: \`baseline agent post-progress {{key}} --did "…" --left "…"\` after each meaningful step. It keeps one progress note on {{key}} and rewrites it in place.
-- Work you find that is not part of {{key}}: \`baseline agent file-followup {{key}} "Title" --description "…"\`. It goes to Triage, where a person accepts or declines it.
-- Finish: \`baseline agent finish-issue {{key}} --outcome in_review|done|stopped --summary "…"\`. If you only partly finish, use stopped and say what remains with --left.
+{{tracking}}
+If you only partly finish, finish with outcome stopped and say what remains in left.
 
 What the summary should contain depends on the kind of work:
 - Code: the branch, the commit or PR link, the files you changed, and how you verified the change (tests or commands you ran).
@@ -39,6 +37,7 @@ export const PROMPT_TEMPLATE_VARS = [
   ['{{estimate}}', 'estimate points (empty if unset)'],
   ['{{dueDate}}', 'due date YYYY-MM-DD (empty if unset)'],
   ['{{labels}}', 'comma-separated label names'],
+  ['{{tracking}}', 'how the agent keeps the issue current: its MCP tools and `baseline agent` commands'],
 ] as const;
 
 /** Filler words that carry no meaning in a branch name — dropped before the length cap
@@ -134,6 +133,7 @@ export function buildHandoff(
     estimate: issue.estimate != null ? String(issue.estimate) : '',
     dueDate: issue.dueDate ? issue.dueDate.slice(0, 10) : '',
     labels: labelNames.join(', '),
+    tracking: HANDOFF_TRACKING.split('{{key}}').join(key),
   };
   return { key, title: issue.title, branchName: branch, url: vars.url, prompt: renderHandoff(template, vars) };
 }

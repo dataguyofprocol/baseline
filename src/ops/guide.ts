@@ -34,9 +34,7 @@ export function agentGuide(): string {
     '',
     'Use the tools of the `baseline` MCP server. Without MCP (for example in pi), run the same operation as a `baseline agent` command and add `--as "<your agent name>"` (for example `--as pi`), so the change shows as yours on the person\'s behalf:',
     '',
-    '| Tool | Command | What it does |',
-    '|---|---|---|',
-    ...OPERATIONS.map(op => `| \`${op.name}\` | \`${command(op as AnyOperation)}\` | ${firstSentence(op.description)} |`),
+    ...OPERATIONS.map(op => `- \`${op.name}\` (\`${command(op as AnyOperation)}\`): ${firstSentence(op.description)}`),
   ].join('\n');
 }
 
