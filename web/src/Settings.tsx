@@ -586,7 +586,7 @@ function ProfileSettings() {
         </div>
       </div>
       <div className="field-row">
-        <div><div className="field-label">Email</div><div className="field-help">{snap.workspace.auth === 'hosted' ? 'Your Google account’s address.' : 'Shown to agents in hand-off prompts.'}</div></div>
+        <div><div className="field-label">Email</div><div className="field-help">{snap.workspace.auth === 'hosted' ? 'The address you sign in with.' : 'Shown to agents in hand-off prompts.'}</div></div>
         <input className="text-input" value={email} disabled={snap.workspace.auth === 'hosted'} onChange={e => setEmail(e.target.value)} onBlur={() => email !== me.email && void save({ email })} />
       </div>
       <div className="field-row">
