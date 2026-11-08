@@ -8,7 +8,8 @@ import { isDirectory, LaunchError, openInClaudeCode } from '../server/launch.js'
 import { seedWorkspace } from '../core/seed.js';
 import { issueKey, initiativeKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS, API_KEY_SCOPES } from '../core/types.js';
 import type { RelationType, Snapshot, Team, Label, Project, Issue, Location, ApiKeyScope } from '../core/types.js';
-import { BaselineError, connect, issueIndex, resolve, ResolveError, TargetError, views, type Baseline } from '../client/index.js';
+import { BaselineError, connect, issueIndex, resolve, ResolveError, TargetError, targetFor, views, type Baseline } from '../client/index.js';
+import { readSetupToken } from '../server/setup.js';
 import { legacyApp, legacyStore, setLegacyCommand } from './legacy.js';
 import { mountAccountCommands } from './login.js';
 import { mountOperations } from './ops.js';
@@ -88,6 +89,18 @@ program
   .option('--seed', 'a new database starts with the sample workspace instead of the first-run flow', false)
   .action((opts) => {
     void serve({ port: opts.port ? Number(opts.port) : undefined, dbPath: opts.db, open: opts.open, seedIfEmpty: opts.seed });
+  });
+
+program
+  .command('setup-token')
+  .description('Print a new hosted server\'s setup token, for creating the owner account (run it where the database is)')
+  .option('-d, --db <path>', 'database path')
+  .action((opts: { db?: string }) => {
+    const target = targetFor({ db: opts.db });
+    if (target.kind !== 'local') fail('Run this on the server, beside its database (--db <path> or BASELINE_DB)');
+    const token = readSetupToken(target.dbPath);
+    if (!token) fail(`No setup token for ${target.dbPath}: the workspace is already set up, or the server hasn't started in hosted mode (BASELINE_PUBLIC_URL) yet`);
+    console.log(token);
   });
 
 program

@@ -20,7 +20,7 @@ process.on('exit', () => rmSync(work, { recursive: true, force: true }));
 const sent: MailMessage[] = [];
 const dbFile = join(work, 'hosted.db');
 const { app, store, db, changes } = createApp(dbFile, {
-  mode: 'google', publicUrl: new URL(ORIGIN), clientId: CLIENT_ID, clientSecret: 'secret', ownerEmail: OWNER,
+  mode: 'hosted', publicUrl: new URL(ORIGIN), google: { clientId: CLIENT_ID, clientSecret: 'secret' }, ownerEmail: OWNER,
 }, { configured: true, send: async (m) => { sent.push(m); } });
 
 let pass = 0, fail = 0;
@@ -99,7 +99,7 @@ const ownerCookie = `__Host-baseline_session=${owner.session}`;
 const boot = await (await req('/api/bootstrap', { cookie: ownerCookie })).json() as { currentUser: { id: string; name: string; admin: boolean; avatarUrl: string }; workspace: { auth: string; homeDir?: string }; teams: unknown[] };
 check('bootstrap returns the signed-in person as currentUser', boot.currentUser.name === 'Owner Person' && boot.currentUser.admin);
 check('the Google picture becomes the avatar', boot.currentUser.avatarUrl === 'https://lh3.example/p.png');
-check('workspace reports google auth and hides the server home dir', boot.workspace.auth === 'google' && !boot.workspace.homeDir);
+check('workspace reports hosted auth and hides the server home dir', boot.workspace.auth === 'hosted' && !boot.workspace.homeDir);
 check('a hosted workspace starts empty (no sample data)', boot.teams.length === 0);
 
 const ownerAgain = await signIn({ sub: 'g-owner', email: OWNER, name: 'Owner Person' }, { next: '//evil.example.com/x' });
@@ -722,6 +722,197 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
   check('an expired session is rejected', (await req('/api/bootstrap', { cookie: ownerCookie })).status === 401);
   const stored = db.prepare('SELECT id FROM sessions').all() as Array<{ id: string }>;
   check('the database stores token hashes, not tokens', stored.every(s => s.id !== owner.session));
+}
+
+// ---- forgot password, on the Google + SMTP server above ----
+{
+  const cfg = await (await req('/auth/config')).json() as { methods: string[]; setup: boolean; mail: boolean };
+  check('a server with a Google client offers password and Google, and is set up once the owner signed in', cfg.methods.join() === 'password,google' && !cfg.setup && cfg.mail, JSON.stringify(cfg));
+  const before = sent.length;
+  const forgot = (email: string) => req('/auth/forgot', json({ email }));
+  const known = await forgot(OWNER), unknown = await forgot('nobody@example.com');
+  await new Promise(r => setTimeout(r, 20));
+  const mail = sent.slice(before);
+  check('"forgot password" answers the same for a member and a stranger', known.status === 200 && unknown.status === 200);
+  check('…and emails a reset link only to the member', mail.length === 1 && mail[0]!.to === OWNER && /\?reset=/.test(mail[0]!.text), JSON.stringify(mail.map(m => m.to)));
+}
+
+// ---- password sign-in on a server with only BASELINE_PUBLIC_URL (no Google, no SMTP) ----
+{
+  const { authConfigFromEnv } = await import('../src/server/auth.js');
+  const { readSetupToken } = await import('../src/server/setup.js');
+  const envCfg = authConfigFromEnv({ BASELINE_PUBLIC_URL: 'https://pw.example.com' });
+  check('BASELINE_PUBLIC_URL alone makes a hosted server with password sign-in only', envCfg.mode === 'hosted' && envCfg.google === null);
+  check('no BASELINE_PUBLIC_URL stays local', authConfigFromEnv({}).mode === 'local');
+  let threw = false; try { authConfigFromEnv({ BASELINE_PUBLIC_URL: 'https://pw.example.com', GOOGLE_CLIENT_ID: 'x' }); } catch { threw = true; }
+  check('a Google client id without its secret refuses to start', threw);
+
+  const PW = 'https://pw.example.com';
+  const pwDb = join(work, 'password.db');
+  const pw = createApp(pwDb, envCfg, { configured: false, send: async () => { throw new Error('no smtp'); } });
+  let ip = 0;
+  const preq = (path: string, init: RequestInit & { cookie?: string; ip?: string } = {}) => {
+    const headers = new Headers(init.headers);
+    if (init.cookie) headers.set('cookie', init.cookie);
+    headers.set('x-forwarded-for', init.ip ?? `198.51.100.${++ip % 250}`);
+    return pw.app.fetch(new Request(new URL(path, PW), { ...init, headers }));
+  };
+  const post = (path: string, body: unknown, extra: { cookie?: string; ip?: string; origin?: string | null } = {}) => preq(path, {
+    method: 'POST', body: JSON.stringify(body), cookie: extra.cookie, ip: extra.ip,
+    headers: { 'content-type': 'application/json', ...(extra.origin === null ? {} : { origin: extra.origin ?? PW }) },
+  });
+  const sessionOf = (res: Response) => cookiesFrom(res)['__Host-baseline_session'];
+  const errOf = async (res: Response) => (await res.json() as { error?: string; code?: string });
+
+  const cfg = await (await preq('/auth/config')).json() as { methods: string[]; setup: boolean; mail: boolean };
+  check('a fresh password server asks for setup, offers only passwords, has no email', cfg.methods.join() === 'password' && cfg.setup && !cfg.mail, JSON.stringify(cfg));
+  const g = await preq('/auth/google?next=/');
+  check('a server without Google refuses /auth/google', g.status === 404 && (await errOf(g)).code === 'google-off');
+  check('…and its callback', (await preq('/auth/google/callback?code=x&state=y')).status === 404);
+  check('the API is closed before setup', (await preq('/api/bootstrap')).status === 401);
+
+  const token = pw.setup.ensure();
+  check('the setup token is kept beside the database for `baseline setup-token`', readSetupToken(pwDb) === token && /^[0-9A-Z]{5}(-[0-9A-Z]{5}){3}$/.test(token), token);
+  check('…and is the same after a restart', pw.setup.ensure() === token);
+  const owner = { name: 'Olu Owner', email: 'Olu@Example.com', password: 'correct horse battery', workspaceName: 'Acme' };
+  check('setup without the token is refused', (await post('/auth/setup', owner)).status === 403);
+  check('setup with a wrong token is refused', (await post('/auth/setup', { ...owner, token: 'AAAAA-BBBBB-CCCCC-DDDDD' })).status === 403);
+  check('setup from another site is refused', (await post('/auth/setup', { ...owner, token }, { origin: 'https://evil.example' })).status === 403);
+  const weak = await post('/auth/setup', { ...owner, token, password: 'short' });
+  check('setup refuses a short password', weak.status === 400 && (await errOf(weak)).code === 'weak-password');
+  const done = await post('/auth/setup', { ...owner, token: token.toLowerCase() });
+  const ownerSession = sessionOf(done);
+  check('setup with the token (any case) creates the owner and signs them in', done.status === 201 && !!ownerSession);
+  const ownerCookie2 = `__Host-baseline_session=${ownerSession}`;
+  const oBoot = await (await preq('/api/bootstrap', { cookie: ownerCookie2 })).json() as { currentUser: { name: string; email: string; admin: boolean }; workspace: { name: string; auth: string; signInMethods: string[] } };
+  check('…as an admin, with the workspace named', oBoot.currentUser.admin && oBoot.currentUser.email === 'olu@example.com' && oBoot.workspace.name === 'Acme', JSON.stringify(oBoot.currentUser));
+  check('…and bootstrap says how people sign in here', oBoot.workspace.auth === 'hosted' && oBoot.workspace.signInMethods.join() === 'password');
+  check('setup is one-shot: the token file is gone', readSetupToken(pwDb) === null);
+  const again = await post('/auth/setup', { ...owner, email: 'thief@example.com', token });
+  check('…and the route refuses a second owner', again.status === 409 && (await errOf(again)).code === 'already-set-up');
+  check('…and /auth/config no longer asks for setup', !((await (await preq('/auth/config')).json()) as { setup: boolean }).setup);
+  const users = pw.db.prepare("SELECT password_hash FROM users WHERE kind = 'human'").all() as Array<{ password_hash: string }>;
+  check('the password is stored as a salted scrypt hash', users.length === 1 && users[0]!.password_hash.startsWith('scrypt$') && !users[0]!.password_hash.includes(owner.password));
+
+  // two setups racing with the token: exactly one owner
+  {
+    const raceDb = join(work, 'race.db');
+    const race = createApp(raceDb, envCfg, { configured: false, send: async () => {} });
+    const t = race.setup.ensure();
+    const go = (email: string, n: number) => race.app.fetch(new Request(`${PW}/auth/setup`, { method: 'POST', headers: { 'content-type': 'application/json', origin: PW, 'x-forwarded-for': `192.0.2.${n}` }, body: JSON.stringify({ ...owner, email, token: t }) }));
+    const results = await Promise.all([go('a@example.com', 1), go('b@example.com', 2)]);
+    const admins = (race.db.prepare("SELECT COUNT(*) n FROM users WHERE kind = 'human' AND admin = 1").get() as { n: number }).n;
+    check('two setups racing with the token make exactly one owner', results.map(r => r.status).sort().join() === '201,409' && Number(admins) === 1, results.map(r => r.status).join());
+  }
+
+  // sign in
+  const signInPw = (email: string, password: string, ipAddr?: string) => post('/auth/password', { email, password }, { ip: ipAddr });
+  const ok = await signInPw('olu@example.com', owner.password);
+  check('the owner signs in with email and password', ok.status === 200 && !!sessionOf(ok));
+  check('…and that session works on the API', (await preq('/api/me', { cookie: `__Host-baseline_session=${sessionOf(ok)}` })).status === 200);
+  const wrong = await signInPw('olu@example.com', 'not the password');
+  const nobody = await signInPw('nobody@example.com', 'not the password');
+  const wrongBody = await errOf(wrong), nobodyBody = await errOf(nobody);
+  check('a wrong password is refused with no session', wrong.status === 401 && !sessionOf(wrong));
+  check('…with the same message as an unknown email', nobody.status === 401 && wrongBody.error === nobodyBody.error && wrongBody.code === 'invalid', JSON.stringify([wrongBody, nobodyBody]));
+  check('password sign-in from another site is refused', (await post('/auth/password', { email: 'olu@example.com', password: owner.password }, { origin: null })).status === 403);
+  {
+    // per account: 10 tries in 15 minutes, from any number of addresses
+    const target = 'victim@example.com';
+    const codes: number[] = [];
+    for (let i = 0; i < 11; i++) codes.push((await signInPw(target, 'guess-' + i, `203.0.113.${100 + i}`)).status);
+    check('the 11th password guess for one account is rate-limited, across addresses', codes.slice(0, 10).every(c => c === 401) && codes[10] === 429, codes.join());
+    // per address: 30 tries in 10 minutes, across accounts
+    const ipCodes: number[] = [];
+    for (let i = 0; i < 31; i++) ipCodes.push((await signInPw(`spray${i}@example.com`, 'guess', '203.0.113.250')).status);
+    check('the 31st sign-in from one address is rate-limited, across accounts', ipCodes.slice(0, 30).every(c => c === 401) && ipCodes[30] === 429, ipCodes.slice(28).join());
+    const fresh = await signInPw('olu@example.com', owner.password, '203.0.113.251');
+    check('…and another address still signs in', fresh.status === 200);
+  }
+
+  // invite by link (no SMTP), accepted with a password
+  const team = await (await post('/api/teams', { key: 'ACM', name: 'Acme' }, { cookie: ownerCookie2 })).json() as { team: { id: string } };
+  const inv = await (await post('/api/invites', { emails: 'Tia@example.com', teamIds: [team.team.id] }, { cookie: ownerCookie2 })).json() as { results: Array<{ status: string; emailed: string; invite: { link: string } }> };
+  const r0 = inv.results[0]!;
+  check('without SMTP an invite isn\'t emailed, and comes back with its link', r0.status === 'invited' && r0.emailed === 'off' && r0.invite.link.startsWith(`${PW}/?invite=`), JSON.stringify(r0));
+  const code = new URL(r0.invite.link).searchParams.get('invite')!;
+  const accept = (body: Record<string, unknown>, c = code) => post(`/auth/invite/${c}/accept`, body);
+  const tia = { email: 'tia@example.com', name: 'Tia Teammate', password: 'tia has a long password' };
+  const mismatch = await accept({ ...tia, email: 'someone@example.com' });
+  check('accepting an invite needs the address it was sent to', mismatch.status === 400 && (await errOf(mismatch)).code === 'invite-mismatch');
+  check('…and a long enough password', (await accept({ ...tia, password: 'short' })).status === 400);
+  check('…and comes from this site', (await post(`/auth/invite/${code}/accept`, tia, { origin: 'https://evil.example' })).status === 403);
+  const joined = await accept({ ...tia, email: 'TIA@example.com' });
+  const tiaCookie = `__Host-baseline_session=${sessionOf(joined)}`;
+  check('accepting the invite sets the password and signs them in', joined.status === 201 && !!sessionOf(joined));
+  const tBoot = await (await preq('/api/bootstrap', { cookie: tiaCookie })).json() as { currentUser: { id: string; name: string; admin: boolean }; teams: Array<{ id: string; memberIds: string[] }> };
+  check('…as a member of the invited team, not an admin', tBoot.currentUser.name === 'Tia Teammate' && !tBoot.currentUser.admin && tBoot.teams.find(t => t.id === team.team.id)?.memberIds.includes(tBoot.currentUser.id) === true);
+  check('…and both see the same workspace', (await (await preq('/api/bootstrap', { cookie: ownerCookie2 })).json() as { users: Array<{ email: string }> }).users.some(u => u.email === 'tia@example.com'));
+  const reuse = await accept(tia);
+  check('an accepted invite can\'t be used again', reuse.status === 400 && (await errOf(reuse)).code === 'invite-expired');
+  check('the teammate signs in with that password later', (await signInPw('tia@example.com', tia.password)).status === 200);
+  const tiaId = tBoot.currentUser.id;
+
+  // reset links
+  const ownerId = pw.store.snapshot().users.find(u => u.email === 'olu@example.com')!.id;
+  check('a member can\'t make a reset link', (await post(`/api/members/${ownerId}/reset-link`, {}, { cookie: tiaCookie })).status === 403);
+  const adminKey = pw.store.ext.apiKeys.create({ name: 'k', userId: ownerId });
+  check('an API key can\'t make a reset link', (await pw.app.fetch(new Request(`${PW}/api/members/${tiaId}/reset-link`, { method: 'POST', headers: { authorization: `Bearer ${adminKey.token}` } }))).status === 403);
+  const mk = async () => (await (await post(`/api/members/${tiaId}/reset-link`, {}, { cookie: ownerCookie2 })).json() as { link: string; expiresAt: string });
+  const first = await mk();
+  const resetToken = (link: string) => new URL(link).searchParams.get('reset')!;
+  check('an admin makes a reset link for a member, valid for a day', first.link.startsWith(`${PW}/?reset=`) && Math.abs(Date.parse(first.expiresAt) - Date.now() - 86400_000) < 60_000, JSON.stringify(first));
+  const second = await mk();
+  check('a newer link replaces the older one', (await preq(`/auth/reset/${resetToken(first.link)}`)).status === 404 && (await preq(`/auth/reset/${resetToken(second.link)}`)).status === 200);
+  const resetInfo = await (await preq(`/auth/reset/${resetToken(second.link)}`)).json() as { state: string; email: string };
+  check('…and says whose password it sets', resetInfo.state === 'valid' && resetInfo.email === 'tia@example.com');
+  check('a reset refuses a short password', (await post(`/auth/reset/${resetToken(second.link)}`, { password: 'short' })).status === 400);
+  const reset = await post(`/auth/reset/${resetToken(second.link)}`, { password: 'tia chose another password' });
+  check('the reset link sets the password and signs them in', reset.status === 200 && !!sessionOf(reset));
+  check('…signing out their other sessions', (await preq('/api/bootstrap', { cookie: tiaCookie })).status === 401);
+  check('…the old password stops working', (await signInPw('tia@example.com', tia.password)).status === 401);
+  check('…the new one works', (await signInPw('tia@example.com', 'tia chose another password')).status === 200);
+  check('a reset link works once', (await post(`/auth/reset/${resetToken(second.link)}`, { password: 'a third long password' })).status === 400);
+  const third = await mk();
+  pw.db.prepare("UPDATE password_resets SET expires_at = '2000-01-01T00:00:00.000Z'").run();
+  check('an expired reset link is refused', (await preq(`/auth/reset/${resetToken(third.link)}`)).status === 404 && (await post(`/auth/reset/${resetToken(third.link)}`, { password: 'a third long password' })).status === 400);
+  check('reset links are stored hashed', !(pw.db.prepare('SELECT token_hash FROM password_resets').all() as Array<{ token_hash: string }>).some(r => r.token_hash === resetToken(third.link)));
+  const forgotOff = await post('/auth/forgot', { email: 'tia@example.com' });
+  check('without SMTP "forgot password" says to ask an admin', forgotOff.status === 400 && (await errOf(forgotOff)).code === 'mail-off');
+
+  // change your own password
+  const tiaNow = sessionOf(await signInPw('tia@example.com', 'tia chose another password'))!;
+  const tiaOther = sessionOf(await signInPw('tia@example.com', 'tia chose another password'))!;
+  const change = (cookie: string, body: unknown) => post('/api/me/password', body, { cookie: `__Host-baseline_session=${cookie}` });
+  const badCurrent = await change(tiaNow, { current: 'nope', next: 'brand new password here' });
+  check('changing your password needs the current one (400, not a sign-out)', badCurrent.status === 400 && (await errOf(badCurrent)).code === 'invalid');
+  const changed = await change(tiaNow, { current: 'tia chose another password', next: 'brand new password here' });
+  const tiaNew = sessionOf(changed);
+  check('changing your password keeps this browser signed in', changed.status === 200 && !!tiaNew && (await preq('/api/me', { cookie: `__Host-baseline_session=${tiaNew}` })).status === 200);
+  check('…and signs out the others', (await preq('/api/me', { cookie: `__Host-baseline_session=${tiaOther}` })).status === 401);
+  check('an API key can\'t change a password', (await pw.app.fetch(new Request(`${PW}/api/me/password`, { method: 'POST', headers: { authorization: `Bearer ${adminKey.token}`, 'content-type': 'application/json' }, body: '{}' }))).status === 403);
+  const me = await (await preq('/api/me', { cookie: `__Host-baseline_session=${tiaNew}` })).json() as { hasPassword: boolean };
+  check('/api/me says a password is set', me.hasPassword === true);
+
+  // `baseline login` approved from a password session
+  {
+    const { createHash, randomBytes } = await import('node:crypto');
+    const verifier = randomBytes(32).toString('base64url');
+    const ask = { port: 54322, state: randomBytes(18).toString('base64url'), challenge: createHash('sha256').update(verifier).digest('base64url'), device: 'pw-laptop' };
+    const page = await (await preq(`/cli/authorize?${new URLSearchParams({ ...ask, port: String(ask.port) })}`)).text();
+    check('the CLI sign-in page sends a signed-out browser to the app\'s sign-in screen, not Google', page.includes("'/?next='") && !page.includes('/auth/google'));
+    const approved = await (await post('/api/cli-auth/approve', ask, { cookie: `__Host-baseline_session=${tiaNew}` })).json() as { redirect: string };
+    const back = new URL(approved.redirect);
+    const got = await (await pw.app.fetch(new Request(`${PW}/auth/cli/token`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: back.searchParams.get('code'), verifier }) }))).json() as { token: string; user: { id: string } };
+    check('CLI login is approved from a password session and gets a key as that person', got.token?.startsWith('bl_api_') && got.user.id === tiaId, JSON.stringify(got));
+  }
+
+  // suspension still wins over a right password
+  pw.db.prepare("UPDATE users SET status = 'suspended' WHERE id = ?").run(tiaId);
+  const susp = await signInPw('tia@example.com', 'brand new password here');
+  check('a suspended person can\'t sign in with the right password', susp.status === 403 && (await errOf(susp)).code === 'suspended' && !sessionOf(susp));
+  const suspWrong = await signInPw('tia@example.com', 'wrong password');
+  check('…and a wrong password for them is the usual refusal', suspWrong.status === 401);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

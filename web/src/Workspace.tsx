@@ -384,7 +384,7 @@ export function MembersPage() {
   }, [snap.activity]);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Members' }]} right={<button className="btn secondary" onClick={() => navigate('/settings/members')}><IconPlus size={13} /> {snap.workspace.auth === 'google' ? 'Invite' : 'Add member'}</button>} />
+      <TopBar crumbs={[{ label: 'Members' }]} right={<button className="btn secondary" onClick={() => navigate('/settings/members')}><IconPlus size={13} /> {snap.workspace.auth === 'hosted' ? 'Invite' : 'Add member'}</button>} />
       <div className="subnav"><div className="set-filter" style={{ border: 0, margin: 0, flex: 1 }}><IconSearch size={13} /><input placeholder="Find members…" value={q} onChange={e => setQ(e.target.value)} /></div></div>
       <div className="content">
         <div className="wtable">

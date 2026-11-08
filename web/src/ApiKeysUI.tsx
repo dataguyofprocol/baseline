@@ -5,7 +5,7 @@ import { api } from './api.js';
 import { ConfirmButton, useInFlight } from './ui.js';
 import { Avatar } from './pickers.js';
 import { IconBack, IconCopy } from './icons.js';
-import { API_KEY_SCOPES, type ApiKey, type ApiKeyScope } from '../../src/core/types.js';
+import { API_KEY_SCOPES, PASSWORD_MIN, type ApiKey, type ApiKeyScope } from '../../src/core/types.js';
 
 const refresh = () => useApp.getState().bootstrap();
 
@@ -34,6 +34,48 @@ function KeyRow({ k, owner, onRevoke }: { k: ApiKey; owner?: boolean; onRevoke: 
   );
 }
 
+/** change your own password (hosted). Someone who only signs in with Google has none to change. */
+function PasswordSection() {
+  const toast = useApp(s => s.toast);
+  const [hasPassword, setHasPassword] = useState<boolean | null>(null);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [err, setErr] = useState('');
+  const { busy, guard } = useInFlight();
+  useEffect(() => { void api.me().then(r => setHasPassword(!!r.hasPassword)).catch(() => setHasPassword(null)); }, []);
+  if (hasPassword === null) return null;
+  const save = guard(async () => {
+    try {
+      await api.changePassword({ current, next });
+      setCurrent(''); setNext(''); setErr('');
+      toast({ title: 'Password changed — other devices were signed out' });
+    } catch (e) { setErr((e as Error).message); }
+  });
+  return (
+    <>
+      <div className="settings-h2">Password</div>
+      {hasPassword ? (
+        <form className="card set-list" data-change-password onSubmit={e => { e.preventDefault(); void save(); }}>
+          <div className="set-row">
+            <div style={{ flex: 1 }}><div className="field-label">Current password</div></div>
+            <input className="text-input" type="password" name="current" autoComplete="current-password" value={current} onChange={e => setCurrent(e.target.value)} />
+          </div>
+          <div className="set-row">
+            <div style={{ flex: 1 }}><div className="field-label">New password</div><div className="set-meta" style={{ marginLeft: 0 }}>At least {PASSWORD_MIN} characters.</div></div>
+            <input className="text-input" type="password" name="next" autoComplete="new-password" value={next} onChange={e => setNext(e.target.value)} />
+          </div>
+          <div className="set-row">
+            <span style={{ flex: 1, fontSize: 12, color: '#eb5757' }} role="alert">{err}</span>
+            <button className="btn ghost sm" disabled={busy || !current || !next}>Change password</button>
+          </div>
+        </form>
+      ) : (
+        <div className="field-help" style={{ marginBottom: 8 }}>You sign in with Google, so there’s no password to change. An admin can send you a link to set one.</div>
+      )}
+    </>
+  );
+}
+
 /* ================= Settings › Security & access ================= */
 export function SecuritySettings() {
   const snap = useApp(s => s.snap)!;
@@ -46,6 +88,7 @@ export function SecuritySettings() {
   return (
     <div className="settings-card">
       <h1>Security &amp; access</h1>
+      {snap.workspace.auth === 'hosted' && <PasswordSection />}
       <div className="settings-h2">Sessions</div>
       <div className="field-help" style={{ marginBottom: 8 }}>Devices using this workspace</div>
       <div className="card set-list">

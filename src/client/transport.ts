@@ -27,7 +27,7 @@ async function parse(res: Response, where: string): Promise<WireResponse> {
 /**
  * The same app `baseline serve` runs, built in this process and called with app.request(): every
  * request passes the same /api middleware a server request does (authenticate, adminOnly, localOnly).
- * Local mode always (a shell with GOOGLE_CLIENT_ID set must not turn the CLI into a hosted app), and
+ * Local mode always (a shell with BASELINE_PUBLIC_URL set must not turn the CLI into a hosted app), and
  * no mail (a CLI write must not send email from the laptop). The server module is imported here,
  * lazily, so a remote invocation never opens SQLite.
  */

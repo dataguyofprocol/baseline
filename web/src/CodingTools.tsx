@@ -13,7 +13,7 @@ import { IconLink, IconCopyId, IconBranch, IconHandoff, IconChevronDown, IconSpa
 import type { Issue, Location } from '../../src/core/types.js';
 
 /** hosted: the server can't open programs or folders on your computer — that waits for the companion */
-export const hostedWorkspace = () => useApp.getState().snap?.workspace.auth === 'google';
+export const hostedWorkspace = () => useApp.getState().snap?.workspace.auth === 'hosted';
 export const COMPANION_NOTE = 'Opening Claude Code and adding folders need the Baseline companion on your computer — coming in Phase 2.';
 
 /** /Users/me/code/app → ~/code/app */
@@ -266,7 +266,7 @@ export function IssueLocationRow(props: { issue: Issue }) {
   const loc = snap.locations.find(l => l.id === props.issue.locationId);
   // every open task should say where it happens — not just the ones handed to Claude Code
   const stateType = snap.states.find(s => s.id === props.issue.stateId)?.type;
-  const hosted = snap.workspace.auth === 'google';
+  const hosted = snap.workspace.auth === 'hosted';
   // hosted: nothing launches from a location yet, so don't ask for one — existing ones can still be set
   const needs = !hosted && !loc && stateType !== 'completed' && stateType !== 'canceled';
   const c = locationChoices(props.issue);
@@ -304,7 +304,7 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
   const navigate = useNavigate();
   const { project } = props;
   const linked = project.locationIds.map(id => snap.locations.find(l => l.id === id)).filter((l): l is Location => !!l);
-  const hosted = snap.workspace.auth === 'google';
+  const hosted = snap.workspace.auth === 'hosted';
   // the menu stays open for several toggles, so each one builds on the last — not on props a refresh hasn't caught up with
   const ids = useRef(project.locationIds);
   useEffect(() => { ids.current = project.locationIds; }, [project.locationIds]);
@@ -354,7 +354,7 @@ export function LocationsSettings() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const home = snap.workspace.homeDir;
-  const hosted = snap.workspace.auth === 'google';
+  const hosted = snap.workspace.auth === 'hosted';
   // hosted, locations can't be added, and only admins can rename or remove the ones a moved workspace brought
   const canEdit = !hosted || snap.currentUser.admin;
   const [missing, setMissing] = useState<Record<string, boolean>>({});

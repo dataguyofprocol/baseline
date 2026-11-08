@@ -29,8 +29,8 @@ export const originHostOf = (c: Context): string | null => {
 };
 const isRead = (method: string) => method === 'GET' || method === 'HEAD';
 
-/** a key can't mint, list or approve keys: those doors need a person (cookie or this machine) */
-const KEYLESS = /^\/api\/(api-keys|cli-auth)(\/|$)/;
+/** a key can't mint, list or approve keys, or set passwords: those doors need a person (cookie or this machine) */
+const KEYLESS = /^\/api\/(api-keys|cli-auth|me\/password|members\/[^/]+\/reset-link)(\/|$)/;
 /** an agent drafts project updates with a key; only a person (cookie or this machine) publishes one */
 const PUBLISH = /^\/api\/projects\/[^/]+\/update-draft\/publish$/;
 /** the hosted MCP endpoint: keys only. Its tool calls are /api requests made with the same key,
@@ -121,7 +121,7 @@ export function authenticate(d: AuthenticateDeps): MiddlewareHandler {
   return async (c, next) => {
     const host = hostOf(c);
     const header = c.req.header('authorization')?.trim();
-    if (auth.mode === 'google') {
+    if (auth.mode === 'hosted') {
       if (host !== auth.publicUrl.hostname) return forbid(c, 'Unknown host');
       if (header) return withKey(c, next, header);
       if (c.req.path === MCP) return needsKey(c);

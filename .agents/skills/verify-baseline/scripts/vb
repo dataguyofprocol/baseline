@@ -58,7 +58,7 @@ cmd_start() {
   node bin/baseline.js seed --reset --db "$DB" >"$INST/seed.log" 2>&1 || die "seed failed — see $INST/seed.log"
 
   # server: built app, scratch DB, private port, loopback only (BASELINE_HOST unset), no --open
-  env -u BASELINE_HOST -u GOOGLE_CLIENT_ID BASELINE_DB="$DB" BASELINE_PORT="$PORT" \
+  env -u BASELINE_HOST -u BASELINE_PUBLIC_URL -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET BASELINE_DB="$DB" BASELINE_PORT="$PORT" \
     nohup node dist/server/index.js >"$INST/server.log" 2>&1 &
   local spid=$!
 

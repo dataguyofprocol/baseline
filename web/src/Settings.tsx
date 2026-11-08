@@ -64,7 +64,7 @@ export function SettingsLayout() {
         <div className="settings-search"><IconSearch size={13} /><input placeholder="Search…" value={q} onChange={e => setQ(e.target.value)} /></div>
         {SETTINGS_NAV.map(g => {
           // workspace Security is who may sign in — only a hosted workspace has sign-in
-          const items = g.items.filter(([label, key]) => match(label, g.sec) && (key !== 'workspace-security' || snap.workspace.auth === 'google'));
+          const items = g.items.filter(([label, key]) => match(label, g.sec) && (key !== 'workspace-security' || snap.workspace.auth === 'hosted'));
           if (!items.length) return null;
           return (
             <div key={g.sec}>
@@ -109,8 +109,8 @@ function SettingsPage() {
       {!teamKey && section === 'workspace' && <WorkspaceSettings />}
       {section === 'teams' && <TeamsSettings />}
       {section === 'new-team' && <NewTeamSettings />}
-      {section === 'members' && (snap.workspace.auth === 'google' ? <HostedMembersSettings /> : <MembersSettings />)}
-      {section === 'workspace-security' && snap.workspace.auth === 'google' && <WorkspaceSecuritySettings />}
+      {section === 'members' && (snap.workspace.auth === 'hosted' ? <HostedMembersSettings /> : <MembersSettings />)}
+      {section === 'workspace-security' && snap.workspace.auth === 'hosted' && <WorkspaceSecuritySettings />}
       {section === 'labels' && <LabelsSettings />}
       {section === 'templates' && <TemplatesSettings />}
       {section === 'handoff' && <HandoffSettings />}
@@ -586,8 +586,8 @@ function ProfileSettings() {
         </div>
       </div>
       <div className="field-row">
-        <div><div className="field-label">Email</div><div className="field-help">{snap.workspace.auth === 'google' ? 'Your Google account’s address.' : 'Shown to agents in hand-off prompts.'}</div></div>
-        <input className="text-input" value={email} disabled={snap.workspace.auth === 'google'} onChange={e => setEmail(e.target.value)} onBlur={() => email !== me.email && void save({ email })} />
+        <div><div className="field-label">Email</div><div className="field-help">{snap.workspace.auth === 'hosted' ? 'The address you sign in with.' : 'Shown to agents in hand-off prompts.'}</div></div>
+        <input className="text-input" value={email} disabled={snap.workspace.auth === 'hosted'} onChange={e => setEmail(e.target.value)} onBlur={() => email !== me.email && void save({ email })} />
       </div>
       <div className="field-row">
         <div><div className="field-label">Full name</div></div>
@@ -1166,7 +1166,7 @@ function HandoffSettings() {
       </div>
       <LocationsSettings />
       {/* the terminal Claude Code opens in is this machine's — hosted, that's the companion's to know */}
-      {snap.workspace.auth !== 'google' && <ClaudeCodeSettings />}
+      {snap.workspace.auth !== 'hosted' && <ClaudeCodeSettings />}
       <h2 className="settings-h2">Prompt template</h2>
       <div className="field-help" style={{ marginBottom: 10 }}>
         The same brief is used by the toolbar, <code>baseline issue handoff</code>, the palette and both Claude Code launchers.

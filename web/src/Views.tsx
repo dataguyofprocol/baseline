@@ -478,7 +478,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
           {(() => {
             // only whoever saved a view decides who sees it (and only where there's more than one person)
             const v = snap.views.find(x => x.id === menuView);
-            if (!v || snap.workspace.auth !== 'google' || v.ownerId !== snap.currentUser.id) return null;
+            if (!v || snap.workspace.auth !== 'hosted' || v.ownerId !== snap.currentUser.id) return null;
             return <MenuItem label={v.shared ? 'Make personal' : 'Share with workspace'} onClick={async () => {
               await api.updateView(v.id, { shared: !v.shared });
               await useApp.getState().bootstrap();

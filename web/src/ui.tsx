@@ -475,7 +475,7 @@ export function ConfirmButton(props: {
 
 /** hosted, how teams and the workspace are set up is admins' to change (TEAM_PLAN.md › Who changes what) */
 export function useCanConfigure(): boolean {
-  return useApp(s => !s.snap || s.snap.workspace.auth !== 'google' || s.snap.currentUser.admin);
+  return useApp(s => !s.snap || s.snap.workspace.auth !== 'hosted' || s.snap.currentUser.admin);
 }
 export const ADMIN_NOTE = 'Only admins can change this.';
 /** the same controls, disabled under a note, for someone who can't change them */

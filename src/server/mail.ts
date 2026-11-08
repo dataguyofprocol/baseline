@@ -1,6 +1,7 @@
 // Outgoing email over SMTP. Off unless SMTP_HOST is set; callers then fall back to links people copy.
 // (Retries, digests and an outbox come with notification email; invites send once and report back.)
 import nodemailer from 'nodemailer';
+import type { SignInMethod } from '../core/types.js';
 
 export interface MailMessage { to: string; subject: string; text: string; html: string }
 export interface Mailer {
@@ -36,14 +37,14 @@ function render(paragraphs: string[], action?: { label: string; url: string }): 
   return { text, html };
 }
 
-export function inviteEmail(o: { to: string; inviter: string; workspace: string; link: string; expiresAt: string }): MailMessage {
+export function inviteEmail(o: { to: string; inviter: string; workspace: string; link: string; expiresAt: string; methods: SignInMethod[] }): MailMessage {
   const expires = new Date(o.expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
   return {
     to: o.to,
     subject: `${o.inviter} invited you to ${o.workspace} on Baseline`,
     ...render([
       `${o.inviter} invited you to join ${o.workspace} on Baseline, where the team tracks its issues and projects.`,
-      `Sign in with the Google account for ${o.to}. The invite expires on ${expires}.`,
+      `${o.methods.includes('google') ? `Set a password, or sign in with the Google account for ${o.to}.` : 'Open the link to set your password.'} The invite expires on ${expires}.`,
     ], { label: `Join ${o.workspace}`, url: o.link }),
   };
 }
@@ -53,5 +54,16 @@ export function inviteAcceptedEmail(o: { to: string; who: string; workspace: str
     to: o.to,
     subject: `${o.who} accepted your invite to ${o.workspace}`,
     ...render([`${o.who} accepted your invite and joined ${o.workspace}.`], { label: 'Open Baseline', url: o.link }),
+  };
+}
+
+export function passwordResetEmail(o: { to: string; workspace: string; link: string; minutes: number }): MailMessage {
+  return {
+    to: o.to,
+    subject: `Reset your ${o.workspace} password on Baseline`,
+    ...render([
+      `Someone asked to reset the password for ${o.to} on ${o.workspace}. The link works once, for ${o.minutes} minutes.`,
+      'If that wasn’t you, ignore this email — your password stays as it is.',
+    ], { label: 'Choose a new password', url: o.link }),
   };
 }
