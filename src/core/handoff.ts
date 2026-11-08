@@ -12,17 +12,18 @@ export const DEFAULT_PROMPT_TEMPLATE = `Work on Baseline issue {{key}}: {{title}
 Issue: {{url}}
 Branch: {{branch}} (if this changes code, create it from the repo's default branch).
 
-Track the work on {{key}} with the baseline CLI (or the /baseline skill, if you have it):
-- Start: set the state to In Progress (\`issue update {{key}} -s "In Progress"\`) and read the full context with \`issue show {{key}} --json\` (comments, sub-issues, blockers).
-- Finish: post one comment on {{key}} (\`issue comment {{key}} "…"\`), then set the state to Done. If you only partly finish, say what remains and leave the state as it is.
-- If the work splits into separate pieces, create sub-issues (\`issue create "…" -t {{teamKey}} --parent {{key}}\`) rather than writing one long comment.
+Track the work on {{key}} with the baseline CLI's agent commands (or the /baseline skill, if you have it):
+- Start: \`baseline agent start-issue {{key}}\` moves it to In Progress. Read the full context with \`baseline agent get-issue {{key}} --json\` (comments, sub-issues, blockers).
+- While you work: \`baseline agent post-progress {{key}} --did "…" --left "…"\` after each meaningful step. It keeps one progress note on {{key}} and rewrites it in place.
+- Work you find that is not part of {{key}}: \`baseline agent file-followup {{key}} "Title" --description "…"\`. It goes to Triage, where a person accepts or declines it.
+- Finish: \`baseline agent finish-issue {{key}} --outcome in_review|done|stopped --summary "…"\`. If you only partly finish, use stopped and say what remains with --left.
 
-What the comment should contain depends on the kind of work:
+What the summary should contain depends on the kind of work:
 - Code: the branch, the commit or PR link, the files you changed, and how you verified the change (tests or commands you ran).
 - Docs or write-ups: the absolute path of each file you created (or the artifact link), plus a 2–3 line summary.
 - Bug or investigation: the root cause, the evidence (file:line, log lines), and the fix or the next step.
 - Research or a decision: the recommendation, the options you weighed, and links to sources.
-Refer to local files by absolute path, put paths, branch names and commands in backticks, and keep it short. The comment is what the human reads.`;
+Refer to local files by absolute path, put paths, branch names and commands in backticks, and keep it short. The summary is what the person reads.`;
 
 export const PROMPT_TEMPLATE_VARS = [
   ['{{key}}', 'issue key, e.g. CORE-14'],

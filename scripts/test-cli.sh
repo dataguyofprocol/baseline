@@ -289,7 +289,7 @@ echo "=== issue handoff ==="
 BRANCH="$(echo "$KEY" | tr '[:upper:]' '[:lower:]')-renamed-issue"
 check  "handoff includes title"  "renamed issue"  issue handoff "$KEY"
 check  "handoff includes branch" "$BRANCH"        issue handoff "$KEY"
-check  "handoff suggests report-back" "state to Done" issue handoff "$KEY"
+check  "handoff suggests report-back" "baseline agent finish-issue $KEY" issue handoff "$KEY"
 b issue handoff "$KEY" --json > "$WORK/h.json"
 check_json "handoff json shape" "$WORK/h.json" "d.key==='$KEY'&&d.title==='renamed issue'&&(d.branchName==='$BRANCH'||d.branchName.endsWith('/$BRANCH'))&&d.prompt.includes('renamed issue')&&d.url.includes('/#/issue/')"
 check_rc "handoff unknown issue" 1 issue handoff "NOPE-99"
@@ -355,7 +355,7 @@ export BASELINE_SESSIONS_DIR="$WORK/sessions" BASELINE_OPEN_CMD="true"
 checkon "$ADB" "issue open uses the issue's location" "in $PREPO" issue open "$KI"
 if grep -q "cd '$PREPO'" "$WORK"/sessions/"$KI"-*.command && grep -q "BASELINE_AS=" "$WORK"/sessions/"$KI"-*.command; then PASS=$((PASS+1)); else echo "FAIL  launcher cds into the location with BASELINE_AS"; FAILED_NAMES+=("launcher script"); FAIL=$((FAIL+1)); fi
 if [[ "$(stat -f %Lp "$WORK"/sessions/"$KI"-*.md 2>/dev/null | head -1 || stat -c %a "$WORK"/sessions/"$KI"-*.md | head -1)" == "600" ]]; then PASS=$((PASS+1)); else echo "FAIL  session brief is owner-only"; FAILED_NAMES+=("session brief perms"); FAIL=$((FAIL+1)); fi
-if grep -q "issue show $KI --json" "$WORK"/sessions/"$KI"-*.md; then PASS=$((PASS+1)); else echo "FAIL  launcher prompt carries the brief"; FAILED_NAMES+=("launcher prompt"); FAIL=$((FAIL+1)); fi
+if grep -q "baseline agent get-issue $KI --json" "$WORK"/sessions/"$KI"-*.md; then PASS=$((PASS+1)); else echo "FAIL  launcher prompt carries the brief"; FAILED_NAMES+=("launcher prompt"); FAIL=$((FAIL+1)); fi
 checkon "$ADB" "issue open --location pins it" "pinned to agent-repo" issue open "$KA" --location agent-repo
 checkon "$ADB" "sessions post as Claude Code" "Claude Code" user list
 OUT=$(BASELINE_DB="$ADB" $BIN issue open "$(ab issue create "nowhere" -t CORE --location none --json | keyof)" 2>&1)
