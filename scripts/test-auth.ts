@@ -561,7 +561,7 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
   const rebound = await app.fetch(new Request('https://rebound.example.net/api/bootstrap', { headers: { authorization: `Bearer ${full.token}` } }));
   check('a key still has to address the public host', rebound.status === 403);
   const t = (await keyReq('/api/issues', full.token, { method: 'POST', body: JSON.stringify({ teamId: team.team.id, title: 'From the CLI' }) }));
-  const made = (await t.json() as { issue: { id: string; creatorId: string } }).issue;
+  const made = (await t.json() as { issue: { id: string; creatorId: string; number: number; teamId: string } }).issue;
   check('a key writes without Origin or cookie, as its owner', t.status === 201 && made.creatorId === ownerId);
   const me = await (await keyReq('/api/me', full.token)).json() as { user: { id: string }; via: string; scopes: string[]; keyId: string };
   check('/api/me names the key\'s owner and limits', me.user.id === ownerId && me.via === 'key' && me.scopes.join() === 'read,write' && me.keyId === full.key.id);

@@ -28,7 +28,7 @@
     "serve": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" BASELINE_PORT=\"${BASELINE_PORT:-7327}\" node dist/server/index.js --open",
     "cli": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" BASELINE_PORT=\"${BASELINE_PORT:-7327}\" tsx src/cli/index.ts",
     "seed": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" tsx src/cli/index.ts seed --reset",
-    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.scripts.json && tsc -p web/tsconfig.json --noEmit",
     "test:cli": "bash scripts/test-cli.sh",
     "test:auth": "tsx scripts/test-auth.ts",
     "test:guards": "tsx scripts/test-state-guards.ts",

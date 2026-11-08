@@ -121,7 +121,7 @@ db.close();
 // session bound to its key, and every tool call made as an /api request with that key.
 const ORIGIN = 'https://baseline.example.com';
 const httpDbPath = join(work, 'http.db');
-const hosted = createApp(httpDbPath, { mode: 'google', publicUrl: new URL(ORIGIN), clientId: 'c', clientSecret: 's', ownerEmail: '' }, { configured: false, send: async () => {} });
+const hosted = createApp(httpDbPath, { mode: 'hosted', publicUrl: new URL(ORIGIN), google: null, ownerEmail: '' }, { configured: false, send: async () => {} });
 const hs = hosted.store;
 const person = hs.createUser('Ada Owner', 'ada@example.com', true);
 const mineTeam = hs.createTeam('MINE', 'Mine'), otherTeam = hs.createTeam('OTH', 'Other');
