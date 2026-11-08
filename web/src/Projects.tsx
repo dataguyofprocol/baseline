@@ -1212,13 +1212,24 @@ function ProjectBell(props: { project: Project }) {
 function UpdateComposer(props: { project: Project; latest?: Snap['projectUpdates'][number] }) {
   const snap = useApp(s => s.snap)!;
   const draft = snap.updateDrafts?.find(d => d.projectId === props.project.id);
-  // the key makes a newer draft from the agent replace the composer's text
-  if (draft) return <DraftComposer key={draft.updatedAt} project={props.project} draft={draft} />;
+  if (draft) return <DraftComposer key={props.project.id} project={props.project} draft={draft} />;
   return <UpdateComposerBody {...props} />;
 }
 
+type UpdateDraft = NonNullable<Snap['updateDrafts']>[number];
+
 /** An agent's draft, waiting in the composer: the person edits it, then publishes it as their own update or discards it. */
-function DraftComposer(props: { project: Project; draft: NonNullable<Snap['updateDrafts']>[number] }) {
+function DraftComposer(props: { project: Project; draft: UpdateDraft }) {
+  const [shown, setShown] = useState(props.draft);
+  const [edited, setEdited] = useState(false);
+  const newer = props.draft.updatedAt !== shown.updatedAt;
+  // an agent redrafting replaces the text only until the person starts editing; after that they choose
+  if (newer && !edited) setShown(props.draft);
+  const takeNewer = () => { setShown(props.draft); setEdited(false); };
+  return <DraftEditor key={shown.updatedAt} project={props.project} draft={shown} newerWaiting={newer && edited} onEdit={() => setEdited(true)} onTakeNewer={takeNewer} />;
+}
+
+function DraftEditor(props: { project: Project; draft: UpdateDraft; newerWaiting: boolean; onEdit: () => void; onTakeNewer: () => void }) {
   const snap = useApp(s => s.snap)!;
   const { draft, project } = props;
   const [health, setHealth] = useState<ProjectHealth>(draft.health ?? project.health);
@@ -1234,11 +1245,14 @@ function DraftComposer(props: { project: Project; draft: NonNullable<Snap['updat
   const discard = guard(() => settle(api.discardUpdateDraft(project.id)));
   return (
     <div className="update-card composing" data-update-draft>
-      <div className="update-draft-head">Drafted by {author?.id === snap.currentUser.id ? 'you' : author?.name ?? 'an agent'} · {relTime(draft.updatedAt)}</div>
-      <div className="update-health-row">
-        {HEALTH.map(([v, l, c]) => <button key={v} className={`health-pick${health === v ? ' on' : ''}`} onClick={() => setHealth(v)}><span className="health-dot" style={{ background: c }} />{l}</button>)}
+      <div className="update-draft-head">
+        Drafted by {author?.id === snap.currentUser.id ? 'you' : author?.name ?? 'an agent'} · {relTime(draft.updatedAt)}
+        {props.newerWaiting && <> · <button className="update-draft-newer" data-draft-newer onClick={props.onTakeNewer}>A newer draft is ready. Replace your edits with it</button></>}
       </div>
-      <RichEditor value={draft.body} editorRef={editorRef} uploadTo={`project:${project.id}`} placeholder="How is the project going? What's next?" onChange={setBody} onSubmit={md => void publish(md)} />
+      <div className="update-health-row">
+        {HEALTH.map(([v, l, c]) => <button key={v} className={`health-pick${health === v ? ' on' : ''}`} onClick={() => { setHealth(v); props.onEdit(); }}><span className="health-dot" style={{ background: c }} />{l}</button>)}
+      </div>
+      <div onInput={props.onEdit}><RichEditor value={draft.body} editorRef={editorRef} uploadTo={`project:${project.id}`} placeholder="How is the project going? What's next?" onChange={setBody} onSubmit={md => void publish(md)} /></div>
       <div className="cbox-foot"><span className="cbox-hint">⌘↵ to publish</span><button className="btn" style={{ height: 26, fontSize: 12 }} disabled={busy} onClick={() => void discard()}>Discard</button><button className="btn primary" style={{ height: 26, fontSize: 12 }} disabled={busy} onClick={() => void publish(editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : body)}>Publish update</button></div>
     </div>
   );
