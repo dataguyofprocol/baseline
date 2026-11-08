@@ -5,6 +5,7 @@ import { Automation } from './automation.js';
 import { GitSync } from './git.js';
 import { ApiKeys } from './apikeys.js';
 import { GitHubWebhooks, migrateWebhooks } from './webhooks.js';
+import { migrateWork, WORK_TABLES } from './work.js';
 
 /* Areas added after the core tracker — initiatives, releases, SLAs, asks, loops and the git
    integration. Each lives in its own module with its own tables, and plugs into the store
@@ -119,6 +120,7 @@ function migrateExtensions(db: DatabaseSync): void {
 export function createExtensions(store: Store, db: DatabaseSync): Extensions {
   migrateExtensions(db);
   migrateWebhooks(db);
+  migrateWork(db);
   const planning = new Planning(store, db);
   const automation = new Automation(store, db);
   const git = new GitSync(store, db);
@@ -127,8 +129,8 @@ export function createExtensions(store: Store, db: DatabaseSync): Extensions {
   return {
     planning, automation, git, apiKeys, webhooks,
     snapshot: () => ({ ...planning.snapshot(), ...automation.snapshot(), ...git.snapshot() }),
-    // api_keys are not exported or imported: only their hashes exist
-    tables: ['github_issue_imports', 'github_deliveries', 'api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'releases', 'initiative_links', 'initiative_updates', 'initiative_projects', 'initiatives', 'initiative_labels'],
+    // api_keys are not exported or imported (only their hashes exist), nor is agent work
+    tables: [...WORK_TABLES, 'github_issue_imports', 'github_deliveries', 'api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'releases', 'initiative_links', 'initiative_updates', 'initiative_projects', 'initiatives', 'initiative_labels'],
     importData(data, insert) {
       const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : []);
       for (const x of arr<Record<string, unknown>>(data.initiatives)) {

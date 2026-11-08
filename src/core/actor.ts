@@ -6,6 +6,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  *  to the workspace's own `currentUser`. */
 export const actingUser = new AsyncLocalStorage<string>();
 
+/** The agent operation a write belongs to (core/work.ts). Every activity row written inside one
+ *  carries its id, so `undo` can replay exactly that operation's rows backwards. */
+export const currentOp = new AsyncLocalStorage<string>();
+
 /**
  * Who a write is by. An agent user writes on a person's behalf (`viaUserId`, shown as
  * "Claude Code via Parth"); a person writes as themselves and has no via.

@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { getMeta, migrateDirectoriesToLocations, setMeta, ensureDefaults } from './db.js';
 import { id, nowIso, midSort, normalizeDir } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
-import { actingUser, viaFor } from './actor.js';
+import { actingUser, currentOp, viaFor } from './actor.js';
 import { mentionedIds, plainMentions } from './mentions.js';
 import type {
   ActivityItem, ActivityType, Attachment, RecurringIssue, ProjectTemplate, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, PreferencesPatch, EstimateScale,
@@ -1318,8 +1318,8 @@ export class Store {
   // ---------- activity ----------
   logActivity(e: { issueId?: string; projectId?: string; type: ActivityType; data?: Record<string, unknown> }, actorId?: string): void {
     const uid = actorId ?? this.actor();
-    this.db.prepare('INSERT INTO activity (id, issue_id, project_id, user_id, via_user_id, type, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id('a'), e.issueId ?? null, e.projectId ?? null, uid, viaFor(uid), e.type, JSON.stringify(e.data ?? {}), ts());
+    this.db.prepare('INSERT INTO activity (id, issue_id, project_id, user_id, via_user_id, type, data, created_at, op_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id('a'), e.issueId ?? null, e.projectId ?? null, uid, viaFor(uid), e.type, JSON.stringify(e.data ?? {}), ts(), currentOp.getStore() ?? null);
   }
   issueActivity(issueId: string): ActivityItem[] { return this.snapshot().activity.filter(a => a.issueId === issueId).reverse(); }
 

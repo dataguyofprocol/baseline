@@ -558,6 +558,10 @@ function migrate(db: DatabaseSync): void {
     if (!columns(t).includes('via_user_id')) db.exec(`ALTER TABLE ${t} ADD COLUMN via_user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
   }
 
+  // the agent operation an activity row belongs to (core/work.ts), so undo can replay one operation
+  if (!columns('activity').includes('op_id')) db.exec('ALTER TABLE activity ADD COLUMN op_id TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_activity_op ON activity(op_id) WHERE op_id IS NOT NULL');
+
   // every workspace gets at least one agent identity for hand-offs
   const hasAgent = db.prepare("SELECT 1 FROM users WHERE kind = 'agent' LIMIT 1").get();
   if (!hasAgent) {
