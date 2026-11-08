@@ -533,8 +533,8 @@ export function linkTitle(url: string): string {
   return m ? `PR #${m[2]} (${m[1]})` : url;
 }
 
-const section = (title: string, text: string | null) => text ? [`**${title}**`, text] : [];
-const linkList = (links: readonly string[]) => links.length ? ['**Links**', links.map(u => `- [${linkTitle(u)}](${u})`).join('\n')] : [];
+const section = (title: string, text: string | null) => text ? [`**${title}:** ${text}`] : [];
+const linkList = (links: readonly string[]) => links.length ? [`**Links:** ${links.map(u => `[${linkTitle(u)}](${u})`).join(', ')}`] : [];
 
 /** The living comment while the work goes on. Fixed headings, so a person scans it and the next
  *  session resumes from it. */
