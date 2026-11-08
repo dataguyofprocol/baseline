@@ -123,6 +123,9 @@ export const api = {
   addProjectLink: (id: string, url: string, title?: string) => req<{ ok: true }>('POST', `/api/projects/${id}/links`, { url, title }),
   deleteProjectLink: (id: string) => req<{ ok: true }>('DELETE', `/api/project-links/${id}`),
   addProjectUpdate: (id: string, body: string, health?: string) => req<{ ok: true }>('POST', `/api/projects/${id}/updates`, { body, health }),
+  /** the signed-in person's own draft (an agent wrote it): published as an update by them, with their edits */
+  publishUpdateDraft: (id: string, edits: { body: string; health: string }) => req<{ published: unknown }>('POST', `/api/projects/${id}/update-draft/publish`, edits),
+  discardUpdateDraft: (id: string) => req<{ ok: boolean }>('DELETE', `/api/projects/${id}/update-draft`),
   createMilestone: (b: Record<string, unknown>) => req<{ milestone: Milestone }>('POST', '/api/milestones', b),
   updateMilestone: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/milestones/${id}`, patch),
   deleteMilestone: (id: string) => req<{ ok: true }>('DELETE', `/api/milestones/${id}`),
