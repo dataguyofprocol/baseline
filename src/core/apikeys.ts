@@ -13,6 +13,8 @@ type Row = { id: string; name: string; user_id: string; token_hash: string; hint
 // settings and anything that starts local processes; reads of these stay under `read`
 const ADMIN_ROUTES = /^\/api\/(workspace|features|users|states|import|seed|locations|directories|sla-rules|loops|git\/(automation|sync|pull-requests|commits)|github\/(webhook|issues)\/[^/]+|issues\/[^/]+\/open-claude)(\/|$)/;
 const TEAM_ADMIN = /^\/api\/teams(\/[^/]+)?$/;
+/** snapshot parts keyed by team id rather than listed */
+const TEAM_KEYED = new Set(['teamWorkflows', 'teamSubscriptions']);
 
 /* Personal API keys, like Linear's: a key is shown once, stored as a sha256 hash, acts as the
    person who made it, and can be limited to some permissions and some teams. */
@@ -110,6 +112,7 @@ export class ApiKeys {
     const issueIds = issues ? new Set(issues.map(i => i.id)) : null;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(d)) {
+      if (TEAM_KEYED.has(k) && v && typeof v === 'object') { out[k] = Object.fromEntries(Object.entries(v).filter(([teamId]) => teams.includes(teamId))); continue; }
       if (!Array.isArray(v)) { out[k] = v; continue; }
       if (k === 'issues') { out[k] = issues; continue; }
       if (k === 'teams') { out[k] = (v as Array<{ id: string }>).filter(t => teams.includes(t.id)); continue; }
