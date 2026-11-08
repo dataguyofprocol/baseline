@@ -391,11 +391,6 @@ export interface DocTemplate { id: string; name: string; title: string; content:
 /** custom emoji, usable as :name: and in reactions */
 export interface CustomEmoji { id: string; name: string; url: string; createdAt: string }
 
-export interface Customer { id: string; name: string; domains: string[]; statusId: string | null; tierId: string | null; revenue: number | null; size: number | null; ownerId: string | null; createdAt: string }
-export interface CustomerStatus { id: string; name: string; color: string; position: number }
-export interface CustomerTier { id: string; name: string; color: string; position: number }
-/** a customer asking for an issue or a project, with what they said */
-export interface CustomerRequest { id: string; customerId: string; issueId: string | null; projectId: string | null; body: string; important: boolean; creatorId: string | null; createdAt: string }
 
 /** workspace feature settings (Settings › Features and Settings › Projects) */
 export interface WorkspaceFeatures {
@@ -406,9 +401,6 @@ export interface WorkspaceFeatures {
   pulseEnabled: boolean;
   /** Pulse summary notifications */
   pulseSchedule: 'daily' | 'weekly' | 'never';
-  customerRequestsEnabled: boolean;
-  /** new issues created from a customer page go to this team's triage or backlog */
-  customerDefaultTeamId: string | null;
   initiativesEnabled: boolean;
   /** git / GitHub: poll `gh` for pull requests in your locations' repos */
   githubEnabled: boolean;
@@ -458,7 +450,7 @@ export interface InviteResult {
   error?: string;
 }
 
-export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null, initiativesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
+export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', initiativesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
 
 /** a directory on this machine that coding agents can work in — usually a git repo */
 export interface Location {
@@ -821,7 +813,7 @@ export function notifyCategory(type: NotificationType, body = ''): NotifyCategor
     default: return null;
   }
 }
-export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', pulse: 'show', customers: 'show', teams: 'hide', members: 'hide' };
+export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', pulse: 'show', teams: 'hide', members: 'hide' };
 
 export const DEFAULT_PREFERENCES: Preferences = {
   homeView: 'inbox', firstDayOfWeek: 1,
@@ -863,10 +855,6 @@ export interface Snapshot {
   projectSubscriptions: ProjectSubscription[];
   docTemplates: DocTemplate[];
   emojis: CustomEmoji[];
-  customers: Customer[];
-  customerStatuses: CustomerStatus[];
-  customerTiers: CustomerTier[];
-  customerRequests: CustomerRequest[];
   initiatives: Initiative[];
   initiativeUpdates: InitiativeUpdate[];
   initiativeLabels: InitiativeLabel[];
@@ -904,7 +892,7 @@ const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   workspace: true, users: true, teams: true, states: true, labels: true, templates: true, issues: true, comments: true,
   attachments: true, subscriptions: true, relations: true, projects: true, projectLinks: true, docs: true, teamLinks: true,
   projectTemplates: true, projectRelations: true, projectLabels: true, projectStatuses: true, projectSubscriptions: true,
-  docTemplates: true, emojis: true, customers: true, customerStatuses: true, customerTiers: true, customerRequests: true,
+  docTemplates: true, emojis: true,
   initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, slaRules: true,
   loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
   teamSubscriptions: true, teamWorkflows: true, recurring: true, locations: true, projectUpdates: true, milestones: true,

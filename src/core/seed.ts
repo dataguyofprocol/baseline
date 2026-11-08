@@ -171,12 +171,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.updateProject(project.id, { labelIds: [lAgents.id, lQ4.id], updateCadence: 'weekly' });
   store.updateProject(mobile.id, { labelIds: [lApps.id] });
   store.createProjectStatus({ type: 'started', name: 'In Review', color: '#4cb782' });
-  store.setFeatures({ customerRequestsEnabled: true });
-  const acme = store.createCustomer({ name: 'Acme Robotics', domains: ['acme.dev'], revenue: 240000, size: 120, ownerId: ada.id });
-  const north = store.createCustomer({ name: 'Northwind', domains: ['northwind.io'], revenue: 60000, size: 30 });
-  store.addCustomerRequest({ customerId: acme.id, projectId: mobile.id, body: 'Our on-call team triages from phones — need the inbox on mobile.', important: true }, ada.id);
-  const reqIssue = store.listIssues({ teamId: core.id }).find(i => /search/i.test(i.title));
-  if (reqIssue) store.addCustomerRequest({ customerId: north.id, issueId: reqIssue.id, body: 'Search should match comment text too.' }, jun.id);
   // initiatives, SLAs, loops and a few pull requests
   const { planning, automation, git } = store.ext;
   // finished work gets completion times spread over past weeks (initiative graphs and activity read them)

@@ -90,9 +90,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'DELETE /api/comments/:id': { scope: 'write', team: 'unchecked' },
   'DELETE /api/relations/:id': { scope: 'write', team: 'unchecked' },
   'POST /api/git/unlink': { scope: 'write', team: 'unchecked' },
-  'POST /api/customer-requests': { scope: 'write', team: 'unchecked' },
-  'PATCH /api/customer-requests/:id': { scope: 'write', team: 'unchecked' },
-  'DELETE /api/customer-requests/:id': { scope: 'write', team: 'unchecked' },
 
   // images and attachments
   'POST /api/files': { scope: 'write', team: 'unchecked' },
@@ -191,16 +188,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'PATCH /api/initiative-labels/:id': { scope: 'write', team: 'workspace' },
   'DELETE /api/initiative-labels/:id': { scope: 'write', team: 'workspace' },
 
-  // customers
-  'POST /api/customers': { scope: 'write', team: 'workspace' },
-  'PATCH /api/customers/:id': { scope: 'write', team: 'workspace' },
-  'DELETE /api/customers/:id': { scope: 'write', team: 'workspace' },
-  'POST /api/customer-attrs/*': { scope: 'write', team: 'workspace' },
-  'PATCH /api/customer-attrs/*': { scope: 'write', team: 'workspace' },
-  'DELETE /api/customer-attrs/*': { scope: 'write', team: 'workspace' },
-  'POST /api/customer-attrs/:kind{status|tier}': { scope: 'write', team: 'workspace' },
-  'PATCH /api/customer-attrs/:kind{status|tier}/:id': { scope: 'write', team: 'workspace' },
-  'DELETE /api/customer-attrs/:kind{status|tier}/:id': { scope: 'write', team: 'workspace' },
 
   // the person's own things
   'POST /api/favorites/toggle': { scope: 'write', team: 'workspace' },

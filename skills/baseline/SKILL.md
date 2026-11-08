@@ -164,11 +164,6 @@ baseline git import-issues owner/repo -t CORE [--follow]    # one-way import of 
 # the integration is read-only: Baseline never comments, labels or pushes on GitHub
 # name branches with the issue key (Copy git branch, ⌘⇧.) and write "Fixes CORE-12" in the PR so it moves on merge
 
-# customers (customer requests)
-baseline customer list [--json]
-baseline customer create "Acme" --domain acme.dev --revenue 240000 --size 120
-baseline customer request "Acme" CORE-12 -b "what they said" [--important]   # or a project name instead of an issue key
-
 # documents (specs, briefs, runbooks on a project or team — Markdown)
 baseline doc list [--project "Name"] [--team CORE] [--json]
 baseline doc show "Hand-off spec" [--json]    # by id or title

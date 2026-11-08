@@ -7,7 +7,6 @@ import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure, Via } from './ui.js';
 import { IssueToolbar, IssueLocationRow, OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
-import { CustomerRequests } from './Workspace.js';
 import { IssuePullRequests } from './GitHubUI.js';
 import { SlaBadge } from './AutomationUI.js';
 import { Markdown } from './Markdown.js';
@@ -741,14 +740,12 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                   onChange={md => void saveDesc(md)} onBlur={md => void saveDesc(md)} />
               </div>
               <div className="issue-under-desc">
-                <CustomerRequests issueId={issue.id} asButton />
                 <button className="icon-btn" data-add-link title="Add link (⌃L)" onClick={linkMenu.open}><IconLink size={14} /></button>
                 <button className="icon-btn" title="Add sub-issue (⌘⇧O)" onClick={() => useApp.getState().openCreate({ teamId: issue.teamId, parentId: issue.id, projectId: issue.projectId, cycleId: issue.cycleId })}><IconPlus size={14} /></button>
               </div>
               <Attachments issue={issue} />
               <SubIssuesSection issue={issue} />
               <IssuePullRequests issueId={issue.id} />
-              <CustomerRequests issueId={issue.id} hideWhenEmpty />
 
               <div className="activity">
                 <div className="activity-head">

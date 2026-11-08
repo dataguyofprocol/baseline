@@ -10,7 +10,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 ## 1. Find my way around (shell & navigation)
 | Journey | Status | Check | How it works |
 |---|---|---|---|
-| Sidebar: Inbox, My issues, Drafts (when you have some), Workspace (Projects, Views, Pulse, Customers, More), Favorites, Your teams | ✅ | 1.1 | |
+| Sidebar: Inbox, My issues, Drafts (when you have some), Workspace (Projects, Views, Pulse, More), Favorites, Your teams | ✅ | 1.1 | |
 | Team sub-items: Home, Triage (count), Issues, Cycles › Current / Upcoming, Projects, Views | ✅ | 1.2, 1.4 | |
 | Team row "…" menu | ✅ | 1.3 | Team overview, Issues, Cycles, Triage, Archive, Team settings, Copy link |
 | Team Home: Overview (description, team resources), Documents, Members, Go to | ✅ | 1.5 | |
@@ -63,7 +63,6 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Create related (sub-issue, parent, blocked, blocking) | ✅ | 4.16 | |
 | Convert to project | ✅ | 4.17 | |
 | Convert to template / recurring issue | ✅ | 4.18 | |
-| Customer requests on the issue | ✅ | 4.19 | |
 
 ## 5. Slice the backlog (lists, boards, filters, views)
 | Journey | Status | Check | How it works |
@@ -87,7 +86,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Board and Timeline | ✅ | 6.3 | |
 | Named project statuses, custom ones per category | ✅ | 6.4, 9.3 | Settings › Projects › Statuses |
 | Project page tabs, details panel (⌘I) | ✅ | 6.5 | |
-| Overview: hero, properties, resources, update, description, milestones, customer requests | ✅ | 6.6 | |
+| Overview: hero, properties, resources, update, description, milestones | ✅ | 6.6 | |
 | Documents from resources (blank or template), editor page, team Documents tab | ✅ | 6.7 | templates in Settings › Documents (9.5) |
 | Milestones with progress | ✅ | 6.8 | |
 | Updates with health; Activity tab | ✅ | 6.9 | |
@@ -96,7 +95,6 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Project labels with groups (P then L) | ✅ | 6.12 | Settings › Projects › Labels |
 | Project bell: per-project inbox notifications + update schedule | ✅ | 6.13 | |
 | Update schedule: due hint, lead reminders | ✅ | 6.14, 9.4 | reminder timing also checked against the store on a scratch database |
-| Customer requests on a project | ✅ | 6.15 | |
 | Pulse: feed of project updates, daily / weekly summary | ✅ | 9.7 | |
 
 ## 7. Run iterations (cycles)
@@ -120,7 +118,6 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 |---|---|---|---|
 | Settings nav: Account · Issues · Projects · Features · Administration · Your teams | ✅ | 9.1 | |
 | Account: Preferences, Profile, Notifications | ✅ | 9.2 | |
-| Customer requests settings, customers, customer page, New issue from a customer | ✅ | 9.6, 9.9 | |
 | Custom emojis | ✅ | 9.8 | |
 | Administration pages | ✅ | 9.12 | |
 | Per-team settings | ✅ | 9.13 | |
@@ -162,7 +159,7 @@ window size, and every difference that showed was fixed:
 |---|---|---|
 | Team issues | team picker and a Cycles tab in the tab row; three-level breadcrumb; underlined tabs | Active · Backlog · All issues pills + new-view icon; `Team › Issues`; team bell |
 | Cycles | team tabs in the header, outlined coloured badges, "— capacity", date ranges | header is just "Cycles"; flat grey badges; capacity / success rings; dates only on the timeline |
-| Issue page | "…" at the far edge, bold title crumb, bordered rail, clock-shaped estimate and arrow-shaped cycle icons, bold activity names, customer-requests section always shown | "…" beside the title; Linear's triangle and play-circle icons; muted activity; send button on the composer; customer requests from the toolbar icon |
+| Issue page | "…" at the far edge, bold title crumb, bordered rail, clock-shaped estimate and arrow-shaped cycle icons, bold activity names | "…" beside the title; Linear's triangle and play-circle icons; muted activity; send button on the composer |
 | Projects / project page | bordered "New project", "…" on list pages, monospace dates, bold names, "Projects ›" crumb, details panel open by default | Linear's text button, figures in the UI font, single crumb, panel closed until ⌘I |
 | My issues / lists | rule-line group headers, wrapping issue keys | filled group bands, keys on one line |
 | Sidebar | underline on the current page | filled row |

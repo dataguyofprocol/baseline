@@ -238,9 +238,6 @@ check('…and so is its activity', created.user_id === ada.id);
     { name: 'import GitHub issues', method: 'POST', path: () => '/api/github/issues/import', body: { repo: 'not a repo', teamId: ids.team }, adminStatus: 400 },
     { name: 'follow a GitHub repo\'s issues', method: 'PUT', path: () => '/api/github/issues/follow', body: { repo: 'acme/app', teamId: ids.team } },
     { name: 'remove a custom emoji', method: 'DELETE', path: () => `/api/emojis/${ids.emoji}` },
-    { name: 'add a customer status', method: 'POST', path: () => '/api/customer-attrs/status', body: { name: 'Churned' }, save: ['id', 'customerStatus'] },
-    { name: 'edit a customer status', method: 'PATCH', path: () => `/api/customer-attrs/status/${ids.customerStatus}`, body: { name: 'Lost' } },
-    { name: 'remove a customer status', method: 'DELETE', path: () => `/api/customer-attrs/status/${ids.customerStatus}` },
     { name: 'delete a team', method: 'DELETE', path: () => `/api/teams/${ids.doomed}` },
   ];
   for (const r of routes) {

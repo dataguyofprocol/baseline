@@ -9,7 +9,6 @@ import { RichEditor } from './RichEditor.js';
 import { Avatar, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { TeamMissingRedirect } from './Views.js';
-import { CustomerRequests } from './Workspace.js';
 import { IconDoc, IconLink, IconPlus, IconClose, IconTrash, IconSettings, IconTriage, IconIssues, IconCycle, IconBox, IconViews } from './icons.js';
 import type { Doc } from '../../src/core/types.js';
 
@@ -51,7 +50,6 @@ export function Resources(props: { projectId?: string; teamId?: string; initiati
         </span>
       ))}
       <button className="prop-chip ghost dim" onClick={menu.open}><IconPlus size={12} /> Add document or link…</button>
-      {props.projectId && <CustomerRequests projectId={props.projectId} asButton />}
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={210}>
           <MenuItem icon={<IconDoc size={14} />} label="New document" onClick={() => void newDoc(owner, navigate)} />

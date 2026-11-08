@@ -8,7 +8,7 @@ import { ProjectStatusIcon, PROJECT_STATUS } from './Projects.js';
 import { UPDATE_CADENCE_LABELS, type UpdateCadence, type WorkspaceFeatures } from '../../src/core/types.js';
 
 /* Settings pages Linear keeps under Projects (Labels, Statuses, Updates) and Features
-   (Documents, Customer requests, Pulse, Emojis). */
+   (Documents, Pulse, Emojis). */
 
 const COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
 const nextColor = (c: string) => COLORS[(COLORS.indexOf(c) + 1) % COLORS.length];
@@ -257,60 +257,6 @@ export function DocumentsSettings() {
         <div className="set-row"><button className="btn secondary sm" onClick={startNew}><IconPlus size={12} /> New template</button></div>
       </div>
     </div>
-  );
-}
-
-/* ---------------- customer requests ---------------- */
-export function CustomerRequestsSettings() {
-  const snap = useApp(s => s.snap)!;
-  const f = snap.workspace.features;
-  return (
-    <div className="settings-card">
-      <h1>Customer requests</h1>
-      <div className="field-help" style={{ marginBottom: 16 }}>Associate customers with projects and issues to align work with real user needs, and track what each customer asked for.</div>
-      <div className="field-row">
-        <div><div className="field-label">Enable Customer requests</div><div className="field-help">Adds Customers to the sidebar, and customer requests to issues and projects.</div></div>
-        <Switch on={f.customerRequestsEnabled} label="Enable customer requests" onChange={v => void setFeatures({ customerRequestsEnabled: v })} />
-      </div>
-      <div className="field-row">
-        <div><div className="field-label">Manage customers</div><div className="field-help">{snap.customers.length ? `${snap.customers.length} customer${snap.customers.length === 1 ? '' : 's'}` : 'No customers'}</div></div>
-        <Link className="btn secondary sm" to="/customers">Open customers</Link>
-      </div>
-      <div className="field-row">
-        <div><div className="field-label">Default team for customer requests</div><div className="field-help">New issues created from a customer page go to this team's triage (or backlog).</div></div>
-        <select className="text-input" value={f.customerDefaultTeamId ?? ''} onChange={e => void setFeatures({ customerDefaultTeamId: e.target.value || null })}>
-          <option value="">No default team</option>
-          {snap.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
-      </div>
-      <AttrList kind="status" title="Customer statuses" help="Statuses for segmenting customers" items={snap.customerStatuses} />
-      <AttrList kind="tier" title="Customer tiers" help="Tiers for segmenting customers" items={snap.customerTiers} />
-    </div>
-  );
-}
-
-function AttrList(props: { kind: 'status' | 'tier'; title: string; help: string; items: Array<{ id: string; name: string; color: string }> }) {
-  const [name, setName] = useState('');
-  const add = async () => { if (!name.trim()) return; await api.createCustomerAttr(props.kind, { name: name.trim(), color: COLORS[props.items.length % COLORS.length] }); setName(''); await refresh(); };
-  return (
-    <>
-      <div className="settings-h2">{props.title}</div>
-      <div className="field-help" style={{ marginBottom: 8 }}>{props.help} — {props.items.length ? `${props.items.length} ${props.kind === 'status' ? 'customer statuses' : 'customer tiers'}` : `no ${props.kind === 'status' ? 'customer statuses' : 'customer tiers'}`}</div>
-      <div className="card set-list">
-        {props.items.map(x => (
-          <div key={x.id} className="set-row group">
-            <button className="label-dot" style={{ background: x.color, width: 12, height: 12 }} title="Change colour" onClick={async () => { await api.updateCustomerAttr(props.kind, x.id, { color: nextColor(x.color) }); await refresh(); }} />
-            <EditableName value={x.name} onSave={async v => { await api.updateCustomerAttr(props.kind, x.id, { name: v }); await refresh(); }} />
-            <span style={{ flex: 1 }} />
-            <button className="icon-btn hover-only" title="Delete" onClick={async () => { await api.deleteCustomerAttr(props.kind, x.id); await refresh(); }}><IconTrash size={13} /></button>
-          </div>
-        ))}
-        <div className="set-row">
-          <input className="text-input" placeholder={props.kind === 'status' ? 'New status…' : 'New tier…'} value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void add(); }} />
-          <button className="btn secondary sm" disabled={!name.trim()} onClick={add}>Add</button>
-        </div>
-      </div>
-    </>
   );
 }
 

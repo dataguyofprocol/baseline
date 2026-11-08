@@ -9,7 +9,7 @@ import type {
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
   WorkflowState, WorkflowStateType, UpdateCadence, ProjectStatusDef, ProjectSubscription, ProjectLabel, DocTemplate, CustomEmoji,
-  Customer, CustomerRequest, WorkspaceFeatures,
+  WorkspaceFeatures,
 } from './types.js';
 import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES, DEFAULT_SECURITY, type WorkspaceSecurity } from './types.js';
 import { createExtensions, type Extensions } from './extensions.js';
@@ -113,10 +113,6 @@ export class Store {
       projectSubscriptions: rows<{ project_id: string; user_id: string; issue_added: number; issue_closed: number; comments: number; updates: number }>('SELECT * FROM project_subscriptions').map(x => ({ projectId: x.project_id, userId: x.user_id, issueAdded: !!x.issue_added, issueClosed: !!x.issue_closed, comments: !!x.comments, updates: !!x.updates })),
       docTemplates: rows<{ id: string; name: string; title: string; content: string; created_at: string }>('SELECT * FROM doc_templates ORDER BY created_at').map(t => ({ id: t.id, name: t.name, title: t.title, content: t.content, createdAt: t.created_at })),
       emojis: rows<{ id: string; name: string; url: string; created_at: string }>('SELECT * FROM emojis ORDER BY name').map(e => ({ id: e.id, name: e.name, url: e.url, createdAt: e.created_at })),
-      customers: rows<{ id: string; name: string; domains: string; status_id: string | null; tier_id: string | null; revenue: number | null; size: number | null; owner_id: string | null; created_at: string }>('SELECT * FROM customers ORDER BY name').map(c => ({ id: c.id, name: c.name, domains: JSON.parse(c.domains), statusId: c.status_id, tierId: c.tier_id, revenue: c.revenue, size: c.size, ownerId: c.owner_id, createdAt: c.created_at })),
-      customerStatuses: rows<{ id: string; name: string; color: string; position: number }>('SELECT * FROM customer_statuses ORDER BY position').map(x => ({ id: x.id, name: x.name, color: x.color, position: x.position })),
-      customerTiers: rows<{ id: string; name: string; color: string; position: number }>('SELECT * FROM customer_tiers ORDER BY position').map(x => ({ id: x.id, name: x.name, color: x.color, position: x.position })),
-      customerRequests: rows<{ id: string; customer_id: string; issue_id: string | null; project_id: string | null; body: string; important: number; creator_id: string | null; created_at: string }>('SELECT * FROM customer_requests ORDER BY created_at DESC').map(r => ({ id: r.id, customerId: r.customer_id, issueId: r.issue_id, projectId: r.project_id, body: r.body, important: !!r.important, creatorId: r.creator_id, createdAt: r.created_at })),
       recurring: rows<{ id: string; team_id: string; title: string; description: string; priority: number; assignee_id: string | null; labels: string; project_id: string | null; cadence: string; next_at: string; created_at: string }>('SELECT * FROM recurring_issues ORDER BY created_at').map(r => ({ id: r.id, teamId: r.team_id, title: r.title, description: r.description, priority: r.priority as Priority, assigneeId: r.assignee_id, labelIds: JSON.parse(r.labels), projectId: r.project_id, cadence: r.cadence as RecurringIssue['cadence'], nextAt: r.next_at, createdAt: r.created_at })),
       projectTemplates: rows<{ id: string; name: string; icon: string; summary: string; description: string; status: string; priority: number; milestones: string; issues: string; created_at: string }>('SELECT * FROM project_templates ORDER BY created_at').map(t => ({ id: t.id, name: t.name, icon: t.icon, summary: t.summary, description: t.description, status: t.status as Project['status'], priority: t.priority as Priority, milestones: JSON.parse(t.milestones), issues: JSON.parse(t.issues), createdAt: t.created_at })),
       projectRelations: rows<{ id: string; project_id: string; related_id: string; type: string }>('SELECT * FROM project_relations').map(r => ({ id: r.id, projectId: r.project_id, relatedProjectId: r.related_id, type: 'blocks' as const })),
@@ -1252,57 +1248,6 @@ export class Store {
   }
   deleteEmoji(emojiId: string): void { this.db.prepare('DELETE FROM emojis WHERE id = ?').run(emojiId); }
 
-  // ---------- customers ----------
-  createCustomer(input: { name: string; domains?: string[]; statusId?: string | null; tierId?: string | null; revenue?: number | null; size?: number | null; ownerId?: string | null }): Customer {
-    const c: Customer = {
-      id: id('cu'), name: input.name.trim(), domains: (input.domains ?? []).map(d => d.trim().toLowerCase()).filter(Boolean),
-      statusId: input.statusId ?? (this.db.prepare('SELECT id FROM customer_statuses ORDER BY position LIMIT 1').get() as { id: string } | undefined)?.id ?? null,
-      tierId: input.tierId ?? null, revenue: input.revenue ?? null, size: input.size ?? null, ownerId: input.ownerId ?? null, createdAt: ts(),
-    };
-    this.db.prepare('INSERT INTO customers (id, name, domains, status_id, tier_id, revenue, size, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(c.id, c.name, JSON.stringify(c.domains), c.statusId, c.tierId, c.revenue, c.size, c.ownerId, c.createdAt);
-    return c;
-  }
-  updateCustomer(customerId: string, patch: Partial<Pick<Customer, 'name' | 'domains' | 'statusId' | 'tierId' | 'revenue' | 'size' | 'ownerId'>>): void {
-    const col: Record<string, string> = { statusId: 'status_id', tierId: 'tier_id', ownerId: 'owner_id' };
-    const sets: string[] = []; const vals: (string | number | null)[] = [];
-    for (const [k, v] of sqlPairs(patch, ['name', 'domains', 'statusId', 'tierId', 'revenue', 'size', 'ownerId'])) { sets.push(`${col[k] ?? k} = ?`); vals.push(k === 'domains' ? JSON.stringify(v) : v as string | number | null); }
-    if (!sets.length) return;
-    vals.push(customerId);
-    this.db.prepare(`UPDATE customers SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-  }
-  deleteCustomer(customerId: string): void { this.db.prepare('DELETE FROM customers WHERE id = ?').run(customerId); }
-  /** customer statuses and tiers share a shape: name, colour, order */
-  createCustomerAttr(kind: 'status' | 'tier', name: string, color = '#8a8f98'): { id: string } {
-    const table = kind === 'status' ? 'customer_statuses' : 'customer_tiers';
-    const rid = id(kind === 'status' ? 'cs' : 'ct');
-    const pos = (this.db.prepare(`SELECT COALESCE(MAX(position), 0) + 1 p FROM ${table}`).get() as { p: number }).p;
-    this.db.prepare(`INSERT INTO ${table} (id, name, color, position) VALUES (?, ?, ?, ?)`).run(rid, name.trim(), color, pos);
-    return { id: rid };
-  }
-  updateCustomerAttr(kind: 'status' | 'tier', attrId: string, patch: { name?: string; color?: string }): void {
-    const table = kind === 'status' ? 'customer_statuses' : 'customer_tiers';
-    if (patch.name !== undefined) this.db.prepare(`UPDATE ${table} SET name = ? WHERE id = ?`).run(patch.name, attrId);
-    if (patch.color !== undefined) this.db.prepare(`UPDATE ${table} SET color = ? WHERE id = ?`).run(patch.color, attrId);
-  }
-  deleteCustomerAttr(kind: 'status' | 'tier', attrId: string): void {
-    const table = kind === 'status' ? 'customer_statuses' : 'customer_tiers';
-    this.db.prepare(`UPDATE customers SET ${kind === 'status' ? 'status_id' : 'tier_id'} = NULL WHERE ${kind === 'status' ? 'status_id' : 'tier_id'} = ?`).run(attrId);
-    this.db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(attrId);
-  }
-  addCustomerRequest(input: { customerId: string; issueId?: string | null; projectId?: string | null; body?: string; important?: boolean }, actorId?: string): CustomerRequest {
-    const r: CustomerRequest = { id: id('cr'), customerId: input.customerId, issueId: input.issueId ?? null, projectId: input.projectId ?? null, body: input.body ?? '', important: !!input.important, creatorId: actorId ?? this.actor(), createdAt: ts() };
-    this.db.prepare('INSERT INTO customer_requests (id, customer_id, issue_id, project_id, body, important, creator_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(r.id, r.customerId, r.issueId, r.projectId, r.body, r.important ? 1 : 0, r.creatorId, r.createdAt);
-    return r;
-  }
-  updateCustomerRequest(requestId: string, patch: { body?: string; important?: boolean; customerId?: string }): void {
-    if (patch.body !== undefined) this.db.prepare('UPDATE customer_requests SET body = ? WHERE id = ?').run(patch.body, requestId);
-    if (patch.important !== undefined) this.db.prepare('UPDATE customer_requests SET important = ? WHERE id = ?').run(patch.important ? 1 : 0, requestId);
-    if (patch.customerId !== undefined) this.db.prepare('UPDATE customer_requests SET customer_id = ? WHERE id = ?').run(patch.customerId, requestId);
-  }
-  deleteCustomerRequest(requestId: string): void { this.db.prepare('DELETE FROM customer_requests WHERE id = ?').run(requestId); }
-
   // ---------- activity ----------
   logActivity(e: { issueId?: string; projectId?: string; type: ActivityType; data?: Record<string, unknown> }, actorId?: string): void {
     const uid = actorId ?? this.actor();
@@ -1430,7 +1375,6 @@ export class Store {
     for (const l of arr<Record<string, unknown>>(data.projectLabels)) insert('project_labels', ['id', 'name', 'color', 'description', 'parent_id', 'is_group', 'created_at'], { ...l, description: l.description ?? '', parent_id: l.parentId ?? null, is_group: l.isGroup ? 1 : 0, created_at: l.createdAt ?? ts() });
     // the export's statuses replace the defaults wipe() put back
     if (arr(data.projectStatuses).length) this.db.exec('DELETE FROM project_statuses');
-    if (arr(data.customerStatuses).length) this.db.exec('DELETE FROM customer_statuses');
     for (const x of arr<Record<string, unknown>>(data.projectStatuses)) insert('project_statuses', ['id', 'type', 'name', 'color', 'description', 'position'], { ...x, description: x.description ?? '', position: x.position ?? 0 });
     for (const x of arr<Record<string, unknown>>(data.projectSubscriptions)) insert('project_subscriptions', ['project_id', 'user_id', 'issue_added', 'issue_closed', 'comments', 'updates'], { project_id: x.projectId, user_id: x.userId, issue_added: x.issueAdded ? 1 : 0, issue_closed: x.issueClosed ? 1 : 0, comments: x.comments ? 1 : 0, updates: x.updates ? 1 : 0 });
     for (const x of arr<Record<string, unknown>>(data.docTemplates)) insert('doc_templates', ['id', 'name', 'title', 'content', 'created_at'], { ...x, title: x.title ?? '', content: x.content ?? '', created_at: x.createdAt ?? ts() });
@@ -1441,10 +1385,6 @@ export class Store {
         .run(String(f.id), String(f.name ?? 'image'), String(f.mime ?? 'application/octet-stream'), bytes.length, String(f.sha256 ?? ''), String(f.ownerType), String(f.ownerId ?? ''), (f.uploadedBy as string | null) ?? null, String(f.createdAt ?? ts()), bytes);
     }
     for (const x of arr<Record<string, unknown>>(data.emojis)) insert('emojis', ['id', 'name', 'url', 'created_at'], { ...x, created_at: x.createdAt ?? ts() });
-    for (const x of arr<Record<string, unknown>>(data.customerStatuses)) insert('customer_statuses', ['id', 'name', 'color', 'position'], { ...x, position: x.position ?? 0 });
-    for (const x of arr<Record<string, unknown>>(data.customerTiers)) insert('customer_tiers', ['id', 'name', 'color', 'position'], { ...x, position: x.position ?? 0 });
-    for (const x of arr<Record<string, unknown>>(data.customers)) insert('customers', ['id', 'name', 'domains', 'status_id', 'tier_id', 'revenue', 'size', 'owner_id', 'created_at'], { ...x, domains: JSON.stringify(x.domains ?? []), status_id: x.statusId ?? null, tier_id: x.tierId ?? null, revenue: x.revenue ?? null, size: x.size ?? null, owner_id: x.ownerId ?? null, created_at: x.createdAt ?? ts() });
-    for (const x of arr<Record<string, unknown>>(data.customerRequests)) insert('customer_requests', ['id', 'customer_id', 'issue_id', 'project_id', 'body', 'important', 'creator_id', 'created_at'], { ...x, customer_id: x.customerId, issue_id: x.issueId ?? null, project_id: x.projectId ?? null, body: x.body ?? '', important: x.important ? 1 : 0, creator_id: x.creatorId ?? null, created_at: x.createdAt ?? ts() });
     for (const p of arr<Record<string, unknown>>(data.projects)) this.db.prepare('UPDATE projects SET labels = ?, status_id = ?, update_cadence = ? WHERE id = ?').run(JSON.stringify(p.labelIds ?? []), (p.statusId as string | null) ?? null, (p.updateCadence as string | null) ?? null, p.id as string);
     if (ws && (ws as { features?: WorkspaceFeatures }).features) setMeta(this.db, 'features', JSON.stringify((ws as { features?: WorkspaceFeatures }).features));
     this.ext.importData(data, insert);
@@ -1457,7 +1397,7 @@ export class Store {
   }
   wipe(): void {
     for (const t of this.ext.tables) this.db.exec(`DELETE FROM ${t};`);
-    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'customer_requests', 'customers', 'customer_statuses', 'customer_tiers', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
     ensureDefaults(this.db);

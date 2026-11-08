@@ -1315,49 +1315,6 @@ withDb(gitCmd.command('import-issues <repo>')).description('Import a repo\'s ope
     process.exit(0);
   });
 
-// ---------- customers ----------
-const customer = program.command('customer').description('Customers and the issues / projects they asked for');
-function resolveCustomer(snap: Snapshot, ref: string) {
-  const q = ref.toLowerCase();
-  const c = snap.customers.find(x => x.id === ref) ?? snap.customers.find(x => x.name.toLowerCase() === q) ?? snap.customers.find(x => x.domains.includes(q));
-  if (!c) fail(`Unknown customer "${ref}" — see \`baseline customer list\``);
-  return c;
-}
-withDb(customer.command('list')).description('List customers with their request counts')
-  .option('--json', 'output as JSON', false)
-  .action((opts: { db?: string; json?: boolean }) => {
-    const snap = legacyStore(opts.db).snapshot();
-    const rows = snap.customers.map(c => ({ name: c.name, domains: c.domains, status: snap.customerStatuses.find(s => s.id === c.statusId)?.name ?? null, tier: snap.customerTiers.find(t => t.id === c.tierId)?.name ?? null, revenue: c.revenue, size: c.size, requests: snap.customerRequests.filter(r => r.customerId === c.id).length }));
-    if (opts.json) console.log(JSON.stringify(rows, null, 2));
-    else for (const r of rows) console.log(`${r.name.padEnd(28)} ${(r.status ?? '').padEnd(10)} ${String(r.requests).padStart(3)} requests`);
-    process.exit(0);
-  });
-withDb(customer.command('create <name>')).description('Add a customer')
-  .option('--domain <domain>', 'their email domain')
-  .option('--revenue <n>', 'annual revenue')
-  .option('--size <n>', 'company size')
-  .action((name: string, opts: { db?: string; domain?: string; revenue?: string; size?: string }) => {
-    const store = legacyStore(opts.db);
-    if (!store.snapshot().workspace.features.customerRequestsEnabled) store.setFeatures({ customerRequestsEnabled: true });
-    store.createCustomer({ name, domains: opts.domain ? [opts.domain] : [], revenue: opts.revenue ? Number(opts.revenue) : null, size: opts.size ? Number(opts.size) : null });
-    console.log(`Created customer "${name}"`);
-    process.exit(0);
-  });
-withAs(withDb(customer.command('request <customer> <target>'))).description('Record that a customer asked for an issue (KEY-12) or a project (name)')
-  .option('-b, --body <text>', 'what they said')
-  .option('--important', 'mark the request important', false)
-  .action((ref: string, target: string, opts: { db?: string; body?: string; important?: boolean; as?: string }) => {
-    const store = legacyStore(opts.db);
-    const snap = store.snapshot();
-    const c = resolveCustomer(snap, ref);
-    const issue = /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(target) ? store.getByKey(target) : undefined;
-    const proj = issue ? undefined : resolveProject(snap, target, { required: false });
-    if (!issue && !proj) fail(`"${target}" is neither an issue key nor a project`);
-    store.addCustomerRequest({ customerId: c.id, issueId: issue?.id ?? null, projectId: proj?.id ?? null, body: opts.body ?? '', important: opts.important }, actorId(snap, opts.as));
-    console.log(`${c.name} asked for ${issue ? store.keyOf(issue) : proj!.name}`);
-    process.exit(0);
-  });
-
 // ---------- documents ----------
 const doc = program.command('doc').description('Documents on projects and teams (specs, briefs, runbooks), stored as Markdown');
 function resolveDoc(snap: Snapshot, ref: string): Snapshot['docs'][number] {

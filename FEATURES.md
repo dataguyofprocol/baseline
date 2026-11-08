@@ -16,7 +16,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Search page (`/`), Trash page, team Archive page; ⌘Z undo for every issue change; `[` toggles the sidebar
 - ✅ Team Home (team "…" › Team overview): Overview (icon, name, description, team resources), Documents, Members; right rail with members and Go to links
 - ✅ "+" beside Your teams opens Create a new team (name, identifier derived from it)
-- ✅ Team sub-items start with Home; Workspace adds Pulse and Customers (when on); Drafts shows when you have drafts
+- ✅ Team sub-items start with Home; Workspace adds Pulse; Drafts shows when you have drafts
 - ✅ Customize sidebar (More › Customize sidebar): badge style (count / dot / none) and per-item Always show / Show when badged / Don't show — hidden items live in More
 - ✅ Teams and Members directory pages; Drafts page
 
@@ -91,7 +91,6 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Project bell: choose which project events reach your inbox (issue added, issue completed/canceled, description changes, new update) and the project's update schedule
 - ✅ Update schedule (Settings › Projects › Updates, or per project): next-due hint under the update card; leads get an inbox reminder when an update is due
 - ✅ Pulse: one feed of every project update (All / Following / My projects) and an optional daily or weekly summary in the inbox
-- ✅ Customer requests (Settings › Customer requests): customers with status, tier, revenue, size, owner and domains; requests on issues and projects; New issue from a customer page goes to the default team
 - ✅ Document templates (Settings › Documents) offered in "Add document or link…"
 - ✅ Custom emojis (Settings › Emojis): reactions and :name: in Markdown
 - ✅ Initiatives (sidebar, G then N): Active / Planned / All, owner, target, health from updates, projects and sub-initiatives, progress across their projects; a project's properties show its initiatives

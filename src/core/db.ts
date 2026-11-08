@@ -463,33 +463,6 @@ function migrate(db: DatabaseSync): void {
       url TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS customers (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      domains TEXT NOT NULL DEFAULT '[]',
-      status_id TEXT,
-      tier_id TEXT,
-      revenue REAL,
-      size INTEGER,
-      owner_id TEXT,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS customer_statuses (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#8a8f98', position REAL NOT NULL DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS customer_tiers (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#8a8f98', position REAL NOT NULL DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS customer_requests (
-      id TEXT PRIMARY KEY,
-      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
-      issue_id TEXT,
-      project_id TEXT,
-      body TEXT NOT NULL DEFAULT '',
-      important INTEGER NOT NULL DEFAULT 0,
-      creator_id TEXT,
-      created_at TEXT NOT NULL
-    );
   `);
   const projCols = columns('projects');
   if (!projCols.includes('labels')) db.exec("ALTER TABLE projects ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
@@ -649,15 +622,12 @@ export function migrateDirectoriesToLocations(db: DatabaseSync): void {
   if (getMeta(db, 'workspaceId')) setMeta(db, 'locationsMigrated', '1');
 }
 
-/** rows every workspace starts with: one project status per category (Linear's defaults) and customer statuses */
+/** rows every workspace starts with: one project status per category (Linear's defaults) */
 export function ensureDefaults(db: DatabaseSync): void {
   // one named status per category to start with — Linear's defaults
   if (!(db.prepare('SELECT COUNT(*) n FROM project_statuses').get() as { n: number }).n) {
     const defs: Array<[string, string, string]> = [['backlog', 'Backlog', '#bec2c8'], ['planned', 'Planned', '#8a8f98'], ['started', 'In Progress', '#f2c94c'], ['paused', 'Paused', '#f2994a'], ['completed', 'Completed', '#5e6ad2'], ['canceled', 'Canceled', '#95a2b3']];
     defs.forEach(([type, name, color], i) => db.prepare('INSERT INTO project_statuses (id, type, name, color, description, position) VALUES (?, ?, ?, ?, ?, ?)').run(id('ps'), type, name, color, '', i));
-  }
-  if (!(db.prepare('SELECT COUNT(*) n FROM customer_statuses').get() as { n: number }).n) {
-    ([['Active', '#4cb782'], ['Prospect', '#5e6ad2'], ['Churned', '#eb5757'], ['Lost', '#8a8f98']] as const).forEach(([name, color], i) => db.prepare('INSERT INTO customer_statuses (id, name, color, position) VALUES (?, ?, ?, ?)').run(id('cs'), name, color, i));
   }
   // projects from before named statuses sit on their category's first status
   db.exec('UPDATE projects SET status_id = (SELECT id FROM project_statuses ps WHERE ps.type = projects.status ORDER BY position LIMIT 1) WHERE status_id IS NULL');

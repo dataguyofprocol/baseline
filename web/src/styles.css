@@ -2184,7 +2184,7 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .bell-sub { font-size: 12px; color: var(--text-secondary); }
 .menu-empty { padding: 8px 10px; font-size: 12px; color: var(--text-dim); }
 
-/* ---------- settings lists (project labels, statuses, documents, customers, emojis) ---------- */
+/* ---------- settings lists (project labels, statuses, documents, emojis) ---------- */
 .settings-card.wide { max-width: 860px; }
 .set-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .set-head h1 { margin: 0; }
@@ -2217,13 +2217,12 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .pulse-health { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
 .pulse-meta { font-size: 12px; color: var(--text-secondary); }
 
-/* ---------- workspace tables (customers, teams, members) ---------- */
+/* ---------- workspace tables (teams, members) ---------- */
 .wtable { padding: 0 16px 40px; }
 .wt-head, .wt-row { display: grid; align-items: center; gap: 12px; padding: 0 12px; }
 .wt-head { height: 34px; font-size: 12px; color: var(--text-secondary); border-bottom: 1px solid var(--hairline); }
 .wt-row { min-height: 44px; border-bottom: 1px solid var(--hairline); cursor: pointer; font-size: 13px; }
 .wt-row:hover { background: var(--bg-hover); }
-.wt-cust { grid-template-columns: minmax(200px, 2fr) 120px 110px 80px 90px 70px 60px; }
 .wt-teams { grid-template-columns: minmax(200px, 1.4fr) minmax(120px, 2fr) 100px 120px 70px 110px; }
 .wt-members { grid-template-columns: minmax(220px, 2fr) 100px 100px minmax(100px, 1fr) 110px; }
 .wt-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 510; }
@@ -2239,25 +2238,8 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .team-join.joined:hover { border-color: #eb5757; }
 .online { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
 .online-dot { width: 7px; height: 7px; border-radius: 50%; background: #4cb782; }
-.cust-logo { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 5px; background: var(--bg-hover); color: var(--text-secondary); font-size: 11px; font-weight: 590; flex: none; }
-.cust-logo.big { width: 36px; height: 36px; font-size: 16px; border-radius: 8px; }
-.cust-page { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; display: flex; flex-direction: column; gap: 14px; }
 
-/* ---------- customer requests ---------- */
-.creq-section { margin: 14px 0 6px; }
-.creq { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin: 6px 0; }
-.creq-head { display: flex; align-items: center; gap: 8px; }
-.creq-target { display: inline-flex; align-items: center; gap: 6px; font-weight: 510; color: var(--text-primary); text-align: left; }
-.creq-target:hover { text-decoration: underline; }
-.creq-imp { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: #f2994a; }
-.creq-body { margin-top: 4px; font-size: 13px; color: var(--text-secondary); }
-.creq-edit { width: 100%; min-height: 70px; margin-top: 6px; }
-.creq-form { display: flex; flex-direction: column; gap: 6px; padding: 4px 8px 8px; }
-.creq-form textarea { min-height: 80px; }
-.creq .hover-only { opacity: 0; }
-.creq:hover .hover-only { opacity: 1; }
-
-/* ---------- small modals (new customer, customize sidebar) ---------- */
+/* ---------- small modals (customize sidebar) ---------- */
 .small-modal { width: 420px; max-width: calc(100vw - 32px); }
 .small-modal.wide { width: 480px; }
 .sm-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; font-weight: 590; }
@@ -2372,7 +2354,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .activity-item { color: var(--text-secondary); }
 .activity-item b { font-weight: 510; color: var(--text-secondary); }
 .activity-item .rel-time { font-family: inherit; font-size: inherit; }
-.creq-btn { display: inline-flex; }
 .cbox-send { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); }
 
 /* ---------- Linear parity: figures, list chrome ---------- */

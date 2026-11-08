@@ -12,7 +12,6 @@ import type { Editor } from '@tiptap/react';
 import { Markdown } from './Markdown.js';
 import { ProjectLocationsRow } from './CodingTools.js';
 import { Resources } from './Docs.js';
-import { CustomerRequests } from './Workspace.js';
 import { ProjectInitiatives } from './Initiatives.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueViews.js';
 import { IssueListBody, ListToolbar, useListLayoutToggle, openFilterMenu, ViewNameSeg } from './Views.js';
@@ -1109,7 +1108,6 @@ function ProjectOverview(props: { project: Project }) {
         <ProjectMoreProps project={p} />
       </div>
       <Resources projectId={p.id} />
-      <CustomerRequests projectId={p.id} hideWhenEmpty />
 
       <UpdateComposer project={p} latest={latest} />
       <UpdateDue project={p} />

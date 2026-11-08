@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -194,15 +194,6 @@ export const api = {
     return res.json() as Promise<{ avatarUrl: string | null }>;
   },
   deleteEmoji: (id: string) => req<{ ok: true }>('DELETE', `/api/emojis/${id}`),
-  createCustomer: (b: Record<string, unknown>) => req<{ customer: Customer }>('POST', '/api/customers', b),
-  updateCustomer: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/customers/${id}`, b),
-  deleteCustomer: (id: string) => req<{ ok: true }>('DELETE', `/api/customers/${id}`),
-  createCustomerAttr: (kind: 'status' | 'tier', b: Record<string, unknown>) => req<{ id: string }>('POST', `/api/customer-attrs/${kind}`, b),
-  updateCustomerAttr: (kind: 'status' | 'tier', id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/customer-attrs/${kind}/${id}`, b),
-  deleteCustomerAttr: (kind: 'status' | 'tier', id: string) => req<{ ok: true }>('DELETE', `/api/customer-attrs/${kind}/${id}`),
-  addCustomerRequest: (b: Record<string, unknown>) => req<{ request: CustomerRequest }>('POST', '/api/customer-requests', b),
-  updateCustomerRequest: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/customer-requests/${id}`, b),
-  deleteCustomerRequest: (id: string) => req<{ ok: true }>('DELETE', `/api/customer-requests/${id}`),
   createTeam: (b: Record<string, unknown>) => req<{ team: Team }>('POST', '/api/teams', b),
   updateTeam: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/teams/${id}`, patch),
   deleteTeam: (id: string) => req<{ ok: true }>('DELETE', `/api/teams/${id}`),

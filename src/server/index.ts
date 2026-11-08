@@ -189,7 +189,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     ['PUT', '/api/github/webhook/config'], ['POST', '/api/github/webhook/secret'], ['DELETE', '/api/github/webhook/secret'],
     ['POST', '/api/github/issues/import'], ['PUT', '/api/github/issues/follow'],
     ['DELETE', '/api/emojis/:id'],
-    ['POST', '/api/customer-attrs/*'], ['PATCH', '/api/customer-attrs/*'], ['DELETE', '/api/customer-attrs/*'],
   ];
   for (const [method, path] of configRoutes) app.on(method, path, adminOnly);
   mountMembers(app, { store, accounts, mailer, hosted: hosted ? auth : null });
@@ -883,28 +882,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/emojis/:id', (c) => { store.deleteEmoji(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- customers ----------
-  app.post('/api/customers', async (c) => {
-    const b = await c.req.json();
-    if (!b.name) return c.json({ error: 'name is required' }, 400);
-    return c.json({ customer: store.createCustomer(b) }, 201);
-  });
-  app.patch('/api/customers/:id', async (c) => { store.updateCustomer(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/customers/:id', (c) => { store.deleteCustomer(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/customer-attrs/:kind{status|tier}', async (c) => {
-    const b = await c.req.json();
-    if (!b.name) return c.json({ error: 'name is required' }, 400);
-    return c.json(store.createCustomerAttr(c.req.param('kind') as 'status' | 'tier', b.name, b.color), 201);
-  });
-  app.patch('/api/customer-attrs/:kind{status|tier}/:id', async (c) => { store.updateCustomerAttr(c.req.param('kind') as 'status' | 'tier', c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/customer-attrs/:kind{status|tier}/:id', (c) => { store.deleteCustomerAttr(c.req.param('kind') as 'status' | 'tier', c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/customer-requests', async (c) => {
-    const b = await c.req.json();
-    if (!b.customerId || (!b.issueId && !b.projectId)) return c.json({ error: 'customerId and an issueId or projectId are required' }, 400);
-    return c.json({ request: store.addCustomerRequest(b) }, 201);
-  });
-  app.patch('/api/customer-requests/:id', async (c) => { store.updateCustomerRequest(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/customer-requests/:id', (c) => { store.deleteCustomerRequest(c.req.param('id')); return c.json({ ok: true }); });
 
   // ---------- search ----------
   app.get('/api/search', (c) => c.json(store.search(c.req.query('q') ?? '')));
