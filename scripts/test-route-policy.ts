@@ -14,7 +14,7 @@ const ORIGIN = 'https://baseline.example.com';
 const work = mkdtempSync(join(tmpdir(), 'baseline-route-policy-'));
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));
 const { app, store } = createApp(join(work, 'policy.db'), {
-  mode: 'google', publicUrl: new URL(ORIGIN), clientId: 'c', clientSecret: 's', ownerEmail: '',
+  mode: 'hosted', publicUrl: new URL(ORIGIN), google: { clientId: 'c', clientSecret: 's' }, ownerEmail: '',
 }, { configured: false, send: async () => {} });
 const { apiKeys } = store.ext;
 

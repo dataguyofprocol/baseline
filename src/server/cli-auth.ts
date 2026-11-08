@@ -95,7 +95,8 @@ const AUTHORIZE_PAGE = `<!doctype html>
   const msg = document.getElementById('msg'), actions = document.getElementById('actions');
   const say = (parts) => { msg.textContent = ''; for (const [text, bold] of parts) { const el = bold ? document.createElement('b') : document.createTextNode(text); if (bold) el.textContent = text; msg.append(el); } };
   fetch('/api/me', { credentials: 'same-origin' }).then(async (r) => {
-    if (r.status === 401) { location.href = '/auth/google?next=' + encodeURIComponent(location.pathname + location.search); return; }
+    // signed out: the app's sign-in screen (password or Google) brings the browser back here
+    if (r.status === 401) { location.href = '/?next=' + encodeURIComponent(location.pathname + location.search); return; }
     if (!r.ok) { say([['Couldn\\'t check who you are — reload to try again.']]); return; }
     const me = await r.json();
     say([['Allow the Baseline CLI on '], [q.device, true], [' to read and change issues in '], [me.workspace.name, true], [' as '], [me.user.name, true], [' (' + me.user.email + ')? It gets a personal API key, which you can revoke in Settings › Security & access.']]);

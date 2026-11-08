@@ -3,13 +3,15 @@ import type { Context, Hono } from 'hono';
 import { AccountError, isEmail, normalizeEmail, type Accounts, type InviteRow } from '../core/accounts.js';
 import type { Store } from '../core/store.js';
 import type { Invite, InviteResult } from '../core/types.js';
+import { signInMethods, type HostedAuth } from './auth.js';
 import { inviteEmail, type Mailer } from './mail.js';
+import { RESET_LINK_TTL, resetLink } from './password-auth.js';
 import { limiter } from './ratelimit.js';
 
 const MAX_INVITES = 50;
 
-export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; mailer: Mailer; publicUrl: URL | null }): void {
-  const { store, accounts, mailer } = o;
+export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; mailer: Mailer; hosted: HostedAuth | null }): void {
+  const { store, accounts, mailer, hosted } = o;
   // invites send email in the workspace's name: at most 100 addresses (or resends) per person per hour
   const inviteLimit = limiter(100, 60 * 60_000);
   const tooMany = (c: Context) => c.json({ error: 'You\'ve sent a lot of invites — try again in an hour', code: 'rate-limited' }, 429);
@@ -20,13 +22,13 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
   const toInvite = (r: InviteRow): Invite => ({
     id: r.id, email: r.email, admin: !!r.admin, teamIds: JSON.parse(r.team_ids) as string[], invitedBy: r.invited_by,
     createdAt: r.created_at, expiresAt: r.expires_at, expired: Date.parse(r.expires_at) <= Date.now(),
-    link: o.publicUrl ? new URL(`/?invite=${r.code}`, o.publicUrl).toString() : '',
+    link: hosted ? new URL(`/?invite=${r.code}`, hosted.publicUrl).toString() : '',
   });
   const sendInvite = async (r: InviteRow): Promise<Pick<InviteResult, 'emailed' | 'error'>> => {
-    if (!mailer.configured) return { emailed: 'off' };
+    if (!mailer.configured || !hosted) return { emailed: 'off' };
     const inviter = r.invited_by ? accounts.userBrief(r.invited_by) : undefined;
     try {
-      await mailer.send(inviteEmail({ to: r.email, inviter: inviter?.name ?? 'A teammate', workspace: store.workspaceMeta().name, link: toInvite(r).link, expiresAt: r.expires_at }));
+      await mailer.send(inviteEmail({ to: r.email, inviter: inviter?.name ?? 'A teammate', workspace: store.workspaceMeta().name, link: toInvite(r).link, expiresAt: r.expires_at, methods: signInMethods(hosted) }));
       return { emailed: 'sent' };
     } catch (err) {
       console.error('[baseline] invite email failed:', (err as Error).message);
@@ -34,7 +36,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     }
   };
   // invites only make sense where people sign in
-  const invitesOff = (c: Context) => !o.publicUrl ? c.json({ error: 'Invites need a hosted workspace (Google sign-in)', code: 'not-hosted' }, 400) : null;
+  const invitesOff = (c: Context) => !hosted ? c.json({ error: 'Invites need a hosted workspace (BASELINE_PUBLIC_URL)', code: 'not-hosted' }, 400) : null;
 
   // ---------- invites ----------
   app.get('/api/invites', (c) => {
@@ -92,6 +94,18 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
       throw err;
     }
     return c.json({ ok: true });
+  });
+
+  // a one-use link that sets this person's password — shared by the admin, so no email is needed
+  // (a key can't ask for one, see principal.ts)
+  app.post('/api/members/:id/reset-link', (c) => {
+    if (!hosted) return c.json({ error: 'Passwords are for hosted workspaces (BASELINE_PUBLIC_URL)', code: 'not-hosted' }, 400);
+    if (!accounts.isAdmin(me())) return forbid(c, 'Only admins can make password reset links');
+    const target = store.snapshot().users.find(u => u.id === c.req.param('id') && u.kind === 'human');
+    if (!target) return c.json({ error: 'No such person', code: 'not-found' }, 404);
+    if (target.status === 'suspended') return c.json({ error: `${target.name} is suspended — reactivate them first`, code: 'invalid' }, 400);
+    const { token, expiresAt } = accounts.createPasswordReset(target.id, me(), RESET_LINK_TTL);
+    return c.json({ link: resetLink(hosted.publicUrl, token), expiresAt });
   });
 
   // anyone can join or leave a team themselves

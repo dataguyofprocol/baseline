@@ -4,7 +4,8 @@ import { getMeta, openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
 import { blankWorkspace, seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
-import { authConfigFromEnv, cookieSessions, mountAuth, type AuthConfig } from './auth.js';
+import { authConfigFromEnv, cookieSessions, mountAuth, signInMethods, type AuthConfig } from './auth.js';
+import { setupToken } from './setup.js';
 import { attributedActor, authenticate, hostOf, isLoopback, originHostOf, principalOf, principalUser, Refusal } from './principal.js';
 import { mountMembers } from './members.js';
 import { mountCliAuth } from './cli-auth.js';
@@ -46,7 +47,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const store = new Store(db);
   const accounts = new Accounts(db, store);
   const changes = new ChangeFeed(db);
-  const hosted = auth.mode === 'google';
+  const hosted = auth.mode === 'hosted';
   const { planning, automation, git, apiKeys, webhooks, work } = store.ext;
   // images (avatars, emoji, pasted pictures) live in the database; pick up any from the old uploads folder
   const files = new FileService(db, join(dirname(dbPath), 'attachments'));
@@ -61,7 +62,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   if (!hosted) setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
 
   // first run: a laptop gets the sample workspace to play with; a hosted one starts empty —
-  // its people come from Google sign-in, and onboarding asks for the first team
+  // its owner is created on the setup screen (or by Google sign-in), and onboarding asks for the first team
   const hasWorkspace = db.prepare('SELECT COUNT(*) AS n FROM meta').get() as { n: number };
   if (Number(hasWorkspace.n) === 0 && hosted) {
     setMeta(db, 'workspaceId', id('w'));
@@ -95,7 +96,10 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     console.error(err);
     return c.text('Internal Server Error', 500);
   });
-  if (hosted) mountAuth(app, auth, accounts, store, sessions!, {
+  // hosted, nobody can sign in yet: whoever holds this token creates the owner (see setup.ts)
+  const setup = setupToken(dbPath);
+  if (hosted && !accounts.needsSetup()) setup.clear();
+  if (hosted) mountAuth(app, auth, { accounts, store, sessions: sessions!, mailer, setup }, {
     onInviteAccepted: (userId, invitedBy) => {
       const who = accounts.userBrief(userId), inviter = accounts.userBrief(invitedBy);
       if (!mailer.configured || !who || !inviter?.email) return;
@@ -177,7 +181,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     ['POST', '/api/customer-attrs/*'], ['PATCH', '/api/customer-attrs/*'], ['DELETE', '/api/customer-attrs/*'],
   ];
   for (const [method, path] of configRoutes) app.on(method, path, adminOnly);
-  mountMembers(app, { store, accounts, mailer, publicUrl: hosted ? auth.publicUrl : null });
+  mountMembers(app, { store, accounts, mailer, hosted: hosted ? auth : null });
   mountCliAuth(app, { db, store, accounts, apiKeys });
 
   // ---------- bootstrap ----------
@@ -188,6 +192,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (unknown?.length) return c.json({ error: `Unknown bootstrap section(s): ${unknown.join(', ')}`, code: 'invalid' }, 400);
     const snap = store.snapshot();
     snap.workspace.auth = auth.mode;
+    if (hosted) { snap.workspace.signInMethods = signInMethods(auth); snap.workspace.mail = mailer.configured; }
     // the home directory only means something when the server is this machine
     if (!hosted) snap.workspace.homeDir = homedir();
     if (LAN_OPEN) snap.workspace.lanHost = LISTEN_HOST;
@@ -210,6 +215,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       user, workspace: { id: ws.id, name: ws.name }, via: p.via,
       scopes: p.via === 'key' ? p.key.scopes : null, teamIds: p.via === 'key' ? p.key.teamIds : null,
       keyId: p.via === 'key' ? p.key.id : null,
+      // whether Settings › Account offers "change password" (null: not a signed-in browser)
+      hasPassword: p.via === 'session' ? !!accounts.passwordHashOf(p.userId) : null,
     });
   });
   // signing out of the CLI: only ever the key that made the request (other keys are managed in Settings)
@@ -957,7 +964,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.body(readFileSync(join(WEB_DIST, 'index.html')), 200, { 'Content-Type': 'text/html' });
   });
 
-  return { app, store, db, accounts, changes, files };
+  return { app, store, db, accounts, changes, files, setup };
 }
 
 export function serve(opts: ServeOptions = {}): { server: ServerType; port: number } {
@@ -965,7 +972,7 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
   const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7770);
   const auth = authConfigFromEnv();
   // the browser is where a new workspace gets set up, so a new database starts blank (--seed: sample data)
-  const { app, store, changes } = createApp(dbPath, auth, mailerFromEnv(), { blank: !opts.seedIfEmpty });
+  const { app, store, changes, accounts, setup } = createApp(dbPath, auth, mailerFromEnv(), { blank: !opts.seedIfEmpty });
   // only the server watches the clock and the file: the CLI uses createApp too, and must exit
   changes.start();
   startScheduler(store, changes);
@@ -978,7 +985,12 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
   server.once('listening', () => {
     const url = `http://localhost:${port}`;
     console.log(`[baseline] serving on ${url}  (db: ${dbPath})`);
-    if (auth.mode === 'google') console.log(`[baseline] hosted mode: Google sign-in at ${auth.publicUrl.origin}`);
+    if (auth.mode === 'hosted') {
+      console.log(`[baseline] hosted mode at ${auth.publicUrl.origin}: sign in with ${signInMethods(auth).join(' or ')}`);
+      if (accounts.needsSetup()) {
+        console.log(`[baseline] first run: open ${auth.publicUrl.origin} and create the owner account with this setup token:\n\n    ${setup.ensure()}\n\n[baseline] (\`baseline setup-token\` prints it again)`);
+      }
+    }
     if (opts.open) exec(`open ${url}`);
   });
   return { server, port };

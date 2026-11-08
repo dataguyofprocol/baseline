@@ -65,7 +65,7 @@ export function Sidebar() {
   // hosted: the teams you're on (everyone else's are a click away in Teams); someone on no team yet
   // — and a laptop, where there's one person — sees them all
   const mine = snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id));
-  const yourTeams = snap.workspace.auth === 'google' && mine.length ? mine : snap.teams;
+  const yourTeams = snap.workspace.auth === 'hosted' && mine.length ? mine : snap.teams;
   const triageState = (teamId: string) => snap.states.find(s => s.teamId === teamId && s.type === 'triage');
   const triageCount = (teamId: string) => { const st = triageState(teamId); return st ? snap.issues.filter(i => i.stateId === st.id).length : 0; };
   const menuTeam = snap.teams.find(t => t.id === teamMenuFor);
@@ -161,7 +161,7 @@ export function Sidebar() {
             <div className="menu-header"><span>{me.name} — {me.email || 'local user'}</span></div>
             <MenuItem icon={<IconSettings size={14} />} label="Settings" onClick={() => navigate('/settings/workspace')} />
             <MenuSep />
-            {snap.workspace.auth === 'google'
+            {snap.workspace.auth === 'hosted'
               ? <MenuItem label="Log out" onClick={async () => { workspaceMenu.close(); await api.logout(); useApp.setState({ signedOut: true, loaded: false, snap: null }); }} />
               : <ConfirmButton className="menu-item danger" label={<span className="mi-label">Reset sample workspace</span>} confirmLabel={<span className="mi-label">Click again to wipe all data</span>}
                   onConfirm={async () => { workspaceMenu.close(); await api.reseed(); await useApp.getState().bootstrap(); }} />}

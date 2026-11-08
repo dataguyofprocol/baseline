@@ -44,7 +44,7 @@ export function Onboarding() {
   const snap = useApp(s => s.snap)!;
   const gs = snap.workspace.preferences.gettingStarted;
   const hasTeam = snap.teams.length > 0;
-  const steps = snap.workspace.auth === 'google' ? HOSTED_STEPS : ALL_STEPS;
+  const steps = snap.workspace.auth === 'hosted' ? HOSTED_STEPS : ALL_STEPS;
   // without a team the flow can't get past naming one (a workspace whose teams were all deleted lands there too)
   const [step, setStep] = useState(() => Math.min(gs.step, hasTeam ? steps.length - 1 : TEAM_STEP));
   const go = (n: number) => { setStep(n); void setGettingStarted({ step: n }); };
@@ -116,7 +116,7 @@ function Frame(props: {
 /* ================= 1 · welcome ================= */
 function WelcomeStep({ next }: StepProps) {
   const ws = useApp(s => s.snap!.workspace.name);
-  const hosted = useApp(s => s.snap!.workspace.auth === 'google');
+  const hosted = useApp(s => s.snap!.workspace.auth === 'hosted');
   useStepKeys(next, next);
   return (
     <Frame
