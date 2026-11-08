@@ -57,7 +57,7 @@ How hosted mode differs:
 
   Opening an invite with a different address or Google account says so instead of letting them in.
 - **Passwords:** at least 10 characters, stored as scrypt hashes with a per-user salt. A wrong email and a wrong password get the same answer. An admin can make a one-use reset link for a member (Settings › Members, the member's menu; it lasts 24 hours). Everyone can change their own password in Settings › Security & access. Setting a new password signs out that person's other sessions.
-- **Settings › Members:** invite people as Members or Admins onto chosen teams; resend, copy or revoke invites; change roles and teams; suspend or reactivate people. The workspace always keeps at least one admin, and nobody can suspend themselves.
+- **Settings › Members:** invite people as Members or Admins onto chosen teams (the dialog also finds people already in the workspace by name or email and adds them to those teams instead); resend, copy or revoke invites; change roles and teams; suspend or reactivate people. The workspace always keeps at least one admin, and nobody can suspend themselves.
 - **Settings › Security:** approved domains and the teams those people start on, and whether members may invite (only admins invite admins).
 - **Sessions** last 30 days, renewed as long as you keep using them.
 - **Admin-only:** roles, suspension, security settings, workspace settings, import and export.

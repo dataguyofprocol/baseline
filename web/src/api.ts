@@ -27,7 +27,7 @@ export const api = {
   logout: () => req<{ ok: true }>('POST', '/api/auth/logout'),
   // people (hosted workspaces)
   listInvites: () => req<{ invites: Invite[] }>('GET', '/api/invites'),
-  createInvites: (b: { emails: string; admin: boolean; teamIds: string[] }) => req<{ results: InviteResult[] }>('POST', '/api/invites', b),
+  createInvites: (b: { userIds: string[]; emails: string[]; admin: boolean; teamIds: string[] }) => req<{ results: InviteResult[] }>('POST', '/api/invites', b),
   resendInvite: (id: string) => req<{ invite: Invite; emailed?: InviteResult['emailed']; error?: string }>('POST', `/api/invites/${id}/resend`, {}),
   revokeInvite: (id: string) => req<{ ok: true }>('DELETE', `/api/invites/${id}`),
   updateMember: (id: string, b: { admin?: boolean; suspended?: boolean; teamIds?: string[] }) => req<{ ok: true }>('PATCH', `/api/members/${id}`, b),

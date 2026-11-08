@@ -449,6 +449,7 @@ export type AuthMode = 'local' | 'hosted';
 export type SignInMethod = 'password' | 'google';
 /** shared with the web app so its forms ask for what the server will accept */
 export const PASSWORD_MIN = 10;
+export const isEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
 /** a pending invite as admins see it (joining still needs the invited Google account, or typing the invited address) */
 export interface Invite {
@@ -463,10 +464,19 @@ export interface Invite {
   link: string;
 }
 
-/** what happened to one address in an invite request */
+/** one person in an invite request: someone already in the workspace, or an address */
+export type InviteEntry = { kind: 'member'; userId: string } | { kind: 'email'; email: string };
+
+/** what happened to one person in an invite request. Someone already in the workspace isn't invited
+ *  again: they're added to the requested teams ('added-to-teams', `teamIds` = the ones added), or were
+ *  on all of them ('already-on-teams'), or no teams were asked for ('already-in-workspace'). */
 export interface InviteResult {
   email: string;
-  status: 'invited' | 'already-member' | 'invalid';
+  status: 'invited' | 'added-to-teams' | 'already-on-teams' | 'already-in-workspace' | 'invalid';
+  /** the existing person this entry named */
+  userId?: string;
+  /** added-to-teams: the teams they were just added to; already-on-teams: the requested teams */
+  teamIds?: string[];
   invite?: Invite;
   /** 'off': no SMTP on this server — share the link instead */
   emailed?: 'sent' | 'failed' | 'off';

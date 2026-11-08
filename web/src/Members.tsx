@@ -1,12 +1,13 @@
 // People in a hosted workspace: members and their access, pending invites, and who may join.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useApp, relTime, shortDate, copyText } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, Modal, useMenu, useCanConfigure } from './ui.js';
 import { Avatar } from './pickers.js';
 import { IconCheck, IconClose, IconCopy, IconMore, IconPlus, IconSearch, IconLink, IconTrash } from './icons.js';
-import type { Invite, InviteResult, Team, User } from '../../src/core/types.js';
+import { isEmail, type Invite, type InviteEntry, type InviteResult, type Team, type User } from '../../src/core/types.js';
 
 type Tab = 'all' | 'active' | 'invited' | 'suspended';
 
@@ -95,7 +96,7 @@ export function HostedMembersSettings() {
         {' '}Suspended people can't sign in; their issues and comments stay.
       </div>
       <AgentsSection />
-      <AnimatePresence>{inviting && <InviteModal key="invite" onClose={() => setInviting(false)} onDone={async () => { await loadInvites(); }} />}</AnimatePresence>
+      <AnimatePresence>{inviting && <InviteModal key="invite" onClose={() => setInviting(false)} onDone={async () => { await refresh(); await loadInvites(); }} />}</AnimatePresence>
     </div>
   );
 }
@@ -191,24 +192,53 @@ function InviteRow(props: { invite: Invite; canManage: boolean; act: (fn: () => 
   );
 }
 
-/** `teamIds`: opened from a team, it starts with that team picked; from the workspace, with your first team */
+/** `teamIds`: opened from a team, it starts with that team picked; from the workspace, with your first team.
+ *  People already in the workspace are picked by name and put on the chosen teams; new addresses are invited. */
 export function InviteModal(props: { onClose: () => void; onDone: () => Promise<void>; teamIds?: string[] }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const isAdmin = snap.currentUser.admin;
-  const [emails, setEmails] = useState('');
+  const [entries, setEntries] = useState<InviteEntry[]>([]);
+  const [text, setText] = useState('');
   const [admin, setAdmin] = useState(false);
   const [teamIds, setTeamIds] = useState<string[]>(props.teamIds ?? snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id)).map(t => t.id).slice(0, 1));
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<InviteResult[] | null>(null);
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { const t = setTimeout(() => ref.current?.focus(), 30); return () => clearTimeout(t); }, []);
 
+  const people = snap.users.filter(u => u.kind === 'human' && u.status === 'active');
+  const byEmail = (email: string) => people.find(u => u.email.toLowerCase() === email.toLowerCase());
+  /** the given text as chips: addresses of people here become them, other addresses stay addresses; the rest is returned */
+  const toEntries = (raw: string, into: InviteEntry[]): { entries: InviteEntry[]; rest: string } => {
+    const next = [...into];
+    const rest: string[] = [];
+    for (const token of raw.split(/[\s,;]+/).filter(Boolean)) {
+      if (!isEmail(token)) { rest.push(token); continue; }
+      const u = byEmail(token);
+      const entry: InviteEntry = u ? { kind: 'member', userId: u.id } : { kind: 'email', email: token.toLowerCase() };
+      if (!next.some(e => sameEntry(e, entry))) next.push(entry);
+    }
+    return { entries: next, rest: rest.join(' ') };
+  };
+  const commit = (raw: string) => {
+    const r = toEntries(raw, entries);
+    setEntries(r.entries);
+    setText(r.rest);
+  };
+
+  const pending = toEntries(text, entries).entries;
+  // with no team chosen, someone already here has nothing to be added to
+  const sendable = pending.some(e => e.kind === 'email') || (teamIds.length > 0 && pending.length > 0);
   const send = async () => {
-    if (!emails.trim() || busy) return;
+    if (!sendable || busy) return;
+    setEntries(pending);
+    setText('');
     setBusy(true);
     try {
-      const r = await api.createInvites({ emails, admin, teamIds });
+      const r = await api.createInvites({
+        userIds: pending.flatMap(e => e.kind === 'member' ? [e.userId] : []),
+        emails: pending.flatMap(e => e.kind === 'email' ? [e.email] : []),
+        admin, teamIds,
+      });
       setResults(r.results);
       await props.onDone();
     } catch (err) {
@@ -217,12 +247,16 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
       setBusy(false);
     }
   };
+  const teamNames = (ids: string[] = []) => ids.map(id => snap.teams.find(t => t.id === id)?.name).filter(Boolean).join(', ');
   const describe = (r: InviteResult) =>
-    r.status === 'invalid' ? 'Not an email address'
-    : r.status === 'already-member' ? 'Already a member'
+    r.status === 'invalid' ? r.error ?? 'Not an email address'
+    : r.status === 'added-to-teams' ? `Added to ${teamNames(r.teamIds)}`
+    : r.status === 'already-on-teams' ? `Already on ${teamNames(r.teamIds)}`
+    : r.status === 'already-in-workspace' ? 'Already in the workspace'
     : r.emailed === 'sent' ? 'Invite emailed'
     : r.emailed === 'failed' ? `Invited — the email failed (${r.error}), share the link`
     : 'Invited — email isn\'t set up on this server, share the link';
+  const onlyPeople = pending.length > 0 && pending.every(e => e.kind === 'member');
 
   return (
     <Modal onClose={props.onClose} className="modal modal-create cy-modal">
@@ -234,18 +268,19 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
         {!results ? (
           <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <div className="field-label">Email</div>
-              <textarea ref={ref} className="text-input" rows={3} style={{ width: '100%', marginTop: 6, height: 'auto', padding: 8, resize: 'vertical' }}
-                placeholder="name@acme.dev, another@acme.dev" value={emails} onChange={e => setEmails(e.target.value)} />
-              <div className="field-help">{snap.workspace.signInMethods?.includes('google')
-                ? 'They open the invite link and choose a password, or sign in with the Google account for that address.'
-                : 'They open the invite link and choose a password.'}</div>
+              <div className="field-label">People</div>
+              <PeopleField people={people} teams={snap.teams.filter(t => teamIds.includes(t.id))} entries={entries} text={text}
+                onText={setText} onEntries={setEntries} onCommit={commit} />
+              <div className="field-help">
+                {onlyPeople && !teamIds.length ? 'They\'re already in the workspace — choose a team to add them to.'
+                  : `People already in the workspace are added to the teams below. New addresses get an invite link${snap.workspace.signInMethods?.includes('google') ? ': they choose a password, or sign in with the Google account for that address.' : ' and choose a password.'}`}
+              </div>
             </div>
             <div>
               <div className="field-label">Role</div>
               <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                 <button className={`seg seg-fill ${!admin ? 'selected' : ''}`} onClick={() => setAdmin(false)}>Member</button>
-                <button className={`seg seg-fill ${admin ? 'selected' : ''}`} disabled={!isAdmin} title={isAdmin ? undefined : 'Only admins can invite admins'} onClick={() => setAdmin(true)}>Admin</button>
+                <button className={`seg seg-fill ${admin ? 'selected' : ''}`} disabled={!isAdmin} title={isAdmin ? 'For new people; it doesn\'t change anyone already here' : 'Only admins can invite admins'} onClick={() => setAdmin(true)}>Admin</button>
               </div>
             </div>
             <div>
@@ -255,15 +290,20 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
           </div>
         ) : (
           <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {results.map(r => (
-              <div key={r.email} className="prop-row" style={ROW}>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <div>{r.email}</div>
-                  <div style={{ fontSize: 12, color: r.status === 'invited' && r.emailed !== 'failed' ? 'var(--text-dim)' : '#eb5757' }}>{describe(r)}</div>
-                </span>
-                {r.invite && <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={async () => toast({ title: await copyText(r.invite!.link) ? 'Invite link copied' : 'Couldn\'t copy the link' })}><IconLink size={12} /> Copy link</button>}
-              </div>
-            ))}
+            {results.map(r => {
+              const u = r.userId ? snap.users.find(x => x.id === r.userId) : undefined;
+              const bad = r.status === 'invalid' || r.emailed === 'failed';
+              return (
+                <div key={r.userId ?? r.email} className="prop-row" style={ROW} data-invite-result={r.status}>
+                  <Avatar user={u ?? null} size={24} />
+                  <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+                    <span>{u?.name ?? r.email}</span>
+                    <span style={{ fontSize: 12, color: bad ? '#eb5757' : 'var(--text-dim)' }}>{describe(r)}</span>
+                  </span>
+                  {r.invite && <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={async () => toast({ title: await copyText(r.invite!.link) ? 'Invite link copied' : 'Couldn\'t copy the link' })}><IconLink size={12} /> Copy link</button>}
+                </div>
+              );
+            })}
             {results.some(r => r.invite && r.emailed !== 'sent') && (
               <div className="field-help">Send each person their link yourself — anyone with it can join as that address once they type it.</div>
             )}
@@ -275,11 +315,13 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
             {!results ? (
               <>
                 <button className="btn" onClick={props.onClose}>Cancel</button>
-                <button className="btn primary" disabled={busy || !emails.trim()} onClick={send}>{busy ? 'Sending…' : 'Send invites'}<span className="btn-kbd kbd">⌘↵</span></button>
+                <button className="btn primary" disabled={busy || !sendable} onClick={send}>
+                  {busy ? 'Sending…' : onlyPeople ? 'Add to team' + (teamIds.length === 1 ? '' : 's') : 'Send invites'}<span className="btn-kbd kbd">⌘↵</span>
+                </button>
               </>
             ) : (
               <>
-                <button className="btn" onClick={() => { setResults(null); setEmails(''); }}>Invite more</button>
+                <button className="btn" onClick={() => { setResults(null); setEntries([]); setText(''); }}>Invite more</button>
                 <button className="btn primary" onClick={props.onClose}>Done</button>
               </>
             )}
@@ -287,6 +329,122 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
         </div>
       </div>
     </Modal>
+  );
+}
+
+const sameEntry = (a: InviteEntry, b: InviteEntry) =>
+  a.kind === 'member' ? b.kind === 'member' && a.userId === b.userId : b.kind === 'email' && a.email === b.email;
+
+/** one field of chips, as in Linear: type a name or address, pick from the people here, or end an address
+ *  with comma/Enter; paste a list; Backspace takes the last chip off */
+function PeopleField(props: {
+  people: User[]; teams: Team[]; entries: InviteEntry[]; text: string;
+  onText: (s: string) => void; onEntries: (e: InviteEntry[]) => void; onCommit: (raw: string) => void;
+}) {
+  const { people, teams, entries, text } = props;
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [focused, setFocused] = useState(false);
+  const [hl, setHl] = useState(0);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  useEffect(() => { const t = setTimeout(() => inputRef.current?.focus(), 30); return () => clearTimeout(t); }, []);
+
+  const q = text.trim().toLowerCase();
+  const picked = new Set(entries.flatMap(e => e.kind === 'member' ? [e.userId] : []));
+  const typedEmail = isEmail(q) && !people.some(u => u.email.toLowerCase() === q) && !entries.some(e => e.kind === 'email' && e.email === q) ? q : null;
+  type Option = { kind: 'member'; user: User; on: Team[]; disabled: boolean } | { kind: 'email'; email: string };
+  const options: Option[] = !q ? [] : [
+    ...people.filter(u => !picked.has(u.id) && `${u.name} ${u.email}`.toLowerCase().includes(q)).slice(0, 8).map(u => {
+      const on = teams.filter(t => t.memberIds.includes(u.id));
+      return { kind: 'member' as const, user: u, on, disabled: teams.length > 0 && on.length === teams.length };
+    }),
+    ...(typedEmail ? [{ kind: 'email' as const, email: typedEmail }] : []),
+  ];
+  const selectable = options.flatMap((o, i) => o.kind === 'email' || !o.disabled ? [i] : []);
+  const [dismissed, setDismissed] = useState(false);
+  const open = focused && !dismissed && options.length > 0;
+  const active = selectable.includes(hl) ? hl : selectable[0] ?? -1;
+
+  useLayoutEffect(() => { if (open) setRect(fieldRef.current!.getBoundingClientRect()); }, [open, entries.length, text]);
+  useEffect(() => { setHl(0); setDismissed(false); }, [q]);
+  // Escape closes the list before it closes the dialog. Modal listens on window too (capture); registered
+  // once on mount, this listener stays ahead of Modal's, which re-registers on every render.
+  const openRef = useRef(open);
+  openRef.current = open;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && openRef.current) { e.stopImmediatePropagation(); setDismissed(true); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+
+  const choose = (o: Option) => {
+    if (o.kind === 'email') props.onCommit(o.email);
+    else if (!o.disabled) { props.onEntries([...entries, { kind: 'member', userId: o.user.id }]); props.onText(''); }
+    inputRef.current?.focus();
+  };
+  const move = (by: number) => {
+    if (!selectable.length) return;
+    const at = selectable.indexOf(active);
+    setHl(selectable[(at + by + selectable.length) % selectable.length]!);
+  };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); move(e.key === 'ArrowDown' ? 1 : -1); }
+    else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      // someone already on every chosen team can't be picked, by click or by typing their address
+      if (open) { if (active >= 0) choose(options[active]!); }
+      else props.onCommit(text);
+    } else if (e.key === ',' || e.key === ';') { e.preventDefault(); props.onCommit(text); }
+    else if (e.key === 'Backspace' && !text && entries.length) props.onEntries(entries.slice(0, -1));
+  };
+
+  return (
+    <>
+      <div ref={fieldRef} className="text-input invite-field" onMouseDown={e => { if (e.target === e.currentTarget) { e.preventDefault(); inputRef.current?.focus(); } }}>
+        {entries.map(e => {
+          const u = e.kind === 'member' ? people.find(x => x.id === e.userId) : undefined;
+          const label = u?.name ?? (e.kind === 'email' ? e.email : 'Someone');
+          return (
+            <span key={e.kind === 'member' ? e.userId : e.email} className="invite-chip" title={u?.email}>
+              <Avatar user={u ?? null} size={16} />
+              <span className="chip-label">{label}</span>
+              <button type="button" className="chip-x" aria-label={`Remove ${label}`} onClick={() => props.onEntries(entries.filter(x => x !== e))}><IconClose size={10} /></button>
+            </span>
+          );
+        })}
+        <input ref={inputRef} value={text} placeholder={entries.length ? '' : 'Name or email'} aria-label="Name or email"
+          onChange={e => props.onText(e.target.value)} onKeyDown={onKeyDown}
+          onFocus={() => setFocused(true)}
+          onBlur={() => { setFocused(false); if (text.trim()) props.onCommit(text); }}
+          onPaste={e => {
+            const pasted = e.clipboardData.getData('text');
+            if (!/[\s,;]/.test(pasted.trim()) && !isEmail(pasted.trim())) return;
+            e.preventDefault();
+            props.onCommit(`${text} ${pasted}`);
+          }} />
+      </div>
+      {open && rect && createPortal(
+        <div className="menu invite-options" role="listbox" style={{ top: rect.bottom + 4, left: rect.left, width: rect.width }}
+          onMouseDown={e => e.preventDefault()}>
+          {options.map((o, i) => o.kind === 'member' ? (
+            <button key={o.user.id} type="button" role="option" aria-selected={i === active} aria-disabled={o.disabled}
+              className={`menu-item${i === active ? ' highlighted' : ''}${o.disabled ? ' disabled' : ''}`}
+              onMouseMove={() => { if (!o.disabled) setHl(i); }} onClick={() => choose(o)}>
+              <Avatar user={o.user} size={18} />
+              <span className="mi-label">{o.user.name}<span className="mi-hint">{o.user.email}</span></span>
+              <span className="mi-right invite-on">{o.on.length ? `On ${o.on.map(t => t.name).join(', ')}` : !teams.length ? 'In workspace' : ''}</span>
+            </button>
+          ) : (
+            <button key="email" type="button" role="option" aria-selected={i === active}
+              className={`menu-item${i === active ? ' highlighted' : ''}`} onMouseMove={() => setHl(i)} onClick={() => choose(o)}>
+              <Avatar user={null} size={18} />
+              <span className="mi-label">Invite {o.email}</span>
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 

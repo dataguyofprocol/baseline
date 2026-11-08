@@ -34,7 +34,7 @@ export interface InviteRow {
 }
 const INVITE_DAYS = 7;
 export const normalizeEmail = (e: string) => e.trim().toLowerCase();
-export const isEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+export { isEmail } from './types.js';
 
 export class Accounts {
   constructor(private db: DatabaseSync, private store: Store) {}

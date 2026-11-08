@@ -452,13 +452,15 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
 }
 
 // ---- invites ----
-type Result = { email: string; status: string; emailed?: string; invite?: { id: string; link: string; teamIds: string[] } };
+type Result = { email: string; status: string; userId?: string; teamIds?: string[]; error?: string; emailed?: string; invite?: { id: string; link: string; teamIds: string[] } };
 {
   const r = await req('/api/invites', { ...json({ emails: 'ben@example.com, cara@example.com\nnot-an-email, ada@example.com, BEN@example.com', teamIds: [team.team.id, 'nope'] }), cookie: ownerCookie });
   const { results } = await r.json() as { results: Result[] };
   const by = (e: string) => results.find(x => x.email === e);
   check('inviting takes a pasted list, deduplicated case-insensitively', r.status === 201 && results.length === 4, JSON.stringify(results));
-  check('…flags a bad address and an existing member', by('not-an-email')?.status === 'invalid' && by('ada@example.com')?.status === 'already-member');
+  check('…flags a bad address', by('not-an-email')?.status === 'invalid');
+  check('…and puts an existing member on the teams instead of inviting them', by('ada@example.com')?.status === 'added-to-teams' && !by('ada@example.com')?.invite
+    && store.getTeam(team.team.id)!.memberIds.includes(ada.id), JSON.stringify(by('ada@example.com')));
   check('…emails each new invite', by('ben@example.com')?.emailed === 'sent' && sent.filter(m => m.to === 'ben@example.com').length === 1);
   check('…and keeps only real teams', JSON.stringify(by('ben@example.com')?.invite?.teamIds) === JSON.stringify([team.team.id]));
   const mail = sent.find(m => m.to === 'cara@example.com')!;
@@ -569,6 +571,60 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
   check('a member can\'t remove someone else', memberRemoves.status === 403 && members(t2.team.id).includes(ada.id), String(memberRemoves.status));
   check('an admin removes someone from a team', (await removeFrom(t2.team.id, ada.id, ownerCookie)).status === 200 && !members(t2.team.id).includes(ada.id));
   check('anyone can take themselves off a team', (await removeFrom(team.team.id, raj!.id, rajNow)).status === 200 && !members(team.team.id).includes(raj!.id));
+
+  // ---- the invite dialog finds people already here and puts them on its teams ----
+  // Raj is a member on Ops only; Ada is on Eng, not Ops; Eve joined with no team
+  const invite = (body: unknown, cookie: string) => req('/api/invites', { ...json(body), cookie });
+  const resultsOf = async (r: Response) => (await r.json() as { results: Result[] }).results;
+  const addedNotices = async (cookie: string, teamId: string) => (await (await req('/api/bootstrap', { cookie })).json() as { notifications: Array<{ type: string; actorId: string; body: string }> })
+    .notifications.filter(n => n.type === 'teamMemberAdded' && n.actorId === raj!.id && n.body.startsWith(`${teamId}|`)).length;
+  const openFor = (email: string) => !!db.prepare('SELECT 1 FROM invites WHERE email = ? AND accepted_at IS NULL AND revoked_at IS NULL').get(email);
+  const eveUser = store.snapshot().users.find(u => u.email === 'eve@example.com')!;
+  const eveCookie = `__Host-baseline_session=${eveIn.session}`;
+  const noticesBefore = await addedNotices(adaCookie, t2.team.id);
+  const byAddress = await invite({ emails: 'ADA@example.com', teamIds: [t2.team.id] }, rajNow);
+  const [adaR] = await resultsOf(byAddress);
+  check('a team invite to an existing member\'s address adds them to the team', byAddress.status === 201 && adaR?.status === 'added-to-teams' && adaR.userId === ada.id
+    && JSON.stringify(adaR.teamIds) === JSON.stringify([t2.team.id]) && members(t2.team.id).includes(ada.id) && !adaR.invite && !openFor('ada@example.com'), JSON.stringify(adaR));
+  check('…and they get the "added you to the team" notice', await addedNotices(adaCookie, t2.team.id) === noticesBefore + 1);
+  const byId = await invite({ userIds: [eveUser.id], teamIds: [t2.team.id] }, rajNow);
+  const [eveR] = await resultsOf(byId);
+  check('picking a member by id does the same', eveR?.status === 'added-to-teams' && eveR.email === 'eve@example.com' && members(t2.team.id).includes(eveUser.id)
+    && await addedNotices(eveCookie, t2.team.id) === 1, JSON.stringify(eveR));
+  const twice = await resultsOf(await invite({ userIds: [ada.id], emails: 'ada@example.com', teamIds: [t2.team.id] }, rajNow));
+  check('someone already on every chosen team is reported once, as already on them', twice.length === 1 && twice[0]!.status === 'already-on-teams'
+    && JSON.stringify(twice[0]!.teamIds) === JSON.stringify([t2.team.id]), JSON.stringify(twice));
+  const noTeams = await resultsOf(await invite({ emails: 'ada@example.com' }, rajNow));
+  check('with no team chosen, an existing member is already in the workspace, not invited again', noTeams[0]?.status === 'already-in-workspace' && !openFor('ada@example.com'), JSON.stringify(noTeams));
+  const agentInvite = await invite({ userIds: [agentId], teamIds: [t2.team.id] }, rajNow);
+  check('an agent can\'t be added through an invite', agentInvite.status === 400 && !members(t2.team.id).includes(agentId), String(agentInvite.status));
+  await removeFrom(t2.team.id, eveUser.id, ownerCookie);
+  await patch(`/api/members/${eveUser.id}`, { suspended: true }, ownerCookie);
+  const suspendedId = await invite({ userIds: [eveUser.id], teamIds: [t2.team.id] }, rajNow);
+  const [suspendedR] = await resultsOf(await invite({ emails: 'eve@example.com', teamIds: [t2.team.id] }, rajNow));
+  check('nor can a suspended person, by id or by address', suspendedId.status === 400 && suspendedR?.status === 'invalid' && !!suspendedR.error
+    && !members(t2.team.id).includes(eveUser.id) && !openFor('eve@example.com'), JSON.stringify(suspendedR));
+  await patch(`/api/members/${eveUser.id}`, { suspended: false }, ownerCookie);
+  const notOnEng = await invite({ userIds: [eveUser.id], teamIds: [team.team.id] }, rajNow);
+  const notOnEngByAddress = await invite({ emails: 'eve@example.com', teamIds: [team.team.id] }, rajNow);
+  check('someone not on a team (and not an admin) can\'t add existing people to it by invite', notOnEng.status === 403 && notOnEngByAddress.status === 403
+    && !members(team.team.id).includes(eveUser.id), `${notOnEng.status} ${notOnEngByAddress.status}`);
+  await patch('/api/security', { whoCanInvite: 'admins' }, ownerCookie);
+  const newWhileAdminsOnly = await invite({ emails: 'newcomer@example.com', teamIds: [t2.team.id] }, rajNow);
+  const existingWhileAdminsOnly = await invite({ userIds: [eveUser.id], teamIds: [t2.team.id] }, rajNow);
+  check('a new address still needs permission to invite, while adding someone already here only needs the team',
+    newWhileAdminsOnly.status === 403 && !openFor('newcomer@example.com') && existingWhileAdminsOnly.status === 201 && members(t2.team.id).includes(eveUser.id),
+    `${newWhileAdminsOnly.status} ${existingWhileAdminsOnly.status}`);
+  await patch('/api/security', { whoCanInvite: 'members' }, ownerCookie);
+  sent.length = 0;
+  const mixed = await resultsOf(await invite({ userIds: [raj!.id], emails: 'ada@example.com, newbie@example.com, nope', teamIds: [team.team.id, t2.team.id] }, ownerCookie));
+  const mixedBy = (e: string) => mixed.find(x => x.email === e);
+  check('a mixed batch adds, reports, invites and flags each entry', mixed.length === 4
+    && mixedBy('raj@acme.dev')?.status === 'added-to-teams' && JSON.stringify(mixedBy('raj@acme.dev')?.teamIds) === JSON.stringify([team.team.id]) && members(team.team.id).includes(raj!.id)
+    && mixedBy('ada@example.com')?.status === 'already-on-teams'
+    && mixedBy('newbie@example.com')?.status === 'invited' && JSON.stringify(mixedBy('newbie@example.com')?.invite?.teamIds) === JSON.stringify([team.team.id, t2.team.id]) && sent.some(m => m.to === 'newbie@example.com')
+    && mixedBy('nope')?.status === 'invalid', JSON.stringify(mixed));
+  await removeFrom(team.team.id, raj!.id, ownerCookie);
   await patch(`/api/users/${caraUser.id}`, { name: 'Cara <script>alert(1)</script>' }, caraCookie);
   sent.length = 0;
   await req('/api/invites', { ...json({ emails: 'q@example.com' }), cookie: caraCookie });

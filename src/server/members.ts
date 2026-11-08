@@ -2,13 +2,24 @@
 import type { Context, Hono } from 'hono';
 import { AccountError, isEmail, normalizeEmail, type Accounts, type InviteRow } from '../core/accounts.js';
 import type { Store } from '../core/store.js';
-import type { Invite, InviteResult } from '../core/types.js';
+import type { Invite, InviteEntry, InviteResult, Team } from '../core/types.js';
 import { signInMethods, type HostedAuth } from './auth.js';
 import { inviteEmail, type Mailer } from './mail.js';
 import { RESET_LINK_TTL, resetLink } from './password-auth.js';
 import { limiter } from './ratelimit.js';
 
 const MAX_INVITES = 50;
+
+/** `userIds` name people already in the workspace; `emails` is whatever was pasted ("a@x.com, b@x.com" or one per line) */
+function inviteEntries(b: { emails?: unknown; userIds?: unknown }): InviteEntry[] {
+  const ids = Array.isArray(b.userIds) ? b.userIds.filter((x): x is string => typeof x === 'string') : [];
+  const text = Array.isArray(b.emails) ? b.emails.filter((x): x is string => typeof x === 'string').join(' ') : typeof b.emails === 'string' ? b.emails : '';
+  const emails = text.split(/[\s,;]+/).map(normalizeEmail).filter(Boolean);
+  return [
+    ...[...new Set(ids)].map(userId => ({ kind: 'member' as const, userId })),
+    ...[...new Set(emails)].map(email => ({ kind: 'email' as const, email })),
+  ];
+}
 
 export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; mailer: Mailer; hosted: HostedAuth | null }): void {
   const { store, accounts, mailer, hosted } = o;
@@ -35,6 +46,18 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
       return { emailed: 'failed', error: (err as Error).message };
     }
   };
+  // as in Linear: anyone on a team, or an admin, adds people to it; only admins remove someone else.
+  // A laptop has one person, who holds everything.
+  const admin = () => !hosted || accounts.isAdmin(me());
+  const canAddTo = (team: Team) => admin() || team.memberIds.includes(me());
+  const cantAdd = (c: Context, team: Team) => forbid(c, `Only ${team.name}'s members and admins can add people to it`);
+  /** puts active people on a team and tells them in their inbox; returns who wasn't on it already */
+  const addToTeam = (team: Team, ids: string[]): string[] => {
+    const added = ids.filter(id => !team.memberIds.includes(id));
+    for (const id of added) store.addTeamMember(team.id, id);
+    store.notifyEach(added, 'teamMemberAdded', { actorId: me(), body: `${team.id}|${team.name}` });
+    return added;
+  };
   // invites only make sense where people sign in
   const invitesOff = (c: Context) => !hosted ? c.json({ error: 'Invites need a hosted workspace (BASELINE_PUBLIC_URL)', code: 'not-hosted' }, 400) : null;
 
@@ -43,24 +66,60 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     if (!accounts.canInvite(me())) return forbid(c, 'You can\'t invite people to this workspace');
     return c.json({ invites: accounts.openInvites().map(toInvite) });
   });
+  // One request names people already here (by id, or by an address that's theirs) and new addresses.
+  // Someone already here isn't invited again: they're put on the requested teams under the same rule
+  // as Team settings › Members, so only new addresses need permission to invite.
   app.post('/api/invites', async (c) => {
     const off = invitesOff(c); if (off) return off;
-    if (!accounts.canInvite(me())) return forbid(c, 'You can\'t invite people to this workspace');
-    const b = await c.req.json() as { emails?: string | string[]; admin?: boolean; teamIds?: string[] };
-    if (b.admin && !accounts.isAdmin(me())) return forbid(c, 'Only admins can invite admins');
-    // "a@x.com, b@x.com" or one per line — whatever was pasted
-    const raw = (Array.isArray(b.emails) ? b.emails.join(' ') : b.emails ?? '').split(/[\s,;]+/).map(normalizeEmail).filter(Boolean);
-    const emails = [...new Set(raw)];
-    if (!emails.length) return c.json({ error: 'Add at least one email address' }, 400);
-    if (emails.length > MAX_INVITES) return c.json({ error: `Invite at most ${MAX_INVITES} people at a time` }, 400);
-    if (!inviteLimit.take(me(), emails.length)) return tooMany(c);
-    const teamIds = knownTeams(b.teamIds);
+    const b = await c.req.json().catch(() => ({})) as { emails?: unknown; userIds?: unknown; admin?: unknown; teamIds?: unknown };
+    const entries = inviteEntries(b);
+    if (!entries.length) return c.json({ error: 'Add at least one person or email address', code: 'invalid' }, 400);
+    if (entries.length > MAX_INVITES) return c.json({ error: `Invite at most ${MAX_INVITES} people at a time` }, 400);
+    // agents work in every team, so they're never on one; nor is someone who can't sign in
+    const refused = entries.flatMap(e => e.kind === 'member' && !accounts.isActivePerson(e.userId) ? [e.userId] : []);
+    if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team — agents work in every team', code: 'invalid', userIds: refused }, 400);
+
+    type Step = { kind: 'member'; userId: string; email: string } | { kind: 'invite'; email: string } | { kind: 'invalid'; email: string; error?: string };
+    const steps: Step[] = [];
+    const seen = new Set<string>();
+    for (const e of entries) {
+      if (e.kind === 'member') {
+        if (seen.has(e.userId)) continue;
+        seen.add(e.userId);
+        steps.push({ kind: 'member', userId: e.userId, email: accounts.userBrief(e.userId)!.email });
+        continue;
+      }
+      if (!isEmail(e.email)) { steps.push({ kind: 'invalid', email: e.email }); continue; }
+      const existing = accounts.memberByEmail(e.email);
+      if (seen.has(existing?.id ?? e.email)) continue;
+      seen.add(existing?.id ?? e.email);
+      steps.push(!existing ? { kind: 'invite', email: e.email }
+        : existing.status === 'active' ? { kind: 'member', userId: existing.id, email: e.email }
+        : { kind: 'invalid', email: e.email, error: 'Suspended — an admin can reactivate them in Members' });
+    }
+
+    const teams = knownTeams(b.teamIds).map(id => store.getTeam(id)!);
+    const invites = steps.filter(s => s.kind === 'invite');
+    if (invites.length && !accounts.canInvite(me())) return forbid(c, 'You can\'t invite people to this workspace');
+    if (b.admin === true && !accounts.isAdmin(me())) return forbid(c, 'Only admins can invite admins');
+    const missing = (userId: string) => teams.filter(t => !t.memberIds.includes(userId));
+    const closed = steps.flatMap(s => s.kind === 'member' ? missing(s.userId) : []).find(t => !canAddTo(t));
+    if (closed) return cantAdd(c, closed);
+    if (invites.length && !inviteLimit.take(me(), invites.length)) return tooMany(c);
+
     const results: InviteResult[] = [];
-    for (const email of emails) {
-      if (!isEmail(email)) { results.push({ email, status: 'invalid' }); continue; }
-      if (accounts.memberByEmail(email)) { results.push({ email, status: 'already-member' }); continue; }
-      const row = accounts.createInvite(email, !!b.admin, teamIds, me());
-      results.push({ email, status: 'invited', invite: toInvite(row), ...await sendInvite(row) });
+    for (const s of steps) {
+      if (s.kind === 'invalid') results.push({ email: s.email, status: 'invalid', ...(s.error ? { error: s.error } : {}) });
+      else if (s.kind === 'member') {
+        const add = missing(s.userId);
+        for (const t of add) addToTeam(t, [s.userId]);
+        results.push(!teams.length ? { email: s.email, userId: s.userId, status: 'already-in-workspace' }
+          : add.length ? { email: s.email, userId: s.userId, status: 'added-to-teams', teamIds: add.map(t => t.id) }
+          : { email: s.email, userId: s.userId, status: 'already-on-teams', teamIds: teams.map(t => t.id) });
+      } else {
+        const row = accounts.createInvite(s.email, b.admin === true, teams.map(t => t.id), me());
+        results.push({ email: s.email, status: 'invited', invite: toInvite(row), ...await sendInvite(row) });
+      }
     }
     return c.json({ results }, 201);
   });
@@ -109,23 +168,17 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
   });
 
   // ---------- team membership (TEAM_PLAN.md › Team membership) ----------
-  // as in Linear: anyone on a team, or an admin, adds people to it; only admins remove someone else.
-  // A laptop has one person, who holds everything.
-  const admin = () => !hosted || accounts.isAdmin(me());
   app.post('/api/teams/:id/members', async (c) => {
     const team = store.getTeam(c.req.param('id'));
     if (!team) return c.json({ error: 'not found' }, 404);
-    if (!admin() && !team.memberIds.includes(me())) return forbid(c, `Only ${team.name}'s members and admins can add people to it`);
+    if (!canAddTo(team)) return cantAdd(c, team);
     const b = await c.req.json().catch(() => ({})) as { userIds?: unknown };
     const ids = Array.isArray(b.userIds) ? [...new Set(b.userIds.filter((x): x is string => typeof x === 'string'))] : [];
     if (!ids.length) return c.json({ error: 'Pick at least one person', code: 'invalid' }, 400);
     // agents work in every team, so they're never on one; nor is someone who can't sign in
     const refused = ids.filter(id => !accounts.isActivePerson(id));
     if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team — agents work in every team', code: 'invalid', userIds: refused }, 400);
-    const added = ids.filter(id => !team.memberIds.includes(id));
-    for (const id of added) store.addTeamMember(team.id, id);
-    store.notifyEach(added, 'teamMemberAdded', { actorId: me(), body: `${team.id}|${team.name}` });
-    return c.json({ added });
+    return c.json({ added: addToTeam(team, ids) });
   });
   app.delete('/api/teams/:id/members/:userId', (c) => {
     const team = store.getTeam(c.req.param('id'));
