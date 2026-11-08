@@ -1,8 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { homedir } from 'node:os';
-import { resolve as resolvePath } from 'node:path';
 import { getMeta, migrateDirectoriesToLocations, setMeta, ensureDefaults } from './db.js';
-import { id, nowIso, midSort } from './util.js';
+import { id, nowIso, midSort, normalizeDir } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import { actingUser } from './actor.js';
 import { mentionedIds, plainMentions } from './mentions.js';
@@ -26,14 +24,7 @@ interface TemplateRow { id: string; team_id: string; name: string; title: string
 
 function ts(): string { return nowIso(); }
 
-/** '' stays '' (unset); `~/x` expands; anything else resolves to an absolute path, so the
- *  existence checks and the launcher's `cd` see the same directory */
-export function normalizeDir(dir: string | null | undefined): string {
-  const d = String(dir ?? '').trim();
-  if (!d) return '';
-  const expanded = d === '~' ? homedir() : d.startsWith('~/') ? homedir() + d.slice(1) : d;
-  return resolvePath(expanded).replace(/(.)\/+$/, '$1');
-}
+export { normalizeDir };
 
 /** PATCH bodies reach the store raw from the server, so only whitelisted keys may build SQL */
 function sqlPairs<T extends object>(patch: T, allowed: Array<keyof T>): Array<[string, unknown]> {
