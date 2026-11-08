@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { connect, describeTarget, type Baseline } from '../client/index.js';
 import { OPERATIONS } from '../ops/index.js';
 import { agentGuide } from '../ops/guide.js';
-import { actorForClient, sessionFrom } from '../ops/identity.js';
+import { agentActor, sessionFrom } from '../ops/identity.js';
 import { annotationsOf, OpError, runOp, toOpError, type Actor, type AnyOperation, type OpContext } from '../ops/operation.js';
 
 /** JSON Schema for a tool: the shape the model fills in (input) or receives (output) */
@@ -55,7 +55,7 @@ export function createMcpServer(input: McpSessionInput): Server {
   let actor: Promise<Actor> | undefined;
   const baseline = () => bl ??= input.connect().catch(e => { bl = undefined; throw e; });
   // retried after a failure: an admin may add the agent user BASELINE_AS names, mid-session
-  const agent = () => actor ??= baseline().then(b => actorForClient(b, input.as)).catch(e => { actor = undefined; throw e; });
+  const agent = () => actor ??= baseline().then(b => agentActor(b, input.as)).catch(e => { actor = undefined; throw e; });
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {

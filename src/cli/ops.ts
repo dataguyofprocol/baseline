@@ -35,7 +35,7 @@ function command(op: AnyOperation, context: (flags: OpFlags) => Promise<OpContex
     if (f.required) cmd.requiredOption(`${f.flag}${value}`, text); else cmd.option(`${f.flag}${value}`, text);
   }
   cmd.option('--json', 'print the result as JSON (the same object an MCP client receives)', false)
-    .option('--as <agent>', 'the agent user to write as (default: BASELINE_AS)')
+    .option('--as <agent>', 'the agent user to write as (default: BASELINE_AS, else Agent)')
     .option('--db <path>', 'database path');
   cmd.action(async (...args: unknown[]) => {
     const flags = args[pos.length] as Record<string, unknown> & OpFlags;

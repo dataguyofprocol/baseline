@@ -13,7 +13,7 @@ import { readSetupToken } from '../server/setup.js';
 import { legacyApp, legacyStore, setLegacyCommand } from './legacy.js';
 import { mountAccountCommands } from './login.js';
 import { mountOperations } from './ops.js';
-import { actorFrom, sessionFrom } from '../ops/identity.js';
+import { agentActor, sessionFrom } from '../ops/identity.js';
 import { serveStdio } from '../mcp/server.js';
 import { mountConnectCommand } from './connect.js';
 
@@ -1468,10 +1468,10 @@ withDb(doc.command('delete <doc>')).description('Delete a document').action((ref
 });
 
 // ---------- coding tools ----------
-const agent = program.command('agent').description('Your coding agent\'s side of an issue (start, progress, follow-ups, finish, project drafts, undo; set BASELINE_AS and BASELINE_SESSION), and coding-tool settings');
+const agent = program.command('agent').description('Your coding agent\'s side of an issue (start, progress, follow-ups, finish, project drafts, undo; written as Agent unless BASELINE_AS names another agent user; BASELINE_SESSION), and coding-tool settings');
 mountOperations(agent, async (flags) => {
   const bl = await connect(flags);
-  return { bl, actor: await actorFrom(bl, flags.as ?? process.env.BASELINE_AS), session: sessionFrom(process.env.BASELINE_SESSION) };
+  return { bl, actor: await agentActor(bl, flags.as ?? process.env.BASELINE_AS), session: sessionFrom(process.env.BASELINE_SESSION) };
 });
 withDb(program.command('mcp')).description('Serve the agent operations as MCP tools on stdin/stdout, for Claude Code, Codex and other MCP clients (set up with `baseline connect`)')
   .action(async (opts: { db?: string }) => { await serveStdio(opts); });

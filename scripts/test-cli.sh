@@ -324,6 +324,8 @@ ARCHVIA=$(b issue show "$VIAKEY" --json | node -e "let s='';process.stdin.on('da
 if [[ "$ARCHVIA" == Agent\ via\ ?* && "$ARCHVIA" != "Agent via null" ]]; then PASS=$((PASS+1)); else echo "FAIL  legacy command records the via (got $ARCHVIA)"; FAILED_NAMES+=("legacy via"); FAIL=$((FAIL+1)); fi
 BASELINE_AS=Agent b project note "Agent Handoff" "agent note" >/dev/null
 check "project note as an agent" "agent note" project show "Agent Handoff"
+AGENTDEF=$(env -u BASELINE_AS $BIN agent post-progress "$KEY" --did "defaulted to Agent" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).attributed_to))")
+if [[ "$AGENTDEF" == Agent\ via\ ?* ]]; then PASS=$((PASS+1)); else echo "FAIL  agent commands write as Agent without BASELINE_AS (got $AGENTDEF)"; FAILED_NAMES+=("agent default actor"); FAIL=$((FAIL+1)); fi
 
 echo "=== locations: one per task, shared across projects, never defaulted ==="
 ADB=$(newdb agent)

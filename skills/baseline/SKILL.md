@@ -34,7 +34,7 @@ baseline logout                                          # revokes that key
 
 Or set `BASELINE_URL` + `BASELINE_TOKEN` (a personal API key) for one shell; setting `BASELINE_DB` or `--db` instead targets a local file (both at once is an error). Commands not yet ported say so and exit 1.
 
-**Run as your agent identity:** export `BASELINE_AS="<agent name>"` (e.g. `"Agent"`, the workspace's agent user from `user list`) so your writes show as "Agent via <the signed-in person>" in activity and comments. A server refuses `--as` / `BASELINE_AS` naming another person.
+**Your agent identity:** `baseline agent …` commands and MCP tools write as "Agent via <the signed-in person>" (the workspace's agent user). Other commands write as the person unless you export `BASELINE_AS="Agent"`. A server refuses `--as` / `BASELINE_AS` naming another person.
 
 ## Before you write: know what you're touching
 
@@ -259,7 +259,7 @@ Each command is described in **Agent loop** below. Prefer them to `issue update`
 <!-- agent-loop:start — generated from src/ops/index.ts by `npm run gen:skill`; edit the operations, not this block -->
 ## Agent loop (your work on an issue, as your agent identity)
 
-Each command is one agent operation; an MCP client gets the same operations as tools, with the same descriptions, input and `--json` output. Set `BASELINE_AS` to your agent user (e.g. `"Agent"`, the workspace's own; an MCP client writes as it when unset) so every write shows as "Agent via <person>"; set `BASELINE_SESSION` only to keep two parallel sessions on one issue apart. Every write prints an `op_id` (or null when nothing changed); repeating a call is safe.
+Each command is one agent operation; an MCP client gets the same operations as tools, with the same descriptions, input and `--json` output. Every write shows as "Agent via <person>", the workspace's agent user; set `BASELINE_AS` only to write as another agent user; set `BASELINE_SESSION` only to keep two parallel sessions on one issue apart. Every write prints an `op_id` (or null when nothing changed); repeating a call is safe.
 
 ### `get_issue` (read)
 

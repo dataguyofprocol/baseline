@@ -35,9 +35,9 @@ export async function actorFrom(bl: Baseline, name: string | undefined): Promise
   return { kind: 'agent', userId: u.id, name: u.name };
 }
 
-/** An MCP session's actor: BASELINE_AS when it is set, else the workspace's agent user. MCP calls
- *  always come from an agent, so never "the person". */
-export async function actorForClient(bl: Baseline, as: string | undefined): Promise<Actor> {
+/** An agent operation's actor (an MCP tool or a `baseline agent` command): BASELINE_AS when it is
+ *  set, else the workspace's agent user. Naming yourself in BASELINE_AS writes as you. */
+export async function agentActor(bl: Baseline, as: string | undefined): Promise<Actor> {
   if (as?.trim()) return actorFrom(bl, as);
   const snap = await bl.snapshot(['workspace', 'users']);
   const u = snap.users.find(x => x.id === snap.workspace.agentUserId);

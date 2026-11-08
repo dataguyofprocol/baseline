@@ -14,7 +14,7 @@ import { Store } from '../src/core/store.js';
 import { HttpBaseline } from '../src/client/baseline.js';
 import type { Transport } from '../src/client/transport.js';
 import { OPERATIONS } from '../src/ops/index.js';
-import { actorForClient, actorFrom } from '../src/ops/identity.js';
+import { agentActor, actorFrom } from '../src/ops/identity.js';
 import { annotationsOf, OpError, runOp, type AnyOperation, type OpContext, type OpName, type SessionKey } from '../src/ops/operation.js';
 
 const work = mkdtempSync(join(tmpdir(), 'baseline-ops-test-'));
@@ -46,7 +46,7 @@ const transport = (token: string | null): Transport => ({
 });
 const bl = new HttpBaseline({ kind: 'remote', url: new URL('http://localhost'), token: key.token, source: 'env' }, transport(key.token));
 const ctxFor = async (as: string | undefined, session: string | null = null): Promise<OpContext> => ({ bl, actor: await actorFrom(bl, as), session: session as SessionKey | null });
-const agentCtx: OpContext = { bl, actor: await actorForClient(bl, undefined), session: 's1' as SessionKey };
+const agentCtx: OpContext = { bl, actor: await agentActor(bl, undefined), session: 's1' as SessionKey };
 const op = (name: OpName) => OPERATIONS.find(o => o.name === name)! as AnyOperation;
 const call = (name: OpName, input: unknown, ctx: OpContext = agentCtx) => runOp(op(name), ctx, input) as Promise<Record<string, any>>;
 const refused = async (name: OpName, input: unknown, ctx: OpContext = agentCtx): Promise<OpError | undefined> => {
