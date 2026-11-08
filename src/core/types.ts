@@ -786,8 +786,8 @@ export interface Preferences {
   startOnBranchCopy: boolean;
   /** the same for Copy as prompt and Open in Claude Code */
   startOnHandoff: boolean;
-  /** Settings › Notifications › Desktop: browser notifications, and which kinds */
-  push: { desktop: boolean; types: Record<NotifyCategory, boolean> };
+  /** Settings › Notifications › Browser: browser notifications, and which kinds */
+  push: { browser: boolean; types: Record<NotifyCategory, boolean> };
   /** Customize sidebar: badge style, and when each item shows (hidden ones move to More) */
   sidebar: { badgeStyle: 'count' | 'dot' | 'none'; items: Record<string, SidebarVisibility> };
   /** the first-run flow and the help menu's Getting started checklist */
@@ -846,7 +846,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   sidebar: { badgeStyle: 'count', items: {} },
   gettingStarted: { onboarding: 'done', step: 0, since: null, usedPalette: false },
   displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false, startOnBranchCopy: true, startOnHandoff: true,
-  push: { desktop: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
+  push: { browser: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
 };
 
 /** macOS terminals interactive sessions can open in, by app name (`open -a <name>`) */

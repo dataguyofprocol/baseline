@@ -631,22 +631,22 @@ function NotificationSettings() {
       {catRows(c => priorityCats.includes(c), (c, v) => patchInbox({ priorityCats: v ? [...priorityCats, c] : priorityCats.filter(x => x !== c) }))}
     </div>
   );
-  if (sub === 'desktop') return (
+  if (sub === 'browser') return (
     <div className="settings-card">
       {back}
-      <h1>Desktop</h1>
+      <h1>Browser</h1>
       <div className="field-help" style={{ marginBottom: 16 }}>Notifications from this browser while Baseline is open in a tab, even in the background</div>
       <div className="card set-list">
         <div className="set-row notif-row">
-          <div style={{ flex: 1 }}><div className="field-label">Enable desktop notifications</div><div className="field-help">{perm === 'unsupported' ? 'This browser doesn’t support notifications.' : perm === 'denied' ? 'Notifications are blocked for this site — allow them in your browser’s site settings.' : perm === 'granted' ? 'Allowed in this browser.' : 'Your browser will ask for permission.'}</div></div>
-          <SettingSwitch on={push.desktop && perm === 'granted'} onChange={async v => {
+          <div style={{ flex: 1 }}><div className="field-label">Enable browser notifications</div><div className="field-help">{perm === 'unsupported' ? 'This browser doesn’t support notifications.' : perm === 'denied' ? 'Notifications are blocked for this site — allow them in your browser’s site settings.' : perm === 'granted' ? 'Allowed in this browser.' : 'Your browser will ask for permission.'}</div></div>
+          <SettingSwitch on={push.browser && perm === 'granted'} onChange={async v => {
             if (v && perm !== 'granted' && typeof Notification !== 'undefined') { const r = await Notification.requestPermission(); setPerm(r); if (r !== 'granted') return; }
-            await savePush({ desktop: v });
+            await savePush({ browser: v });
           }} />
         </div>
       </div>
       <div className="settings-h2">General notifications</div>
-      {catRows(c => push.types[c], (c, v) => void savePush({ types: { ...push.types, [c]: v } }), !push.desktop)}
+      {catRows(c => push.types[c], (c, v) => void savePush({ types: { ...push.types, [c]: v } }), !push.browser)}
     </div>
   );
   const enabledCount = Object.values(push.types).filter(Boolean).length;
@@ -668,9 +668,9 @@ function NotificationSettings() {
       <div className="settings-h2">Push notifications</div>
       <div className="field-help" style={{ marginBottom: 8 }}>Choose which notifications are pushed to your devices. All notifications will still appear in your inbox.</div>
       <div className="card set-list">
-        <button className="set-row notif-row notif-link" onClick={() => navigate('/settings/notifications/desktop')}>
+        <button className="set-row notif-row notif-link" onClick={() => navigate('/settings/notifications/browser')}>
           <span className="notif-icon"><IconPanel size={14} /></span>
-          <div style={{ flex: 1, textAlign: 'left' }}><div className="field-label">Desktop</div><div className="field-help"><span className={`notif-dot${push.desktop && perm === 'granted' ? ' on' : ''}`} />{push.desktop && perm === 'granted' ? (enabledCount === NOTIFY_CATEGORIES.length ? 'Enabled for all notifications' : `Enabled for ${enabledCount} types`) : 'Disabled'}</div></div>
+          <div style={{ flex: 1, textAlign: 'left' }}><div className="field-label">Browser</div><div className="field-help"><span className={`notif-dot${push.browser && perm === 'granted' ? ' on' : ''}`} />{push.browser && perm === 'granted' ? (enabledCount === NOTIFY_CATEGORIES.length ? 'Enabled for all notifications' : `Enabled for ${enabledCount} types`) : 'Disabled'}</div></div>
           <IconChevronRight size={12} />
         </button>
       </div>

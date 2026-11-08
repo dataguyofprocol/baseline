@@ -149,7 +149,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Display options: pill chips, ordering direction | ✅ | — | checked by eye side by side |
 | Preferences: Underline links, Auto-assign to self, On move to started status assign to yourself | ✅ | 12.4 | assign-on-start checked on a scratch database |
 | Profile: picture upload, Title, Username (used by `{username}` in branch names) | ✅ | 12.4 | |
-| Notifications: Priority inbox + Priority notifications, Desktop push by category (browser notifications, also from a background tab) | ✅ | 12.4 | reaction and document-change notifications added so every category has a source |
+| Notifications: Priority inbox + Priority notifications, Browser push by category (also from a background tab) | ✅ | 12.4 | reaction and document-change notifications added so every category has a source |
 | Team settings: hub with General (name, identifier, description, estimates incl. zero / extended / count unestimated), Members, Issue labels, Templates, Recurring issues, Issue statuses, Workflows & automations, Triage, Cycles, Danger zone | ✅ | 12.5 | |
 | Workflows & automations: auto-close parent / sub-issues, auto-close stale issues, auto-archive closed issues, re-order on status change | ✅ | 12.6 | stale + archive sweeps checked on a scratch database |
 | `?` help menu, ⌘/ keyboard-shortcuts drawer with Linear's groups | ✅ | 9.14 | |
@@ -173,7 +173,7 @@ window size, and every difference that showed was fixed:
 | Create modal | heavy blurred backdrop, team name chip, filled square chips, assignee preset, grey disabled button with ⌘↵ | no backdrop, `CORE` chip, outlined pills, cycle as an icon chip, unassigned by default, purple-style pill button |
 | ⌘K palette | recent issues first, search icon, footer bar, 32px rows, Linear's commands missing | Linear's command list and grouping, multi-key hints (`N then P`), 46px rows, no footer; issues and projects appear as you type |
 | Filter / display / context menus | filter menu jumped above the button; dates as three items; bordered property chips; context menu at the row's edge with Milestone, Subscribe and Move to team at top level | below the button; Dates submenu; pill chips + ordering arrow; at the pointer, Linear's items and order |
-| Preferences, Profile, Notifications | three automation prefs, picture / title / username, the Inbox + Desktop structure were missing; four inbox-type toggles Linear doesn't have | added; inbox gets everything, as Linear says; push categories decide what reaches the desktop |
+| Preferences, Profile, Notifications | three automation prefs, picture / title / username, the Inbox + Browser structure were missing; four inbox-type toggles Linear doesn't have | added; inbox gets everything, as Linear says; push categories decide what the browser shows |
 | Team settings | one long page | hub + subpages, as Linear |
 | Search, shortcuts, archive, drafts, members, teams | issue-only search under a "Search" crumb; centered shortcuts modal on `?`; archive without tabs; serif empty-state titles; pills for Joined / teams | query in the header with tabs; `?` help menu + ⌘/ drawer; archive tabs; plain empty-state titles; plain Joined, team icons, cycle / project counts |
 | Project board and timeline | progress chip, "No projects" placeholders; red Today line, segmented zoom on the left | Linear's card props + issue count, + per column; brand Today pill, Today button and zoom select on the right |

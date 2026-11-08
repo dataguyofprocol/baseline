@@ -242,7 +242,7 @@ A runner is a `baseline connect` process. It keeps an outbound SSE connection to
   - **GitHub events:** see Phase 4.
 
 ### Settings (copying Linear: Settings → Account → Notifications)
-- **Channels:** Inbox (always on), Email, and Desktop. Desktop means browser push and comes later. The Notifications page lists each channel with its summary, e.g. "Enabled for all notifications".
+- **Channels:** Inbox (always on), Email, and Browser. Browser push comes later. The Notifications page lists each channel with its summary, e.g. "Enabled for all notifications".
 - **Email channel page**, with every option Linear has:
   - Enable email notifications ("Email notifications to you@…").
   - Notification format: **Digest** or **Immediate**.
@@ -329,7 +329,7 @@ A runner is a `baseline connect` process. It keeps an outbound SSE connection to
 ---
 
 ## Later (deliberately out of these phases)
-Guests with team-scoped visibility (this needs a per-person filtered snapshot); private teams; desktop push; replying to notification emails to add a comment; GitHub Issues sync both ways; linkback comments on PRs; auto-closing PRs when an issue is canceled; Slack; GitLab; priority inbox; view subscriptions; SAML/SCIM; outside agents (Codex cloud, Cursor, Devin) through an outgoing webhook for session events plus the activity API, close to Linear's protocol; cloud sandboxes like Linear's coding sessions.
+Guests with team-scoped visibility (this needs a per-person filtered snapshot); private teams; browser push; replying to notification emails to add a comment; GitHub Issues sync both ways; linkback comments on PRs; auto-closing PRs when an issue is canceled; Slack; GitLab; priority inbox; view subscriptions; SAML/SCIM; outside agents (Codex cloud, Cursor, Devin) through an outgoing webhook for session events plus the activity API, close to Linear's protocol; cloud sandboxes like Linear's coding sessions.
 
 ## Order and size
 1. **Phase 1: accounts and hosting.** The largest phase, because it touches most routes and store methods. Split it into PRs: identity and sessions → Google and invites → per-person state and hardening → SSE and scheduler → deploy.

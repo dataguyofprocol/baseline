@@ -261,17 +261,17 @@ export async function refresh() {
 // Live updates. The server announces a new version whenever anything changes — a teammate, an
 // agent writing through the CLI, the workspace's own clock — and the tab refetches its snapshot,
 // swapping it in only when something it shows actually moved. A hidden tab waits until it's seen
-// (unless desktop notifications are on).
+// (unless browser notifications are on).
 let lastSnapJson = '';
-/* Settings › Notifications › Desktop: new inbox notifications become browser notifications
+/* Settings › Notifications › Browser: new inbox notifications become browser notifications
    (the kinds you chose), also while the tab is in the background */
 let seenNotifications: Set<string> | null = null;
-function pushDesktop(snap: Snapshot) {
+function pushBrowser(snap: Snapshot) {
   const ids = new Set(snap.notifications.map(n => n.id));
   const before = seenNotifications;
   seenNotifications = ids;
   const push = snap.workspace.preferences.push;
-  if (!before || !push?.desktop || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if (!before || !push?.browser || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   for (const n of snap.notifications) {
     if (before.has(n.id) || n.readAt || (n.snoozedUntil && n.snoozedUntil > new Date().toISOString())) continue;
     const cat = notifyCategory(n.type, n.body);
@@ -294,7 +294,7 @@ async function refreshSnapshot() {
   fetching = true;
   try {
     const snap = await api.bootstrap();
-    pushDesktop(snap);
+    pushBrowser(snap);
     const json = JSON.stringify(snap);
     if (json !== lastSnapJson) useApp.setState({ snap });
     lastSnapJson = json;
@@ -305,9 +305,9 @@ async function refreshSnapshot() {
   }
 }
 function catchUp() {
-  // a hidden tab waits, unless it has desktop notifications to show
+  // a hidden tab waits, unless it has browser notifications to show
   const background = document.visibilityState !== 'visible';
-  if ((background && !useApp.getState().snap?.workspace.preferences.push?.desktop) || announced === applied) return;
+  if ((background && !useApp.getState().snap?.workspace.preferences.push?.browser) || announced === applied) return;
   applied = announced;
   void refreshSnapshot();
 }

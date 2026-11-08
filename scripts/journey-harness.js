@@ -522,7 +522,7 @@
       if (miss.length) t.fail('missing ' + miss); return 'all sections';
     });
     await t.run('9.2 Account pages: Preferences, Profile, Notifications', async () => {
-      await t.nav('/settings/preferences', 700); const a = /home|week/i.test(t.text()); await t.nav('/settings/profile', 700); const b = /Name|Email/i.test(t.text()); await t.nav('/settings/notifications', 700); const c = /Priority inbox/.test(t.text()) && /Desktop/.test(t.text());
+      await t.nav('/settings/preferences', 700); const a = /home|week/i.test(t.text()); await t.nav('/settings/profile', 700); const b = /Name|Email/i.test(t.text()); await t.nav('/settings/notifications', 700); const c = /Priority inbox/.test(t.text()) && /Browser/.test(t.text());
       if (!a || !b || !c) t.fail(`${a} ${b} ${c}`); return 'all three render with their fields';
     });
     await t.run('9.3 Project statuses settings: add, rename, delete a custom status', async () => {
@@ -688,9 +688,9 @@
       const miss = ['More properties', 'Create related', 'Mark as', 'Copy', 'Convert to', 'Make a copy', 'Move', 'Open in', 'Favorite', 'Remind me', 'Delete'].filter(x => !cm.includes(x));
       if (!dates || miss.length || !copy || cm.includes('Subscribe')) t.fail(`dates ${dates} missing ${miss} copy ${copy}`); return 'Dates submenu; Linear’s context menu; Make a copy prefills the create modal';
     });
-    await t.run('12.4 Settings: Profile (picture, title, username), Notifications (priority + desktop), Preferences automations', async () => {
-      await t.nav('/settings/profile', 600); const pr = t.text(); await t.nav('/settings/notifications', 600); const no = t.text(); await t.nav('/settings/notifications/desktop', 600); const de = t.text(); await t.nav('/settings/preferences', 600); const pf = t.text();
-      const miss = [['Profile picture', pr], ['Title', pr], ['Username', pr], ['Priority inbox', no], ['Desktop', no], ['Reactions', de], ['Document changes', de], ['Auto-assign to self', pf], ['On move to started status', pf], ['Underline links', pf]].filter(([w, txt]) => !txt.includes(w)).map(([w]) => w);
+    await t.run('12.4 Settings: Profile (picture, title, username), Notifications (priority + browser), Preferences automations', async () => {
+      await t.nav('/settings/profile', 600); const pr = t.text(); await t.nav('/settings/notifications', 600); const no = t.text(); await t.nav('/settings/notifications/browser', 600); const de = t.text(); await t.nav('/settings/preferences', 600); const pf = t.text();
+      const miss = [['Profile picture', pr], ['Title', pr], ['Username', pr], ['Priority inbox', no], ['Browser', no], ['Reactions', de], ['Document changes', de], ['Auto-assign to self', pf], ['On move to started status', pf], ['Underline links', pf]].filter(([w, txt]) => !txt.includes(w)).map(([w]) => w);
       if (miss.length) t.fail('missing ' + miss); return 'all present';
     });
     await t.run('12.5 Team settings hub links to General, Members, labels, templates, recurring, statuses, workflows, triage, cycles', async () => {
