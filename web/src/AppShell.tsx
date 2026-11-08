@@ -62,10 +62,10 @@ export function Sidebar() {
   const [customizing, setCustomizing] = useState(false);
   const drafts = useDrafts();
   if (!snap) return null;
-  // hosted: the teams you're on (everyone else's are a click away in Teams); someone on no team yet
-  // — and a laptop, where there's one person — sees them all
-  const mine = snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id));
-  const yourTeams = snap.workspace.auth === 'hosted' && mine.length ? mine : snap.teams;
+  // hosted: the teams you're on, as in Linear (everyone else's are a click away in Teams); a laptop,
+  // where there's one person, sees them all
+  const hosted = snap.workspace.auth === 'hosted';
+  const yourTeams = hosted ? snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id)) : snap.teams;
   const triageState = (teamId: string) => snap.states.find(s => s.teamId === teamId && s.type === 'triage');
   const triageCount = (teamId: string) => { const st = triageState(teamId); return st ? snap.issues.filter(i => i.stateId === st.id).length : 0; };
   const menuTeam = snap.teams.find(t => t.id === teamMenuFor);
@@ -206,6 +206,7 @@ export function Sidebar() {
           action={<button className="icon-btn nav-section-add" title="Create a team" onClick={() => navigate('/settings/new-team')}><IconPlus size={13} /></button>} />
         {isOpen('teams') && (
           <div className="nav-group">
+            {!yourTeams.length && snap.teams.length > 0 && <Nav to="/teams" icon={<IconTeam />} label="Browse teams to join" end />}
             {yourTeams.map(t => {
               const fallback = yourTeams.length === 1 || locTeam === t.key;
               const open = isOpen(`team:${t.id}`, fallback);
@@ -255,6 +256,10 @@ export function Sidebar() {
           <MenuItem icon={<IconArchive size={14} />} label="Archive" onClick={() => navigate(`/team/${menuTeam.key}/archive`)} />
           <MenuSep />
           <MenuItem icon={<IconSettings size={14} />} label="Team settings" onClick={() => navigate(`/settings/team/${menuTeam.key}`)} />
+          {hosted && menuTeam.memberIds.includes(snap.currentUser.id) && <MenuItem icon={<IconTeam size={14} />} label="Leave team" danger onClick={async () => {
+            try { await api.leaveTeam(menuTeam.id); await useApp.getState().bootstrap(); useApp.getState().toast({ title: `You left ${menuTeam.name}` }); }
+            catch (err) { useApp.getState().toast({ title: (err as Error).message }); }
+          }} />}
           <MenuItem icon={<IconLink size={14} />} label="Copy link to team" onClick={async () => { await navigator.clipboard.writeText(`${location.origin}/#/team/${menuTeam.key}/all`).catch(() => {}); useApp.getState().toast({ title: 'Copied link' }); }} />
         </Menu>
       )}

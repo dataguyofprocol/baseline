@@ -77,7 +77,7 @@ This follows Linear's split. Admins set up the workspace and its teams. Members 
 
 | Area | Members | Admins only |
 |---|---|---|
-| Teams | Create a team. Join or leave a team. Turn on a team's bell. Add team resources (links). | Rename, re-key or describe a team. Set estimates, triage and the cycle schedule. Set workflow automations (auto-close, auto-archive, re-order). Delete a team. |
+| Teams | Create a team. Join or leave a team. Add people to a team you're on (Team settings › Members). Turn on a team's bell. Add team resources (links). | Add people to any team. Remove someone else from a team. Rename, re-key or describe a team. Set estimates, triage and the cycle schedule. Set workflow automations (auto-close, auto-archive, re-order). Delete a team. |
 | Workflow states | | Add, edit, reorder and remove states. |
 | Labels (issue, project, initiative) | Add a label, for example from a label menu (Linear's default). | Rename, recolor or remove a label. |
 | Templates (issue, project, document) | Apply a template. | Add, edit and remove templates, including "Save as template" on an issue. |

@@ -108,6 +108,34 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     return c.json({ link: resetLink(hosted.publicUrl, token), expiresAt });
   });
 
+  // ---------- team membership (TEAM_PLAN.md › Team membership) ----------
+  // as in Linear: anyone on a team, or an admin, adds people to it; only admins remove someone else.
+  // A laptop has one person, who holds everything.
+  const admin = () => !hosted || accounts.isAdmin(me());
+  app.post('/api/teams/:id/members', async (c) => {
+    const team = store.getTeam(c.req.param('id'));
+    if (!team) return c.json({ error: 'not found' }, 404);
+    if (!admin() && !team.memberIds.includes(me())) return forbid(c, `Only ${team.name}'s members and admins can add people to it`);
+    const b = await c.req.json().catch(() => ({})) as { userIds?: unknown };
+    const ids = Array.isArray(b.userIds) ? [...new Set(b.userIds.filter((x): x is string => typeof x === 'string'))] : [];
+    if (!ids.length) return c.json({ error: 'Pick at least one person', code: 'invalid' }, 400);
+    // agents work in every team, so they're never on one; nor is someone who can't sign in
+    const refused = ids.filter(id => !accounts.isActivePerson(id));
+    if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team — agents work in every team', code: 'invalid', userIds: refused }, 400);
+    const added = ids.filter(id => !team.memberIds.includes(id));
+    for (const id of added) store.addTeamMember(team.id, id);
+    store.notifyEach(added, 'teamMemberAdded', { actorId: me(), body: `${team.id}|${team.name}` });
+    return c.json({ added });
+  });
+  app.delete('/api/teams/:id/members/:userId', (c) => {
+    const team = store.getTeam(c.req.param('id'));
+    if (!team) return c.json({ error: 'not found' }, 404);
+    const target = c.req.param('userId');
+    if (target !== me() && !admin()) return forbid(c, 'Only admins can remove someone else from a team');
+    // every team is open to everyone, so a team nobody is on is still reachable: no last-member rule
+    store.removeTeamMember(team.id, target);
+    return c.json({ ok: true });
+  });
   // anyone can join or leave a team themselves
   app.post('/api/teams/:id/join', (c) => {
     if (!knownTeams([c.req.param('id')]).length) return c.json({ error: 'not found' }, 404);

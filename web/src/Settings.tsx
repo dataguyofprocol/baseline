@@ -8,12 +8,12 @@ import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
 import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconRelease, IconAsk, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
-import { HostedMembersSettings, SecuritySettings as WorkspaceSecuritySettings } from './Members.js';
+import { HostedMembersSettings, SecuritySettings as WorkspaceSecuritySettings, TeamMembersSettings } from './Members.js';
 import { ShortcutList } from './Palette.js';
 import { CADENCE_LABELS } from './actions.js';
 import { SlaSettings, AsksSettings, LoopsSettings } from './AutomationUI.js';
 import { GitHubSettings, PrAutomationSettings } from './GitHubUI.js';
-import { CustomizeSidebar } from './Workspace.js';
+import { CustomizeSidebar, TeamJoinChip } from './Workspace.js';
 import { SecuritySettings, NewApiKey, ApiAdminSettings } from './ApiKeysUI.js';
 import { InitiativesSettings, ProjectLabelsSettings, ProjectStatusesSettings, ProjectUpdatesSettings, DocumentsSettings, CustomerRequestsSettings, PulseSettings, EmojisSettings } from './SettingsMore.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
@@ -80,7 +80,7 @@ export function SettingsLayout() {
         })}
         <div>
           <div className="sec">Your teams</div>
-          {snap.teams.map(t => (
+          {(snap.workspace.auth === 'hosted' ? snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id)) : snap.teams).map(t => (
             <NavLink key={t.id} to={`/settings/team/${t.key}`} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ height: 30 }}>
               <span className="ws-avatar" style={{ background: t.color, borderRadius: 4, fontSize: 9, width: 16, height: 16 }}>{t.key[0]}</span>
               <span className="nav-label">{t.name}</span>
@@ -182,6 +182,7 @@ function TeamsSettings() {
             <span className="dim">{snap.issues.filter(i => i.teamId === t.id).length} issues</span>
             {t.triageEnabled && <span className="team-flag">Triage</span>}
             {t.autoCycles && <span className="team-flag">Auto cycles</span>}
+            <TeamJoinChip team={t} />
           </Link>
         ))}
       </div>
@@ -294,16 +295,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
       </div>
     </div>
   );
-  if (page === 'members') return (
-    <div className="settings-card">
-      {back}
-      <h1>Members</h1>
-      <div className="field-help" style={{ marginBottom: 12 }}>Everyone in this workspace can work in every team. Add people and agent identities in Administration › Members.</div>
-      <div className="card set-list">
-        {snap.users.map(u => <div key={u.id} className="set-row notif-row"><Avatar user={u} size={22} /><div style={{ flex: 1 }}><div className="field-label">{u.name}</div><div className="field-help">{u.kind === 'agent' ? 'Agent' : u.email || (u.admin ? 'Admin' : 'Member')}</div></div><span className="set-meta">{u.admin ? 'Admin' : u.kind === 'agent' ? 'Agent' : 'Member'}</span></div>)}
-      </div>
-    </div>
-  );
+  if (page === 'members') return <div className="settings-card">{back}<TeamMembersSettings team={team} /></div>;
   if (page === 'labels') return <div>{back}<LabelsSettings onlyTeamId={team.id} /></div>;
   if (page === 'templates') return <div>{back}<TemplatesSettings onlyTeamId={team.id} /></div>;
   if (page === 'recurring') return <div className="settings-card">{back}<h1>Recurring issues</h1><RecurringIssues teamId={team.id} /></div>;
@@ -382,6 +374,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
   );
 
   const recurringCount = snap.recurring.filter(r => r.teamId === team.id).length;
+  const humans = team.memberIds.filter(id => snap.users.some(u => u.id === id && u.kind === 'human')).length;
   const labelCount = snap.labels.filter(l => l.teamId === team.id).length;
   const templateCount = snap.templates.filter(t => t.teamId === team.id).length;
   return (
@@ -391,7 +384,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
       <div className="field-help" style={{ margin: '-16px 0 16px' }}>Accessible to all workspace members</div>
       <div className="card set-list">
         {link('general', <IconSettings size={14} />, 'General', 'Name, identifier, description and estimates', '')}
-        {link('members', <IconUsers size={14} />, 'Members', 'Manage team members', `${snap.users.length} member${snap.users.length === 1 ? '' : 's'}`)}
+        {link('members', <IconUsers size={14} />, 'Members', 'Manage team members', `${humans} member${humans === 1 ? '' : 's'}`)}
       </div>
       <div className="settings-h2">Issues, projects, and documents</div>
       <div className="card set-list">

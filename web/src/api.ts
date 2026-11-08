@@ -33,6 +33,8 @@ export const api = {
   updateMember: (id: string, b: { admin?: boolean; suspended?: boolean; teamIds?: string[] }) => req<{ ok: true }>('PATCH', `/api/members/${id}`, b),
   joinTeam: (id: string) => req<{ ok: true }>('POST', `/api/teams/${id}/join`, {}),
   leaveTeam: (id: string) => req<{ ok: true }>('POST', `/api/teams/${id}/leave`, {}),
+  addTeamMembers: (id: string, userIds: string[]) => req<{ added: string[] }>('POST', `/api/teams/${id}/members`, { userIds }),
+  removeTeamMember: (id: string, userId: string) => req<{ ok: true }>('DELETE', `/api/teams/${id}/members/${userId}`),
   updateSecurity: (b: Partial<WorkspaceSecurity>) => req<{ security: WorkspaceSecurity }>('PATCH', '/api/security', b),
   /** what an invite link points at, before signing in (no session needed) */
   inviteInfo: async (code: string) => {

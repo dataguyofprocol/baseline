@@ -12,7 +12,7 @@ import {
   IconPlus, IconSearch, IconTrash, IconClose, IconStar, IconCheck, IconEdit, IconPulse, IconCustomers, IconCycle, IconBox,
   IconInbox, IconMyIssues, IconDrafts, IconInitiative, IconViews, IconRelease, IconAsk, IconTeam, IconMembers, IconChevronDown,
 } from './icons.js';
-import { SIDEBAR_DEFAULTS, type SidebarVisibility } from '../../src/core/types.js';
+import { SIDEBAR_DEFAULTS, type SidebarVisibility, type Team } from '../../src/core/types.js';
 import { Illustration } from './illustrations.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
@@ -326,6 +326,24 @@ export function CustomerRequests(props: { issueId?: string; projectId?: string; 
 }
 
 /* ================= Teams & Members (workspace directories) ================= */
+/** join or leave a team right in a list whose row opens the team; "Joined" leaves on click */
+export function TeamJoinChip({ team }: { team: Team }) {
+  const joined = useApp(s => team.memberIds.includes(s.snap!.currentUser.id));
+  const toggle = async (e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    try {
+      await (joined ? api.leaveTeam(team.id) : api.joinTeam(team.id));
+      await useApp.getState().bootstrap();
+      useApp.getState().toast({ title: joined ? `You left ${team.name}` : `You joined ${team.name}` });
+    } catch (err) { useApp.getState().toast({ title: (err as Error).message }); }
+  };
+  return (
+    <button className={`plabel-chip team-join${joined ? ' joined' : ''}`} title={joined ? `Leave ${team.name}` : `Join ${team.name}`} aria-label={joined ? `Leave ${team.name}` : `Join ${team.name}`} onClick={toggle}>
+      {joined ? <><IconCheck size={11} /> Joined</> : 'Join'}
+    </button>
+  );
+}
+
 export function TeamsPage() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -341,20 +359,13 @@ export function TeamsPage() {
           <div className="wt-head wt-teams"><span>Name</span><span>Description</span><span>Membership</span><span>Members</span><span>Cycle</span><span>Active projects</span></div>
           {list.map(t => {
             const members = t.memberIds.map(id => snap.users.find(u => u.id === id)).filter(Boolean);
-            const joined = t.memberIds.includes(snap.currentUser.id);
             const cur = snap.cycles.find(c => c.teamId === t.id && c.startsAt <= now && c.endsAt >= now);
             const active = snap.projects.filter(p => p.teamId === t.id && p.status === 'started').length;
             return (
               <div key={t.id} className="wt-row wt-teams" onClick={() => navigate(`/team/${t.key}/overview`)}>
                 <span className="wt-name">{teamDisplayIcon(t)}<span>{t.name}</span><span className="dim mono">{t.key}</span></span>
                 <span className="dim wt-clip">{t.description?.replace(/\s+/g, ' ') || ''}</span>
-                <span>
-                  {/* join or leave right here; the row itself opens the team */}
-                  <button className={`plabel-chip team-join${joined ? ' joined' : ''}`} title={joined ? 'Leave team' : 'Join team'}
-                    onClick={async e => { e.stopPropagation(); await (joined ? api.leaveTeam(t.id) : api.joinTeam(t.id)); await useApp.getState().bootstrap(); }}>
-                    {joined ? <><IconCheck size={11} /> Joined</> : 'Join'}
-                  </button>
-                </span>
+                <span><TeamJoinChip team={t} /></span>
                 <span><AvatarStack size={18} people={members.slice(0, 5).map(u => ({ name: u!.name, initials: u!.initials, color: u!.color }))} /></span>
                 <span className="wt-iconnum">{cur ? <><IconCycle size={12} />{cur.number}</> : null}</span>
                 <span className="wt-iconnum"><IconBox size={12} />{active}</span>

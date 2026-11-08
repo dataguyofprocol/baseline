@@ -3,9 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useApp, relTime, shortDate, copyText } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, Modal, useMenu } from './ui.js';
+import { Menu, MenuItem, MenuSep, Modal, useMenu, useCanConfigure } from './ui.js';
 import { Avatar } from './pickers.js';
-import { IconClose, IconCopy, IconMore, IconPlus, IconSearch, IconLink, IconTrash } from './icons.js';
+import { IconCheck, IconClose, IconCopy, IconMore, IconPlus, IconSearch, IconLink, IconTrash } from './icons.js';
 import type { Invite, InviteResult, Team, User } from '../../src/core/types.js';
 
 type Tab = 'all' | 'active' | 'invited' | 'suspended';
@@ -191,13 +191,14 @@ function InviteRow(props: { invite: Invite; canManage: boolean; act: (fn: () => 
   );
 }
 
-function InviteModal(props: { onClose: () => void; onDone: () => Promise<void> }) {
+/** `teamIds`: opened from a team, it starts with that team picked; from the workspace, with your first team */
+export function InviteModal(props: { onClose: () => void; onDone: () => Promise<void>; teamIds?: string[] }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const isAdmin = snap.currentUser.admin;
   const [emails, setEmails] = useState('');
   const [admin, setAdmin] = useState(false);
-  const [teamIds, setTeamIds] = useState<string[]>(snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id)).map(t => t.id).slice(0, 1));
+  const [teamIds, setTeamIds] = useState<string[]>(props.teamIds ?? snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id)).map(t => t.id).slice(0, 1));
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<InviteResult[] | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -282,6 +283,145 @@ function InviteModal(props: { onClose: () => void; onDone: () => Promise<void> }
                 <button className="btn primary" onClick={props.onClose}>Done</button>
               </>
             )}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------- one team's members (Team settings › Members) ---------- */
+// As in Linear: anyone on the team (or an admin) adds people; admins remove them; everyone can leave.
+export function TeamMembersSettings(props: { team: Team }) {
+  const snap = useApp(s => s.snap)!;
+  const toast = useApp(s => s.toast);
+  const { team } = props;
+  const me = snap.currentUser;
+  const admin = useCanConfigure();
+  const onTeam = team.memberIds.includes(me.id);
+  const canAdd = admin || onTeam;
+  const canInvite = snap.workspace.auth === 'hosted' && (me.admin || snap.workspace.security.whoCanInvite === 'members');
+  const [q, setQ] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const members = team.memberIds.map(id => snap.users.find(u => u.id === id)).filter((u): u is User => !!u && u.kind === 'human');
+  const shown = members.filter(u => `${u.name} ${u.email}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const act = async (fn: () => Promise<unknown>, done: string) => {
+    try { await fn(); await refresh(); toast({ title: done }); } catch (err) { toast({ title: (err as Error).message }); }
+  };
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <h1 style={{ flex: 1 }}>Members</h1>
+        {!onTeam && <button className="btn" onClick={() => void act(() => api.joinTeam(team.id), `You joined ${team.name}`)}>Join team</button>}
+        {canAdd && <button className="btn primary" onClick={() => setAdding(true)}><IconPlus size={13} /> Add members</button>}
+      </div>
+      <div className="field-help" style={{ marginBottom: 8 }}>{members.length} member{members.length === 1 ? '' : 's'}. Anyone in the workspace can join {team.name}.</div>
+      <div className="set-filter" style={{ margin: '4px 0 10px' }}><IconSearch size={13} /><input placeholder="Search by name or email" value={q} onChange={e => setQ(e.target.value)} /></div>
+      <div className="card" style={{ padding: '4px 10px', marginBottom: 14 }}>
+        {shown.map(u => <TeamMemberRow key={u.id} team={team} user={u} canRemove={admin} act={act} />)}
+        {!shown.length && <div className="prop-row" style={{ color: 'var(--text-dim)' }}>{members.length ? 'Nobody matches.' : 'Nobody is on this team yet.'}</div>}
+      </div>
+      <div className="field-help">Agents can work in every team: they're assigned issues, not added to teams.</div>
+      <AnimatePresence>
+        {adding && <AddTeamMembersModal key="add" team={team} onClose={() => setAdding(false)}
+          onInvite={canInvite ? () => { setAdding(false); setInviting(true); } : undefined} />}
+        {inviting && <InviteModal key="invite" teamIds={[team.id]} onClose={() => setInviting(false)} onDone={refresh} />}
+      </AnimatePresence>
+    </>
+  );
+}
+
+function TeamMemberRow(props: { team: Team; user: User; canRemove: boolean; act: (fn: () => Promise<unknown>, done: string) => Promise<void> }) {
+  const snap = useApp(s => s.snap)!;
+  const { team, user: u, act } = props;
+  const menu = useMenu();
+  const you = u.id === snap.currentUser.id;
+  return (
+    <div className="prop-row" style={{ ...ROW, opacity: u.status === 'suspended' ? 0.6 : 1 }}>
+      <Avatar user={u} size={24} />
+      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+        <span>{u.name}{you && <span style={{ color: 'var(--text-dim)' }}> (you)</span>}</span>
+        <span style={{ color: 'var(--text-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.email}</span>
+      </span>
+      <span style={{ width: 86, textAlign: 'right' }}>
+        {u.status === 'suspended' ? <span className="plabel-chip">Suspended</span> : <span className={`plabel-chip ${u.admin ? 'admin' : ''}`}>{u.admin ? 'Admin' : 'Member'}</span>}
+      </span>
+      {you || props.canRemove
+        ? <button className="icon-btn" style={{ width: 24, height: 24 }} title="Member options" aria-label={`Options for ${u.name}`} onClick={menu.open}><IconMore size={14} /></button>
+        : <span style={{ width: 24 }} />}
+      {menu.anchor && (
+        <Menu anchor={menu.anchor} onClose={menu.close} width={210}>
+          {you
+            ? <MenuItem label="Leave team" danger onClick={() => void act(() => api.leaveTeam(team.id), `You left ${team.name}`)} />
+            : <MenuItem icon={<IconTrash size={14} />} label="Remove from team" danger onClick={() => void act(() => api.removeTeamMember(team.id, u.id), `${u.name} removed from ${team.name}`)} />}
+        </Menu>
+      )}
+    </div>
+  );
+}
+
+/** pick workspace people who aren't on the team yet; "Invite by email" for someone who isn't in the workspace */
+function AddTeamMembersModal(props: { team: Team; onClose: () => void; onInvite?: () => void }) {
+  const snap = useApp(s => s.snap)!;
+  const toast = useApp(s => s.toast);
+  const { team } = props;
+  const [q, setQ] = useState('');
+  const [picked, setPicked] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { const t = setTimeout(() => ref.current?.focus(), 30); return () => clearTimeout(t); }, []);
+  const candidates = snap.users.filter(u => u.kind === 'human' && u.status === 'active' && !team.memberIds.includes(u.id));
+  const shown = candidates.filter(u => `${u.name} ${u.email}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const add = async () => {
+    if (!picked.length || busy) return;
+    setBusy(true);
+    try {
+      const r = await api.addTeamMembers(team.id, picked);
+      await refresh();
+      toast({ title: `${r.added.length} member${r.added.length === 1 ? '' : 's'} added to ${team.name}` });
+      props.onClose();
+    } catch (err) {
+      toast({ title: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal onClose={props.onClose} className="modal modal-create cy-modal">
+      <div className="cm-root" onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void add(); } }}>
+        <div className="cm-header">
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Add members to {team.name}</span>
+          <span style={{ marginLeft: 'auto', display: 'flex' }}><button className="icon-btn" onClick={props.onClose}><IconClose size={14} /></button></span>
+        </div>
+        <div style={{ padding: '8px 16px 12px', display: 'flex', flexDirection: 'column' }}>
+          <div className="set-filter"><IconSearch size={13} /><input ref={ref} placeholder="Search people in the workspace" value={q} onChange={e => setQ(e.target.value)} /></div>
+          <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+            {shown.map(u => {
+              const on = picked.includes(u.id);
+              return (
+                <button key={u.id} type="button" className="prop-row" aria-pressed={on}
+                  style={{ ...ROW, width: '100%', background: 'transparent', border: 0, font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}
+                  onClick={() => setPicked(on ? picked.filter(x => x !== u.id) : [...picked, u.id])}>
+                  <span className={`mi-check${on ? ' on' : ''}`}>{on && <IconCheck size={11} />}</span>
+                  <Avatar user={u} size={22} />
+                  <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+                    <span>{u.name}</span>
+                    <span style={{ color: 'var(--text-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.email}</span>
+                  </span>
+                </button>
+              );
+            })}
+            {!shown.length && <div className="field-help">{candidates.length ? 'Nobody matches.' : `Everyone in the workspace is on ${team.name}.`}</div>}
+          </div>
+        </div>
+        <div className="cm-footer">
+          {props.onInvite && <button className="btn ghost" onClick={props.onInvite}><IconLink size={13} /> Invite by email…</button>}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={props.onClose}>Cancel</button>
+            <button className="btn primary" disabled={busy || !picked.length} onClick={add}>
+              {busy ? 'Adding…' : picked.length ? `Add ${picked.length} member${picked.length === 1 ? '' : 's'}` : 'Add members'}<span className="btn-kbd kbd">⌘↵</span>
+            </button>
           </div>
         </div>
       </div>
