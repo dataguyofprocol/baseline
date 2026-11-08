@@ -104,7 +104,7 @@ export interface Field {
   name: string;
   /** --pr-url for pr_url */
   flag: string;
-  kind: 'string' | 'number' | 'boolean' | 'enum' | 'array';
+  kind: 'string' | 'url' | 'number' | 'boolean' | 'enum' | 'array';
   values?: readonly string[];
   required: boolean;
   description: string;
@@ -120,8 +120,10 @@ export function fieldsOf(op: AnyOperation): Field[] {
       t = t.unwrap() as z.ZodType;
       description ??= t.description;
     }
-    const kind = t instanceof z.ZodString ? 'string' : t instanceof z.ZodNumber ? 'number' : t instanceof z.ZodBoolean ? 'boolean'
-      : t instanceof z.ZodEnum ? 'enum' : t instanceof z.ZodArray && t.element instanceof z.ZodString ? 'array' : undefined;
+    // z.url() and the other string formats are not ZodString subclasses in zod 4
+    const isText = (s: unknown) => s instanceof z.ZodString || s instanceof z.ZodStringFormat;
+    const kind = t instanceof z.ZodURL ? 'url' : isText(t) ? 'string' : t instanceof z.ZodNumber ? 'number' : t instanceof z.ZodBoolean ? 'boolean'
+      : t instanceof z.ZodEnum ? 'enum' : t instanceof z.ZodArray && isText(t.element) ? 'array' : undefined;
     if (!kind) throw new Error(`${op.name}.${name}: a CLI flag can't express this field's type`);
     return {
       name, flag: `--${name.replace(/_/g, '-')}`, kind, required, description: description ?? '',
@@ -130,14 +132,17 @@ export function fieldsOf(op: AnyOperation): Field[] {
   });
 }
 
-/** `baseline agent post-progress <issue> [--did <text>] …`, for --help and the skill */
+/** the value a flag takes, as --help shows it */
+export const placeholderOf = (f: Field): string =>
+  f.kind === 'enum' ? `<${f.values!.join('|')}>` : f.kind === 'array' ? '<url...>' : f.kind === 'url' ? '<url>' : f.kind === 'number' ? '<n>' : '<text>';
+
+/** `baseline agent post-progress <issue> [--did <text>] …`, for the skill */
 export function usageOf(op: AnyOperation): string {
   const fields = fieldsOf(op);
   const pos = op.positional ?? [];
-  const placeholder = (f: Field) => f.kind === 'enum' ? `<${f.values!.join('|')}>` : f.kind === 'array' ? '<url...>' : f.kind === 'number' ? '<n>' : '<text>';
   const args = pos.map(p => `<${p}>`);
   const flags = fields.filter(f => !pos.includes(f.name)).map(f => {
-    const s = f.kind === 'boolean' ? f.flag : `${f.flag} ${placeholder(f)}`;
+    const s = f.kind === 'boolean' ? f.flag : `${f.flag} ${placeholderOf(f)}`;
     return f.required ? s : `[${s}]`;
   });
   return ['baseline agent', cliVerb(op), ...args, ...flags, '[--json]'].join(' ');

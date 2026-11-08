@@ -167,7 +167,7 @@ export const startIssue = defineOp({
     };
   },
   text: (o) => lines(
-    o.already_started ? `${o.key} was already started (${o.state}).` : `Started ${o.key} → ${o.state}${o.assignee ? `, assigned to ${o.assignee}` : ''}.`,
+    `${o.already_started ? `${o.key} was already started` : `Started ${o.key}`}: ${o.state}, assignee ${o.assignee ?? 'nobody'}.`,
     `Branch: ${o.branch}`,
     ...o.warnings.map(w => `warning: ${w}`),
     o.last_progress && `Last progress: ${o.last_progress.did ?? '—'}${o.last_progress.left ? ` | left: ${o.last_progress.left}` : ''}`,

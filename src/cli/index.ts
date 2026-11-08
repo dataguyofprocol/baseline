@@ -11,6 +11,8 @@ import type { RelationType, Snapshot, Team, Label, Project, Issue, Location, Api
 import { BaselineError, connect, issueIndex, resolve, ResolveError, TargetError, views, type Baseline } from '../client/index.js';
 import { legacyApp, legacyStore, setLegacyCommand } from './legacy.js';
 import { mountAccountCommands } from './login.js';
+import { mountOperations } from './ops.js';
+import { actorFrom, sessionFrom } from '../ops/identity.js';
 
 const { priorityNum, resolveTeam, resolveState, resolveUser, resolveProject, resolveLabel, resolveCycle, milestoneIdFor } = resolve;
 const { relationRows, invertRelation } = views;
@@ -1451,7 +1453,11 @@ withDb(doc.command('delete <doc>')).description('Delete a document').action((ref
 });
 
 // ---------- coding tools ----------
-const agent = program.command('agent').description('Coding-tool settings for handing issues to Claude Code (`issue open`, `issue handoff`)');
+const agent = program.command('agent').description('Your coding agent\'s side of an issue (start, progress, follow-ups, finish, project drafts, undo; set BASELINE_AS and BASELINE_SESSION), and coding-tool settings');
+mountOperations(agent, async (flags) => {
+  const bl = await connect(flags);
+  return { bl, actor: await actorFrom(bl, flags.as ?? process.env.BASELINE_AS), session: sessionFrom(process.env.BASELINE_SESSION) };
+});
 withDb(agent.command('config')).description('Show or change where `issue open` sessions launch')
   .option('--terminal <app>', TERMINAL_APPS.join('|'))
   .action((opts: { db?: string; terminal?: string }) => {
