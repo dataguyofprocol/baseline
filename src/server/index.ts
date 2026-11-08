@@ -58,6 +58,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // Hosted, that would open it on the server's machine — it waits for a companion on each person's laptop
   if (hosted) automation.launcherMissing = 'needs a connected companion';
   else automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
+  if (hosted) webhooks.fixedUrl = auth.publicUrl.origin;
   // the git integration polls gh / git log in each location every two minutes while it's on —
   // those are this machine's folders, so a hosted server leaves GitHub to its webhooks
   if (!hosted) setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();

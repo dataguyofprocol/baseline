@@ -234,7 +234,8 @@ check('…and so is its activity', created.user_id === ada.id);
     { name: 'run a loop', method: 'POST', path: () => `/api/loops/${ids.loop}/run`, body: { issueId: issue.id } },
     { name: 'remove a loop', method: 'DELETE', path: () => `/api/loops/${ids.loop}` },
     { name: 'change PR automations', method: 'PUT', path: () => `/api/git/automation/${ids.team}`, body: { linkOnBranch: false } },
-    { name: 'set the GitHub webhook URL', method: 'PUT', path: () => '/api/github/webhook/config', body: { publicUrl: ORIGIN } },
+    // hosted, the address is BASELINE_PUBLIC_URL's: the admin gets past the gate to that refusal
+    { name: 'set the GitHub webhook URL', method: 'PUT', path: () => '/api/github/webhook/config', body: { publicUrl: ORIGIN }, adminStatus: 400 },
     { name: 'make a GitHub webhook secret', method: 'POST', path: () => '/api/github/webhook/secret' },
     { name: 'turn GitHub webhooks off', method: 'DELETE', path: () => '/api/github/webhook/secret' },
     // the admin gets past the gate to the repo-name check (a real import would run gh)
@@ -276,6 +277,11 @@ check('…and so is its activity', created.user_id === ada.id);
   const loop = (await (await req('/api/loops', { ...json({ name: 'Hand off', trigger: { kind: 'labelAdded', labelId: 'none' }, actions: [{ kind: 'claudeCode' }] }), cookie: ownerCookie })).json() as { loop: { id: string } }).loop;
   const run = (await (await req(`/api/loops/${loop.id}/run`, { ...json({ issueId: issue.id }), cookie: ownerCookie })).json() as { run: { ok: boolean; detail: string } }).run;
   check('a loop\'s Open in Claude Code is skipped, saying it needs the companion', !run.ok && /needs a connected companion, skipped/.test(run.detail), run.detail);
+
+  const hook = await (await req('/api/github/webhook/config', { cookie: ownerCookie })).json() as { publicUrl: string; fixedUrl: boolean };
+  check('the webhook address is BASELINE_PUBLIC_URL\'s origin, not editable', hook.publicUrl === ORIGIN && hook.fixedUrl, JSON.stringify(hook));
+  const setUrl = await req('/api/github/webhook/config', { ...json({ publicUrl: 'https://tunnel.example.com' }), method: 'PUT', cookie: ownerCookie });
+  check('…and setting it is refused, naming BASELINE_PUBLIC_URL', setUrl.status === 400 && /BASELINE_PUBLIC_URL/.test((await setUrl.json() as { error: string }).error) && store.ext.webhooks.config().publicUrl === ORIGIN);
 
   const sync = await (await req('/api/git/sync', { ...json({}), cookie: ownerCookie })).json() as { prs: number; error?: string };
   check('git sync doesn\'t run gh on a hosted server', sync.prs === 0 && /webhooks/.test(sync.error ?? ''), JSON.stringify(sync));

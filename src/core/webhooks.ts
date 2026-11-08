@@ -46,6 +46,8 @@ export function signatureOk(secret: string, raw: string, header: string | undefi
 }
 
 export class GitHubWebhooks {
+  /** hosted: BASELINE_PUBLIC_URL's origin, the only address GitHub can reach this server at */
+  fixedUrl: string | null = null;
   constructor(private store: Store, private db: DatabaseSync, private git: GitSync) {}
 
   // ---------- configuration ----------
@@ -57,7 +59,7 @@ export class GitHubWebhooks {
     const s = this.secret();
     const n = (status: string) => (this.db.prepare('SELECT COUNT(*) n FROM github_deliveries WHERE status = ?').get(status) as { n: number }).n;
     return {
-      enabled: !!s, secretHint: s ? `…${s.slice(-4)}` : null, publicUrl: getMeta(this.db, 'githubWebhookUrl') ?? '',
+      enabled: !!s, secretHint: s ? `…${s.slice(-4)}` : null, publicUrl: this.fixedUrl ?? getMeta(this.db, 'githubWebhookUrl') ?? '', fixedUrl: !!this.fixedUrl,
       events: WEBHOOK_EVENTS, lastDelivery: this.deliveries(1)[0] ?? null, received: n('processed') + n('ignored'), rejected: n('rejected'), imports: this.imports(),
     };
   }
@@ -69,6 +71,7 @@ export class GitHubWebhooks {
   }
   turnOff(): void { setMeta(this.db, 'githubWebhookSecret', ''); }
   setPublicUrl(url: string): void {
+    if (this.fixedUrl) throw new Error(`The public address is ${this.fixedUrl}, set by BASELINE_PUBLIC_URL on the server`);
     const u = url.trim().replace(/\/+$/, '');
     if (u && !/^https:\/\/[^\s/]+/i.test(u)) throw new Error('Use the https:// address GitHub can reach (your tunnel or server)');
     setMeta(this.db, 'githubWebhookUrl', u);

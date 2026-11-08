@@ -333,7 +333,7 @@ export interface LoopRun { id: string; loopId: string; issueId: string | null; o
 /* ---------- git / GitHub (Linear's GitHub integration rules; TEAM_PLAN.md Phase 4) ---------- */
 /** a GitHub webhook delivery as Baseline handled it (Settings › GitHub shows the recent ones) */
 export interface WebhookDelivery { id: number; delivery: string; event: string; action: string | null; repo: string | null; status: 'processed' | 'ignored' | 'rejected'; detail: string; receivedAt: string }
-export interface WebhookConfig { enabled: boolean; secretHint: string | null; publicUrl: string; events: readonly string[]; lastDelivery: WebhookDelivery | null; received: number; rejected: number; imports: Array<{ repo: string; teamId: string }> }
+export interface WebhookConfig { enabled: boolean; secretHint: string | null; publicUrl: string; /** hosted: publicUrl is BASELINE_PUBLIC_URL's and can't be edited */ fixedUrl: boolean; events: readonly string[]; lastDelivery: WebhookDelivery | null; received: number; rejected: number; imports: Array<{ repo: string; teamId: string }> }
 export type PrState = 'draft' | 'open' | 'merged' | 'closed';
 export interface PullRequest {
   id: string; repo: string; number: number; title: string; body: string; url: string; state: PrState;
