@@ -273,9 +273,9 @@ check_json "label detached from issue" "$J" "!d.labels.includes('Flaky Test')"
 
 echo "=== agent identities ==="
 check  "seeded agent user"     "Agent"           user list
-check  "user add agent"        "Created agent"   user add "Codex" --agent
+check  "user add agent"        "Created agent"   user add "Reviewer Bot" --agent
 check  "user add human"        "Created user"    user add "Ada Clone"
-if b user list 2>/dev/null | grep -q '^Codex.*agent'; then PASS=$((PASS+1)); else echo "FAIL  agent kind marker on user list"; FAIL=$((FAIL+1)); fi
+if b user list 2>/dev/null | grep -q '^Reviewer Bot.*agent'; then PASS=$((PASS+1)); else echo "FAIL  agent kind marker on user list"; FAIL=$((FAIL+1)); fi
 if b user list 2>/dev/null | grep -q '^Ada Clone' && ! b user list 2>/dev/null | grep -q '^Ada Clone.*agent'; then PASS=$((PASS+1)); else echo "FAIL  human user not marked agent"; FAIL=$((FAIL+1)); fi
 
 echo "=== personal API keys ==="
@@ -357,7 +357,7 @@ if grep -q "cd '$PREPO'" "$WORK"/sessions/"$KI"-*.command && grep -q "BASELINE_A
 if [[ "$(stat -f %Lp "$WORK"/sessions/"$KI"-*.md 2>/dev/null | head -1 || stat -c %a "$WORK"/sessions/"$KI"-*.md | head -1)" == "600" ]]; then PASS=$((PASS+1)); else echo "FAIL  session brief is owner-only"; FAILED_NAMES+=("session brief perms"); FAIL=$((FAIL+1)); fi
 if grep -q "baseline agent start-issue $KI" "$WORK"/sessions/"$KI"-*.md; then PASS=$((PASS+1)); else echo "FAIL  launcher prompt carries the brief"; FAILED_NAMES+=("launcher prompt"); FAIL=$((FAIL+1)); fi
 checkon "$ADB" "issue open --location pins it" "pinned to agent-repo" issue open "$KA" --location agent-repo
-checkon "$ADB" "sessions post as Claude Code" "Claude Code" user list
+checkon "$ADB" "sessions post as Agent" "Agent" user list
 OUT=$(BASELINE_DB="$ADB" $BIN issue open "$(ab issue create "nowhere" -t CORE --location none --json | keyof)" 2>&1)
 if [[ "$OUT" == *"has no location"* ]]; then PASS=$((PASS+1)); else echo "FAIL  issue open without a location explains itself"; FAILED_NAMES+=("issue open no location"); FAIL=$((FAIL+1)); fi
 unset BASELINE_SESSIONS_DIR BASELINE_OPEN_CMD
@@ -390,7 +390,7 @@ BASELINE_DB="$DB2" $BIN issue list -q "renamed issue" --json > "$J"
 check_json "imported issue round-trips" "$J" "d.length===1&&d[0].key==='$KEY'&&d[0].title==='renamed issue'"
 BASELINE_DB="$DB2" $BIN project list --json > "$WORK/p3.json"
 check_json "imported projects round-trip" "$WORK/p3.json" "d.some(p=>p.name==='Agent Handoff')"
-if BASELINE_DB="$DB2" $BIN user list 2>/dev/null | grep -q '^Codex.*agent'; then PASS=$((PASS+1)); else echo "FAIL  agent kind survives export/import"; FAIL=$((FAIL+1)); fi
+if BASELINE_DB="$DB2" $BIN user list 2>/dev/null | grep -q '^Reviewer Bot.*agent'; then PASS=$((PASS+1)); else echo "FAIL  agent kind survives export/import"; FAIL=$((FAIL+1)); fi
 
 echo "=== seed ==="
 DB3=$(newdb 3)

@@ -68,8 +68,6 @@ export interface Baseline {
   createLocation(path: string): Promise<Location>;
   /** DELETE /api/me/key — the key this client authenticates with */
   revokeOwnKey(): Promise<void>;
-  /** POST /api/users with kind agent — workspace admins only on a hosted server (and an admin-scoped key) */
-  createAgentUser(name: string): Promise<User>;
 
   // Agent work (core/work.ts). Each is one route and one server transaction; a repeat that changes
   // nothing answers with opId null. `session` is BASELINE_SESSION, or null for the default lane.
@@ -141,9 +139,6 @@ export class HttpBaseline implements Baseline {
     return this.call('POST', '/api/locations', { json: { path }, unwrap: 'location' });
   }
   async revokeOwnKey(): Promise<void> { await this.call('DELETE', '/api/me/key'); }
-  createAgentUser(name: string): Promise<User> {
-    return this.call('POST', '/api/users', { json: { name, kind: 'agent' }, unwrap: 'user' });
-  }
 
   startWork(issueId: string, input: { session: string | null }, actorId?: string): Promise<StartWorkResult> {
     return this.call('POST', `/api/issues/${encodeURIComponent(issueId)}/work/start`, { json: { ...input, actorId } });

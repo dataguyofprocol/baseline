@@ -34,7 +34,7 @@ baseline logout                                          # revokes that key
 
 Or set `BASELINE_URL` + `BASELINE_TOKEN` (a personal API key) for one shell; setting `BASELINE_DB` or `--db` instead targets a local file (both at once is an error). Commands not yet ported say so and exit 1.
 
-**Run as your agent identity:** export `BASELINE_AS="<agent name>"` (e.g. `"Claude Code"`, an agent user from `user list`) so your writes show as "Claude Code via <the signed-in person>" in activity and comments. A server refuses `--as` / `BASELINE_AS` naming another person.
+**Run as your agent identity:** export `BASELINE_AS="<agent name>"` (e.g. `"Agent"`, the workspace's agent user from `user list`) so your writes show as "Agent via <the signed-in person>" in activity and comments. A server refuses `--as` / `BASELINE_AS` naming another person.
 
 ## Before you write: know what you're touching
 
@@ -64,7 +64,7 @@ Or set `BASELINE_URL` + `BASELINE_TOKEN` (a personal API key) for one shell; set
 # discover
 baseline team list                          # teams, their states, issue counts
 baseline user list                          # who can be assigned (agents marked `agent`)
-baseline user add "Codex" --agent           # add a named agent identity
+baseline user add "<name>" --agent          # add another agent identity
 baseline label list [-t CORE]               # labels per team
 baseline search "query"                     # issues + projects by substring
 
@@ -230,7 +230,7 @@ BASELINE_DB=/tmp/scratch.db baseline import /tmp/ws.json
 
 ## Handoff loop (picking up an issue handed to you)
 
-A human hands you an issue one of two ways: copies its brief into your prompt (web toolbar, or `baseline issue handoff KEY --copy`), or opens it with **Open in Claude Code** (a terminal session started in the issue's location, with `BASELINE_DB`/`BASELINE_AS` already set, so your CLI writes post as "Claude Code"). Nothing is ever picked up automatically — assigning an issue to an agent user is just a label. The brief names the issue key and a suggested branch. Your side of the loop:
+A human hands you an issue one of two ways: copies its brief into your prompt (web toolbar, or `baseline issue handoff KEY --copy`), or opens it with **Open in Claude Code** (a terminal session started in the issue's location, with `BASELINE_DB`/`BASELINE_AS` already set, so your CLI writes post as "Agent"). Nothing is ever picked up automatically — assigning an issue to an agent user is just a label. The brief names the issue key and a suggested branch. Your side of the loop:
 
 ```bash
 baseline agent start-issue CORE-3          # claims it (In Progress; assigned to the person if nobody is), prints the brief and the branch
@@ -250,7 +250,7 @@ Each command is described in **Agent loop** below. Prefer them to `issue update`
   - **Research / decision:** the recommendation, options weighed, links to sources.
   - Absolute paths for local files; backticks around paths, branches and commands; keep it short.
 - If the work splits into separate pieces, create sub-issues (`issue create "…" -t CORE --parent KEY`) instead of one long comment.
-- Attribute your writes to your agent identity: add `--as "Codex"` to write commands (`issue create|update|bulk|archive|relate|comment`, `project note`) so activity, comments and notifications land under that user, recorded as "Codex via <the human>". Agent identities are marked `agent` in `user list`.
+- Attribute your writes to your agent identity: add `--as "Agent"` to write commands (`issue create|update|bulk|archive|relate|comment`, `project note`) so activity, comments and notifications land under that user, recorded as "Agent via <the human>". Agent identities are marked `agent` in `user list`.
 - `BASELINE_AS=<name or user id>` does the same for every command without the flag (an explicit `--as` still wins) — export it once per agent session.
 - Locations: every task works in exactly one **location** (a registered directory, usually a git repo). There is no default directory — an issue without a location is never run anywhere by guess. Sub-issues start in their parent's location; nothing else is defaulted — a project's linked locations are only suggestions in the picker, so every other issue needs one chosen (the UI shows "Needs a location"). Set one with `issue update KEY --location <name>`.
 - Where sessions open: `baseline agent config --terminal Terminal|iTerm|Ghostty|Warp|kitty|Alacritty|WezTerm`. Session briefs live in `~/.baseline/sessions/` (owner-only, pruned after a week).
@@ -259,7 +259,7 @@ Each command is described in **Agent loop** below. Prefer them to `issue update`
 <!-- agent-loop:start — generated from src/ops/index.ts by `npm run gen:skill`; edit the operations, not this block -->
 ## Agent loop (your work on an issue, as your agent identity)
 
-Each command is one agent operation; an MCP client gets the same operations as tools, with the same descriptions, input and `--json` output. Set `BASELINE_AS` to your agent user (e.g. `"Claude Code"`) so every write shows as "Claude Code via <person>"; set `BASELINE_SESSION` only to keep two parallel sessions on one issue apart. Every write prints an `op_id` (or null when nothing changed); repeating a call is safe.
+Each command is one agent operation; an MCP client gets the same operations as tools, with the same descriptions, input and `--json` output. Set `BASELINE_AS` to your agent user (e.g. `"Agent"`, the workspace's own; an MCP client writes as it when unset) so every write shows as "Agent via <person>"; set `BASELINE_SESSION` only to keep two parallel sessions on one issue apart. Every write prints an `op_id` (or null when nothing changed); repeating a call is safe.
 
 ### `get_issue` (read)
 

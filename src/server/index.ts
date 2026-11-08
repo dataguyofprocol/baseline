@@ -69,6 +69,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     setMeta(db, 'workspaceId', id('w'));
     setMeta(db, 'workspaceName', process.env.BASELINE_WORKSPACE_NAME?.trim() || 'Baseline');
     setMeta(db, 'workspaceCreatedAt', new Date().toISOString());
+    store.agentUserId();
   } else if (Number(hasWorkspace.n) === 0) {
     if (opts.blank) blankWorkspace(db);
     else {

@@ -14,7 +14,7 @@ export type IssueIndex = ReadonlyMap<string, Issue>;
 export const nameOf = (snap: Pick<Snapshot, 'users'>, userId: string | null): string | null =>
   userId ? snap.users.find(u => u.id === userId)?.name ?? null : null;
 
-/** "Claude Code via Parth" for an agent's write, else the author's name */
+/** "Agent via Parth" for an agent's write, else the author's name */
 export const byline = (snap: Pick<Snapshot, 'users'>, w: { userId: string; viaUserId: string | null }): string => {
   const via = nameOf(snap, w.viaUserId);
   return `${snap.users.find(u => u.id === w.userId)?.name ?? '?'}${via ? ` via ${via}` : ''}`;

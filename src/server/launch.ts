@@ -47,7 +47,7 @@ export function interactivePrompt(store: Store, issueId: string): string {
   return `${store.handoffFor(issueId)!.prompt}
 
 ---
-The baseline CLI in this session is \`node ${CLI_BIN}\` — run the commands above with it. BASELINE_DB and BASELINE_AS are set, so it writes to this workspace and posts as Claude Code.`;
+The baseline CLI in this session is \`node ${CLI_BIN}\` — run the commands above with it. BASELINE_DB and BASELINE_AS are set, so it writes to this workspace and posts as Agent.`;
 }
 
 /** Terminal, iTerm, Ghostty and Warp open a .command like a document; these take it as the program to run */
@@ -100,7 +100,7 @@ export function openInClaudeCode(store: Store, dbPath: string, issueId: string, 
     '#!/bin/sh',
     `cd ${sq(directory)} || exit 1`,
     `export PATH=${sq(process.env.PATH ?? '/usr/bin:/bin')}`,
-    `export BASELINE_DB=${sq(dbPath)} BASELINE_AS=${sq(store.claudeCodeUserId())} BASELINE_ISSUE=${sq(key)}`,
+    `export BASELINE_DB=${sq(dbPath)} BASELINE_AS=${sq(store.agentUserId())} BASELINE_ISSUE=${sq(key)}`,
     `printf '\\033]0;%s\\007' ${sq(`${key} · Claude Code`)}`,
     `exec ${sq(claudeBin())} -- "$(cat ${sq(promptPath)})"`,
     '',

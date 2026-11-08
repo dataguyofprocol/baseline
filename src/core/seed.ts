@@ -12,7 +12,7 @@ function localUserName(): string {
   try { const n = userInfo().username; return n.charAt(0).toUpperCase() + n.slice(1); } catch { return 'You'; }
 }
 
-/** A workspace with nothing in it but you and Claude Code — the web app's first run, where
+/** A workspace with nothing in it but you and the agent — the web app's first run, where
  *  onboarding names the first team and offers the sample data. */
 export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string } = {}): void {
   const store = new Store(db);
@@ -22,7 +22,7 @@ export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string;
   setMeta(db, 'workspaceCreatedAt', nowIso());
   const me = store.createUser(opts.userName ?? localUserName(), '', true);
   setMeta(db, 'currentUser', me.id);
-  store.claudeCodeUserId();
+  store.agentUserId();
   store.setPreferences({ gettingStarted: { onboarding: 'pending', step: 0, since: null, usedPalette: false } });
 }
 
@@ -48,8 +48,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   const me = current ?? store.createUser(opts.userName ?? 'Parth Batra', 'parth@local', true);
   const ada = store.createUser('Ada Osei', 'ada@local');
   const jun = store.createUser('Jun Watanabe', 'jun@local');
-  const agent = store.createUser('Agent', 'agent@local', false, 'agent');
-  store.updateUser(agent.id, { color: '#4cb782' });
+  const agentId = store.agentUserId();
   setMeta(db, 'currentUser', me.id);
 
   // teams with default workflow states (a key you already use gets a number)
@@ -227,9 +226,8 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
 
   // triage on the agent team: two issues an agent filed through the CLI wait for review
   store.updateTeam(agents.id, { triageEnabled: true });
-  const claude = store.claudeCodeUserId();
-  store.createIssue({ teamId: agents.id, title: 'Flaky: `issue list --json` drops archived children', description: 'Seen twice while closing out CORE-24 — the JSON output omits sub-issues whose parent was archived.' }, claude);
-  store.createIssue({ teamId: agents.id, title: 'Expose cycle automation in the CLI', description: '`baseline team update --auto-cycles` would let agents set up a team end to end.' }, agent.id);
+  store.createIssue({ teamId: agents.id, title: 'Flaky: `issue list --json` drops archived children', description: 'Seen twice while closing out CORE-24 — the JSON output omits sub-issues whose parent was archived.' }, agentId);
+  store.createIssue({ teamId: agents.id, title: 'Expose cycle automation in the CLI', description: '`baseline team update --auto-cycles` would let agents set up a team end to end.' }, agentId);
 
   // comments
   const first = store.listIssues({ teamId: core.id })[0];

@@ -1,7 +1,7 @@
 // `baseline mcp` over the real protocol: spawns the CLI's MCP server on a scratch database, runs
 // initialize, tools/list and tools/call through the SDK's client, then re-reads the database.
-// Checks that every op is a tool with its schemas and annotations, that a client named like Claude
-// Code writes as "Claude Code via <person>", that repeated progress converges on one living
+// Checks that every op is a tool with its schemas and annotations, that any client writes as the
+// workspace's "Agent via <person>" (BASELINE_AS picks another agent user), that repeated progress converges on one living
 // comment, that errors are tool errors listing valid values, and that stdout carries only protocol.
 // Then the hosted endpoint, /mcp over Streamable HTTP: keys only, the same tools, a key's scopes and
 // teams holding through every tool, and the whole work loop re-read from the database.
@@ -21,6 +21,7 @@ import { createApp } from '../src/server/index.js';
 import { OPERATIONS } from '../src/ops/index.js';
 import { annotationsOf, type AnyOperation } from '../src/ops/operation.js';
 import { toolOf } from '../src/mcp/server.js';
+import { AS_HEADER } from '../src/mcp/http.js';
 
 const root = join(import.meta.dirname, '..');
 const work = mkdtempSync(join(tmpdir(), 'baseline-mcp-test-'));
@@ -39,6 +40,7 @@ const owner = store0.snapshot().currentUser;
 const team = store0.snapshot().teams[0]!;
 const todo = store0.createIssue({ teamId: team.id, title: 'Wire the MCP server', stateId: store0.stateOfType(team.id, 'unstarted') }, owner.id);
 const K = store0.keyOf(todo);
+store0.createUser('Reviewer Bot', '', false, 'agent');
 db0.close();
 
 async function session(clientName: string, env: Record<string, string> = {}) {
@@ -72,8 +74,8 @@ check('reads are readOnlyHint, undo destructiveHint, writes neither', tools.filt
 
 // ---------- the work loop ----------
 const s = await call(claude, 'start_issue', { issue: K });
-check(`start_issue ${K}: In Progress, attributed to Claude Code via the person, structuredContent`, !s.isError && s.structuredContent?.state === 'In Progress'
-  && s.structuredContent?.attributed_to === `Claude Code via ${owner.name}` && /Started/.test(s.content[0]!.text), s);
+check(`start_issue ${K}: In Progress, attributed to Agent via the person, structuredContent`, !s.isError && s.structuredContent?.state === 'In Progress'
+  && s.structuredContent?.attributed_to === `Agent via ${owner.name}` && /Started/.test(s.content[0]!.text), s);
 const p1 = await call(claude, 'post_progress', { issue: K, did: 'Investigated the stdio transport', left: 'Wire the tools' });
 const p2 = await call(claude, 'post_progress', { issue: K, did: 'Wired the tools', left: 'Tests' });
 check('post_progress twice: created, then rewritten', p1.structuredContent?.created === true && p2.structuredContent?.created === false && !!p2.structuredContent?.op_id, [p1, p2]);
@@ -90,30 +92,30 @@ check('an unknown tool lists the valid tools', !!unknownTool.isError && /Valid t
 await claude.close();
 
 // ---------- identity ----------
-const codex = await session('codex-mcp-client');
-const cs = await call(codex, 'post_progress', { issue: K, did: 'Codex looked too' });
-check('a Codex client adds the Codex agent user (local) and writes as "Codex via <person>"', cs.structuredContent?.attributed_to === `Codex via ${owner.name}`, cs);
-await codex.close();
-const stranger = await session('some-other-client');
+const stranger = await session('some-other-client', { BASELINE_SESSION: 'other' });
 const sr = await call(stranger, 'get_issue', { issue: K });
-const sw = await call(stranger, 'post_progress', { issue: K, did: 'x' });
-check('an unknown client can read, and a write says to set BASELINE_AS', !sr.isError && !!sw.isError && /Set BASELINE_AS/.test(sw.content[0]!.text), sw);
+const sw = await call(stranger, 'post_progress', { issue: K, did: 'Another client looked too' });
+check('any other client reads, and writes as "Agent via <person>" too', !sr.isError && sw.structuredContent?.attributed_to === `Agent via ${owner.name}`, sw);
 await stranger.close();
-const named = await session('some-other-client', { BASELINE_AS: 'pi' });
-const nw = await call(named, 'post_progress', { issue: K, did: 'pi via BASELINE_AS' });
-check('BASELINE_AS wins over clientInfo (pi, added on first use)', nw.structuredContent?.attributed_to === `pi via ${owner.name}`, nw);
+const named = await session('some-other-client', { BASELINE_AS: 'Reviewer Bot' });
+const nw = await call(named, 'post_progress', { issue: K, did: 'Reviewer Bot via BASELINE_AS' });
+check('BASELINE_AS picks another agent user', nw.structuredContent?.attributed_to === `Reviewer Bot via ${owner.name}`, nw);
 await named.close();
+const unknown = await session('some-other-client', { BASELINE_AS: 'Codex' });
+const uw = await call(unknown, 'post_progress', { issue: K, did: 'x' });
+check('BASELINE_AS naming no user is a tool error, and adds nobody', !!uw.isError && /BASELINE_AS/.test(uw.content[0]!.text), uw);
+await unknown.close();
 
 // ---------- the database, read again ----------
 const db = openDb(dbPath);
 const rows = db.prepare(`SELECT u.name agent, c.body, c.via_user_id via FROM comments c JOIN users u ON u.id = c.user_id WHERE c.issue_id = ? ORDER BY c.created_at`).all(todo.id) as Array<{ agent: string; body: string; via: string }>;
-const mine = rows.filter(r => r.agent === 'Claude Code');
-check('one living comment by Claude Code, via the person, holding the final summary', mine.length === 1 && mine[0]!.via === owner.id && /scripts\/test-mcp\.ts passes/.test(mine[0]!.body), rows);
-check('Codex and pi each have their own note', rows.filter(r => r.agent === 'Codex').length === 1 && rows.filter(r => r.agent === 'pi').length === 1, rows.map(r => r.agent));
+const mine = rows.filter(r => r.agent === 'Agent');
+check('Agent has one living comment per session, via the person, the first holding the final summary', mine.length === 2 && mine.every(r => r.via === owner.id) && /scripts\/test-mcp\.ts passes/.test(mine[0]!.body), rows);
+check('Reviewer Bot has its own note, and there is no Codex user', rows.filter(r => r.agent === 'Reviewer Bot').length === 1 && !db.prepare("SELECT 1 FROM users WHERE name = 'Codex'").get(), rows.map(r => r.agent));
 const state = db.prepare('SELECT s.name FROM issues i JOIN states s ON s.id = i.state_id WHERE i.id = ?').get(todo.id) as { name: string };
 check(`${K} is Done in the database`, state.name === 'Done', state);
-const acts = db.prepare("SELECT COUNT(*) n FROM activity WHERE issue_id = ? AND user_id = (SELECT id FROM users WHERE name = 'Claude Code') AND via_user_id = ?").get(todo.id, owner.id) as { n: number };
-check('activity rows by Claude Code are via the person', acts.n > 0, acts);
+const acts = db.prepare("SELECT COUNT(*) n FROM activity WHERE issue_id = ? AND user_id = (SELECT id FROM users WHERE name = 'Agent') AND via_user_id = ?").get(todo.id, owner.id) as { n: number };
+check('activity rows by Agent are via the person', acts.n > 0, acts);
 db.close();
 
 // ================================================================ hosted: Streamable HTTP at /mcp
@@ -124,6 +126,7 @@ const httpDbPath = join(work, 'http.db');
 const hosted = createApp(httpDbPath, { mode: 'hosted', publicUrl: new URL(ORIGIN), google: null, ownerEmail: '' }, { configured: false, send: async () => {} });
 const hs = hosted.store;
 const person = hs.createUser('Ada Owner', 'ada@example.com', true);
+hs.createUser('Reviewer Bot', '', false, 'agent');
 const mineTeam = hs.createTeam('MINE', 'Mine'), otherTeam = hs.createTeam('OTH', 'Other');
 const hIssue = hs.createIssue({ teamId: mineTeam.id, title: 'Serve MCP over HTTP', stateId: hs.stateOfType(mineTeam.id, 'unstarted') }, person.id);
 const otherIssue = hs.createIssue({ teamId: otherTeam.id, title: 'Another team\'s work', stateId: hs.stateOfType(otherTeam.id, 'unstarted') }, person.id);
@@ -136,8 +139,8 @@ const teamKey = hs.ext.apiKeys.create({ name: 'mine only', userId: person.id, te
 const readKey = hs.ext.apiKeys.create({ name: 'read only', userId: person.id, scopes: ['read'] });
 const hostedFetch = (input: string | URL | Request, init?: RequestInit) => Promise.resolve(hosted.app.fetch(new Request(input, init)));
 
-async function httpSession(clientName: string, token: string) {
-  const transport = new StreamableHTTPClientTransport(new URL('/mcp', ORIGIN), { fetch: hostedFetch, requestInit: { headers: { authorization: `Bearer ${token}` } } });
+async function httpSession(clientName: string, token: string, headers: Record<string, string> = {}) {
+  const transport = new StreamableHTTPClientTransport(new URL('/mcp', ORIGIN), { fetch: hostedFetch, requestInit: { headers: { authorization: `Bearer ${token}`, ...headers } } });
   const client = new Client({ name: clientName, version: '1.0.0' });
   await client.connect(transport);
   return { client, transport };
@@ -168,7 +171,7 @@ check('list_issues over HTTP', !hl.isError && hl.structuredContent?.issues.some(
 const hg = await call(hc, 'get_issue', { issue: HK });
 check('get_issue over HTTP', !hg.isError && hg.structuredContent?.issue.key === HK, hg);
 const hStart = await call(hc, 'start_issue', { issue: HK });
-check(`start_issue ${HK}: In Progress, "Claude Code via Ada Owner"`, !hStart.isError && hStart.structuredContent?.state === 'In Progress' && hStart.structuredContent?.attributed_to === 'Claude Code via Ada Owner', hStart);
+check(`start_issue ${HK}: In Progress, "Agent via Ada Owner"`, !hStart.isError && hStart.structuredContent?.state === 'In Progress' && hStart.structuredContent?.attributed_to === 'Agent via Ada Owner', hStart);
 const hp1 = await call(hc, 'post_progress', { issue: HK, did: 'Mounted /mcp', left: 'Tests' });
 const hp2 = await call(hc, 'post_progress', { issue: HK, did: 'Mounted /mcp and wrote tests', left: 'Real agents' });
 check('post_progress twice over HTTP: one note, rewritten', hp1.structuredContent?.created === true && hp2.structuredContent?.created === false, [hp1, hp2]);
@@ -185,10 +188,10 @@ check('there is no publish tool', !!noPublish.isError && /Unknown tool/.test(noP
 const pub = await hostedFetch(`${ORIGIN}/api/projects/${hProject.id}/update-draft/publish`, { method: 'POST', headers: { authorization: `Bearer ${fullKey.token}`, 'content-type': 'application/json' }, body: '{}' });
 check('the same key is refused for publishing the draft (403)', pub.status === 403);
 
-// ---------- a pi client, by its clientInfo ----------
-const { client: pc } = await httpSession('pi', fullKey.token);
-const pp = await call(pc, 'post_progress', { issue: HK, did: 'pi checked the HTTP endpoint' });
-check('a pi client (clientInfo "pi") writes as "pi via Ada Owner", the agent user added on first use', pp.structuredContent?.attributed_to === 'pi via Ada Owner', pp);
+// ---------- the Baseline-As header picks another agent user ----------
+const { client: pc } = await httpSession('pi', fullKey.token, { [AS_HEADER]: 'Reviewer Bot' });
+const pp = await call(pc, 'post_progress', { issue: HK, did: 'Reviewer Bot checked the HTTP endpoint' });
+check('a Baseline-As header writes as that agent user: "Reviewer Bot via Ada Owner"', pp.structuredContent?.attributed_to === 'Reviewer Bot via Ada Owner', pp);
 await pc.close();
 
 // ---------- a key's limits hold through the tools ----------
@@ -231,15 +234,15 @@ await hc.close();
 const hdb = openDb(httpDbPath);
 const one = <T>(sql: string, ...p: string[]) => hdb.prepare(sql).get(...p) as T;
 const agentId = (name: string) => one<{ id: string }>('SELECT id FROM users WHERE name = ? AND kind = \'agent\'', name).id;
-const living = hdb.prepare('SELECT body, via_user_id via FROM comments WHERE issue_id = ? AND user_id = ?').all(hIssue.id, agentId('Claude Code')) as Array<{ body: string; via: string }>;
-check('HTTP: one living comment by Claude Code, via the person', living.length === 1 && living[0]!.via === person.id, living);
+const living = hdb.prepare('SELECT body, via_user_id via FROM comments WHERE issue_id = ? AND user_id = ?').all(hIssue.id, agentId('Agent')) as Array<{ body: string; via: string }>;
+check('HTTP: one living comment by Agent, via the person', living.length === 1 && living[0]!.via === person.id, living);
 const fu = one<{ state: string; via: string }>(`SELECT s.name state, a.via_user_id via FROM issues i JOIN states s ON s.id = i.state_id
   JOIN activity a ON a.issue_id = i.id AND a.type = 'created' WHERE i.id = (SELECT id FROM issues WHERE number = ? AND team_id = ?) AND a.user_id = ?`,
-  String(hf.structuredContent?.key.split('-')[1]), mineTeam.id, agentId('Claude Code'));
-check('HTTP: the follow-up is in Triage, created by Claude Code via the person', fu?.state === 'Triage' && fu.via === person.id, fu);
-const draft = one<{ n: number }>('SELECT COUNT(*) n FROM project_update_drafts WHERE project_id = ? AND author_id = ? AND via_user_id = ?', hProject.id, agentId('Claude Code'), person.id);
+  String(hf.structuredContent?.key.split('-')[1]), mineTeam.id, agentId('Agent'));
+check('HTTP: the follow-up is in Triage, created by Agent via the person', fu?.state === 'Triage' && fu.via === person.id, fu);
+const draft = one<{ n: number }>('SELECT COUNT(*) n FROM project_update_drafts WHERE project_id = ? AND author_id = ? AND via_user_id = ?', hProject.id, agentId('Agent'), person.id);
 const published = one<{ n: number }>('SELECT COUNT(*) n FROM project_updates WHERE project_id = ?', hProject.id);
-check('HTTP: the draft is there, by Claude Code via the person, and nothing is published', draft.n === 1 && published.n === 0, [draft, published]);
+check('HTTP: the draft is there, by Agent via the person, and nothing is published', draft.n === 1 && published.n === 0, [draft, published]);
 const undone = one<{ n: number }>('SELECT COUNT(*) n FROM agent_ops WHERE id = ? AND undone_at IS NOT NULL', hFin.structuredContent?.op_id);
 const hState = one<{ name: string }>('SELECT s.name FROM issues i JOIN states s ON s.id = i.state_id WHERE i.id = ?', hIssue.id);
 check('HTTP: the finish is undone, the issue In Progress', undone.n === 1 && hState.name === 'In Progress', [undone, hState]);

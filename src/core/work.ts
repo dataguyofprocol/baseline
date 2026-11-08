@@ -488,7 +488,7 @@ export class Work {
     if (!userId) return 'nobody';
     return (this.db.prepare('SELECT name FROM users WHERE id = ?').get(userId) as { name: string } | undefined)?.name ?? '?';
   }
-  /** "Claude Code via Parth Batra", or the person's own name */
+  /** "Agent via Parth Batra", or the person's own name */
   private attributedTo(who: Attribution): string {
     return who.actor === 'agent' ? `${this.userName(who.actorId)} via ${this.userName(who.viaUserId)}` : this.userName(who.actorId);
   }

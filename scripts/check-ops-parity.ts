@@ -71,7 +71,7 @@ const block = [
   START,
   '## Agent loop (your work on an issue, as your agent identity)',
   '',
-  'Each command is one agent operation; an MCP client gets the same operations as tools, with the same descriptions, input and `--json` output. Set `BASELINE_AS` to your agent user (e.g. `"Claude Code"`) so every write shows as "Claude Code via <person>"; set `BASELINE_SESSION` only to keep two parallel sessions on one issue apart. Every write prints an `op_id` (or null when nothing changed); repeating a call is safe.',
+  'Each command is one agent operation; an MCP client gets the same operations as tools, with the same descriptions, input and `--json` output. Set `BASELINE_AS` to your agent user (e.g. `"Agent"`, the workspace\'s own; an MCP client writes as it when unset) so every write shows as "Agent via <person>"; set `BASELINE_SESSION` only to keep two parallel sessions on one issue apart. Every write prints an `op_id` (or null when nothing changed); repeating a call is safe.',
   '',
   ...OPERATIONS.flatMap(op => [`### \`${op.name}\` (${op.effect.kind})`, '', '```bash', usageOf(op as AnyOperation), '```', '', op.description, '']),
   END,

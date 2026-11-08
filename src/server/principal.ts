@@ -55,8 +55,8 @@ export function principalUser(c: Context, store: Store): string {
 /**
  * Whom a write is attributed to, given the actor the client asked for (`actorId` / `userId` in the body).
  * Local mode honors any user; an agent there acts for this machine's current user. A key or a
- * session acts as its owner, or as an agent user on its owner's behalf (--as "Claude Code" is
- * recorded as "Claude Code via <owner>"); asking for another person is refused, never silently rewritten.
+ * session acts as its owner, or as an agent user on its owner's behalf (--as "Agent" is
+ * recorded as "Agent via <owner>"); asking for another person is refused, never silently rewritten.
  * undefined: nothing was asked and no key is involved, so the store's own default applies.
  */
 export function attributedActor(c: Context, requested: unknown, store: Store): Attribution | undefined {

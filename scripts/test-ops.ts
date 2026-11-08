@@ -1,5 +1,5 @@
 // The agent operations end to end: each op through runOp and the real client, over the app's own
-// routes with an API key (the person) and BASELINE_AS = Claude Code. Checks that repeats converge
+// routes with an API key (the person), writing as the workspace's Agent. Checks that repeats converge
 // (one comment, one follow-up, one state change), that follow-ups are forced into Triage, that undo
 // refuses a field someone changed since, and that a key can draft but never publish a project update.
 // Throwaway database — never touches ~/.baseline.
@@ -9,10 +9,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/server/index.js';
+import { openDb } from '../src/core/db.js';
+import { Store } from '../src/core/store.js';
 import { HttpBaseline } from '../src/client/baseline.js';
 import type { Transport } from '../src/client/transport.js';
 import { OPERATIONS } from '../src/ops/index.js';
-import { actorForClient, actorFrom, agentForClient } from '../src/ops/identity.js';
+import { actorForClient, actorFrom } from '../src/ops/identity.js';
 import { annotationsOf, OpError, runOp, type AnyOperation, type OpContext, type OpName, type SessionKey } from '../src/ops/operation.js';
 
 const work = mkdtempSync(join(tmpdir(), 'baseline-ops-test-'));
@@ -21,7 +23,7 @@ const { app, store, db } = createApp(join(work, 'ops.db'), { mode: 'local' }, { 
 store.ext.git.ensureInReview();
 const snap0 = store.snapshot();
 const owner = snap0.currentUser;
-const claude = snap0.users.find(u => u.name === 'Claude Code') ?? snap0.users.find(u => u.id === store.claudeCodeUserId())!;
+const agent = snap0.users.find(u => u.id === store.agentUserId())!;
 const ada = snap0.users.find(u => u.name === 'Ada Osei')!;
 const key = store.ext.apiKeys.create({ name: 'ops test', userId: owner.id, scopes: ['read', 'write'] });
 
@@ -44,7 +46,7 @@ const transport = (token: string | null): Transport => ({
 });
 const bl = new HttpBaseline({ kind: 'remote', url: new URL('http://localhost'), token: key.token, source: 'env' }, transport(key.token));
 const ctxFor = async (as: string | undefined, session: string | null = null): Promise<OpContext> => ({ bl, actor: await actorFrom(bl, as), session: session as SessionKey | null });
-const agentCtx = await ctxFor('Claude Code', 's1');
+const agentCtx: OpContext = { bl, actor: await actorForClient(bl, undefined), session: 's1' as SessionKey };
 const op = (name: OpName) => OPERATIONS.find(o => o.name === name)! as AnyOperation;
 const call = (name: OpName, input: unknown, ctx: OpContext = agentCtx) => runOp(op(name), ctx, input) as Promise<Record<string, any>>;
 const refused = async (name: OpName, input: unknown, ctx: OpContext = agentCtx): Promise<OpError | undefined> => {
@@ -63,18 +65,15 @@ check('8 operations, unique names', OPERATIONS.length === 8 && new Set(OPERATION
 check('annotations derive from effect: reads read-only, undo destructive, all idempotent',
   annotationsOf(op('get_issue')).readOnlyHint && !annotationsOf(op('start_issue')).readOnlyHint && annotationsOf(op('undo')).destructiveHint && OPERATIONS.every(o => annotationsOf(o).idempotentHint));
 check('a malformed issue key is refused at the boundary', (await refused('get_issue', { issue: 'not a key' }))?.code === 'invalid');
-check('clientInfo names map to agents: claude-code → Claude Code, codex-mcp-client → Codex, others → none',
-  agentForClient('claude-code') === 'Claude Code' && agentForClient('codex-mcp-client') === 'Codex' && agentForClient('cursor') === undefined);
-const noAdmin = await actorForClient(bl, undefined, 'codex-mcp-client').then(() => undefined, (e: unknown) => e);
-check('a key that may not add users gets a needs-human error naming BASELINE_AS, and no Codex user is added',
-  noAdmin instanceof OpError && noAdmin.code === 'needs-human' && /only an admin can add one/.test(noAdmin.message) && /BASELINE_AS/.test(noAdmin.message)
-  && !store.snapshot().users.some(u => u.name === 'Codex'), noAdmin instanceof Error ? noAdmin.message : noAdmin);
+check('an MCP client with no BASELINE_AS writes as the workspace\'s Agent', agentCtx.actor.kind === 'agent' && agentCtx.actor.userId === agent.id && agent.name === 'Agent', agentCtx.actor);
+check('the workspace has one built-in agent user', store.snapshot().users.filter(u => u.kind === 'agent' && ['Agent', 'Claude Code', 'Codex', 'pi'].includes(u.name)).length === 1);
+check('BASELINE_AS naming no user is refused', await ctxFor('Codex').then(() => false, e => e instanceof OpError && /BASELINE_AS/.test(e.message)));
 check('BASELINE_AS naming a person is refused', await ctxFor('Ada Osei').then(() => false, e => e instanceof OpError && /a person/.test(e.message)));
 
 // ---------- start_issue ----------
 const s1 = await call('start_issue', { issue: K });
 check(`start_issue ${K}: moves to In Progress, assigns the person, attributed to the agent via the person`,
-  !!s1.op_id && s1.state === 'In Progress' && s1.assignee === owner.name && s1.attributed_to === `Claude Code via ${owner.name}`, s1);
+  !!s1.op_id && s1.state === 'In Progress' && s1.assignee === owner.name && s1.attributed_to === `Agent via ${owner.name}`, s1);
 check('start_issue returns a branch and the brief', typeof s1.branch === 'string' && s1.branch.length > 0 && s1.brief.includes(K));
 const s2 = await call('start_issue', { issue: K });
 check('start_issue twice: no op, already_started, still one state change', s2.op_id === null && s2.already_started
@@ -84,13 +83,13 @@ check('start_issue twice: no op, already_started, still one state change', s2.op
 const p1 = await call('post_progress', { issue: K, did: 'Reproduced the bug', left: 'Fix and test' });
 const p2 = await call('post_progress', { issue: K, did: 'Fixed it', pr_url: 'https://github.com/o/r/pull/12' });
 const p3 = await call('post_progress', { issue: K, did: 'Fixed it', links: ['https://github.com/o/r/pull/12'] });
-const comments = () => db.prepare('SELECT * FROM comments WHERE issue_id = ? AND user_id = ?').all(todo.id, claude.id) as Array<{ body: string; via_user_id: string | null }>;
+const comments = () => db.prepare('SELECT * FROM comments WHERE issue_id = ? AND user_id = ?').all(todo.id, agent.id) as Array<{ body: string; via_user_id: string | null }>;
 check('post_progress: the first call creates the note, the second rewrites it', p1.created && !!p1.op_id && !p2.created && !!p2.op_id, { p1, p2 });
 check('post_progress: fields merge (left kept), the PR link attached once', p2.progress.left === 'Fix and test' && p2.links_added === 1 && p3.links_added === 0);
 check('post_progress with the same text again: no op', p3.op_id === null, p3);
-check('one living comment, by Claude Code via the person', comments().length === 1 && comments()[0]!.via_user_id === owner.id && comments()[0]!.body.includes('Fixed it'), comments());
+check('one living comment, by Agent via the person', comments().length === 1 && comments()[0]!.via_user_id === owner.id && comments()[0]!.body.includes('Fixed it'), comments());
 check('the PR link is attached once', count('SELECT COUNT(*) n FROM attachments WHERE issue_id = ? AND url = ?', todo.id, 'https://github.com/o/r/pull/12') === 1);
-await call('post_progress', { issue: K, did: 'Second session' }, await ctxFor('Claude Code', 's2'));
+await call('post_progress', { issue: K, did: 'Second session' }, await ctxFor('Agent', 's2'));
 check('another BASELINE_SESSION keeps its own note', comments().length === 2);
 check('an empty string clears a field', (await call('post_progress', { issue: K, left: '' })).progress.left === null);
 
@@ -122,7 +121,7 @@ check('stopped without left is refused', (await refused('finish_issue', { issue:
 const u1 = await call('undo', { op_id: fin1.op_id });
 check('undo finish_issue: state back to In Progress, note back to progress', !!u1.op_id && stateOf(K) === 'In Progress' && comments().some(c => c.body.startsWith('**Progress**')) && !comments().some(c => c.body.startsWith('**Finished')), u1);
 check('undo twice: already undone, nothing written', (await call('undo', { op_id: fin1.op_id })).already_undone);
-check('the undo is attributed to Claude Code via the person', count("SELECT COUNT(*) n FROM activity WHERE op_id = ? AND user_id = ? AND via_user_id = ?", u1.op_id, claude.id, owner.id) >= 1);
+check('the undo is attributed to Agent via the person', count("SELECT COUNT(*) n FROM activity WHERE op_id = ? AND user_id = ? AND via_user_id = ?", u1.op_id, agent.id, owner.id) >= 1);
 
 const other = store.createIssue({ teamId: todo.teamId, title: 'Undo refuses a changed field', stateId: store.stateOfType(todo.teamId, 'unstarted') }, owner.id);
 const OK = store.keyOf(other);
@@ -149,7 +148,7 @@ const d1 = await call('draft_project_update', { project: project.name, health: '
 const d2 = await call('draft_project_update', { project: project.name, health: 'atRisk' });
 check('draft_project_update writes a draft from the facts, unpublished', !!d1.op_id && d1.published === false && d1.body.startsWith('Since') && d1.health === 'atRisk', d1);
 check('draft_project_update twice: no op, one draft, no project update', d2.op_id === null && updates() === before
-  && count('SELECT COUNT(*) n FROM project_update_drafts WHERE project_id = ? AND person_id = ? AND author_id = ?', project.id, owner.id, claude.id) === 1, d2);
+  && count('SELECT COUNT(*) n FROM project_update_drafts WHERE project_id = ? AND person_id = ? AND author_id = ?', project.id, owner.id, agent.id) === 1, d2);
 const pubKey = await transport(key.token).request('POST', `/api/projects/${project.id}/update-draft/publish`, { json: {} });
 check('publishing with an API key is refused (403), and nothing is published', pubKey.status === 403 && updates() === before, pubKey);
 const pubLocal = await transport(null).request('POST', `/api/projects/${project.id}/update-draft/publish`, { json: {} });
@@ -158,8 +157,8 @@ check('the person (this machine, no key) publishes it: one update, by them, draf
   && count('SELECT COUNT(*) n FROM project_updates WHERE project_id = ? AND user_id = ? AND via_user_id IS NULL', project.id, owner.id) >= 1, pubLocal);
 
 // ---------- attribution, across everything above ----------
-check('every activity row by Claude Code is via the person', count('SELECT COUNT(*) n FROM activity WHERE user_id = ? AND op_id IS NOT NULL AND (via_user_id IS NULL OR via_user_id != ?)', claude.id, owner.id) === 0
-  && count('SELECT COUNT(*) n FROM activity WHERE user_id = ? AND op_id IS NOT NULL', claude.id) > 0);
+check('every activity row by Agent is via the person', count('SELECT COUNT(*) n FROM activity WHERE user_id = ? AND op_id IS NOT NULL AND (via_user_id IS NULL OR via_user_id != ?)', agent.id, owner.id) === 0
+  && count('SELECT COUNT(*) n FROM activity WHERE user_id = ? AND op_id IS NOT NULL', agent.id) > 0);
 
 // ---------- read ops ----------
 const g = await call('get_issue', { issue: K.toLowerCase() });
@@ -167,6 +166,41 @@ check('get_issue shows the agent work threads', g.issue.key === K && g.agent_wor
 const l = await call('list_issues', {});
 check('list_issues defaults to the person\'s open issues', l.issues.length > 0 && l.issues.every((i: { assignee: string; state: string }) => i.assignee === owner.name && !['Done', 'Canceled'].includes(i.state)), l.issues.slice(0, 3));
 check('list_issues: an unknown state lists the valid ones', /valid states: open, all/.test((await refused('list_issues', { state: 'Doing' }))?.message ?? ''));
+
+// ---------- migration: the per-tool agent users fold into the workspace's Agent ----------
+{
+  const path = join(work, 'fold.db');
+  let mdb = openDb(path);
+  let ms = new Store(mdb);
+  const agentId = ms.agentUserId();
+  const tool = (name: string, email: string) => { const u = ms.createUser(name, email, false, 'agent'); return u.id; };
+  const cc = tool('Claude Code', 'claude-code@local'), cx = tool('Codex', 'codex@local'), pi = tool('pi', 'pi@local');
+  mdb.prepare("UPDATE meta SET value = ? WHERE key = 'agentUserId'").run(cc);
+  const team = ms.createTeam('MIG', 'Migration');
+  ms.addTeamMember(team.id, agentId);
+  ms.addTeamMember(team.id, cx);
+  const issue = ms.createIssue({ teamId: team.id, title: 'Folded' }, cc);
+  ms.updateIssue(issue.id, { assigneeId: cx }, cc);
+  mdb.close();
+  const fingerprint = (d: typeof mdb) => JSON.stringify(['users', 'activity', 'subscriptions', 'team_members', 'meta'].map(t => d.prepare(`SELECT * FROM ${t} ORDER BY 1`).all()));
+  mdb = openDb(path);
+  ms = new Store(mdb);
+  const one = (sql: string, ...a: string[]) => mdb.prepare(sql).get(...a) as Record<string, unknown> | undefined;
+  check('migrate: one built-in agent user left, named Agent, and it is the workspace agent',
+    (one("SELECT COUNT(*) n FROM users WHERE kind = 'agent' AND (email IN ('agent@local', 'claude-code@local', 'codex@local', 'pi@local'))")!.n === 1)
+    && ms.agentUserId() === agentId && ms.snapshot().users.find(u => u.id === agentId)?.name === 'Agent'
+    && !one('SELECT 1 FROM users WHERE id IN (?, ?, ?)', cc, cx, pi));
+  check('migrate: the Codex issue is assigned to Agent, Claude Code\'s activity is Agent\'s',
+    ms.getIssue(issue.id)?.assigneeId === agentId && ms.getIssue(issue.id)?.creatorId === agentId
+    && one('SELECT COUNT(*) n FROM activity WHERE issue_id = ? AND user_id != ?', issue.id, agentId)!.n === 0
+    && (one('SELECT COUNT(*) n FROM activity WHERE issue_id = ?', issue.id)!.n as number) > 0);
+  check('migrate: a duplicate team membership is dropped, not doubled', one('SELECT COUNT(*) n FROM team_members WHERE team_id = ? AND user_id = ?', team.id, agentId)!.n === 1);
+  const after = fingerprint(mdb);
+  mdb.close();
+  mdb = openDb(path);
+  check('migrate a second time: nothing changes', fingerprint(mdb) === after);
+  mdb.close();
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

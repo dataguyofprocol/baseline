@@ -71,7 +71,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Cards (Linear layout): key + "› parent" for sub-issues + assignee; status icon + title; bordered chips for priority, cycle, project, sub-issue progress, labels, estimate, due; created date — chips that repeat the column's grouping are omitted
 - ✅ Drag & drop: reorder within a column (sortOrder midpoint) and across columns (moves the group field)
 - ✅ Hidden columns panel: empty columns and Canceled (plus any you hide) move to a side panel with counts; rows accept drops and a click brings the column back
-- ✅ Claude Code identity: the integrated agent's avatar is an orange burst mark (also used for Open in Claude Code)
+- ✅ One agent identity per workspace ("Agent"): every agent write records the person it acted for ("Agent via Parth")
 - ✅ Rows (swimlanes) from sub-grouping, cards follow the display properties, estimate sums in column headers, card context menu, drag across lanes
 
 ## 6. Projects

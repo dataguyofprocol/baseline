@@ -15,7 +15,7 @@ const Health = z.enum(['onTrack', 'atRisk', 'offTrack']);
 /** every write's output starts with these two */
 const Receipt = z.object({
   op_id: z.string().nullable().describe('Pass to undo to reverse this change. null when this call changed nothing.'),
-  attributed_to: z.string().describe('How the change shows in Baseline, for example "Claude Code via Parth Batra".'),
+  attributed_to: z.string().describe('How the change shows in Baseline, for example "Agent via Parth Batra".'),
 });
 
 async function issueByKey(bl: Baseline, key: string) {

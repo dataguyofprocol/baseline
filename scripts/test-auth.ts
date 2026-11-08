@@ -598,7 +598,7 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
 // ---- agents: a key or a session may write as an agent user, recorded as "<agent> via <person>" ----
 {
   const ownerId = boot.currentUser.id;
-  const agent = store.createUser('Claude Code', '', false, 'agent');
+  const agent = store.createUser('Reviewer Bot', '', false, 'agent');
   const key = store.ext.apiKeys.create({ name: 'agent cli', userId: ownerId, scopes: ['read', 'write'] });
   const keyReq = (path: string, init: RequestInit = {}) =>
     req(path, { ...init, headers: { authorization: `Bearer ${key.token}`, 'content-type': 'application/json' } });
@@ -665,7 +665,7 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
   // local mode: any actor is honored; an agent acts for this machine's current user
   const local = createApp(join(work, 'local.db'), { mode: 'local' }, { configured: false, send: async () => {} });
   const me = local.store.workspaceMeta().currentUser;
-  const agent = local.store.createUser('Codex', '', false, 'agent');
+  const agent = local.store.createUser('Reviewer Bot', '', false, 'agent');
   const issueId = local.store.snapshot().issues[0]!.id;
   const res = await local.app.fetch(new Request(`http://127.0.0.1/api/issues/${issueId}/comments`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body: 'local agent', userId: agent.id }),

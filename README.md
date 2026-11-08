@@ -152,7 +152,7 @@ project note "Name" "update body" --health onTrack · project delete "Name"
 project milestone-add "Name" "Beta cut" --target 2026-09-30 · milestone-update "Name" "Beta cut" --status done · milestone-delete "Name" "Beta cut"
 
 # discovery & workspace
-team list · user list · user add "Codex" --agent · label list [-t CORE] · search "query"
+team list · user list · user add "<name>" --agent · label list [-t CORE] · search "query"
 label create "Bug" -t CORE -c "#eb5757" · label update … · label delete …
 location list · location add ~/code/api [-n api] [-j "Project"] · location rename api backend · location remove backend
 issue update CORE-3 --location api     # every task works in exactly one location ("none" clears); sub-issues inherit the parent's; a project's locations are only suggestions
@@ -185,7 +185,7 @@ baseline connect claude|codex|pi            # the agent starts `baseline mcp` (s
 baseline connect claude|codex|pi --remote   # the agent calls https://<your server>/mcp with the key in $BASELINE_TOKEN
 ```
 
-It writes the agent's project MCP config (`.mcp.json`, `.codex/config.toml` or `.pi/mcp.json`) and a block in `CLAUDE.md` / `AGENTS.md` that tells the agent to use the tools (and the `baseline agent` commands when MCP isn't available). Those files are usually committed, so connect never writes a machine path, a database path or a key into them: `baseline` must be on your PATH (`npm run build && npm install -g .` in this checkout), and `--remote` entries read the key from `$BASELINE_TOKEN` (set it, with `BASELINE_URL`, in the shell that starts the agent). The hosted `/mcp` endpoint accepts API keys only; each tool call runs with that key's permissions and teams, and publishing a project update stays a person's action in the web app. Writes show as "<agent> via <you>": the agent is recognized by the name its MCP client reports.
+It writes the agent's project MCP config (`.mcp.json`, `.codex/config.toml` or `.pi/mcp.json`) and a block in `CLAUDE.md` / `AGENTS.md` that tells the agent to use the tools (and the `baseline agent` commands when MCP isn't available). Those files are usually committed, so connect never writes a machine path, a database path or a key into them: `baseline` must be on your PATH (`npm run build && npm install -g .` in this checkout), and `--remote` entries read the key from `$BASELINE_TOKEN` (set it, with `BASELINE_URL`, in the shell that starts the agent). The hosted `/mcp` endpoint accepts API keys only; each tool call runs with that key's permissions and teams, and publishing a project update stays a person's action in the web app. Writes show as "Agent via <you>": every coding agent writes as the workspace's one agent user, and the record keeps the person it acted for.
 
 ## Skill (AI coding tools)
 
@@ -196,7 +196,7 @@ ln -sfn ~/sideones/baseline/skills/baseline ~/.agents/skills/baseline   # cross-
 ln -sfn ~/sideones/baseline/skills/baseline ~/.claude/skills/baseline   # Claude Code
 ```
 
-Agents report back through the same CLI: comments, status flips and relations land under their own identity when the commands pass `--as "AgentName"` (agent identities are created in Settings ▸ Members or via `user add "Codex" --agent`).
+Agents report back through the same CLI: comments, status flips and relations land as "Agent via <you>" when the commands pass `--as "Agent"` (the workspace's agent user; add another agent identity in Settings ▸ Members or via `user add "<name>" --agent`).
 
 ## License
 

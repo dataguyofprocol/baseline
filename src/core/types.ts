@@ -152,7 +152,7 @@ export interface Comment {
   id: string;
   issueId: string;
   userId: string;
-  /** the person an agent user wrote this for ("Claude Code via Parth"); null when a person wrote it */
+  /** the person an agent user wrote this for ("Agent via Parth"); null when a person wrote it */
   viaUserId: string | null;
   body: string;
   createdAt: string;
@@ -378,15 +378,6 @@ export interface ApiKey {
   lastUsedAt: string | null;
 }
 
-/** The coding agents Baseline supports out of the box. Every workspace has an agent user for each,
- *  so a person's agent connects without an admin adding it first (a CLI key never has admin rights). */
-export const SUPPORTED_AGENTS = [
-  { name: 'Claude Code', email: 'claude-code@local', initials: 'CC', color: '#d97757' },
-  { name: 'Codex', email: 'codex@local', initials: 'CX', color: '#10a37f' },
-  { name: 'pi', email: 'pi@local', initials: 'PI', color: '#8b5cf6' },
-] as const;
-export type SupportedAgent = (typeof SUPPORTED_AGENTS)[number]['name'];
-
 export const API_KEY_SCOPES: Array<[ApiKeyScope, string, string]> = [
   ['read', 'Read', 'Read all workspace data available to you'],
   ['write', 'Write', 'Read and write all workspace data available to you'],
@@ -579,7 +570,7 @@ export interface ProjectUpdate {
   id: string;
   projectId: string;
   userId: string;
-  /** the person an agent user wrote this for ("Claude Code via Parth"); null when a person wrote it */
+  /** the person an agent user wrote this for ("Agent via Parth"); null when a person wrote it */
   viaUserId: string | null;
   body: string;
   health: ProjectHealth | null;
@@ -729,7 +720,7 @@ export interface ActivityItem {
   issueId: string | null;
   projectId: string | null;
   userId: string;
-  /** the person an agent user wrote this for ("Claude Code via Parth"); null when a person wrote it */
+  /** the person an agent user wrote this for ("Agent via Parth"); null when a person wrote it */
   viaUserId: string | null;
   type: ActivityType;
   data: Record<string, unknown>;
@@ -744,7 +735,7 @@ export interface Workspace {
   handoffPromptTemplate: string;
   /** macOS app that interactive Claude Code sessions open in */
   terminalApp: TerminalApp;
-  /** the "Claude Code" agent user — interactive sessions post under it */
+  /** the workspace's agent user — agent sessions write as it, on a person's behalf */
   agentUserId: string | null;
   /** the server's home directory, so the web app can show paths as ~/… (server memory) */
   homeDir?: string;

@@ -530,7 +530,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   box-shadow: inset 0 0 0 1px var(--border);
 }
 .avatar.agent svg { stroke-width: 1.5; }
-.avatar.agent.claude { background: #d97757; box-shadow: none; }
 
 /* ---------- buttons ---------- */
 .btn {
@@ -1780,7 +1779,7 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .cmt.reply { padding-left: 14px; border-top: 1px solid var(--hairline); }
 .cmt-head { display: flex; align-items: center; gap: 8px; }
 .cmt-author { font-weight: 590; font-size: 13px; }
-/* "Claude Code via Parth": the person an agent wrote for, after its name */
+/* "Agent via Parth": the person an agent wrote for, after its name */
 .via { color: var(--text-secondary); font-weight: 400; }
 .cmt-actions { display: inline-flex; gap: 1px; opacity: 0; transition: opacity 110ms ease; }
 .cmt:hover .cmt-actions, .cmt:focus-within .cmt-actions { opacity: 1; }

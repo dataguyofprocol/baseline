@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { getMeta, migrateDirectoriesToLocations, setMeta, ensureDefaults } from './db.js';
+import { getMeta, migrateDirectoriesToLocations, setMeta, ensureDefaults, ensureWorkspaceAgent } from './db.js';
 import { id, nowIso, midSort, normalizeDir } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import { actingUser, currentOp, viaFor } from './actor.js';
@@ -308,7 +308,7 @@ export class Store {
   // ---------- coding tools ----------
   getAgentConfig(): { agentUserId: string | null; terminalApp: TerminalApp } {
     return {
-      agentUserId: this.claudeCodeUser()?.id ?? null,
+      agentUserId: getMeta(this.db, 'agentUserId'),
       terminalApp: toTerminalApp(getMeta(this.db, 'terminalApp')),
     };
   }
@@ -376,17 +376,10 @@ export class Store {
     const parent = input.parentId ? this.getIssue(input.parentId) : undefined;
     return parent?.locationId ?? null;
   }
-  claudeCodeUserId(): string { return this.ensureClaudeCodeUser(); }
-  /** the "Claude Code" identity: interactive sessions write through the CLI as this user */
-  private claudeCodeUser(): { id: string } | undefined {
-    const byId = getMeta(this.db, 'agentUserId');
-    return (byId ? this.db.prepare('SELECT id FROM users WHERE id = ?').get(byId) as { id: string } | undefined : undefined)
-      ?? this.db.prepare("SELECT id FROM users WHERE kind = 'agent' AND name = 'Claude Code'").get() as { id: string } | undefined;
-  }
-  private ensureClaudeCodeUser(): string {
-    const uid = this.claudeCodeUser()?.id ?? this.createUser('Claude Code', 'claude-code@local', false, 'agent').id;
-    setMeta(this.db, 'agentUserId', uid);
-    return uid;
+  /** the workspace's agent user: agent sessions write as it, on a person's behalf */
+  agentUserId(): string {
+    const uid = getMeta(this.db, 'agentUserId');
+    return uid && this.db.prepare('SELECT 1 FROM users WHERE id = ?').get(uid) ? uid : ensureWorkspaceAgent(this.db);
   }
   /** first state of a type by position — e.g. the team's "In Progress" for 'started' */
   stateOfType(teamId: string, type: WorkflowStateType): string | undefined {
@@ -1464,6 +1457,8 @@ export class Store {
     ensureDefaults(this.db);
     // a pre-locations export: its project directories and default become locations, as on upgrade
     migrateDirectoriesToLocations(this.db);
+    // an export from when each coding tool had its own agent user
+    ensureWorkspaceAgent(this.db);
   }
   wipe(): void {
     for (const t of this.ext.tables) this.db.exec(`DELETE FROM ${t};`);

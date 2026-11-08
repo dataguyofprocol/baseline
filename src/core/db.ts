@@ -3,7 +3,6 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { id } from './util.js';
-import { SUPPORTED_AGENTS } from './types.js';
 
 export const DEFAULT_DB_PATH = resolve(homedir(), '.baseline', 'baseline.db');
 
@@ -565,7 +564,7 @@ function migrate(db: DatabaseSync): void {
     db.exec('DROP TABLE IF EXISTS initiatives');
   }
 
-  // the person an agent user wrote a row for ("Claude Code via Parth"); null when a person wrote it
+  // the person an agent user wrote a row for ("Agent via Parth"); null when a person wrote it
   for (const t of ['activity', 'comments', 'project_updates']) {
     if (!columns(t).includes('via_user_id')) db.exec(`ALTER TABLE ${t} ADD COLUMN via_user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
   }
@@ -574,15 +573,49 @@ function migrate(db: DatabaseSync): void {
   if (!columns('activity').includes('op_id')) db.exec('ALTER TABLE activity ADD COLUMN op_id TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_activity_op ON activity(op_id) WHERE op_id IS NOT NULL');
 
-  // every workspace gets at least one agent identity for hand-offs
-  const hasAgent = db.prepare("SELECT 1 FROM users WHERE kind = 'agent' LIMIT 1").get();
-  if (!hasAgent) {
-    db.prepare("INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES (?, 'Agent', 'agent@local', 'AG', '#4cb782', 0, 'agent')")
-      .run(id('u'));
+  // a brand-new database (empty meta) is seeded after this runs, and seeding makes the agent
+  if (db.prepare('SELECT 1 FROM meta LIMIT 1').get()) ensureWorkspaceAgent(db);
+}
+
+// the agent users once made per coding tool
+const BUILT_IN_AGENT = "(email IN ('claude-code@local', 'codex@local', 'pi@local') OR lower(name) IN ('claude code', 'codex', 'pi'))";
+// columns that hold a user id but were added without a REFERENCES clause
+const USER_COLUMN = /^(user_id|.+_user_id|assignee_id|creator_id|lead_id|owner_id|actor_id|agent_id|person_id|author_id|invited_by|created_by|uploaded_by|undone_by)$/;
+
+/** every row that points at user `from` points at `to` instead; a row that would duplicate one `to` already has is dropped */
+function repointUser(db: DatabaseSync, from: string, to: string): void {
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('users', 'meta') AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>;
+  for (const { name: t } of tables) {
+    const fks = (db.prepare(`PRAGMA foreign_key_list(${t})`).all() as Array<{ table: string; from: string }>).filter(f => f.table === 'users').map(f => f.from);
+    const named = (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map(c => c.name).filter(c => USER_COLUMN.test(c));
+    for (const c of new Set([...fks, ...named])) {
+      db.prepare(`UPDATE OR IGNORE ${t} SET ${c} = ? WHERE ${c} = ?`).run(to, from);
+      db.prepare(`DELETE FROM ${t} WHERE ${c} = ?`).run(from);
+    }
   }
-  const hasAgentUser = db.prepare("SELECT 1 FROM users WHERE kind = 'agent' AND (lower(name) = lower(?) OR email = ?)");
-  const addAgentUser = db.prepare("INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES (?, ?, ?, ?, ?, 0, 'agent')");
-  for (const a of SUPPORTED_AGENTS) if (!hasAgentUser.get(a.name, a.email)) addAgentUser.run(id('u'), a.name, a.email, a.initials, a.color);
+}
+
+/** The one agent user every workspace has (meta agentUserId): agent sessions write as it, on
+ *  behalf of a person (via_user_id). The per-tool ones (BUILT_IN_AGENT) fold into it. */
+export function ensureWorkspaceAgent(db: DatabaseSync): string {
+  const meta = getMeta(db, 'agentUserId');
+  const current = meta ? db.prepare(`SELECT id, ${BUILT_IN_AGENT} builtIn FROM users WHERE id = ? AND kind = 'agent'`).get(meta) as { id: string; builtIn: number } | undefined : undefined;
+  let agentId = current && !current.builtIn ? current.id : undefined;
+  agentId ??= (db.prepare("SELECT id FROM users WHERE kind = 'agent' AND (email = 'agent@local' OR lower(name) = 'agent') ORDER BY rowid LIMIT 1").get() as { id: string } | undefined)?.id;
+  if (!agentId && current) {
+    db.prepare("UPDATE users SET name = 'Agent', email = 'agent@local', initials = 'AG', color = '#4cb782' WHERE id = ?").run(current.id);
+    agentId = current.id;
+  }
+  if (!agentId) {
+    agentId = id('u');
+    db.prepare("INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES (?, 'Agent', 'agent@local', 'AG', '#4cb782', 0, 'agent')").run(agentId);
+  }
+  if (meta !== agentId) setMeta(db, 'agentUserId', agentId);
+  for (const { id: old } of db.prepare(`SELECT id FROM users WHERE kind = 'agent' AND ${BUILT_IN_AGENT} AND id != ?`).all(agentId) as Array<{ id: string }>) {
+    repointUser(db, old, agentId);
+    db.prepare('DELETE FROM users WHERE id = ?').run(old);
+  }
+  return agentId;
 }
 
 /* One-time move from "a directory per project + a workspace default" to a list of locations:

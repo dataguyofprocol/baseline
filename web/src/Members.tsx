@@ -307,7 +307,7 @@ function AgentsSection() {
   return (
     <div style={{ marginTop: 22 }}>
       <div className="field-label">Agents</div>
-      <div className="field-help">Coding agents can be assigned issues; their CLI writes land under their name with <code>--as "Name"</code>.</div>
+      <div className="field-help">Coding agents write as Agent on behalf of the person who started them ("Agent via you"). Another agent user's writes land under its name with <code>--as "Name"</code>.</div>
       <div className="card" style={{ padding: '4px 10px', margin: '8px 0' }}>
         {agents.map(u => <div key={u.id} className="prop-row" style={{ gap: 10 }}><Avatar user={u} size={22} /><span>{u.name}</span></div>)}
       </div>

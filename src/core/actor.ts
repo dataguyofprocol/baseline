@@ -12,7 +12,7 @@ export const currentOp = new AsyncLocalStorage<string>();
 
 /**
  * Who a write is by. An agent user writes on a person's behalf (`viaUserId`, shown as
- * "Claude Code via Parth"); a person writes as themselves and has no via.
+ * "Agent via Parth"); a person writes as themselves and has no via.
  * Build one with attributionOf, which looks at the actor's kind.
  */
 export type Attribution =

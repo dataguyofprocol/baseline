@@ -1015,7 +1015,7 @@ function MembersSettings() {
       <div className="field-row" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
         <div>
           <div className="field-label">Add member</div>
-          <div className="field-help">Agents (Claude, Codex, OpenCode…) can be assigned issues; their CLI writes land under their name when passed <code>--as "Name"</code>.</div>
+          <div className="field-help">Coding agents write as Agent on your behalf; an agent user added here gets its CLI writes under its own name with <code>--as "Name"</code>.</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <input className="text-input" placeholder={asAgent ? 'Agent name' : 'Full name'} value={name} onChange={e => setName(e.target.value)}

@@ -44,7 +44,7 @@ const errorResult = (text: string): CallToolResult => ({ isError: true, content:
 
 /**
  * One MCP server. The Baseline connection and the agent identity are made on the first tool call,
- * not at spawn: a target that can't be reached, or an agent user that can't be added, shows up as
+ * not at spawn: a target that can't be reached, or a BASELINE_AS that names no agent user, shows up as
  * a tool error the model can relay ("run `baseline login`"), not as a server that never started.
  */
 export function createMcpServer(input: McpSessionInput): Server {
@@ -54,8 +54,8 @@ export function createMcpServer(input: McpSessionInput): Server {
   let bl: Promise<Baseline> | undefined;
   let actor: Promise<Actor> | undefined;
   const baseline = () => bl ??= input.connect().catch(e => { bl = undefined; throw e; });
-  // retried after a failure: an admin may add the agent user, or the person set BASELINE_AS, mid-session
-  const agent = () => actor ??= baseline().then(b => actorForClient(b, input.as, server.getClientVersion()?.name)).catch(e => { actor = undefined; throw e; });
+  // retried after a failure: an admin may add the agent user BASELINE_AS names, mid-session
+  const agent = () => actor ??= baseline().then(b => actorForClient(b, input.as)).catch(e => { actor = undefined; throw e; });
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {

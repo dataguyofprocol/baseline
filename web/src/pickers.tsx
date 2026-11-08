@@ -4,7 +4,7 @@ import { useApp } from './store.js';
 import { api } from './api.js';
 import type { Issue, Priority, Team } from '../../src/core/types.js';
 import { PropertyMenu, type PropKind } from './propertyMenus.js';
-import { StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled, StatusTriage, PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconAgent, IconBlocks, IconBlocked, IconRelated, IconDuplicate, IconClaude } from './icons.js';
+import { StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled, StatusTriage, PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconAgent, IconBlocks, IconBlocked, IconRelated, IconDuplicate } from './icons.js';
 
 export function StateIcon({ type, color, size = 14, morph }: { type: string; color?: string; size?: number; morph?: boolean }) {
   // the seeded Todo grey is near-white — tuned for dark; theme it so it
@@ -29,14 +29,6 @@ export function PriorityIcon({ priority, size = 14 }: { priority: Priority; size
 export function Avatar({ user, size = 20 }: { user?: { name: string; initials: string; color: string; kind?: 'human' | 'agent'; avatarUrl?: string | null } | null; size?: number }) {
   if (!user) {
     return <span className="avatar placeholder" style={{ width: size, height: size }}><IconUser size={12} /></span>;
-  }
-  if (user.kind === 'agent' && user.name === 'Claude Code') {
-    // the integrated agent wears Claude Code's own mark, on a warm tile
-    return (
-      <span className="avatar agent claude" title="Claude Code (agent)" style={{ width: size, height: size, borderRadius: Math.max(4, Math.round(size * 0.3)) }}>
-        <IconClaude size={Math.max(12, Math.round(size * 0.86))} color="#fdf6ee" />
-      </span>
-    );
   }
   if (user.kind === 'agent') {
     // agents are tools, not people: a neutral rounded square (never a saturated

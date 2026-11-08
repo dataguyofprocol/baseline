@@ -12,7 +12,7 @@ import { principalOf } from '../server/principal.js';
 import { createMcpServer } from './server.js';
 
 export const MCP_PATH = '/mcp';
-/** sent on initialize by a client whose clientInfo Baseline doesn't know, like BASELINE_AS for `baseline mcp` */
+/** sent on initialize to write as a different agent user than the workspace's Agent, like BASELINE_AS for `baseline mcp` */
 export const AS_HEADER = 'baseline-as';
 
 interface Session { keyId: string; transport: WebStandardStreamableHTTPServerTransport; server: Server; seen: number }
