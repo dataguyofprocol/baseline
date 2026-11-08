@@ -1462,6 +1462,29 @@ button.rail-kv:hover { background: var(--bg-hover); }
   letter-spacing: -0.022em; margin: 0; color: var(--brand-paper);
 }
 .on-ink .brand-sub { color: #8a8f98; font-size: 13px; line-height: 1.55; }
+.on-ink .brand-sub b { color: var(--brand-paper); font-weight: 510; }
+
+/* the signed-out screens (SignIn.tsx): setup, sign in, join, reset */
+.auth-page { height: 100%; overflow-y: auto; display: flex; align-items: center; justify-content: center; padding: 32px 16px; }
+.auth-col { width: 360px; max-width: 100%; display: flex; flex-direction: column; gap: 18px; margin: auto 0; }
+.auth-head { display: flex; flex-direction: column; gap: 14px; animation: bl-fade-up 320ms var(--ease) both; }
+.auth-card { padding: 14px; display: flex; flex-direction: column; gap: 12px; animation: bl-fade-up 340ms var(--ease) 100ms both; }
+.auth-form { display: flex; flex-direction: column; gap: 12px; }
+.auth-field { display: flex; flex-direction: column; gap: 6px; }
+.auth-label { font-size: 12px; font-weight: 510; color: rgba(243, 241, 236, 0.82); }
+.auth-hint { font-size: 11.5px; color: #8a8f98; }
+.auth-field .text-input { height: 32px; width: 100%; min-width: 0; }
+.auth-field .text-input.mono { font-family: var(--font-code); font-size: 12.5px; letter-spacing: 0.04em; }
+.auth-field .text-input::placeholder { color: #62666d; }
+.auth-submit, .auth-secondary { height: 32px; justify-content: center; }
+.on-ink .auth-secondary { background: transparent; border-color: rgba(255, 255, 255, 0.14); color: var(--brand-paper); }
+.on-ink .auth-secondary:hover { background: rgba(255, 255, 255, 0.06); }
+.auth-alert { font-size: 12.5px; line-height: 1.45; color: #eb5757; }
+.auth-or { display: flex; align-items: center; gap: 10px; color: #62666d; font-size: 11.5px; }
+.auth-or::before, .auth-or::after { content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, 0.08); }
+.auth-foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #8a8f98; }
+.auth-link { color: #8a8f98; font-size: 12px; padding: 0; background: none; border: 0; cursor: pointer; }
+.auth-link:hover { color: var(--brand-paper); text-decoration: underline; text-underline-offset: 2px; }
 
 /* ---------- tooltips ---------- */
 .tooltip {

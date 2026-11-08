@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -39,6 +39,10 @@ export const api = {
     const res = await fetch(`/auth/invite/${encodeURIComponent(code)}`);
     return res.json().catch(() => ({ state: 'unknown' })) as Promise<{ state: 'valid' | 'expired' | 'accepted' | 'revoked' | 'unknown'; workspace?: string; inviter?: string | null; email?: string }>;
   },
+  /** an admin's one-use link that sets a member's password (shared by hand; no email needed) */
+  passwordResetLink: (userId: string) => req<{ link: string; expiresAt: string }>('POST', `/api/members/${userId}/reset-link`, {}),
+  changePassword: (b: { current: string; next: string }) => req<{ ok: true }>('POST', '/api/me/password', b),
+  me: () => req<{ hasPassword: boolean | null }>('GET', '/api/me'),
   createIssue: async (b: Partial<Issue> & { teamId: string; title: string }) => {
     const r = await req<{ issue: Issue }>('POST', '/api/issues', b);
     markCreated(r.issue.id);   // the row plays its enter + flash when it lands
@@ -237,3 +241,23 @@ export const api = {
 };
 
 export type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate };
+
+/** The signed-out side of a hosted server (/auth/*, no session needed). Plain fetches: a refused
+ *  password is an answer to show, not a lost session. */
+export const authApi = {
+  config: async (): Promise<{ methods: SignInMethod[]; setup: boolean; mail: boolean }> => {
+    const res = await fetch('/auth/config');
+    return res.ok ? res.json() : { methods: ['password'], setup: false, mail: false };
+  },
+  resetInfo: async (token: string) => {
+    const res = await fetch(`/auth/reset/${encodeURIComponent(token)}`);
+    return res.json().catch(() => ({ state: 'invalid' })) as Promise<{ state: 'valid' | 'invalid'; name?: string; email?: string }>;
+  },
+  post: async (path: string, body: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string; code?: string }> => {
+    const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
+    if (!res) return { ok: false, error: 'Can’t reach the server — check your connection and try again.' };
+    if (res.ok) return { ok: true };
+    const j = await res.json().catch(() => ({})) as { error?: string; code?: string };
+    return { ok: false, error: j.error ?? `Something went wrong (${res.status})`, code: j.code };
+  },
+};
