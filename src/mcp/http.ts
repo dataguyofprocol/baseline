@@ -68,6 +68,9 @@ export function mountMcpHttp(app: Hono): void {
       onsessionclosed: id => { sessions.delete(id); },
     });
     await server.connect(transport);
-    return transport.handleRequest(c.req.raw, { parsedBody: body });
+    const res = await transport.handleRequest(c.req.raw, { parsedBody: body });
+    const client = server.getClientVersion();
+    if (transport.sessionId) console.error(`[baseline] MCP session for ${client?.name ?? '(unnamed client)'} ${client?.version ?? ''} with key "${p.key.name}"`);
+    return res;
   });
 }

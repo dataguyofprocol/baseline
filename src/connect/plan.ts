@@ -18,6 +18,8 @@ export type McpServerEntry = { transport: 'stdio' } | { transport: 'http'; url: 
 export const STDIO_COMMAND = { command: 'baseline', args: ['mcp'] } as const;
 /** the environment variable a remote entry reads the API key from; never the key itself */
 export const TOKEN_ENV = 'BASELINE_TOKEN';
+/** what `baseline mcp` reads from its environment (src/client/target.ts, src/mcp/server.ts) */
+const FORWARDED_ENV = ['BASELINE_DB', 'BASELINE_URL', 'BASELINE_TOKEN', 'BASELINE_AS', 'BASELINE_SESSION'] as const;
 
 /** one file connect would write; `before` null means it doesn't exist yet */
 export interface FileEdit {
@@ -57,7 +59,8 @@ export function planConnect(harness: Harness, server: McpServerEntry, read: (pat
     case 'codex': return [
       edit('.codex/config.toml', `the ${SERVER_NAME} MCP server (${about}); Codex asks before writes, not reads`, b => upsertTomlTable(b, `mcp_servers.${SERVER_NAME}`, [
         ...(server.transport === 'stdio'
-          ? [`command = ${tomlString(stdio.command)}`, `args = [${stdio.args.map(tomlString).join(', ')}]`]
+          // Codex starts stdio servers with a minimal environment: forward (by name only) what picks Baseline's target and identity
+          ? [`command = ${tomlString(stdio.command)}`, `args = [${stdio.args.map(tomlString).join(', ')}]`, `env_vars = [${FORWARDED_ENV.map(tomlString).join(', ')}]`]
           : [`url = ${tomlString(server.url)}`, `bearer_token_env_var = ${tomlString(TOKEN_ENV)}`]),
         'default_tools_approval_mode = "writes"',
       ])),
