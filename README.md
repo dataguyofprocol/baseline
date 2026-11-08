@@ -83,18 +83,18 @@ Pre-wipe backups: `~/.baseline/backups/`.
 
 One deployment per organization: one container, one SQLite database on the `/data` volume, any number of teams and people.
 
-**Start.** Copy `.env.example` to `.env` and fill in `BASELINE_PUBLIC_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `BASELINE_OWNER_EMAIL` (each variable is described there). Then:
+**Start.** Copy `.env.example` to `.env` and set `BASELINE_PUBLIC_URL`. That is all sign-in needs: people sign in with email and password. Google sign-in and email are optional (each variable is described there). Then:
 
 ```bash
 docker compose up -d          # builds the image and serves on port 7770
 docker compose ps             # "healthy" once GET /healthz answers
 ```
 
-The container refuses to start without sign-in configured, because anyone who can reach the port would otherwise act as any user. `BASELINE_REQUIRE_SIGN_IN=0` turns that check off, for a trusted private network only.
+The container refuses to start without `BASELINE_PUBLIC_URL`, because with no sign-in anyone who can reach the port would act as any user. `BASELINE_REQUIRE_SIGN_IN=0` turns that check off, for a trusted private network only.
 
 **HTTPS.** In `.env`, uncomment `COMPOSE_FILE=compose.yaml:compose.https.yaml` and `BASELINE_DOMAIN`, set `BASELINE_PUBLIC_URL=https://<that domain>` and `BASELINE_PUBLISH=127.0.0.1:7770`, and point the domain's DNS at the machine. Caddy gets the certificate.
 
-**First sign-in.** Open `BASELINE_PUBLIC_URL` and sign in with Google as `BASELINE_OWNER_EMAIL`: you become the admin, and onboarding asks for the first team. Invite everyone else from Settings › Members.
+**First sign-in.** The server prints a one-time setup token in its log (`docker compose logs baseline`, or `docker compose exec baseline baseline setup-token`). Open `BASELINE_PUBLIC_URL`, enter the token and create the owner account: you become the admin, and onboarding asks for the first team. Invite everyone else from Settings › Members. Without email configured, each invite is a link you copy and send.
 
 **Admin CLI.** `docker compose exec baseline baseline <command>` runs the CLI against the server's database, e.g. `user list`, `export --out /data/export.json`.
 

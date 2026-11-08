@@ -985,7 +985,7 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
   // A container publishes its port, so a request from the network arrives looking like this machine's
   // own: local mode there would let anyone who can reach the port act as any user. The image sets this.
   if (auth.mode === 'local' && process.env.BASELINE_REQUIRE_SIGN_IN?.trim() === '1') {
-    throw new Error('BASELINE_REQUIRE_SIGN_IN=1 but no sign-in is configured: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and BASELINE_PUBLIC_URL, '
+    throw new Error('BASELINE_REQUIRE_SIGN_IN=1 but no sign-in is configured: set BASELINE_PUBLIC_URL (password sign-in; Google is optional), '
       + 'or set BASELINE_REQUIRE_SIGN_IN=0 to run without sign-in (anyone who can reach the port can act as any user)');
   }
   // the browser is where a new workspace gets set up, so a new database starts blank (--seed: sample data)
