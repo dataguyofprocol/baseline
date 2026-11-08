@@ -311,6 +311,19 @@ fi
 BASELINE_AS=Agent b issue comment "$KEY" "flag wins" --as Ada >/dev/null
 if b issue comments "$KEY" | grep -q "Ada Osei .*flag wins"; then PASS=$((PASS+1)); else echo "FAIL  --as overrides BASELINE_AS"; FAILED_NAMES+=("--as overrides BASELINE_AS"); FAIL=$((FAIL+1)); fi
 if b issue comments "$KEY" | grep -q "Agent .*attributed via env$"; then PASS=$((PASS+1)); else echo "FAIL  BASELINE_AS name attribution"; FAILED_NAMES+=("BASELINE_AS name attribution"); FAIL=$((FAIL+1)); fi
+# an agent writes for this machine's user: "Agent via <you>"; a person's own write has no via
+check "issue show: an agent's comment reads <agent> via <person>" "— Agent via " issue show "$KEY"
+if b issue show "$KEY" | grep -q "^— Ada Osei (c_.*flag wins"; then PASS=$((PASS+1)); else echo "FAIL  issue show: a person's comment has no via"; FAILED_NAMES+=("person comment no via"); FAIL=$((FAIL+1)); fi
+check "issue show --json: via on an agent's comment" '"via": "' issue show "$KEY" --json
+VIAJSON=$(b issue show "$KEY" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{const d=JSON.parse(s);const c=d.comments.find(c=>c.body==='attributed via env');console.log(c.author+'|'+(c.viaUserId?'id':'none')+'|'+d.comments.find(c=>c.body==='flag wins').viaUserId)})")
+if [[ "$VIAJSON" == "Agent|id|null" ]]; then PASS=$((PASS+1)); else echo "FAIL  issue show --json viaUserId (got $VIAJSON)"; FAILED_NAMES+=("json viaUserId"); FAIL=$((FAIL+1)); fi
+# a command that still opens the database directly records the via too
+VIAKEY=$(b issue create "agent archives this" -t CORE --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))")
+BASELINE_AS=Agent b issue archive "$VIAKEY" >/dev/null
+ARCHVIA=$(b issue show "$VIAKEY" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{const a=JSON.parse(s).activity.find(a=>a.type==='archived');console.log(a.user+' via '+a.via)})")
+if [[ "$ARCHVIA" == Agent\ via\ ?* && "$ARCHVIA" != "Agent via null" ]]; then PASS=$((PASS+1)); else echo "FAIL  legacy command records the via (got $ARCHVIA)"; FAILED_NAMES+=("legacy via"); FAIL=$((FAIL+1)); fi
+BASELINE_AS=Agent b project note "Agent Handoff" "agent note" >/dev/null
+check "project note as an agent" "agent note" project show "Agent Handoff"
 
 echo "=== locations: one per task, shared across projects, never defaulted ==="
 ADB=$(newdb agent)

@@ -444,7 +444,7 @@ withDb(issue.command('show <key>')).description('Show full issue detail')
         }
       }
       const comments = snap.comments.filter(c => c.issueId === i.id);
-      for (const c of comments) console.log(`\n— ${snap.users.find(u => u.id === c.userId)?.name ?? '?'} (${c.id}): ${c.body}`);
+      for (const c of comments) console.log(`\n— ${views.byline(snap, c)} (${c.id}): ${c.body}`);
     }
     process.exit(0);
   });
@@ -1041,13 +1041,13 @@ withDb(project.command('status-create <category> <name>')).description('Add a na
 
 withAs(withDb(project.command('note <name> <body>'))).description('Post a project update')
   .option('--health <health>', 'onTrack|atRisk|offTrack — also sets project health')
-  .action((name: string, body: string, opts: { db?: string; health?: string; as?: string }) => {
-    const store = legacyStore(opts.db);
-    const snap = store.snapshot();
+  .action(async (name: string, body: string, opts: { db?: string; health?: string; as?: string }) => {
+    const bl = await connect(opts);
+    const snap = await bl.snapshot(['projects', 'users']);
     const p = resolveProject(snap, name);
     if (!p) fail(`Unknown project "${name}"`);
     if (opts.health && !['onTrack', 'atRisk', 'offTrack'].includes(opts.health)) fail(`Invalid health "${opts.health}" — use onTrack|atRisk|offTrack`);
-    store.addProjectUpdate(p.id, actorId(snap, opts.as) ?? store.workspaceMeta().currentUser, body, opts.health as Project['health'] | undefined);
+    await bl.addProjectUpdate(p.id, actorId(snap, opts.as), body, opts.health as Project['health'] | undefined);
     console.log(`Posted update on ${p.name}`);
     process.exit(0);
   });
@@ -1510,7 +1510,7 @@ withDb(location.command('remove <name>')).description('Unregister a location (pr
 mountAccountCommands(program);
 
 const commandPath = (c: Command): string => c.parent?.parent ? `${commandPath(c.parent)} ${c.name()}` : c.name();
-program.hook('preAction', (_root, action) => setLegacyCommand(commandPath(action)));
+program.hook('preAction', (_root, action) => setLegacyCommand(commandPath(action), action.opts().as as string | undefined));
 
 program.parseAsync(process.argv).catch((e: unknown) => {
   if (e instanceof BaselineError || e instanceof TargetError || e instanceof ResolveError) fail(e.message);

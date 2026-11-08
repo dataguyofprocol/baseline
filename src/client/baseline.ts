@@ -1,6 +1,6 @@
 // The client the CLI (and next, an MCP server) calls. Method names are the Store methods they
 // replace; each maps to exactly one route, so authorization is always the server's.
-import type { ApiKeyScope, Comment, Handoff, Issue, Location, Priority, Project, Snapshot, SnapshotSection, User } from '../core/types.js';
+import type { ApiKeyScope, Comment, Handoff, Issue, Location, Priority, Project, ProjectUpdate, Snapshot, SnapshotSection, User } from '../core/types.js';
 import { BaselineError } from './errors.js';
 import type { Target } from './target.js';
 import type { Transport, WireRequest } from './transport.js';
@@ -59,6 +59,8 @@ export interface Baseline {
   updateIssue(id: string, patch: IssuePatch, actorId?: string): Promise<Issue>;
   /** POST /api/issues/:id/comments — no actorId: the request's own person */
   addComment(issueId: string, actorId: string | undefined, body: string, parentId: string | null): Promise<Comment>;
+  /** POST /api/projects/:id/updates — no actorId: the request's own person */
+  addProjectUpdate(projectId: string, actorId: string | undefined, body: string, health?: Project['health']): Promise<ProjectUpdate>;
   /** POST /api/locations — a path on the server's disk; a hosted server refuses */
   createLocation(path: string): Promise<Location>;
   /** DELETE /api/me/key — the key this client authenticates with */
@@ -109,6 +111,9 @@ export class HttpBaseline implements Baseline {
   }
   addComment(issueId: string, actorId: string | undefined, body: string, parentId: string | null): Promise<Comment> {
     return this.call('POST', `/api/issues/${encodeURIComponent(issueId)}/comments`, { json: { body, parentId, userId: actorId }, unwrap: 'comment' });
+  }
+  addProjectUpdate(projectId: string, actorId: string | undefined, body: string, health?: Project['health']): Promise<ProjectUpdate> {
+    return this.call('POST', `/api/projects/${encodeURIComponent(projectId)}/updates`, { json: { body, health, userId: actorId }, unwrap: 'update' });
   }
   createLocation(path: string): Promise<Location> {
     return this.call('POST', '/api/locations', { json: { path }, unwrap: 'location' });

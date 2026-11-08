@@ -10,6 +10,16 @@ export type IssueDetailContext = Pick<Snapshot, typeof ISSUE_DETAIL_SECTIONS[num
 /** issues by id, for parent keys: an archived or deleted parent isn't in the snapshot's issues */
 export type IssueIndex = ReadonlyMap<string, Issue>;
 
+/** a user's name; null for no user (or one the snapshot doesn't have) */
+export const nameOf = (snap: Pick<Snapshot, 'users'>, userId: string | null): string | null =>
+  userId ? snap.users.find(u => u.id === userId)?.name ?? null : null;
+
+/** "Claude Code via Parth" for an agent's write, else the author's name */
+export const byline = (snap: Pick<Snapshot, 'users'>, w: { userId: string; viaUserId: string | null }): string => {
+  const via = nameOf(snap, w.viaUserId);
+  return `${snap.users.find(u => u.id === w.userId)?.name ?? '?'}${via ? ` via ${via}` : ''}`;
+};
+
 export function invertRelation(t: RelationType): RelationType {
   return t === 'blocks' ? 'blocked_by' : t === 'blocked_by' ? 'blocks' : t;
 }
@@ -38,11 +48,11 @@ export function issueJson(i: Issue, snap: IssueJsonContext, index: IssueIndex) {
 
 export function issueDetail(i: Issue, snap: IssueDetailContext, index: IssueIndex) {
   const comments = snap.comments.filter(c => c.issueId === i.id)
-    .map(c => ({ id: c.id, replyTo: c.parentId, author: snap.users.find(u => u.id === c.userId)?.name ?? null, body: c.body, createdAt: c.createdAt, editedAt: c.editedAt, reactions: c.reactions, resolvedAt: c.resolvedAt }));
+    .map(c => ({ id: c.id, replyTo: c.parentId, author: snap.users.find(u => u.id === c.userId)?.name ?? null, via: nameOf(snap, c.viaUserId), viaUserId: c.viaUserId, body: c.body, createdAt: c.createdAt, editedAt: c.editedAt, reactions: c.reactions, resolvedAt: c.resolvedAt }));
   const subscribers = snap.subscriptions.filter(x => x.issueId === i.id).map(x => snap.users.find(u => u.id === x.userId)?.name ?? x.userId);
   const links = snap.attachments.filter(a => a.issueId === i.id).map(a => ({ kind: a.kind, title: a.title, url: a.url }));
   // the snapshot's activity is newest first; an issue's history reads oldest first
-  const activity = snap.activity.filter(a => a.issueId === i.id).reverse().map(a => ({ type: a.type, data: a.data, user: snap.users.find(u => u.id === a.userId)?.name ?? null, createdAt: a.createdAt }));
+  const activity = snap.activity.filter(a => a.issueId === i.id).reverse().map(a => ({ type: a.type, data: a.data, user: snap.users.find(u => u.id === a.userId)?.name ?? null, via: nameOf(snap, a.viaUserId), viaUserId: a.viaUserId, createdAt: a.createdAt }));
   const children = snap.issues.filter(x => x.parentId === i.id).map(c => issueKey(c, snap.teams));
   const relations = relationRows(snap, i.id).map(r => ({
     type: r.issueId === i.id ? r.type : invertRelation(r.type),
