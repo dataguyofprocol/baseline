@@ -4,16 +4,16 @@ import { getMeta, openDb, resolveDbPath } from '../core/db.js';
 import { normalizeDir, Store } from '../core/store.js';
 import { blankWorkspace, seedWorkspace } from '../core/seed.js';
 import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDirectories } from './launch.js';
-import { authConfigFromEnv, mountAuth, type AuthConfig } from './auth.js';
+import { authConfigFromEnv, cookieSessions, mountAuth, type AuthConfig } from './auth.js';
+import { attributedActor, authenticate, hostOf, isLoopback, originHostOf, principalUser, Refusal } from './principal.js';
 import { mountMembers } from './members.js';
 import { ChangeFeed, startScheduler } from './live.js';
 import { streamSSE } from 'hono/streaming';
 import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
 import { Accounts, AccountError } from '../core/accounts.js';
-import { actingUser } from '../core/actor.js';
 import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
-import { API_KEY_SCOPES, type ApiKey, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
+import { type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
 import { WEBHOOK_MAX_BYTES, WEBHOOK_PATH } from '../core/webhooks.js';
 import { FileError, FileService, MAX_EMOJI_BYTES, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
 import { existsSync, readFileSync } from 'node:fs';
@@ -33,15 +33,7 @@ const WEB_DIST = resolve(fileURLToPath(import.meta.url), '../../../web/dist');
 
 /** BASELINE_HOST opens the server beyond this machine (e.g. 0.0.0.0); unset = loopback only */
 const LISTEN_HOST = process.env.BASELINE_HOST?.trim() || '';
-const isLoopback = (h: string) => h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1';
 const LAN_OPEN = !!LISTEN_HOST && !isLoopback(LISTEN_HOST);
-// the node adapter builds the request URL from the Host header, so this is the Host the client sent
-const hostOf = (c: Context) => { try { return new URL(c.req.url).hostname; } catch { return ''; } };
-const originHostOf = (c: Context): string | null => {
-  const origin = c.req.header('origin');
-  if (!origin) return null;
-  try { return new URL(origin).hostname; } catch { return '?'; }
-};
 
 /** `blank`: a new database starts empty for the web app's first-run flow instead of seeded */
 export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv(), mailer: Mailer = mailerFromEnv(), opts: { blank?: boolean } = {}) {
@@ -90,7 +82,15 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json(r.body, r.status as 200);
   });
 
-  if (hosted) mountAuth(app, auth, accounts, store, {
+  // who every /api request is (key, session or this machine) — before any /api route, see principal.ts
+  const sessions = hosted ? cookieSessions(auth, accounts) : null;
+  app.use('/api/*', authenticate({ auth, sessions, apiKeys, store, lanOpen: LAN_OPEN }));
+  app.onError((err, c) => {
+    if (err instanceof Refusal) return c.json({ error: err.message, code: err.code }, err.status);
+    console.error(err);
+    return c.text('Internal Server Error', 500);
+  });
+  if (hosted) mountAuth(app, auth, accounts, store, sessions!, {
     onInviteAccepted: (userId, invitedBy) => {
       const who = accounts.userBrief(userId), inviter = accounts.userBrief(invitedBy);
       if (!mailer.configured || !who || !inviter?.email) return;
@@ -98,49 +98,11 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
         .catch(err => console.error('[baseline] invite-accepted email failed:', (err as Error).message));
     },
   });
-  // Local mode: the tracker is this machine's own. A Host that isn't loopback means a LAN client or a
-  // DNS-rebinding page, and a write whose Origin is another site is a cross-site request.
-  else app.use('/api/*', async (c, next) => {
-    const host = hostOf(c);
-    if (!LAN_OPEN && !isLoopback(host)) return c.json({ error: 'Baseline only accepts requests from this machine (set BASELINE_HOST to change that)', code: 'forbidden' }, 403);
-    const originHost = originHostOf(c);
-    if (c.req.method !== 'GET' && c.req.method !== 'HEAD' && originHost !== null && !isLoopback(originHost) && originHost !== host.replace(/^\[|\]$/g, '')) {
-      return c.json({ error: 'Cross-site requests are not allowed', code: 'forbidden' }, 403);
-    }
-    await next();
-  });
 
-  // Personal API keys: a request may carry `Authorization: Bearer <key>` (or the bare key, as
-  // Linear accepts). A bad key is refused; a good one acts as its owner, within its permissions
-  // and teams. Requests without a key are the app's own, unless other devices must use one.
-  const keyOf = new WeakMap<Request, ApiKey>();
-  const actor = (c: Context) => keyOf.get(c.req.raw)?.userId ?? store.actor();
-  /** the local app may act as anyone (agents, other members); a key, or a signed-in person, always acts as themselves */
-  const who = (c: Context, given: unknown) => hosted || keyOf.has(c.req.raw) || typeof given !== 'string' ? actor(c) : given;
+  const actor = (c: Context) => principalUser(c, store);
+  /** the user a write is by: the one asked for when this request may name anyone (see attributedActor), else the request's own */
+  const who = (c: Context, given: unknown) => attributedActor(c, given) ?? actor(c);
   const isAdmin = (userId: string) => !!(db.prepare('SELECT admin FROM users WHERE id = ?').get(userId) as { admin: number } | undefined)?.admin;
-  app.use('/api/*', async (c, next) => {
-    const auth = c.req.header('authorization')?.trim();
-    if (!auth) {
-      if (LAN_OPEN && !isLoopback(hostOf(c)) && store.getFeatures().apiKeyRequiredRemote) return c.json({ error: 'Requests from other devices need an API key: send Authorization: Bearer <key>', code: 'unauthorized' }, 401);
-      return next();
-    }
-    const key = apiKeys.verify(auth.replace(/^Bearer\s+/i, ''));
-    if (!key) return c.json({ error: 'Invalid API key', code: 'unauthorized' }, 401);
-    const path = c.req.path;
-    if (path.startsWith('/api/api-keys')) return c.json({ error: 'API keys are managed in Settings › Security & access, not with an API key', code: 'forbidden' }, 403);
-    const missing = apiKeys.missingScope(key, c.req.method, path);
-    if (missing) return c.json({ error: `This API key doesn't have the “${API_KEY_SCOPES.find(([k]) => k === missing)?.[1]}” permission`, code: 'forbidden' }, 403);
-    const body = c.req.method !== 'GET' && c.req.method !== 'HEAD' && (c.req.header('content-type') ?? '').includes('application/json')
-      ? await c.req.json().catch(() => null) as Record<string, unknown> | null : null;
-    if (!apiKeys.teamAllowed(key, path, body)) return c.json({ error: 'This API key can’t access that team', code: 'forbidden' }, 403);
-    keyOf.set(c.req.raw, key);
-    // the store's own writes (activity, notifications) are by the key's owner too
-    await actingUser.run(key.userId, next);
-    if (key.teamIds && (c.res.headers.get('content-type') ?? '').includes('application/json')) {
-      const scoped = apiKeys.scopeResponse(key, await c.res.json());
-      c.res = new Response(JSON.stringify(scoped), { status: (scoped as { error?: string }).error ? 404 : c.res.status, headers: { 'content-type': 'application/json' } });
-    }
-  });
 
   // a delete may have taken an image's owner with it (an issue purged, a doc, a team, an emoji):
   // sweep orphaned images after each delete, and hourly for deletes that happen on their own (trash expiry)
@@ -241,12 +203,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null, milestoneId: b.milestoneId ?? null,
       // omitted = a sub-issue inherits its parent's (nothing else is defaulted); null = explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
-    }, keyOf.has(c.req.raw) || typeof b.actorId === 'string' ? who(c, b.actorId) : undefined);
+    }, attributedActor(c, b.actorId));
     return c.json({ issue }, 201);
   });
   app.patch('/api/issues/:id', async (c) => {
-    const b = await c.req.json();
-    const issue = store.updateIssue(c.req.param('id'), b, keyOf.has(c.req.raw) ? actor(c) : undefined);
+    const { actorId, ...patch } = await c.req.json();
+    const issue = store.updateIssue(c.req.param('id'), patch, attributedActor(c, actorId));
     if (!issue) return c.json({ error: 'not found' }, 404);
     return c.json({ issue });
   });
@@ -526,7 +488,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- documents & team links ----------
   app.post('/api/docs', async (c) => c.json({ doc: store.createDoc(await c.req.json()) }, 201));
-  app.patch('/api/docs/:id', async (c) => { const b = await c.req.json(); store.updateDoc(c.req.param('id'), b, keyOf.has(c.req.raw) || typeof b.actorId === 'string' ? who(c, b.actorId) : undefined); return c.json({ ok: true }); });
+  app.patch('/api/docs/:id', async (c) => { const b = await c.req.json(); store.updateDoc(c.req.param('id'), b, attributedActor(c, b.actorId)); return c.json({ ok: true }); });
   app.delete('/api/docs/:id', (c) => { store.deleteDoc(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/teams/:id/links', async (c) => {
     const b = await c.req.json();

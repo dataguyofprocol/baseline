@@ -50,7 +50,7 @@ export class ApiKeys {
   verify(token: string): ApiKey | null {
     const r = this.db.prepare('SELECT * FROM api_keys WHERE token_hash = ?').get(hash(token.trim())) as Row | undefined;
     if (!r) return null;
-    if (!this.db.prepare('SELECT 1 FROM users WHERE id = ?').get(r.user_id)) return null;
+    if (!this.db.prepare('SELECT 1 FROM users WHERE id = ? AND (status IS NULL OR status != \'suspended\')').get(r.user_id)) return null;
     const now = new Date();
     if (!r.last_used_at || now.getTime() - Date.parse(r.last_used_at) > 60_000) {
       r.last_used_at = now.toISOString();
@@ -78,7 +78,7 @@ export class ApiKeys {
     const teams = key.teamIds;
     if (!teams) return true;
     const issueId = /^\/api\/issues\/([^/]+)/.exec(path)?.[1];
-    if (issueId && !['archived', 'deleted', 'bulk'].includes(issueId)) {
+    if (issueId && !['archived', 'deleted', 'bulk', 'by-key'].includes(issueId)) {
       const issue = this.store.getIssue(decodeURIComponent(issueId));
       if (issue && !teams.includes(issue.teamId)) return false;
     }

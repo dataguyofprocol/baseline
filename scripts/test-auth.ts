@@ -133,10 +133,20 @@ const creator = (db.prepare('SELECT creator_id FROM issues WHERE id = ?').get(is
 check('an issue created by Ada is Ada\'s', creator === ada.id, creator);
 const created = db.prepare("SELECT user_id FROM activity WHERE issue_id = ? AND type = 'created'").get(issue.id) as { user_id: string };
 check('…and so is its activity', created.user_id === ada.id);
-const comment = await (await req(`/api/issues/${issue.id}/comments`, { ...json({ body: 'hi', userId: boot.currentUser.id }), cookie: adaCookie })).json() as { comment: { userId: string } };
-check('a comment can\'t be posted as someone else (body userId ignored)', comment.comment.userId === ada.id);
-await req(`/api/issues/${issue.id}/subscribe`, { ...json({ subscribed: true, userId: boot.currentUser.id }), cookie: adaCookie });
-check('subscribing subscribes yourself, not the userId sent', store.isSubscribed(issue.id, ada.id));
+{
+  const commentsBefore = (db.prepare('SELECT COUNT(*) AS n FROM comments WHERE issue_id = ?').get(issue.id) as { n: number }).n;
+  const asOwner = await req(`/api/issues/${issue.id}/comments`, { ...json({ body: 'hi', userId: boot.currentUser.id }), cookie: adaCookie });
+  const commentsAfter = (db.prepare('SELECT COUNT(*) AS n FROM comments WHERE issue_id = ?').get(issue.id) as { n: number }).n;
+  check('a comment as someone else is refused, not rewritten', asOwner.status === 403 && commentsAfter === commentsBefore, String(asOwner.status));
+  const asSelf = await (await req(`/api/issues/${issue.id}/comments`, { ...json({ body: 'hi', userId: ada.id }), cookie: adaCookie })).json() as { comment: { userId: string } };
+  check('…while naming yourself works', asSelf.comment?.userId === ada.id);
+  const sub = await req(`/api/issues/${issue.id}/subscribe`, { ...json({ subscribed: true, userId: boot.currentUser.id }), cookie: adaCookie });
+  check('subscribing someone else is refused', sub.status === 403 && !store.isSubscribed(issue.id, boot.currentUser.id));
+  await req(`/api/issues/${issue.id}/subscribe`, { ...json({ subscribed: true }), cookie: adaCookie });
+  check('subscribing subscribes yourself', store.isSubscribed(issue.id, ada.id));
+  const patchAs = await req(`/api/issues/${issue.id}`, { ...json({ title: 'Renamed as owner', actorId: boot.currentUser.id }), method: 'PATCH', cookie: adaCookie });
+  check('an issue update as someone else is refused (actorId is not ignored)', patchAs.status === 403 && store.getIssue(issue.id)?.title === 'Hello');
+}
 {
   // in flight together, so the per-request acting user has to survive interleaved awaits
   const [a, o] = await Promise.all([
@@ -545,8 +555,10 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
   check('logout succeeds', out.status === 200);
   check('…and the session no longer works', (await req('/api/bootstrap', { cookie: adaCookie })).status === 401);
   const relog = await signIn({ sub: 'g-ada', email: 'ada@example.com', name: 'Ada' });
+  const adaKey = store.ext.apiKeys.create({ name: 'ada cli', userId: ada.id });
   db.prepare("UPDATE users SET status = 'suspended' WHERE id = ?").run(ada.id);
   check('a suspended person\'s session stops working', (await req('/api/bootstrap', { cookie: `__Host-baseline_session=${relog.session}` })).status === 401);
+  check('…and so do their API keys', (await req('/api/bootstrap', { headers: { authorization: `Bearer ${adaKey.token}` } })).status === 401);
   const again = await signIn({ sub: 'g-ada', email: 'ada@example.com', name: 'Ada' });
   check('…and they can\'t sign in again', again.location.endsWith('?auth_error=suspended') && !again.session);
   db.prepare("UPDATE sessions SET expires_at = '2000-01-01T00:00:00.000Z'").run();

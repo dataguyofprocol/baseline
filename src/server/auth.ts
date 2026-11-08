@@ -1,9 +1,8 @@
 // Sign-in for a hosted Baseline: Google OAuth (authorization code + PKCE) and cookie sessions.
 // With no Google client configured the server stays in local mode: this machine only, no sign-in.
-import type { Context, Hono, Next } from 'hono';
+import type { Context, Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { createHash, randomBytes } from 'node:crypto';
-import { actingUser } from '../core/actor.js';
 import type { Accounts, GoogleIdentity } from '../core/accounts.js';
 import type { Store } from '../core/store.js';
 import { clientIp, limiter } from './ratelimit.js';
@@ -26,15 +25,42 @@ export function authConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AuthCon
 const b64url = (buf: Buffer) => buf.toString('base64url');
 const random = () => b64url(randomBytes(32));
 
-/** Registers the /api/* guard and the sign-in routes. Call it before any other /api route:
- *  Hono runs handlers in registration order, so a route added earlier would skip the guard. */
-export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accounts: Accounts, store: Store, hooks: {
+/** The hosted session cookie, read by `authenticate` (principal.ts) and written by sign-in. */
+export interface Sessions {
+  /** the person behind this request's cookie; re-sets the cookie when the session slid */
+  resolve(c: Context): { userId: string } | null;
+  set(c: Context, token: string, expiresAt: string): void;
+  end(c: Context): void;
+}
+
+export function cookieSessions(cfg: AuthConfig & { mode: 'google' }, accounts: Accounts): Sessions {
+  const secure = cfg.publicUrl.protocol === 'https:';
+  // __Host- pins the cookie to this exact host over HTTPS (no Domain, Path=/); plain http is for local testing
+  const name = secure ? '__Host-baseline_session' : 'baseline_session';
+  const set = (c: Context, token: string, expiresAt: string) =>
+    setCookie(c, name, token, { path: '/', httpOnly: true, secure, sameSite: 'Lax', expires: new Date(expiresAt) });
+  return {
+    resolve(c) {
+      const token = getCookie(c, name);
+      const session = accounts.resolveSession(token);
+      if (!session) return null;
+      if (session.renewed) set(c, token!, session.expiresAt);
+      return { userId: session.userId };
+    },
+    set,
+    end(c) {
+      accounts.deleteSession(getCookie(c, name));
+      deleteCookie(c, name, { path: '/', secure });
+    },
+  };
+}
+
+/** The sign-in routes. The /api/* guard is `authenticate` (principal.ts), registered before these. */
+export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accounts: Accounts, store: Store, sessions: Sessions, hooks: {
   /** someone joined through an invite — tell whoever sent it */
   onInviteAccepted?: (userId: string, invitedBy: string) => void;
 } = {}): void {
   const secure = cfg.publicUrl.protocol === 'https:';
-  // __Host- pins the cookie to this exact host over HTTPS (no Domain, Path=/); plain http is for local testing
-  const SESSION_COOKIE = secure ? '__Host-baseline_session' : 'baseline_session';
   const OAUTH_COOKIE = 'baseline_oauth';
   const redirectUri = new URL('/auth/google/callback', cfg.publicUrl).toString();
   const home = (query = '') => new URL(`/${query}`, cfg.publicUrl).toString();
@@ -43,24 +69,6 @@ export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accou
   // but there's no reason to let anyone try them by the thousand)
   const signInLimit = limiter(30, 10 * 60_000);
   const inviteLookupLimit = limiter(60, 10 * 60_000);
-
-  const setSession = (c: Context, token: string, expiresAt: string) =>
-    setCookie(c, SESSION_COOKIE, token, { path: '/', httpOnly: true, secure, sameSite: 'Lax', expires: new Date(expiresAt) });
-
-  // every /api request: same host, same-origin writes, a live session — then run it as that person
-  app.use('/api/*', async (c: Context, next: Next) => {
-    // DNS rebinding: the browser must have addressed this server by its public name
-    if (new URL(c.req.url).hostname !== cfg.publicUrl.hostname) return c.json({ error: 'Unknown host', code: 'forbidden' }, 403);
-    // CSRF: browsers send Origin on every non-GET fetch; a write without ours is cross-site (or not a browser)
-    if (c.req.method !== 'GET' && c.req.method !== 'HEAD' && c.req.header('origin') !== cfg.publicUrl.origin) {
-      return c.json({ error: 'Cross-site requests are not allowed', code: 'forbidden' }, 403);
-    }
-    const token = getCookie(c, SESSION_COOKIE);
-    const session = accounts.resolveSession(token);
-    if (!session) return c.json({ error: 'Sign in to continue', code: 'unauthenticated' }, 401);
-    if (session.renewed) setSession(c, token!, session.expiresAt);
-    await actingUser.run(session.userId, next);
-  });
 
   // what an invite link shows before sign-in: whose workspace, who sent it, and to which address
   // (masked — the code is in an email, but links get forwarded)
@@ -121,18 +129,16 @@ export function mountAuth(app: Hono, cfg: AuthConfig & { mode: 'google' }, accou
     if ('error' in result) return fail(result.error);
     if (result.joined === 'invite' && result.invitedBy) hooks.onInviteAccepted?.(result.userId, result.invitedBy);
     const session = accounts.createSession(result.userId, { userAgent: c.req.header('user-agent'), ip: clientIp(c) });
-    setSession(c, session.token, session.expiresAt);
+    sessions.set(c, session.token, session.expiresAt);
     deleteCookie(c, OAUTH_COOKIE, { path: '/auth' });
     // only same-site paths: an absolute or protocol-relative `next` would make this an open redirect
     const next = saved.next.startsWith('/') && !saved.next.startsWith('//') ? saved.next : '/';
     return c.redirect(new URL(next, cfg.publicUrl).toString());
   });
 
-  // signing out is a write, so it sits behind requireSession's same-origin check
+  // signing out is a write, so it sits behind authenticate's same-origin check
   app.post('/api/auth/logout', (c) => {
-    accounts.deleteSession(getCookie(c, SESSION_COOKIE));
-    deleteCookie(c, SESSION_COOKIE, { path: '/', secure });
+    sessions.end(c);
     return c.json({ ok: true });
   });
-
 }
