@@ -7,7 +7,7 @@ import { ProjectStatusIcon, PROJECT_STATUS } from './Projects.js';
 import { UPDATE_CADENCE_LABELS, type UpdateCadence, type WorkspaceFeatures } from '../../src/core/types.js';
 
 /* Settings pages Linear keeps under Projects (Labels, Statuses, Updates) and Features
-   (Documents). */
+   (Initiatives). */
 
 const COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
 const nextColor = (c: string) => COLORS[(COLORS.indexOf(c) + 1) % COLORS.length];
@@ -215,46 +215,6 @@ export function ProjectUpdatesSettings() {
         </select>
       </div>
       {overrides > 0 && <div className="field-help" style={{ marginTop: 8 }}>{overrides} project{overrides === 1 ? ' has its' : 's have their'} own schedule (the bell on the project page).</div>}
-    </div>
-  );
-}
-
-/* ---------------- documents (templates) ---------------- */
-export function DocumentsSettings() {
-  const snap = useApp(s => s.snap)!;
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ name: '', title: '', content: '' });
-  const startNew = async () => {
-    const { template } = await api.createDocTemplate({ name: 'New template' });
-    await refresh();
-    setEditing(template.id); setDraft({ name: 'New template', title: '', content: '' });
-  };
-  return (
-    <div className="settings-card">
-      <div className="set-head"><h1>Documents</h1></div>
-      <div className="settings-h2" style={{ marginTop: 0 }}>Templates</div>
-      <div className="field-help" style={{ marginBottom: 8 }}>Offered when you create a document from a project's or team's resources.</div>
-      <div className="card set-list">
-        {snap.docTemplates.map(t => editing === t.id ? (
-          <div key={t.id} className="ptpl-edit">
-            <input className="text-input" placeholder="Template name" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} />
-            <input className="text-input" placeholder="Document title (optional)" value={draft.title} onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} />
-            <textarea className="text-input" style={{ minHeight: 120 }} placeholder="Content (Markdown)" value={draft.content} onChange={e => setDraft(d => ({ ...d, content: e.target.value }))} />
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn primary sm" onClick={async () => { await api.updateDocTemplate(t.id, draft); setEditing(null); await refresh(); }}>Save</button>
-              <button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <div key={t.id} className="set-row group">
-            <span style={{ flex: 1 }}>{t.name}{t.content && <span className="set-meta"> — {t.content.replace(/\s+/g, ' ').slice(0, 60)}</span>}</span>
-            <button className="icon-btn hover-only" title="Edit template" onClick={() => { setEditing(t.id); setDraft({ name: t.name, title: t.title, content: t.content }); }}><span style={{ fontSize: 11 }}>✎</span></button>
-            <button className="icon-btn hover-only" title="Delete template" onClick={async () => { await api.deleteDocTemplate(t.id); await refresh(); }}><IconTrash size={13} /></button>
-          </div>
-        ))}
-        {!snap.docTemplates.length && <div className="set-empty">No document templates</div>}
-        <div className="set-row"><button className="btn secondary sm" onClick={startNew}><IconPlus size={12} /> New template</button></div>
-      </div>
     </div>
   );
 }

@@ -413,10 +413,11 @@
       const p = await P(); await t.nav('/projects/' + p.id, 900); const txt = t.text(); const miss = ['Properties', 'Resources', 'Description'].filter(x => !txt.includes(x));
       if (miss.length || !t.q('.proj-hero-icon') || !t.q('.res-chip')) t.fail('missing ' + miss); return 'hero, properties, resources, update, description';
     });
-    await t.run('6.7 Documents: from template via resources; editor page; team Documents tab', async () => {
-      const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click(t.byText('Add document or link…'), 500); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Spec'), 1300);
-      const title = t.q('.doc-title')?.value; const body = t.q('.doc-page .ProseMirror')?.innerText ?? ''; await t.nav('/team/CORE/overview/documents', 800); const listed = t.text().includes('Spec:');
-      if (!m.includes('New document') || !m.includes('Add link') || title !== 'Spec: ' || !body.includes('Problem') || !listed) t.fail(`title "${title}" listed ${listed}`); return 'template applied; listed under the team';
+    await t.run('6.7 Documents: new document via resources; editor page; team Documents tab', async () => {
+      const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click(t.byText('Add document or link…'), 500); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('New document'), 1300);
+      const title = t.q('.doc-title'); if (!title) t.fail('no document page'); await t.type(title, 'Harness doc', 200); title.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); await sleep(500); t.key('Enter'); await t.write(t.q('.doc-page .ProseMirror'), 'Problem statement'); await sleep(900);
+      const d = (await t.snap()).docs.find(x => x.title === 'Harness doc'); await t.nav('/team/CORE/overview/documents', 800); const listed = t.text().includes('Harness doc');
+      if (!m.includes('New document') || !m.includes('Add link') || /From template/.test(m) || !d || d.projectId !== p.id || !d.content.includes('Problem') || !listed) t.fail(`menu ${m.replace(/\n/g, ', ')} doc ${!!d} listed ${listed}`); return 'created from resources, saved, listed under the team';
     });
     await t.run('6.8 Milestones with progress', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); const txt = t.text(); if (!/Alpha/.test(txt) || !/\d+%/.test(txt)) t.fail('milestones'); return 'Alpha / Beta with %';
@@ -515,7 +516,7 @@
   /* ================= 9. settings & workspace pages ================= */
   S('settings', async t => {
     await t.run('9.1 Settings nav mirrors Linear: Account · Issues · Projects · Features · Administration · Your teams', async () => {
-      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Documents', 'Security & access', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
+      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Security & access', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
       if (miss.length) t.fail('missing ' + miss); return 'all sections';
     });
     await t.run('9.2 Account pages: Preferences, Profile, Notifications', async () => {
@@ -530,9 +531,6 @@
     await t.run('9.4 Project updates settings: workspace update schedule', async () => {
       await t.nav('/settings/project-updates', 800); const sel = t.q('select[aria-label="Update schedule"]'); await t.type(sel, 'biweekly', 800); const f = (await t.snap()).workspace.features.updateCadence; await t.type(t.q('select[aria-label="Update schedule"]'), 'none', 600);
       if (f !== 'biweekly') t.fail('saved ' + f); return 'schedule saved';
-    });
-    await t.run('9.5 Documents settings: document templates', async () => {
-      await t.nav('/settings/documents', 800); if (!t.text().includes('Spec')) t.fail('no template'); return 'template listed (used in 6.7)';
     });
     await t.run('9.10 Teams page and Members page', async () => {
       await t.nav('/teams', 800); const tt = t.q('.wt-head')?.innerText ?? ''; const tr = t.qa('.wt-row').length; await t.nav('/members', 800); const mt = t.q('.wt-head')?.innerText ?? ''; const mr = t.qa('.wt-row').length;
@@ -703,7 +701,7 @@
       const s = await t.snap(); const p = s.projects[0].id; const d = s.docs[0].id; const cyc = s.cycles.find(x => x.teamId === s.teams[0].id).id;
       const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`),
         '/team/CORE/all', '/team/CORE/active', '/team/CORE/backlog', '/team/CORE/overview', '/team/CORE/overview/documents', '/team/CORE/overview/members', '/team/CORE/cycles', `/team/CORE/cycles/${cyc}`, '/team/CORE/projects', '/team/CORE/views', '/team/CORE/views/projects', '/team/AGO/triage', '/team/CORE/archive', '/trash', '/search', `/docs/${d}`, '/issue/CORE-1',
-        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-statuses', 'project-updates', 'documents', 'slas', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
+        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-statuses', 'project-updates', 'slas', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
       const errs = []; const orig = console.error; console.error = (...a) => { errs.push(location.hash + ' ' + a.map(String).join(' ').slice(0, 120)); orig(...a); };
       for (const r of routes) { location.hash = '#' + r; await sleep(420); }
       console.error = orig; if (errs.length) t.fail(errs.slice(0, 4).join(' | ')); return routes.length + ' routes, no console errors';

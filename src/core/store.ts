@@ -8,7 +8,7 @@ import type {
   ActivityItem, ActivityType, Attachment, RecurringIssue, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, PreferencesPatch, EstimateScale,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
-  WorkflowState, WorkflowStateType, UpdateCadence, ProjectStatusDef, ProjectSubscription, ProjectLabel, DocTemplate,
+  WorkflowState, WorkflowStateType, UpdateCadence, ProjectStatusDef, ProjectSubscription, ProjectLabel,
   WorkspaceFeatures,
 } from './types.js';
 import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES, DEFAULT_SECURITY, type WorkspaceSecurity } from './types.js';
@@ -111,7 +111,6 @@ export class Store {
       projectLabels: rows<{ id: string; name: string; color: string; description: string; parent_id: string | null; is_group: number; created_at: string }>('SELECT * FROM project_labels ORDER BY name').map(l => ({ id: l.id, name: l.name, color: l.color, description: l.description, parentId: l.parent_id, isGroup: !!l.is_group, createdAt: l.created_at })),
       projectStatuses: rows<{ id: string; type: Project['status']; name: string; color: string; description: string; position: number }>('SELECT * FROM project_statuses ORDER BY position').map(x => ({ id: x.id, type: x.type, name: x.name, color: x.color, description: x.description, position: x.position })),
       projectSubscriptions: rows<{ project_id: string; user_id: string; issue_added: number; issue_closed: number; comments: number; updates: number }>('SELECT * FROM project_subscriptions').map(x => ({ projectId: x.project_id, userId: x.user_id, issueAdded: !!x.issue_added, issueClosed: !!x.issue_closed, comments: !!x.comments, updates: !!x.updates })),
-      docTemplates: rows<{ id: string; name: string; title: string; content: string; created_at: string }>('SELECT * FROM doc_templates ORDER BY created_at').map(t => ({ id: t.id, name: t.name, title: t.title, content: t.content, createdAt: t.created_at })),
       recurring: rows<{ id: string; team_id: string; title: string; description: string; priority: number; assignee_id: string | null; labels: string; project_id: string | null; cadence: string; next_at: string; created_at: string }>('SELECT * FROM recurring_issues ORDER BY created_at').map(r => ({ id: r.id, teamId: r.team_id, title: r.title, description: r.description, priority: r.priority as Priority, assigneeId: r.assignee_id, labelIds: JSON.parse(r.labels), projectId: r.project_id, cadence: r.cadence as RecurringIssue['cadence'], nextAt: r.next_at, createdAt: r.created_at })),
       projectRelations: rows<{ id: string; project_id: string; related_id: string; type: string }>('SELECT * FROM project_relations').map(r => ({ id: r.id, projectId: r.project_id, relatedProjectId: r.related_id, type: 'blocks' as const })),
       docs: rows<{ id: string; title: string; icon: string; content: string; project_id: string | null; team_id: string | null; initiative_id: string | null; creator_id: string | null; created_at: string; updated_at: string }>('SELECT * FROM documents ORDER BY updated_at DESC').map(d => ({ id: d.id, title: d.title, icon: d.icon, content: d.content, projectId: d.project_id, teamId: d.team_id, initiativeId: d.initiative_id ?? null, creatorId: d.creator_id, createdAt: d.created_at, updatedAt: d.updated_at })),
@@ -1204,21 +1203,6 @@ export class Store {
       ORDER BY u.created_at DESC`).all(since, until, userId, userId, userId) as Array<{ id: string }>;
   }
 
-  // ---------- document templates ----------
-  createDocTemplate(input: { name: string; title?: string; content?: string }): DocTemplate {
-    const t: DocTemplate = { id: id('dt'), name: input.name.trim(), title: input.title ?? '', content: input.content ?? '', createdAt: ts() };
-    this.db.prepare('INSERT INTO doc_templates (id, name, title, content, created_at) VALUES (?, ?, ?, ?, ?)').run(t.id, t.name, t.title, t.content, t.createdAt);
-    return t;
-  }
-  updateDocTemplate(templateId: string, patch: Partial<Pick<DocTemplate, 'name' | 'title' | 'content'>>): void {
-    const sets: string[] = []; const vals: string[] = [];
-    for (const [k, v] of sqlPairs(patch, ['name', 'title', 'content'])) { sets.push(`${k} = ?`); vals.push(v as string); }
-    if (!sets.length) return;
-    vals.push(templateId);
-    this.db.prepare(`UPDATE doc_templates SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-  }
-  deleteDocTemplate(templateId: string): void { this.db.prepare('DELETE FROM doc_templates WHERE id = ?').run(templateId); }
-
   // ---------- activity ----------
   logActivity(e: { issueId?: string; projectId?: string; type: ActivityType; data?: Record<string, unknown> }, actorId?: string): void {
     const uid = actorId ?? this.actor();
@@ -1347,7 +1331,6 @@ export class Store {
     if (arr(data.projectStatuses).length) this.db.exec('DELETE FROM project_statuses');
     for (const x of arr<Record<string, unknown>>(data.projectStatuses)) insert('project_statuses', ['id', 'type', 'name', 'color', 'description', 'position'], { ...x, description: x.description ?? '', position: x.position ?? 0 });
     for (const x of arr<Record<string, unknown>>(data.projectSubscriptions)) insert('project_subscriptions', ['project_id', 'user_id', 'issue_added', 'issue_closed', 'comments', 'updates'], { project_id: x.projectId, user_id: x.userId, issue_added: x.issueAdded ? 1 : 0, issue_closed: x.issueClosed ? 1 : 0, comments: x.comments ? 1 : 0, updates: x.updates ? 1 : 0 });
-    for (const x of arr<Record<string, unknown>>(data.docTemplates)) insert('doc_templates', ['id', 'name', 'title', 'content', 'created_at'], { ...x, title: x.title ?? '', content: x.content ?? '', created_at: x.createdAt ?? ts() });
     for (const f of arr<Record<string, unknown>>(data.files)) {
       if (typeof f.data !== 'string') continue;
       const bytes = Buffer.from(f.data, 'base64');
@@ -1366,7 +1349,7 @@ export class Store {
   }
   wipe(): void {
     for (const t of this.ext.tables) this.db.exec(`DELETE FROM ${t};`);
-    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'documents', 'team_links', 'project_relations', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'documents', 'team_links', 'project_relations', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
     ensureDefaults(this.db);

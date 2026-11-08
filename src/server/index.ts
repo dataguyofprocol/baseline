@@ -181,7 +181,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     ['PATCH', '/api/initiative-labels/:id'], ['DELETE', '/api/initiative-labels/:id'],
     ['POST', '/api/project-statuses'], ['PATCH', '/api/project-statuses/:id'], ['DELETE', '/api/project-statuses/:id'],
     ['POST', '/api/issue-templates'], ['PATCH', '/api/issue-templates/:id'], ['DELETE', '/api/issue-templates/:id'],
-    ['POST', '/api/doc-templates'], ['PATCH', '/api/doc-templates/:id'], ['DELETE', '/api/doc-templates/:id'],
     ['POST', '/api/sla-rules'], ['PATCH', '/api/sla-rules/:id'], ['DELETE', '/api/sla-rules/:id'],
     ['POST', '/api/loops'], ['PATCH', '/api/loops/:id'], ['DELETE', '/api/loops/:id'], ['POST', '/api/loops/:id/run'],
     ['PUT', '/api/git/automation/:teamId'],
@@ -834,14 +833,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // ---------- document templates ----------
-  app.post('/api/doc-templates', async (c) => {
-    const b = await c.req.json();
-    if (!b.name) return c.json({ error: 'name is required' }, 400);
-    return c.json({ template: store.createDocTemplate(b) }, 201);
-  });
-  app.patch('/api/doc-templates/:id', async (c) => { store.updateDocTemplate(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/doc-templates/:id', (c) => { store.deleteDocTemplate(c.req.param('id')); return c.json({ ok: true }); });
   // Settings › Profile › Profile picture (an empty body removes it)
   app.post('/api/users/:id/avatar', async (c) => {
     const userId = c.req.param('id');

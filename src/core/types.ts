@@ -385,8 +385,6 @@ export interface ProjectStatusDef { id: string; type: ProjectStatus; name: strin
 /** the bell on a project page: which project events reach your inbox */
 export interface ProjectSubscription { projectId: string; userId: string; issueAdded: boolean; issueClosed: boolean; comments: boolean; updates: boolean }
 
-/** workspace document templates (Settings › Documents) */
-export interface DocTemplate { id: string; name: string; title: string; content: string; createdAt: string }
 
 
 
@@ -833,7 +831,6 @@ export interface Snapshot {
   projectLabels: ProjectLabel[];
   projectStatuses: ProjectStatusDef[];
   projectSubscriptions: ProjectSubscription[];
-  docTemplates: DocTemplate[];
   initiatives: Initiative[];
   initiativeUpdates: InitiativeUpdate[];
   initiativeLabels: InitiativeLabel[];
@@ -871,7 +868,7 @@ const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   workspace: true, users: true, teams: true, states: true, labels: true, templates: true, issues: true, comments: true,
   attachments: true, subscriptions: true, relations: true, projects: true, projectLinks: true, docs: true, teamLinks: true,
   projectRelations: true, projectLabels: true, projectStatuses: true, projectSubscriptions: true,
-  docTemplates: true,
+
   initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, slaRules: true,
   loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
   teamSubscriptions: true, teamWorkflows: true, recurring: true, locations: true, projectUpdates: true, milestones: true,

@@ -15,8 +15,8 @@ import type { Doc } from '../../src/core/types.js';
 /* Documents: markdown pages (edited as rich text) that live on a project or a team —
    specs, briefs, runbooks. They show up as resources next to links. */
 
-export async function newDoc(owner: { projectId?: string; teamId?: string; initiativeId?: string }, navigate: (to: string) => void, template?: { title: string; content: string }) {
-  const { doc } = await api.createDoc({ ...owner, title: template?.title ?? '', content: template?.content ?? '' });
+export async function newDoc(owner: { projectId?: string; teamId?: string; initiativeId?: string }, navigate: (to: string) => void) {
+  const { doc } = await api.createDoc({ ...owner, title: '', content: '' });
   await useApp.getState().bootstrap();
   navigate(`/docs/${doc.id}`);
 }
@@ -53,10 +53,6 @@ export function Resources(props: { projectId?: string; teamId?: string; initiati
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={210}>
           <MenuItem icon={<IconDoc size={14} />} label="New document" onClick={() => void newDoc(owner, navigate)} />
-          {snap.docTemplates.length > 0 && <div className="menu-header"><span>From template</span></div>}
-          {snap.docTemplates.map(t => (
-            <MenuItem key={t.id} icon={<IconDoc size={14} />} label={t.name} onClick={() => void newDoc(owner, navigate, t)} />
-          ))}
           <MenuItem icon={<IconLink size={14} />} label="Add link…" onClick={() => setLinking(menu.anchor)} />
         </Menu>
       )}

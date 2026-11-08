@@ -164,9 +164,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/project-statuses': { scope: 'write', team: 'workspace' },
   'PATCH /api/project-statuses/:id': { scope: 'write', team: 'workspace' },
   'DELETE /api/project-statuses/:id': { scope: 'write', team: 'workspace' },
-  'POST /api/doc-templates': { scope: 'write', team: 'workspace' },
-  'PATCH /api/doc-templates/:id': { scope: 'write', team: 'workspace' },
-  'DELETE /api/doc-templates/:id': { scope: 'write', team: 'workspace' },
 
   // initiatives span teams
   'POST /api/initiatives': { scope: 'write', team: 'workspace' },

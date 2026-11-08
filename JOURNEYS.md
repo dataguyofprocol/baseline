@@ -87,7 +87,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Named project statuses, custom ones per category | ✅ | 6.4, 9.3 | Settings › Projects › Statuses |
 | Project page tabs, details panel (⌘I) | ✅ | 6.5 | |
 | Overview: hero, properties, resources, update, description, milestones | ✅ | 6.6 | |
-| Documents from resources (blank or template), editor page, team Documents tab | ✅ | 6.7 | templates in Settings › Documents (9.5) |
+| Documents from resources, editor page, team Documents tab | ✅ | 6.7 | |
 | Milestones with progress | ✅ | 6.8 | |
 | Updates with health; Activity tab | ✅ | 6.9 | |
 | Dependencies from the properties "…" menu | ✅ | 6.11 | |

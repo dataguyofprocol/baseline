@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -176,9 +176,6 @@ export const api = {
   updateProjectStatus: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/project-statuses/${id}`, b),
   deleteProjectStatus: (id: string) => req<{ ok: true }>('DELETE', `/api/project-statuses/${id}`),
   setProjectSubscription: (projectId: string, flags: Record<string, boolean>) => req<{ ok: true }>('PUT', `/api/projects/${projectId}/subscription`, flags),
-  createDocTemplate: (b: Record<string, unknown>) => req<{ template: DocTemplate }>('POST', '/api/doc-templates', b),
-  updateDocTemplate: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/doc-templates/${id}`, b),
-  deleteDocTemplate: (id: string) => req<{ ok: true }>('DELETE', `/api/doc-templates/${id}`),
   uploadAvatar: async (userId: string, file: File | null) => {
     const res = await fetch(`/api/users/${userId}/avatar${file ? `?file=${encodeURIComponent(file.name || 'avatar.png')}` : ''}`, { method: 'POST', headers: { 'Content-Type': file?.type || 'image/png' }, body: file ?? '' });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);

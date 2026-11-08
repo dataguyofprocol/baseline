@@ -440,13 +440,6 @@ function migrate(db: DatabaseSync): void {
       updates INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (project_id, user_id)
     );
-    CREATE TABLE IF NOT EXISTS doc_templates (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      title TEXT NOT NULL DEFAULT '',
-      content TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL
-    );
   `);
   const projCols = columns('projects');
   if (!projCols.includes('labels')) db.exec("ALTER TABLE projects ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
