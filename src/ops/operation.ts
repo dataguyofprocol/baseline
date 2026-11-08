@@ -3,7 +3,7 @@
 // block and the parity check are generated from it, and the MCP server registers it as is.
 //
 // An op body sees only an OpContext: a `Baseline` client, who it acts as, and the session key.
-// It never touches Store, SQLite, process.env, stdout or commander/MCP types.
+// It never touches Store, SQLite, the environment, stdout or commander/MCP types.
 import { z } from 'zod';
 import { BaselineError, ResolveError, TargetError, type Baseline } from '../client/index.js';
 

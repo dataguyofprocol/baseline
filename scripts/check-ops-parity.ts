@@ -2,12 +2,13 @@
 //   - an op has no `baseline agent` command, or `baseline agent` has a command that is no op
 //     (read from the real CLI's --help, so a wiring mistake shows);
 //   - a generated command lacks an argument or flag for an input field, or a field can't be a flag;
+//   - an op module reaches past the Baseline client (store, database, server, process, console);
 //   - the "Agent loop" block in skills/baseline/SKILL.md differs from the one generated from
 //     OPERATIONS. `--write` regenerates it instead (npm run gen:skill).
 //
 //   npx tsx scripts/check-ops-parity.ts [--write]
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Command } from 'commander';
 import { OPERATIONS } from '../src/ops/index.js';
@@ -47,7 +48,14 @@ for (const op of OPERATIONS as readonly AnyOperation[]) {
   if (!flags.includes('--json')) problems.push(`${op.name}: no --json`);
 }
 
-// 3. the skill's agent loop, generated
+// 3. op bodies reach Baseline only: no store, database or server, and no process state (stdout is MCP's protocol)
+for (const f of readdirSync(join(root, 'src/ops')).filter(f => f.endsWith('.ts'))) {
+  const text = readFileSync(join(root, 'src/ops', f), 'utf8');
+  if (/from '\.\.\/(server\/[^']+|core\/(store|db|work))\.js'/.test(text)) problems.push(`src/ops/${f} imports the server, the store or the database; operations go through the Baseline client`);
+  if (/\bprocess\.|console\./.test(text)) problems.push(`src/ops/${f} touches process or console; the front door (CLI or MCP) passes what an op needs in its context`);
+}
+
+// 4. the skill's agent loop, generated
 const START = '<!-- agent-loop:start — generated from src/ops/index.ts by `npm run gen:skill`; edit the operations, not this block -->';
 const END = '<!-- agent-loop:end -->';
 const block = [
