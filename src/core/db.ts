@@ -459,12 +459,6 @@ function migrate(db: DatabaseSync): void {
       content TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS emojis (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      url TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
   `);
   const projCols = columns('projects');
   if (!projCols.includes('labels')) db.exec("ALTER TABLE projects ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'");
@@ -499,7 +493,7 @@ function migrate(db: DatabaseSync): void {
   `);
   // a pre-release build kept file bytes outside the database; its table was never populated
   if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'files'").get() && !columns('files').includes('data')) db.exec('DROP TABLE files');
-  // uploaded images (avatars, emoji, pictures pasted into editors) — small by design, so the
+  // uploaded images (avatars, pictures pasted into editors) — small by design, so the
   // bytes live here too; owners are polymorphic, so files.ts deletes a file when its owner
   // goes rather than a foreign key
   db.exec(`

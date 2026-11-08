@@ -8,7 +8,7 @@ import type {
   ActivityItem, ActivityType, Attachment, RecurringIssue, ProjectTemplate, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, PreferencesPatch, EstimateScale,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
   RelationType, SavedView, Snapshot, Team, User, ViewFilters, GroupBy, OrderBy,
-  WorkflowState, WorkflowStateType, UpdateCadence, ProjectStatusDef, ProjectSubscription, ProjectLabel, DocTemplate, CustomEmoji,
+  WorkflowState, WorkflowStateType, UpdateCadence, ProjectStatusDef, ProjectSubscription, ProjectLabel, DocTemplate,
   WorkspaceFeatures,
 } from './types.js';
 import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES, DEFAULT_SECURITY, type WorkspaceSecurity } from './types.js';
@@ -112,7 +112,6 @@ export class Store {
       projectStatuses: rows<{ id: string; type: Project['status']; name: string; color: string; description: string; position: number }>('SELECT * FROM project_statuses ORDER BY position').map(x => ({ id: x.id, type: x.type, name: x.name, color: x.color, description: x.description, position: x.position })),
       projectSubscriptions: rows<{ project_id: string; user_id: string; issue_added: number; issue_closed: number; comments: number; updates: number }>('SELECT * FROM project_subscriptions').map(x => ({ projectId: x.project_id, userId: x.user_id, issueAdded: !!x.issue_added, issueClosed: !!x.issue_closed, comments: !!x.comments, updates: !!x.updates })),
       docTemplates: rows<{ id: string; name: string; title: string; content: string; created_at: string }>('SELECT * FROM doc_templates ORDER BY created_at').map(t => ({ id: t.id, name: t.name, title: t.title, content: t.content, createdAt: t.created_at })),
-      emojis: rows<{ id: string; name: string; url: string; created_at: string }>('SELECT * FROM emojis ORDER BY name').map(e => ({ id: e.id, name: e.name, url: e.url, createdAt: e.created_at })),
       recurring: rows<{ id: string; team_id: string; title: string; description: string; priority: number; assignee_id: string | null; labels: string; project_id: string | null; cadence: string; next_at: string; created_at: string }>('SELECT * FROM recurring_issues ORDER BY created_at').map(r => ({ id: r.id, teamId: r.team_id, title: r.title, description: r.description, priority: r.priority as Priority, assigneeId: r.assignee_id, labelIds: JSON.parse(r.labels), projectId: r.project_id, cadence: r.cadence as RecurringIssue['cadence'], nextAt: r.next_at, createdAt: r.created_at })),
       projectTemplates: rows<{ id: string; name: string; icon: string; summary: string; description: string; status: string; priority: number; milestones: string; issues: string; created_at: string }>('SELECT * FROM project_templates ORDER BY created_at').map(t => ({ id: t.id, name: t.name, icon: t.icon, summary: t.summary, description: t.description, status: t.status as Project['status'], priority: t.priority as Priority, milestones: JSON.parse(t.milestones), issues: JSON.parse(t.issues), createdAt: t.created_at })),
       projectRelations: rows<{ id: string; project_id: string; related_id: string; type: string }>('SELECT * FROM project_relations').map(r => ({ id: r.id, projectId: r.project_id, relatedProjectId: r.related_id, type: 'blocks' as const })),
@@ -1246,16 +1245,6 @@ export class Store {
   }
   deleteDocTemplate(templateId: string): void { this.db.prepare('DELETE FROM doc_templates WHERE id = ?').run(templateId); }
 
-  // ---------- custom emojis ----------
-  addEmoji(name: string, url: string): CustomEmoji {
-    const e: CustomEmoji = { id: id('em'), name: name.toLowerCase().replace(/[^a-z0-9_-]/g, ''), url, createdAt: ts() };
-    if (!e.name) throw new Error('Emoji name needs letters or numbers');
-    if (this.db.prepare('SELECT 1 FROM emojis WHERE name = ?').get(e.name)) throw new Error(`:${e.name}: already exists`);
-    this.db.prepare('INSERT INTO emojis (id, name, url, created_at) VALUES (?, ?, ?, ?)').run(e.id, e.name, e.url, e.createdAt);
-    return e;
-  }
-  deleteEmoji(emojiId: string): void { this.db.prepare('DELETE FROM emojis WHERE id = ?').run(emojiId); }
-
   // ---------- activity ----------
   logActivity(e: { issueId?: string; projectId?: string; type: ActivityType; data?: Record<string, unknown> }, actorId?: string): void {
     const uid = actorId ?? this.actor();
@@ -1392,7 +1381,6 @@ export class Store {
       this.db.prepare('INSERT INTO files (id, name, mime, size, sha256, owner_type, owner_id, uploaded_by, created_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(String(f.id), String(f.name ?? 'image'), String(f.mime ?? 'application/octet-stream'), bytes.length, String(f.sha256 ?? ''), String(f.ownerType), String(f.ownerId ?? ''), (f.uploadedBy as string | null) ?? null, String(f.createdAt ?? ts()), bytes);
     }
-    for (const x of arr<Record<string, unknown>>(data.emojis)) insert('emojis', ['id', 'name', 'url', 'created_at'], { ...x, created_at: x.createdAt ?? ts() });
     for (const p of arr<Record<string, unknown>>(data.projects)) this.db.prepare('UPDATE projects SET labels = ?, status_id = ?, update_cadence = ? WHERE id = ?').run(JSON.stringify(p.labelIds ?? []), (p.statusId as string | null) ?? null, (p.updateCadence as string | null) ?? null, p.id as string);
     if (ws && (ws as { features?: WorkspaceFeatures }).features) setMeta(this.db, 'features', JSON.stringify((ws as { features?: WorkspaceFeatures }).features));
     this.ext.importData(data, insert);
@@ -1405,7 +1393,7 @@ export class Store {
   }
   wipe(): void {
     for (const t of this.ext.tables) this.db.exec(`DELETE FROM ${t};`);
-    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'emojis', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'doc_templates', 'documents', 'team_links', 'project_templates', 'project_relations', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
     ensureDefaults(this.db);

@@ -5,7 +5,7 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, AdminLock, ADMIN_NOTE, useCanConfigure, useInFlight } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconUpdates, IconInitiative, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconUpdates, IconInitiative, IconLoop, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
 import { HostedMembersSettings, SecuritySettings as WorkspaceSecuritySettings, TeamMembersSettings } from './Members.js';
@@ -15,7 +15,7 @@ import { SlaSettings, LoopsSettings } from './AutomationUI.js';
 import { GitHubSettings, PrAutomationSettings } from './GitHubUI.js';
 import { CustomizeSidebar, TeamJoinChip } from './Workspace.js';
 import { SecuritySettings, NewApiKey, ApiAdminSettings } from './ApiKeysUI.js';
-import { InitiativesSettings, ProjectLabelsSettings, ProjectStatusesSettings, ProjectUpdatesSettings, DocumentsSettings, EmojisSettings } from './SettingsMore.js';
+import { InitiativesSettings, ProjectLabelsSettings, ProjectStatusesSettings, ProjectUpdatesSettings, DocumentsSettings } from './SettingsMore.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
 import { TERMINAL_APPS, NOTIFY_CATEGORIES, type NotifyCategory, type WorkflowStateType, type Priority, type TerminalApp } from '../../src/core/types.js';
 import { readInboxPrefs, writeInboxPrefs, DEFAULT_PRIORITY_CATS } from './Inbox.js';
@@ -24,7 +24,7 @@ export const SETTINGS_NAV: Array<{ sec: string; items: Array<[string, string]> }
   { sec: 'Personal', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Security & access', 'security'], ['Keyboard shortcuts', 'shortcuts']] },
   { sec: 'Issues', items: [['Labels', 'labels'], ['Templates', 'templates'], ['SLAs', 'slas']] },
   { sec: 'Projects', items: [['Labels', 'project-labels'], ['Templates', 'project-templates'], ['Statuses', 'project-statuses'], ['Updates', 'project-updates']] },
-  { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Documents', 'documents'], ['Loops', 'loops'], ['Emojis', 'emojis']] },
+  { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Documents', 'documents'], ['Loops', 'loops']] },
   { sec: 'Integrations', items: [['GitHub', 'github']] },
   { sec: 'Administration', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Security', 'workspace-security'], ['API', 'api'], ['Coding tools', 'handoff'], ['Import & export', 'data']] },
 ];
@@ -34,7 +34,7 @@ const SETTINGS_ICONS: Record<string, React.ReactNode> = {
   labels: <IconTag size={14} />, templates: <IconDoc size={14} />, slas: <IconSla size={14} />,
   'project-labels': <IconTag size={14} />, 'project-templates': <IconDoc size={14} />, 'project-statuses': <IconStatusRing size={14} />, 'project-updates': <IconUpdates size={14} />,
   initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />,
-  loops: <IconLoop size={14} />, emojis: <IconEmoji size={14} />, github: <IconPr size={14} />,
+  loops: <IconLoop size={14} />, github: <IconPr size={14} />,
   workspace: <IconSettings size={14} />, teams: <IconTeam size={14} />, members: <IconUsers size={14} />, handoff: <IconAgent size={14} />, data: <IconArchive size={14} />,
 };
 
@@ -122,7 +122,6 @@ function SettingsPage() {
       {section === 'project-statuses' && <ProjectStatusesSettings />}
       {section === 'project-updates' && <ProjectUpdatesSettings />}
       {section === 'documents' && <DocumentsSettings />}
-      {section === 'emojis' && <EmojisSettings />}
       {section === 'slas' && <SlaSettings />}
       {section === 'loops' && <LoopsSettings />}
       {section === 'github' && <GitHubSettings />}

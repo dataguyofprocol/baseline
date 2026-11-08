@@ -1,14 +1,13 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from './store.js';
 import { api } from './api.js';
-import { ConfirmButton, useCanConfigure } from './ui.js';
 import { IconPlus, IconTrash, IconSearch } from './icons.js';
 import { ProjectStatusIcon, PROJECT_STATUS } from './Projects.js';
 import { UPDATE_CADENCE_LABELS, type UpdateCadence, type WorkspaceFeatures } from '../../src/core/types.js';
 
 /* Settings pages Linear keeps under Projects (Labels, Statuses, Updates) and Features
-   (Documents, Emojis). */
+   (Documents). */
 
 const COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
 const nextColor = (c: string) => COLORS[(COLORS.indexOf(c) + 1) % COLORS.length];
@@ -255,45 +254,6 @@ export function DocumentsSettings() {
         ))}
         {!snap.docTemplates.length && <div className="set-empty">No document templates</div>}
         <div className="set-row"><button className="btn secondary sm" onClick={startNew}><IconPlus size={12} /> New template</button></div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- emojis ---------------- */
-export function EmojisSettings() {
-  const snap = useApp(s => s.snap)!;
-  // anyone can add an emoji; removing one is admins' (hosted)
-  const canConfigure = useCanConfigure();
-  const [name, setName] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [err, setErr] = useState('');
-  const input = useRef<HTMLInputElement>(null);
-  const upload = async () => {
-    if (!file || !name.trim()) return;
-    try { await api.uploadEmoji(name.trim(), file); setName(''); setFile(null); setErr(''); await refresh(); }
-    catch (e) { setErr((e as Error).message); }
-  };
-  return (
-    <div className="settings-card">
-      <h1>Emojis</h1>
-      <div className="field-help" style={{ marginBottom: 14 }}>Custom emojis work in reactions and as <code>:name:</code> in descriptions and comments.{canConfigure ? '' : ' Only admins can remove one.'}</div>
-      <div className="card set-list">
-        <div className="set-row">
-          <button className="btn secondary sm" onClick={() => input.current?.click()}>{file ? file.name : 'Choose image…'}</button>
-          <input ref={input} type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); if (!name) setName(f.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9_-]/g, '')); } e.target.value = ''; }} />
-          <input className="text-input" placeholder="name" value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') void upload(); }} />
-          <button className="btn primary sm" disabled={!file || !name.trim()} onClick={upload}>Upload</button>
-        </div>
-        {err && <div className="set-empty" style={{ color: 'var(--danger, #e5484d)' }}>{err}</div>}
-        {snap.emojis.map(e => (
-          <div key={e.id} className="set-row group">
-            <img src={e.url} alt={e.name} width={20} height={20} style={{ objectFit: 'contain' }} />
-            <code style={{ flex: 1 }}>:{e.name}:</code>
-            {canConfigure && <ConfirmButton className="btn ghost sm" label="Delete" confirmLabel="Delete?" onConfirm={async () => { await api.deleteEmoji(e.id); await refresh(); }} />}
-          </div>
-        ))}
-        {!snap.emojis.length && <div className="set-empty">No emojis</div>}
       </div>
     </div>
   );

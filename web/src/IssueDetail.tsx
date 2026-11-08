@@ -100,14 +100,6 @@ function useActivityText() {
 
 export const REACTION_SET = ['👍', '👎', '❤️', '🎉', '🚀', '😄', '👀', '🙏'];
 
-/** a reaction key: a unicode emoji, or :name: for a custom emoji */
-export function EmojiGlyph({ value }: { value: string }) {
-  const emojis = useApp(s => s.snap?.emojis ?? []);
-  const m = /^:([a-z0-9_-]+):$/.exec(value);
-  const custom = m && emojis.find(e => e.name === m[1]);
-  return custom ? <img className="custom-emoji" src={custom.url} alt={value} title={value} /> : <>{value}</>;
-}
-
 /* ---------------- comments & threads ---------------- */
 function Reactions(props: { comment: Comment }) {
   return <ReactionChips reactions={props.comment.reactions} onToggle={async emoji => { await api.toggleReaction(props.comment.id, emoji); await useApp.getState().bootstrap(); }} />;
@@ -123,7 +115,7 @@ export function ReactionChips(props: { reactions: Record<string, string[]>; onTo
         <button key={emoji} className={`reaction-chip ${userIds.includes(snap.currentUser.id) ? 'mine' : ''}`}
           title={userIds.map(id => snap.users.find(u => u.id === id)?.name ?? '?').join(', ')}
           onClick={() => props.onToggle(emoji)}>
-          <EmojiGlyph value={emoji} /> {userIds.length}
+          {emoji} {userIds.length}
         </button>
       ))}
       {props.children}
@@ -172,9 +164,9 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
       {reactMenu.anchor && (
         <Menu anchor={reactMenu.anchor} onClose={reactMenu.close} width={196}>
           <div className="reaction-grid">
-            {[...REACTION_SET, ...snap.emojis.map(e => `:${e.name}:`)].map(emoji => (
+            {REACTION_SET.map(emoji => (
               <button key={emoji} className="reaction-pick" title={emoji}
-                onClick={async () => { await api.toggleReaction(c.id, emoji); await useApp.getState().bootstrap(); reactMenu.close(); }}><EmojiGlyph value={emoji} /></button>
+                onClick={async () => { await api.toggleReaction(c.id, emoji); await useApp.getState().bootstrap(); reactMenu.close(); }}>{emoji}</button>
             ))}
           </div>
         </Menu>

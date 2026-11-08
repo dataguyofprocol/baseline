@@ -195,7 +195,6 @@ check('…and so is its activity', created.user_id === ada.id);
   const ids: Record<string, string> = {
     team: team.team.id, doomed: store.createTeam('TMP', 'Temporary').id, label: await idOf(labelRes, 'label'),
     projectLabel: await idOf(projectLabelRes, 'label'), initiativeLabel: await idOf(initiativeLabelRes, 'label'),
-    emoji: store.addEmoji('shipit', '/files/shipit.png').id,
   };
 
   // each route a member is refused and an admin isn't; `save` keeps the id an admin's create returns
@@ -237,7 +236,6 @@ check('…and so is its activity', created.user_id === ada.id);
     // the admin gets past the gate to the repo-name check (a real import would run gh)
     { name: 'import GitHub issues', method: 'POST', path: () => '/api/github/issues/import', body: { repo: 'not a repo', teamId: ids.team }, adminStatus: 400 },
     { name: 'follow a GitHub repo\'s issues', method: 'PUT', path: () => '/api/github/issues/follow', body: { repo: 'acme/app', teamId: ids.team } },
-    { name: 'remove a custom emoji', method: 'DELETE', path: () => `/api/emojis/${ids.emoji}` },
     { name: 'delete a team', method: 'DELETE', path: () => `/api/teams/${ids.doomed}` },
   ];
   for (const r of routes) {

@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -183,17 +183,11 @@ export const api = {
   createDocTemplate: (b: Record<string, unknown>) => req<{ template: DocTemplate }>('POST', '/api/doc-templates', b),
   updateDocTemplate: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/doc-templates/${id}`, b),
   deleteDocTemplate: (id: string) => req<{ ok: true }>('DELETE', `/api/doc-templates/${id}`),
-  uploadEmoji: async (name: string, file: File) => {
-    const res = await fetch(`/api/emojis?name=${encodeURIComponent(name)}&file=${encodeURIComponent(file.name || 'emoji.png')}`, { method: 'POST', headers: { 'Content-Type': file.type || 'image/png' }, body: file });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
-    return res.json() as Promise<{ emoji: CustomEmoji }>;
-  },
   uploadAvatar: async (userId: string, file: File | null) => {
     const res = await fetch(`/api/users/${userId}/avatar${file ? `?file=${encodeURIComponent(file.name || 'avatar.png')}` : ''}`, { method: 'POST', headers: { 'Content-Type': file?.type || 'image/png' }, body: file ?? '' });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
     return res.json() as Promise<{ avatarUrl: string | null }>;
   },
-  deleteEmoji: (id: string) => req<{ ok: true }>('DELETE', `/api/emojis/${id}`),
   createTeam: (b: Record<string, unknown>) => req<{ team: Team }>('POST', '/api/teams', b),
   updateTeam: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/teams/${id}`, patch),
   deleteTeam: (id: string) => req<{ ok: true }>('DELETE', `/api/teams/${id}`),

@@ -2184,7 +2184,7 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .bell-sub { font-size: 12px; color: var(--text-secondary); }
 .menu-empty { padding: 8px 10px; font-size: 12px; color: var(--text-dim); }
 
-/* ---------- settings lists (project labels, statuses, documents, emojis) ---------- */
+/* ---------- settings lists (project labels, statuses, documents) ---------- */
 .settings-card.wide { max-width: 860px; }
 .set-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .set-head h1 { margin: 0; }
@@ -2204,7 +2204,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .set-name:hover { background: var(--bg-active, var(--bg-hover)); }
 .set-name-input { max-width: 260px; }
 .set-icon { display: inline-flex; padding: 2px; border-radius: 4px; }
-.custom-emoji { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align: -0.25em; display: inline-block; }
 .nav-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); margin-left: auto; margin-right: 4px; flex: none; }
 
 /* ---------- workspace tables (teams, members) ---------- */

@@ -50,7 +50,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | I, ⇧S, ⌥F, ⇧R, ⌘⇧O | ✅ | 4.3 | |
 | Property menus: filter field and number keys | ✅ | 4.4 | |
 | One activity timeline | ✅ | 4.5 | |
-| Comment threads: post, react, reply, resolve, edit, delete | ✅ | 4.6 | custom emojis in reactions (9.8) |
+| Comment threads: post, react, reply, resolve, edit, delete | ✅ | 4.6 | |
 | Subscribe / unsubscribe | ✅ | 4.7 | |
 | @mentions notify; issue keys link | ✅ | 4.8 | |
 | Links (⌃L) | ✅ | 4.9 | |
@@ -118,7 +118,6 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 |---|---|---|---|
 | Settings nav: Account · Issues · Projects · Features · Administration · Your teams | ✅ | 9.1 | |
 | Account: Preferences, Profile, Notifications | ✅ | 9.2 | |
-| Custom emojis | ✅ | 9.8 | |
 | Administration pages | ✅ | 9.12 | |
 | Per-team settings | ✅ | 9.13 | |
 | Keyboard shortcuts reference, searchable | ✅ | 9.14 | |

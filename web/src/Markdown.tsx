@@ -70,32 +70,6 @@ export function Markdown({ text }: { text: string }) {
         t.replaceWith(frag);
       }
     }
-    // :name: of a custom emoji becomes its image
-    if (snap?.emojis.length) {
-      const byName = new Map(snap.emojis.map(e => [e.name, e.url]));
-      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-      const texts: Text[] = [];
-      while (walker.nextNode()) texts.push(walker.currentNode as Text);
-      for (const t of texts) {
-        if (t.parentElement?.closest('code, pre')) continue;
-        const value = t.nodeValue ?? '';
-        if (!/:[a-z0-9_-]+:/.test(value)) continue;
-        const frag = doc.createDocumentFragment();
-        let last = 0;
-        for (const m of value.matchAll(/:([a-z0-9_-]+):/g)) {
-          const url = byName.get(m[1]);
-          if (!url) continue;
-          frag.append(value.slice(last, m.index));
-          const img = doc.createElement('img');
-          img.src = url; img.alt = m[0]; img.title = m[0]; img.className = 'custom-emoji';
-          frag.append(img);
-          last = (m.index ?? 0) + m[0].length;
-        }
-        if (last === 0) continue;
-        frag.append(value.slice(last));
-        t.replaceWith(frag);
-      }
-    }
     return sanitize(doc.body.innerHTML);
   }, [text, snap]);
   if (!html) return null;

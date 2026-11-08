@@ -519,7 +519,7 @@
   /* ================= 9. settings & workspace pages ================= */
   S('settings', async t => {
     await t.run('9.1 Settings nav mirrors Linear: Account · Issues · Projects · Features · Administration · Your teams', async () => {
-      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Documents', 'Emojis', 'Security & access', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
+      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Documents', 'Security & access', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
       if (miss.length) t.fail('missing ' + miss); return 'all sections';
     });
     await t.run('9.2 Account pages: Preferences, Profile, Notifications', async () => {
@@ -537,14 +537,6 @@
     });
     await t.run('9.5 Documents settings: document templates', async () => {
       await t.nav('/settings/documents', 800); if (!t.text().includes('Spec')) t.fail('no template'); return 'template listed (used in 6.7)';
-    });
-    await t.run('9.8 Custom emojis: upload, react with it, :name: renders', async () => {
-      await t.nav('/settings/emojis', 800); const svg = new File([`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#5e6ad2"/></svg>`], 'shipit.svg', { type: 'image/svg+xml' });
-      const inp = t.q('.settings-content input[type=file]'); const dt = new DataTransfer(); dt.items.add(svg); inp.files = dt.files; inp.dispatchEvent(new Event('change', { bubbles: true })); await sleep(300); await t.click(t.byText('Upload'), 1000);
-      const e = (await t.snap()).emojis.find(x => x.name === 'shipit'); if (!e) t.fail('not uploaded');
-      const id = (await t.issue('CORE-5')).id; await t.post(`/api/issues/${id}/comments`, { body: 'Harness :shipit:' }); await t.sync(); await t.nav('/issue/CORE-5', 900);
-      const img = t.qa('.cmt img.custom-emoji').length; const c = t.qa('.cmt').find(x => x.innerText.includes('Harness')); await t.click(c.querySelector('[title="Add reaction"]'), 400); const inPicker = !!t.q('.menu:not(.closing) img.custom-emoji'); await t.closeAll();
-      if (!img || !inPicker) t.fail(`rendered ${img} picker ${inPicker}`); return ':shipit: uploaded, rendered in a comment, offered in the reaction picker';
     });
     await t.run('9.10 Teams page and Members page', async () => {
       await t.nav('/teams', 800); const tt = t.q('.wt-head')?.innerText ?? ''; const tr = t.qa('.wt-row').length; await t.nav('/members', 800); const mt = t.q('.wt-head')?.innerText ?? ''; const mr = t.qa('.wt-row').length;
@@ -715,7 +707,7 @@
       const s = await t.snap(); const p = s.projects[0].id; const d = s.docs[0].id; const cyc = s.cycles.find(x => x.teamId === s.teams[0].id).id;
       const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`),
         '/team/CORE/all', '/team/CORE/active', '/team/CORE/backlog', '/team/CORE/overview', '/team/CORE/overview/documents', '/team/CORE/overview/members', '/team/CORE/cycles', `/team/CORE/cycles/${cyc}`, '/team/CORE/projects', '/team/CORE/views', '/team/CORE/views/projects', '/team/AGO/triage', '/team/CORE/archive', '/trash', '/search', `/docs/${d}`, '/issue/CORE-1',
-        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'emojis', 'slas', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
+        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'slas', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
       const errs = []; const orig = console.error; console.error = (...a) => { errs.push(location.hash + ' ' + a.map(String).join(' ').slice(0, 120)); orig(...a); };
       for (const r of routes) { location.hash = '#' + r; await sleep(420); }
       console.error = orig; if (errs.length) t.fail(errs.slice(0, 4).join(' | ')); return routes.length + ' routes, no console errors';

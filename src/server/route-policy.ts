@@ -98,8 +98,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'GET /api/emoji-files/:id/:name': { scope: 'read', team: 'file' },
   'PATCH /api/attachments/:id': { scope: 'write', team: 'file' },
   'DELETE /api/attachments/:id': { scope: 'write', team: 'file' },
-  'POST /api/emojis': { scope: 'write', team: 'workspace' },
-  'DELETE /api/emojis/:id': { scope: 'write', team: 'workspace' },
 
   // teams and their setup
   'POST /api/teams': { scope: 'admin', team: 'workspace' },

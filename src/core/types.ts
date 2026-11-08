@@ -175,10 +175,10 @@ export interface Attachment {
 }
 
 /** what an uploaded file belongs to; the file is deleted when its owner is */
-export type FileOwnerType = 'issue' | 'doc' | 'project' | 'initiative' | 'team' | 'avatar' | 'emoji' | 'workspace';
-export const FILE_OWNER_TYPES: FileOwnerType[] = ['issue', 'doc', 'project', 'initiative', 'team', 'avatar', 'emoji', 'workspace'];
+export type FileOwnerType = 'issue' | 'doc' | 'project' | 'initiative' | 'team' | 'avatar' | 'workspace';
+export const FILE_OWNER_TYPES: FileOwnerType[] = ['issue', 'doc', 'project', 'initiative', 'team', 'avatar', 'workspace'];
 
-/** an uploaded image (profile picture, emoji, picture pasted into an editor); its bytes live in SQLite */
+/** an uploaded image (profile picture, picture pasted into an editor); its bytes live in SQLite */
 export interface StoredFile {
   id: string;
   name: string;
@@ -388,8 +388,6 @@ export interface ProjectSubscription { projectId: string; userId: string; issueA
 /** workspace document templates (Settings › Documents) */
 export interface DocTemplate { id: string; name: string; title: string; content: string; createdAt: string }
 
-/** custom emoji, usable as :name: and in reactions */
-export interface CustomEmoji { id: string; name: string; url: string; createdAt: string }
 
 
 /** workspace feature settings (Settings › Features and Settings › Projects) */
@@ -853,7 +851,6 @@ export interface Snapshot {
   projectStatuses: ProjectStatusDef[];
   projectSubscriptions: ProjectSubscription[];
   docTemplates: DocTemplate[];
-  emojis: CustomEmoji[];
   initiatives: Initiative[];
   initiativeUpdates: InitiativeUpdate[];
   initiativeLabels: InitiativeLabel[];
@@ -891,7 +888,7 @@ const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   workspace: true, users: true, teams: true, states: true, labels: true, templates: true, issues: true, comments: true,
   attachments: true, subscriptions: true, relations: true, projects: true, projectLinks: true, docs: true, teamLinks: true,
   projectTemplates: true, projectRelations: true, projectLabels: true, projectStatuses: true, projectSubscriptions: true,
-  docTemplates: true, emojis: true,
+  docTemplates: true,
   initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, slaRules: true,
   loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
   teamSubscriptions: true, teamWorkflows: true, recurring: true, locations: true, projectUpdates: true, milestones: true,

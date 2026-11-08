@@ -6,7 +6,7 @@ import type { FileOwnerType, StoredFile } from './types.js';
 import { FILE_OWNER_TYPES } from './types.js';
 import { id as newId, nowIso } from './util.js';
 
-/* Images: profile pictures, custom emoji, and pictures pasted into descriptions, comments and
+/* Images: profile pictures and pictures pasted into descriptions, comments and
    docs. They are small by design (Baseline doesn't host file attachments — link to them), so
    the bytes live in SQLite next to everything else: one database file is the whole backup.
    A file lives as long as its owner; gc() deletes those whose owner is gone. */
@@ -17,14 +17,13 @@ export class FileError extends Error {
 
 /** pictures pasted into editors, and profile pictures */
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
-export const MAX_EMOJI_BYTES = 256 * 1024;
 
 interface FileRow { id: string; name: string; mime: string; size: number; sha256: string; owner_type: string; owner_id: string; uploaded_by: string | null; created_at: string }
 const META_COLS = 'id, name, mime, size, sha256, owner_type, owner_id, uploaded_by, created_at';
 
 /** the table that must hold an owner's id for the owner to exist */
 const OWNER_TABLE: Record<Exclude<FileOwnerType, 'workspace'>, string> = {
-  issue: 'issues', doc: 'documents', project: 'projects', initiative: 'initiatives', team: 'teams', avatar: 'users', emoji: 'emojis',
+  issue: 'issues', doc: 'documents', project: 'projects', initiative: 'initiatives', team: 'teams', avatar: 'users',
 };
 
 /** what image the bytes are — null when they aren't one we take */
@@ -154,11 +153,6 @@ export class FileService {
       const t = tail(u.avatar_url, '/api/emoji-files/');
       const f = t && copy(t.fileId, t.name, 'avatar', u.id, u.id, null);
       if (f) this.db.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').run(f.url, u.id);
-    }
-    for (const e of this.db.prepare("SELECT id, url, created_at FROM emojis WHERE url LIKE '/api/emoji-files/%'").all() as Array<{ id: string; url: string; created_at: string }>) {
-      const t = tail(e.url, '/api/emoji-files/');
-      const f = t && copy(t.fileId, t.name, 'emoji', e.id, null, e.created_at);
-      if (f) this.db.prepare('UPDATE emojis SET url = ? WHERE id = ?').run(f.url, e.id);
     }
     return moved;
   }

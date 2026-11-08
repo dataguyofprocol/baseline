@@ -16,7 +16,7 @@ import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
 import { Markdown } from './Markdown.js';
 import { ProjectStatusIcon, projectProgress, namedStatus, ProgressRing, ProjectBoard, ProjectTimeline, groupProjects } from './Projects.js';
 import { Resources } from './Docs.js';
-import { ReactionChips, EmojiGlyph, REACTION_SET } from './IssueDetail.js';
+import { ReactionChips, REACTION_SET } from './IssueDetail.js';
 import { Illustration } from './illustrations.js';
 import {
   IconPlus, IconClose, IconTrash, IconCalendar, IconUser, IconInitiative, IconCheck, IconFilter, IconDisplay, IconLink, IconEdit, IconChevronDown,
@@ -712,7 +712,6 @@ function InitiativeUpdateDue({ ini }: { ini: Initiative }) {
 
 /** reactions on an initiative update, with the add-reaction button */
 function UpdateReactions({ update }: { update: InitiativeUpdate }) {
-  const snap = useApp(s => s.snap)!;
   const menu = useMenu();
   const toggle = async (emoji: string) => { await api.toggleInitiativeUpdateReaction(update.id, emoji); await refresh(); };
   return (
@@ -723,8 +722,8 @@ function UpdateReactions({ update }: { update: InitiativeUpdate }) {
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={196}>
           <div className="reaction-grid">
-            {[...REACTION_SET, ...snap.emojis.map(e => `:${e.name}:`)].map(emoji => (
-              <button key={emoji} className="reaction-pick" title={emoji} onClick={async () => { await toggle(emoji); menu.close(); }}><EmojiGlyph value={emoji} /></button>
+            {REACTION_SET.map(emoji => (
+              <button key={emoji} className="reaction-pick" title={emoji} onClick={async () => { await toggle(emoji); menu.close(); }}>{emoji}</button>
             ))}
           </div>
         </Menu>

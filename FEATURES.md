@@ -92,7 +92,6 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Update schedule (Settings › Projects › Updates, or per project): next-due hint under the update card; leads get an inbox reminder when an update is due
 - ✅ Project updates summary in the inbox: daily / weekly (default) / off per person in Settings › Notifications; counts new updates on projects you lead, are a member of, or follow; the preview lists each update
 - ✅ Document templates (Settings › Documents) offered in "Add document or link…"
-- ✅ Custom emojis (Settings › Emojis): reactions and :name: in Markdown
 - ✅ Initiatives (sidebar, G then N): Active / Planned / All, owner, target, health from updates, projects and sub-initiatives, progress across their projects; a project's properties show its initiatives
 - ✅ Project saved views: Views has Issues | Projects tabs; a project view keeps filters, grouping, ordering, layout and properties; ⌥V saves whatever list is on screen
 

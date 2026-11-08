@@ -22,7 +22,7 @@ import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
 import { isSnapshotSection, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
 import { WEBHOOK_MAX_BYTES, WEBHOOK_PATH } from '../core/webhooks.js';
-import { FileError, FileService, MAX_EMOJI_BYTES, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
+import { FileError, FileService, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
@@ -50,7 +50,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const changes = new ChangeFeed(db);
   const hosted = auth.mode === 'hosted';
   const { planning, automation, git, apiKeys, webhooks, work } = store.ext;
-  // images (avatars, emoji, pasted pictures) live in the database; pick up any from the old uploads folder
+  // images (avatars, pasted pictures) live in the database; pick up any from the old uploads folder
   const files = new FileService(db, join(dirname(dbPath), 'attachments'));
   const moved = files.migrateLegacy();
   if (moved) console.error(`[baseline] moved ${moved} upload(s) into the database`);
@@ -132,7 +132,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     attributed(c, requested, (actorId) => write(actorId ?? actor(c)));
   const isAdmin = (userId: string) => !!(db.prepare('SELECT admin FROM users WHERE id = ?').get(userId) as { admin: number } | undefined)?.admin;
 
-  // a delete may have taken an image's owner with it (an issue purged, a doc, a team, an emoji):
+  // a delete may have taken an image's owner with it (an issue purged, a doc, a team):
   // sweep orphaned images after each delete, and hourly for deletes that happen on their own (trash expiry)
   const sweepFiles = () => { const n = files.gc(); if (n) console.error(`[baseline] deleted ${n} image(s) whose owner is gone`); };
   app.use('/api/*', async (c, next) => {
@@ -188,7 +188,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     ['PUT', '/api/git/automation/:teamId'],
     ['PUT', '/api/github/webhook/config'], ['POST', '/api/github/webhook/secret'], ['DELETE', '/api/github/webhook/secret'],
     ['POST', '/api/github/issues/import'], ['PUT', '/api/github/issues/follow'],
-    ['DELETE', '/api/emojis/:id'],
   ];
   for (const [method, path] of configRoutes) app.on(method, path, adminOnly);
   mountMembers(app, { store, accounts, mailer, hosted: hosted ? auth : null });
@@ -848,7 +847,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // ---------- document templates, emojis ----------
+  // ---------- document templates ----------
   app.post('/api/doc-templates', async (c) => {
     const b = await c.req.json();
     if (!b.name) return c.json({ error: 'name is required' }, 400);
@@ -856,17 +855,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.patch('/api/doc-templates/:id', async (c) => { store.updateDocTemplate(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/doc-templates/:id', (c) => { store.deleteDocTemplate(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/emojis', async (c) => {
-    const name = String(c.req.query('name') ?? '');
-    try {
-      const f = files.upload({ data: await readUpload(c, MAX_EMOJI_BYTES), name: c.req.query('file') || 'emoji.png', ownerType: 'workspace', ownerId: '', uploadedBy: actor(c), maxBytes: MAX_EMOJI_BYTES });
-      try {
-        const emoji = store.addEmoji(name, f.url);
-        files.reassign(f.id, 'emoji', emoji.id);
-        return c.json({ emoji }, 201);
-      } catch (err) { files.remove(f.id); return c.json({ error: (err as Error).message }, 400); }
-    } catch (err) { return uploadFailed(c, err); }
-  });
   // Settings › Profile › Profile picture (an empty body removes it)
   app.post('/api/users/:id/avatar', async (c) => {
     const userId = c.req.param('id');
@@ -880,7 +868,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       return c.json({ avatarUrl }, avatarUrl ? 201 : 200);
     } catch (err) { return uploadFailed(c, err); }
   });
-  app.delete('/api/emojis/:id', (c) => { store.deleteEmoji(c.req.param('id')); return c.json({ ok: true }); });
 
 
   // ---------- search ----------
