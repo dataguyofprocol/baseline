@@ -1757,6 +1757,8 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .cmt.reply { padding-left: 14px; border-top: 1px solid var(--hairline); }
 .cmt-head { display: flex; align-items: center; gap: 8px; }
 .cmt-author { font-weight: 590; font-size: 13px; }
+/* "Claude Code via Parth": the person an agent wrote for, after its name */
+.via { margin-left: 0.3em; color: var(--text-secondary); font-weight: 400; }
 .cmt-actions { display: inline-flex; gap: 1px; opacity: 0; transition: opacity 110ms ease; }
 .cmt:hover .cmt-actions, .cmt:focus-within .cmt-actions { opacity: 1; }
 .cmt-actions .icon-btn { width: 24px; height: 24px; color: var(--text-dim); }

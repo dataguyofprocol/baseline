@@ -486,3 +486,9 @@ export function AdminLock(props: { children: React.ReactNode; note?: string }) {
     <fieldset disabled className="admin-locked">{props.children}</fieldset>
   </>;
 }
+
+/** the muted "via Parth" after an agent's name on what it wrote for someone; nothing for a person's own writes */
+export function Via({ userId }: { userId: string | null }) {
+  const name = useApp(s => userId ? s.snap?.users.find(u => u.id === userId)?.name : undefined);
+  return name ? <span className="via">via {name}</span> : null;
+}

@@ -4,7 +4,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useApp, shortDate, relTime, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, MenuSub, useMenu, Modal, RegisterMark, useInFlight } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, Modal, RegisterMark, useInFlight, Via } from './ui.js';
 import { Avatar, PriorityIcon, CalendarGrid, StateIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
@@ -1241,7 +1241,7 @@ function UpdateComposer(props: { project: Project; latest?: Snap['projectUpdates
     <div className="update-card">
       <div className="update-head">
         {u.health && <span className="update-health" style={{ color: healthColor(u.health) }}><span className="health-dot" style={{ background: healthColor(u.health) }} />{healthLabel(u.health)}</span>}
-        <Avatar user={author} size={18} /><b>{author?.name}</b><span className="rel-time">{relTime(u.createdAt)}</span>
+        <Avatar user={author} size={18} /><b>{author?.name}<Via userId={u.viaUserId} /></b><span className="rel-time">{relTime(u.createdAt)}</span>
         <span style={{ flex: 1 }} />
         <button className="btn secondary sm" onClick={() => setOpen(true)}><IconEdit size={12} /> New update</button>
       </div>
@@ -1456,7 +1456,7 @@ function ProjectActivity(props: { project: Project }) {
             <div key={it.u.id} className="update-card">
               <div className="update-head">
                 {it.u.health && <span className="update-health" style={{ color: healthColor(it.u.health) }}><span className="health-dot" style={{ background: healthColor(it.u.health) }} />{healthLabel(it.u.health)}</span>}
-                <Avatar user={author} size={18} /><b>{author?.name}</b><span className="rel-time">posted an update · {relTime(it.u.createdAt)}</span>
+                <Avatar user={author} size={18} /><b>{author?.name}<Via userId={it.u.viaUserId} /></b><span className="rel-time">posted an update · {relTime(it.u.createdAt)}</span>
               </div>
               <Markdown text={it.u.body} />
             </div>
@@ -1471,7 +1471,7 @@ function ProjectActivity(props: { project: Project }) {
         return (
           <div key={a.id} className="activity-item">
             <Avatar user={who} size={16} />
-            <span className="activity-body"><b>{who?.name ?? 'Someone'}</b> {text} <span className="rel-time">· {relTime(a.createdAt)}</span></span>
+            <span className="activity-body"><b>{who?.name ?? 'Someone'}</b><Via userId={a.viaUserId} /> {text} <span className="rel-time">· {relTime(a.createdAt)}</span></span>
           </div>
         );
       })}

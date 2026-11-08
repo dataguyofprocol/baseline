@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useApp, useHelpers, relTime, shortDate, nameOf } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure, Via } from './ui.js';
 import { IssueToolbar, IssueLocationRow, OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { CustomerRequests } from './Workspace.js';
 import { IssuePullRequests } from './GitHubUI.js';
@@ -37,8 +37,8 @@ import type { Issue, Comment } from '../../src/core/types.js';
 /* shared activity text builder */
 function useActivityText() {
   const snap = useApp(s => s.snap)!;
-  return (a: { type: string; data: Record<string, unknown>; userId: string; createdAt: string }) => {
-    const who = nameOf(snap.users.find(u => u.id === a.userId));
+  return (a: { type: string; data: Record<string, unknown>; userId: string; viaUserId: string | null; createdAt: string }) => {
+    const who = <><b>{nameOf(snap.users.find(u => u.id === a.userId))}</b><Via userId={a.viaUserId} /></>;
     const st = (id: unknown) => snap.states.find(s => s.id === id)?.name ?? '?';
     const prio = (p: unknown) => ['No priority', 'Urgent', 'High', 'Medium', 'Low'][Number(p)] ?? '?';
     const issueRef = (id: unknown) => {
@@ -50,55 +50,55 @@ function useActivityText() {
     const when = <span className="rel-time" title={new Date(a.createdAt).toLocaleString()}>· {relTime(a.createdAt)}</span>;
     const relLabel: Record<string, string> = { blocks: 'marked this as blocking', blocked_by: 'marked this as blocked by', related: 'related this to', duplicate: 'marked this as a duplicate of' };
     switch (a.type) {
-      case 'created': return <><b>{who}</b> created the issue {when}</>;
-      case 'renamed': return <><b>{who}</b> changed the title to <b>{String(a.data.to ?? '')}</b> {when}</>;
-      case 'described': return <><b>{who}</b> updated the description {when}</>;
-      case 'stateChanged': return <><b>{who}</b> changed status from <b>{st(a.data.from)}</b> to <b>{st(a.data.to)}</b> {when}</>;
-      case 'triageAccepted': return <><b>{who}</b> accepted the issue from triage into <b>{st(a.data.to)}</b> {when}</>;
-      case 'triageDeclined': return <><b>{who}</b> declined the issue {when}</>;
-      case 'priorityChanged': return <><b>{who}</b> set priority to <b>{prio(a.data.to)}</b> {when}</>;
-      case 'assigned': return <><b>{who}</b> assigned the issue to <b>{a.data.to === a.userId ? 'themselves' : snap.users.find(u => u.id === a.data.to)?.name ?? '?'}</b> {when}</>;
-      case 'unassigned': return <><b>{who}</b> removed the assignee {when}</>;
-      case 'labeled': return <><b>{who}</b> added label <b>{snap.labels.find(l => l.id === a.data.labelId)?.name ?? '?'}</b> {when}</>;
-      case 'unlabeled': return <><b>{who}</b> removed label <b>{snap.labels.find(l => l.id === a.data.labelId)?.name ?? '?'}</b> {when}</>;
+      case 'created': return <>{who} created the issue {when}</>;
+      case 'renamed': return <>{who} changed the title to <b>{String(a.data.to ?? '')}</b> {when}</>;
+      case 'described': return <>{who} updated the description {when}</>;
+      case 'stateChanged': return <>{who} changed status from <b>{st(a.data.from)}</b> to <b>{st(a.data.to)}</b> {when}</>;
+      case 'triageAccepted': return <>{who} accepted the issue from triage into <b>{st(a.data.to)}</b> {when}</>;
+      case 'triageDeclined': return <>{who} declined the issue {when}</>;
+      case 'priorityChanged': return <>{who} set priority to <b>{prio(a.data.to)}</b> {when}</>;
+      case 'assigned': return <>{who} assigned the issue to <b>{a.data.to === a.userId ? 'themselves' : snap.users.find(u => u.id === a.data.to)?.name ?? '?'}</b> {when}</>;
+      case 'unassigned': return <>{who} removed the assignee {when}</>;
+      case 'labeled': return <>{who} added label <b>{snap.labels.find(l => l.id === a.data.labelId)?.name ?? '?'}</b> {when}</>;
+      case 'unlabeled': return <>{who} removed label <b>{snap.labels.find(l => l.id === a.data.labelId)?.name ?? '?'}</b> {when}</>;
       case 'projected': return a.data.to
-        ? <><b>{who}</b> added the issue to project <b>{snap.projects.find(p => p.id === a.data.to)?.name ?? '?'}</b> {when}</>
-        : <><b>{who}</b> removed the issue from its project {when}</>;
+        ? <>{who} added the issue to project <b>{snap.projects.find(p => p.id === a.data.to)?.name ?? '?'}</b> {when}</>
+        : <>{who} removed the issue from its project {when}</>;
       case 'milestoneChanged': return a.data.to
-        ? <><b>{who}</b> moved the issue to milestone <b>{snap.milestones.find(m => m.id === a.data.to)?.name ?? '?'}</b> {when}</>
-        : <><b>{who}</b> removed the milestone {when}</>;
+        ? <>{who} moved the issue to milestone <b>{snap.milestones.find(m => m.id === a.data.to)?.name ?? '?'}</b> {when}</>
+        : <>{who} removed the milestone {when}</>;
       case 'parented': return a.data.to
-        ? <><b>{who}</b> made this a sub-issue of <b>{issueRef(a.data.to)}</b> {when}</>
-        : <><b>{who}</b> removed the parent issue <b>{issueRef(a.data.from)}</b> {when}</>;
+        ? <>{who} made this a sub-issue of <b>{issueRef(a.data.to)}</b> {when}</>
+        : <>{who} removed the parent issue <b>{issueRef(a.data.from)}</b> {when}</>;
       case 'cycleChanged': return a.data.to
-        ? <><b>{who}</b> moved the issue to <b>{(() => { const c = snap.cycles.find(x => x.id === a.data.to); return c ? c.name || `Cycle ${c.number}` : 'a cycle'; })()}</b> {when}</>
-        : <><b>{who}</b> removed the issue from its cycle {when}</>;
+        ? <>{who} moved the issue to <b>{(() => { const c = snap.cycles.find(x => x.id === a.data.to); return c ? c.name || `Cycle ${c.number}` : 'a cycle'; })()}</b> {when}</>
+        : <>{who} removed the issue from its cycle {when}</>;
       case 'dueChanged': return a.data.to
-        ? <><b>{who}</b> set the due date to <b>{shortDate(String(a.data.to).slice(0, 10) + 'T12:00')}</b> {when}</>
-        : <><b>{who}</b> removed the due date {when}</>;
+        ? <>{who} set the due date to <b>{shortDate(String(a.data.to).slice(0, 10) + 'T12:00')}</b> {when}</>
+        : <>{who} removed the due date {when}</>;
       case 'estimateChanged': return a.data.to != null
-        ? <><b>{who}</b> set the estimate to <b>{String(a.data.to)} point{Number(a.data.to) !== 1 ? 's' : ''}</b> {when}</>
-        : <><b>{who}</b> removed the estimate {when}</>;
-      case 'related': return <><b>{who}</b> {relLabel[String(a.data.type)] ?? 'related this to'} <b>{issueRef(a.data.relatedId)}</b> {when}</>;
-      case 'unrelated': return <><b>{who}</b> removed the relation to <b>{issueRef(a.data.relatedId)}</b> {when}</>;
-      case 'teamChanged': return <><b>{who}</b> moved the issue from <b>{String(a.data.from)}</b> to <b>{String(a.data.to)}</b> {when}</>;
-      case 'attached': return <><b>{who}</b> {a.data.kind === 'file' ? 'attached' : 'added link'} <b>{String(a.data.title ?? '')}</b> {when}</>;
+        ? <>{who} set the estimate to <b>{String(a.data.to)} point{Number(a.data.to) !== 1 ? 's' : ''}</b> {when}</>
+        : <>{who} removed the estimate {when}</>;
+      case 'related': return <>{who} {relLabel[String(a.data.type)] ?? 'related this to'} <b>{issueRef(a.data.relatedId)}</b> {when}</>;
+      case 'unrelated': return <>{who} removed the relation to <b>{issueRef(a.data.relatedId)}</b> {when}</>;
+      case 'teamChanged': return <>{who} moved the issue from <b>{String(a.data.from)}</b> to <b>{String(a.data.to)}</b> {when}</>;
+      case 'attached': return <>{who} {a.data.kind === 'file' ? 'attached' : 'added link'} <b>{String(a.data.title ?? '')}</b> {when}</>;
       case 'locationChanged': return a.data.to
-        ? <><b>{who}</b> set the location to <b>{snap.locations.find(l => l.id === a.data.to)?.name ?? 'a removed location'}</b> {when}</>
-        : <><b>{who}</b> removed the location {when}</>;
-      case 'archived': return <><b>{who}</b> archived the issue {when}</>;
-      case 'restored': return <><b>{who}</b> restored the issue {when}</>;
+        ? <>{who} set the location to <b>{snap.locations.find(l => l.id === a.data.to)?.name ?? 'a removed location'}</b> {when}</>
+        : <>{who} removed the location {when}</>;
+      case 'archived': return <>{who} archived the issue {when}</>;
+      case 'restored': return <>{who} restored the issue {when}</>;
       case 'releaseChanged': return a.data.to
-        ? <><b>{who}</b> added the issue to release <b>{snap.releases.find(r => r.id === a.data.to)?.name ?? 'a removed release'}</b> {when}</>
-        : <><b>{who}</b> removed the issue from its release {when}</>;
-      case 'slaApplied': return <><b>{who}</b> applied SLA <b>{String(a.data.rule)}</b> — due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
-      case 'slaBreached': return <><b>{who}</b> marked the SLA as breached {when}</>;
-      case 'prLinked': return <><b>{who}</b> linked {a.data.kind === 'closing' ? 'pull request' : 'a reference from'} <a href={String(a.data.url)} target="_blank" rel="noreferrer"><b>{String(a.data.pr)}</b></a> {String(a.data.title ?? '')} {when}</>;
-      case 'prStateMoved': return <><b>{who}</b> moved the issue — {String(a.data.why)} {when}</>;
-      case 'commitLinked': return <><b>{who}</b> linked commit <b className="mono">{String(a.data.sha)}</b> {String(a.data.message ?? '')} {when}</>;
-      case 'loopRan': return <><b>{who}</b> ran loop <b>{String(a.data.loop)}</b> — {String(a.data.detail)} {when}</>;
-      case 'askSubmitted': return <><b>{who}</b> filed this through the <b>{String(a.data.form)}</b> Ask {when}</>;
-      default: return <><b>{who}</b> {a.type} {when}</>;
+        ? <>{who} added the issue to release <b>{snap.releases.find(r => r.id === a.data.to)?.name ?? 'a removed release'}</b> {when}</>
+        : <>{who} removed the issue from its release {when}</>;
+      case 'slaApplied': return <>{who} applied SLA <b>{String(a.data.rule)}</b> — due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
+      case 'slaBreached': return <>{who} marked the SLA as breached {when}</>;
+      case 'prLinked': return <>{who} linked {a.data.kind === 'closing' ? 'pull request' : 'a reference from'} <a href={String(a.data.url)} target="_blank" rel="noreferrer"><b>{String(a.data.pr)}</b></a> {String(a.data.title ?? '')} {when}</>;
+      case 'prStateMoved': return <>{who} moved the issue — {String(a.data.why)} {when}</>;
+      case 'commitLinked': return <>{who} linked commit <b className="mono">{String(a.data.sha)}</b> {String(a.data.message ?? '')} {when}</>;
+      case 'loopRan': return <>{who} ran loop <b>{String(a.data.loop)}</b> — {String(a.data.detail)} {when}</>;
+      case 'askSubmitted': return <>{who} filed this through the <b>{String(a.data.form)}</b> Ask {when}</>;
+      default: return <>{who} {a.type} {when}</>;
     }
   };
 }
@@ -150,7 +150,7 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
     <div className={`cmt${props.reply ? ' reply' : ''}`}>
       <div className="cmt-head">
         <Avatar user={author} size={props.reply ? 18 : 20} />
-        <span className="cmt-author">{nameOf(author)}</span>
+        <span className="cmt-author">{nameOf(author)}<Via userId={c.viaUserId} /></span>
         <span className="rel-time" title={new Date(c.createdAt).toLocaleString()}>{relTime(c.createdAt)}{c.editedAt ? ' (edited)' : ''}</span>
         <span style={{ flex: 1 }} />
         <span className="cmt-actions">
