@@ -72,6 +72,7 @@ export function IssuePullRequests({ issueId }: { issueId: string }) {
 export function GitHubSettings() {
   const snap = useApp(s => s.snap)!;
   const f = snap.workspace.features;
+  const hosted = snap.workspace.auth === 'hosted';
   const [status, setStatus] = useState<Awaited<ReturnType<typeof api.gitStatus>> | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState('');
@@ -87,28 +88,32 @@ export function GitHubSettings() {
       <div className="gh-readonly">
         <IconShieldUser size={16} />
         <div>
-          <b>Read-only by design.</b> Baseline never writes to GitHub — no comments, status checks, labels, branches or pushes.
-          It reads pull requests, reviews, checks, commits and issues two ways: your <code>gh</code> sign-in, limited in code to read commands,
-          and signed webhooks GitHub sends here, which need no token at all.
+          <b>Read-only by design.</b> Baseline never writes to GitHub — no comments, status checks, labels, branches or pushes.{' '}
+          {hosted
+            ? <>It reads pull requests, reviews, checks, commits and issues from signed webhooks GitHub sends here, which need no token at all.</>
+            : <>It reads pull requests, reviews, checks, commits and issues two ways: your <code>gh</code> sign-in, limited in code to read commands,
+              and signed webhooks GitHub sends here, which need no token at all.</>}
         </div>
       </div>
       <div className="field-row">
-        <div><div className="field-label">Enable GitHub</div><div className="field-help">Syncs every two minutes and adds an “In Review” state to each team.</div></div>
+        <div><div className="field-label">Enable GitHub</div><div className="field-help">{hosted ? 'Links pull requests and commits as GitHub’s webhooks report them, and adds an “In Review” state to each team.' : 'Syncs every two minutes and adds an “In Review” state to each team.'}</div></div>
         <button className={`switch${f.githubEnabled ? ' on' : ''}`} role="switch" aria-checked={f.githubEnabled} aria-label="Enable GitHub" onClick={async () => { await api.setFeatures({ githubEnabled: !f.githubEnabled }); await refresh(); }}><span /></button>
       </div>
-      <div className="field-row">
-        <div><div className="field-label">GitHub CLI</div><div className="field-help">{!status ? 'Checking…' : !status.ghInstalled ? 'Not found — install it with `brew install gh`, then `gh auth login`.' : status.ghUser ? `Signed in as ${status.ghUser}` : 'Installed, not signed in — run `gh auth login`.'}</div></div>
-        <button className="btn secondary sm" disabled={syncing} onClick={sync}>{syncing ? 'Syncing…' : 'Sync now'}</button>
-      </div>
-      {result && <div className="field-help" style={{ margin: '-6px 0 10px' }}>{result}</div>}
-      <div className="settings-h2">Repositories</div>
-      <div className="field-help" style={{ marginBottom: 8 }}>Every location (Settings › Coding tools) whose <code>origin</code> is on GitHub. {status?.lastSyncAt ? `Last sync ${relTime(status.lastSyncAt)}.` : ''} {status?.lastError ? `Last error: ${status.lastError}` : ''}</div>
-      <div className="card set-list">
-        {(status?.repos ?? []).map(r => (
-          <div key={r.path} className="set-row"><IconPr size={14} /><span style={{ flex: 1 }}><b>{r.location}</b> <span className="set-meta">{r.path}</span></span><span className={r.repo ? '' : 'dim'}>{r.repo ?? 'not a GitHub repo'}</span></div>
-        ))}
-        {status && !status.repos.length && <div className="set-empty">No locations yet — add one in Settings › Coding tools.</div>}
-      </div>
+      {!hosted && <>
+        <div className="field-row">
+          <div><div className="field-label">GitHub CLI</div><div className="field-help">{!status ? 'Checking…' : !status.ghInstalled ? 'Not found — install it with `brew install gh`, then `gh auth login`.' : status.ghUser ? `Signed in as ${status.ghUser}` : 'Installed, not signed in — run `gh auth login`.'}</div></div>
+          <button className="btn secondary sm" disabled={syncing} onClick={sync}>{syncing ? 'Syncing…' : 'Sync now'}</button>
+        </div>
+        {result && <div className="field-help" style={{ margin: '-6px 0 10px' }}>{result}</div>}
+        <div className="settings-h2">Repositories</div>
+        <div className="field-help" style={{ marginBottom: 8 }}>Every location (Settings › Coding tools) whose <code>origin</code> is on GitHub. {status?.lastSyncAt ? `Last sync ${relTime(status.lastSyncAt)}.` : ''} {status?.lastError ? `Last error: ${status.lastError}` : ''}</div>
+        <div className="card set-list">
+          {(status?.repos ?? []).map(r => (
+            <div key={r.path} className="set-row"><IconPr size={14} /><span style={{ flex: 1 }}><b>{r.location}</b> <span className="set-meta">{r.path}</span></span><span className={r.repo ? '' : 'dim'}>{r.repo ?? 'not a GitHub repo'}</span></div>
+          ))}
+          {status && !status.repos.length && <div className="set-empty">No locations yet — add one in Settings › Coding tools.</div>}
+        </div>
+      </>}
       <WebhookSettings />
       <IssueImportSettings repos={[...new Set((status?.repos ?? []).map(r => r.repo).filter((r): r is string => !!r))]} />
       <div className="settings-h2">Linking</div>
@@ -141,11 +146,11 @@ function WebhookSettings() {
   const payloadUrl = `${cfg.publicUrl || 'https://<your-tunnel>'}/api/github/webhook`;
   const copy = async (text: string, what: string) => { if (await copyText(text)) toast({ title: `Copied ${what}` }); };
   const saveUrl = async () => { if (url === cfg.publicUrl) return; try { setCfg(await api.setWebhookUrl(url)); setUrlError(''); } catch (e) { setUrlError((e as Error).message); } };
-  const state = !cfg.enabled ? 'Off' : !cfg.lastDelivery ? 'Waiting for the first delivery' : `Receiving · last ${relTime(cfg.lastDelivery.receivedAt)}`;
+  const state = !cfg.enabled ? 'Off' : !cfg.lastDelivery ? (cfg.fixedUrl ? 'Waiting for GitHub’s ping' : 'Waiting for the first delivery') : `Receiving · last ${relTime(cfg.lastDelivery.receivedAt)}`;
   return (
     <>
       <div className="settings-h2">Real-time updates (webhooks)</div>
-      <div className="field-help" style={{ marginBottom: 6 }}>Without webhooks, Baseline checks GitHub every two minutes. With them, GitHub tells Baseline the moment a PR opens, gets a review, passes checks or merges. Deliveries are verified against a secret only you and GitHub know; nothing is sent back.</div>
+      <div className="field-help" style={{ marginBottom: 6 }}>{cfg.fixedUrl ? 'This is how Baseline hears from GitHub:' : 'Without webhooks, Baseline checks GitHub every two minutes. With them,'} GitHub tells Baseline the moment a PR opens, gets a review, passes checks or merges. Deliveries are verified against a secret only you and GitHub know; nothing is sent back.</div>
       <div className="field-row">
         <div><div className="field-label">Status</div><div className="field-help"><span className="gh-dot" style={{ background: !cfg.enabled ? 'var(--text-dim)' : cfg.lastDelivery ? '#4cb782' : '#f2c94c' }} />{state}{cfg.rejected ? ` · ${cfg.rejected} rejected` : ''}</div></div>
         {cfg.enabled
@@ -158,10 +163,12 @@ function WebhookSettings() {
           <div className="gh-copy-row"><code>{secret}</code><button className="btn secondary sm" onClick={() => void copy(secret, 'secret')}><IconCopy size={13} /> Copy</button></div>
         </div>
       )}
-      <div className="field-row">
-        <div><div className="field-label">Public address</div><div className="field-help">Baseline only listens on this machine, so GitHub reaches it through a tunnel, e.g. <code>cloudflared tunnel --url http://localhost:{location.port || 7327}</code>. Only the webhook path is reachable from outside, and only with a valid signature.{urlError && <span style={{ color: '#eb5757' }}> {urlError}</span>}</div></div>
-        <input className="text-input" style={{ width: 280 }} aria-label="Public address" placeholder="https://baseline.example.com" value={url} onChange={e => setUrl(e.target.value)} onBlur={() => void saveUrl()} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
-      </div>
+      {!cfg.fixedUrl && (
+        <div className="field-row">
+          <div><div className="field-label">Public address</div><div className="field-help">Baseline only listens on this machine, so GitHub reaches it through a tunnel, e.g. <code>cloudflared tunnel --url http://localhost:{location.port || 7327}</code>. Only the webhook path is reachable from outside, and only with a valid signature.{urlError && <span style={{ color: '#eb5757' }}> {urlError}</span>}</div></div>
+          <input className="text-input" style={{ width: 280 }} aria-label="Public address" placeholder="https://baseline.example.com" value={url} onChange={e => setUrl(e.target.value)} onBlur={() => void saveUrl()} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+        </div>
+      )}
       <div className="gh-steps">
         <div className="field-label" style={{ marginBottom: 6 }}>Add it in GitHub</div>
         <ol>
