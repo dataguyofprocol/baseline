@@ -1,6 +1,9 @@
 // The client the CLI (and next, an MCP server) calls. Method names are the Store methods they
 // replace; each maps to exactly one route, so authorization is always the server's.
 import type { ApiKeyScope, Comment, Handoff, Issue, Location, Priority, Project, ProjectUpdate, Snapshot, SnapshotSection, User } from '../core/types.js';
+import type {
+  DraftResult, FinishWorkResult, FollowupResult, Health, ProgressPatch, ProgressResult, StartWorkResult, UndoResult, WorkOutcome, WorkThread,
+} from '../core/work-types.js';
 import { BaselineError } from './errors.js';
 import type { Target } from './target.js';
 import type { Transport, WireRequest } from './transport.js';
@@ -65,6 +68,23 @@ export interface Baseline {
   createLocation(path: string): Promise<Location>;
   /** DELETE /api/me/key — the key this client authenticates with */
   revokeOwnKey(): Promise<void>;
+
+  // Agent work (core/work.ts). Each is one route and one server transaction; a repeat that changes
+  // nothing answers with opId null. `session` is BASELINE_SESSION, or null for the default lane.
+  /** POST /api/issues/:id/work/start */
+  startWork(issueId: string, input: { session: string | null }, actorId?: string): Promise<StartWorkResult>;
+  /** POST /api/issues/:id/work/progress */
+  postProgress(issueId: string, input: ProgressPatch & { session: string | null; links: readonly string[] }, actorId?: string): Promise<ProgressResult>;
+  /** POST /api/issues/:id/work/finish */
+  finishWork(issueId: string, input: { session: string | null; outcome: WorkOutcome; summary: string; left?: string; links: readonly string[] }, actorId?: string): Promise<FinishWorkResult>;
+  /** POST /api/issues/:id/followups */
+  fileFollowup(sourceIssueId: string, input: { session: string | null; title: string; description?: string; teamId?: string }, actorId?: string): Promise<FollowupResult>;
+  /** GET /api/issues/:id/work */
+  workThreads(issueId: string): Promise<WorkThread[]>;
+  /** PUT /api/projects/:id/update-draft — never publishes */
+  draftProjectUpdate(projectId: string, input: { body?: string; health?: Health }, actorId?: string): Promise<DraftResult>;
+  /** POST /api/ops/:id/undo */
+  undoOp(opId: string, actorId?: string): Promise<UndoResult>;
 }
 
 export class HttpBaseline implements Baseline {
@@ -119,4 +139,26 @@ export class HttpBaseline implements Baseline {
     return this.call('POST', '/api/locations', { json: { path }, unwrap: 'location' });
   }
   async revokeOwnKey(): Promise<void> { await this.call('DELETE', '/api/me/key'); }
+
+  startWork(issueId: string, input: { session: string | null }, actorId?: string): Promise<StartWorkResult> {
+    return this.call('POST', `/api/issues/${encodeURIComponent(issueId)}/work/start`, { json: { ...input, actorId } });
+  }
+  postProgress(issueId: string, input: ProgressPatch & { session: string | null; links: readonly string[] }, actorId?: string): Promise<ProgressResult> {
+    return this.call('POST', `/api/issues/${encodeURIComponent(issueId)}/work/progress`, { json: { ...input, actorId } });
+  }
+  finishWork(issueId: string, input: { session: string | null; outcome: WorkOutcome; summary: string; left?: string; links: readonly string[] }, actorId?: string): Promise<FinishWorkResult> {
+    return this.call('POST', `/api/issues/${encodeURIComponent(issueId)}/work/finish`, { json: { ...input, actorId } });
+  }
+  fileFollowup(sourceIssueId: string, input: { session: string | null; title: string; description?: string; teamId?: string }, actorId?: string): Promise<FollowupResult> {
+    return this.call('POST', `/api/issues/${encodeURIComponent(sourceIssueId)}/followups`, { json: { ...input, actorId } });
+  }
+  workThreads(issueId: string): Promise<WorkThread[]> {
+    return this.call('GET', `/api/issues/${encodeURIComponent(issueId)}/work`, { unwrap: 'threads' });
+  }
+  draftProjectUpdate(projectId: string, input: { body?: string; health?: Health }, actorId?: string): Promise<DraftResult> {
+    return this.call('PUT', `/api/projects/${encodeURIComponent(projectId)}/update-draft`, { json: { ...input, actorId } });
+  }
+  undoOp(opId: string, actorId?: string): Promise<UndoResult> {
+    return this.call('POST', `/api/ops/${encodeURIComponent(opId)}/undo`, { json: { actorId } });
+  }
 }

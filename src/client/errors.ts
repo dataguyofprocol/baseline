@@ -1,6 +1,6 @@
 export type BaselineErrorCode =
   | 'not-found' | 'forbidden' | 'unauthorized' | 'unauthenticated' | 'invalid' | 'companion-required'
-  | 'unreachable' | 'server' | 'not-yet-remote';
+  | 'unreachable' | 'server' | 'not-yet-remote' | 'conflict' | 'needs-human';
 
 /** A failure the server (or the way to it) reported, parsed from its `{ error, code }` body.
  *  The CLI prints `error: <message>` and exits 1; an MCP tool returns it as a tool error. */
