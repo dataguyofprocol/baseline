@@ -355,7 +355,7 @@ export BASELINE_SESSIONS_DIR="$WORK/sessions" BASELINE_OPEN_CMD="true"
 checkon "$ADB" "issue open uses the issue's location" "in $PREPO" issue open "$KI"
 if grep -q "cd '$PREPO'" "$WORK"/sessions/"$KI"-*.command && grep -q "BASELINE_AS=" "$WORK"/sessions/"$KI"-*.command; then PASS=$((PASS+1)); else echo "FAIL  launcher cds into the location with BASELINE_AS"; FAILED_NAMES+=("launcher script"); FAIL=$((FAIL+1)); fi
 if [[ "$(stat -f %Lp "$WORK"/sessions/"$KI"-*.md 2>/dev/null | head -1 || stat -c %a "$WORK"/sessions/"$KI"-*.md | head -1)" == "600" ]]; then PASS=$((PASS+1)); else echo "FAIL  session brief is owner-only"; FAILED_NAMES+=("session brief perms"); FAIL=$((FAIL+1)); fi
-if grep -q "baseline agent get-issue $KI --json" "$WORK"/sessions/"$KI"-*.md; then PASS=$((PASS+1)); else echo "FAIL  launcher prompt carries the brief"; FAILED_NAMES+=("launcher prompt"); FAIL=$((FAIL+1)); fi
+if grep -q "baseline agent start-issue $KI" "$WORK"/sessions/"$KI"-*.md; then PASS=$((PASS+1)); else echo "FAIL  launcher prompt carries the brief"; FAILED_NAMES+=("launcher prompt"); FAIL=$((FAIL+1)); fi
 checkon "$ADB" "issue open --location pins it" "pinned to agent-repo" issue open "$KA" --location agent-repo
 checkon "$ADB" "sessions post as Claude Code" "Claude Code" user list
 OUT=$(BASELINE_DB="$ADB" $BIN issue open "$(ab issue create "nowhere" -t CORE --location none --json | keyof)" 2>&1)
@@ -746,6 +746,18 @@ if (Object.keys(store.snapshot().initiativeUpdates.find(x => x.id === u.id).reac
 echo "=== user update --github ==="
 check "user update sets a GitHub username" "github:ada-gh" user update Ada --github ada-gh
 check "user list shows the GitHub username" "github:ada-gh" user list
+
+echo "=== connect ==="
+CREPO="$WORK/connect-repo"; mkdir -p "$CREPO"
+printf '{ "mcpServers": { "other": { "command": "x" } } }\n' > "$CREPO/.mcp.json"
+check "connect --dry-run lists the files" "would create CLAUDE.md" connect claude --dir "$CREPO" --dry-run
+if [[ ! -e "$CREPO/CLAUDE.md" ]]; then PASS=$((PASS+1)); else echo "FAIL  connect --dry-run writes nothing"; FAILED_NAMES+=("connect dry run"); FAIL=$((FAIL+1)); fi
+check "connect claude says what it changed" "updated .mcp.json" connect claude --dir "$CREPO"
+check_json "connect keeps other MCP servers and adds baseline mcp" "$CREPO/.mcp.json" "d.mcpServers.other.command==='x'&&d.mcpServers.baseline.args.includes('mcp')"
+check "connect claude again changes nothing" "nothing changed" connect claude --dir "$CREPO"
+check "connect codex writes the project config" "created .codex/config.toml" connect codex --dir "$CREPO"
+if grep -q 'default_tools_approval_mode = "writes"' "$CREPO/.codex/config.toml" && grep -q 'baseline:agent-tracking:end' "$CREPO/AGENTS.md"; then PASS=$((PASS+1)); else echo "FAIL  connect codex: approval mode and AGENTS.md block"; FAILED_NAMES+=("connect codex"); FAIL=$((FAIL+1)); fi
+check "connect pi after codex: the AGENTS.md block is the same one" "nothing changed" connect pi --dir "$CREPO"
 
 echo
 echo "================================"

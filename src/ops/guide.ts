@@ -44,7 +44,7 @@ export const agentBlock = (): string => `${BLOCK_START}\n${agentGuide()}\n${BLOC
 /** The hand-off brief's {{tracking}} text; `{{key}}` is the issue key, filled in by buildHandoff. */
 export function handoffTracking(): string {
   return [
-    'Track the work on {{key}} in Baseline as you go, with the tools of the `baseline` MCP server or, without MCP, the `baseline agent` commands (add `--as "<your agent name>"`):',
+    'Track the work on {{key}} in Baseline as you go, with the tools of the `baseline` MCP server or, without MCP, the `baseline agent` commands (add `--as "<your agent name>"`; the /baseline skill has them all, if you have it):',
     ...LOOP.map(name => {
       const op = opNamed(name);
       return `- \`${op.name}\` (\`${command(op, '{{key}}')}\`): ${firstSentence(op.description)}`;
