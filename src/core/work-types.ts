@@ -1,6 +1,6 @@
 // What the work routes (server/index.ts › agent work) send and the client (client/baseline.ts)
 // receives. Pure types, shared by both sides; the agent operations (src/ops) shape them for the model.
-import type { Issue, Project } from './types.js';
+import type { Issue, Project, ProjectHealth } from './types.js';
 
 export type WorkOutcome = 'in_review' | 'done' | 'stopped';
 export const WORK_OUTCOMES = ['in_review', 'done', 'stopped'] as const satisfies readonly WorkOutcome[];
@@ -45,7 +45,7 @@ export interface ProgressResult extends WorkReceipt { issue: Issue; url: string;
 export interface FinishWorkResult extends WorkReceipt { issue: Issue; url: string; thread: WorkThread; warnings: string[] }
 export interface FollowupResult extends WorkReceipt { issue: Issue; url: string; source: Issue; deduplicated: boolean }
 
-export type Health = NonNullable<Project['health']>;
+export type Health = ProjectHealth;
 export interface ProjectUpdateDraft {
   projectId: string;
   /** the person it is for: only they see it, and only they publish it */
