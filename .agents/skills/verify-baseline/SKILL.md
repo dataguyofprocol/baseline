@@ -83,7 +83,7 @@ The Claude in Chrome tools also work against `URL` when the extension is connect
 .claude/skills/verify-baseline/scripts/vb cli <run> issue list -t CORE -q "text"
 ```
 
-Runs `node bin/baseline.js` with this run's `BASELINE_DB`, `BASELINE_URL` and `BASELINE_PORT`. Full command list: the CLI section of `README.md`, or `vb cli <run> <command> --help`. Errors go to stderr with exit 1. Use `--json` for assertions. The CLI writes the same DB the server watches, so an open page picks the change up live (within about a second, or after `t.sync()`).
+Runs `node bin/baseline.js` with this run's `BASELINE_DB` and `BASELINE_PORT` (hand-off links use the port). It never sets `BASELINE_URL`, because the CLI treats that as a server target and refuses it beside a database. Full command list: the CLI section of `README.md`, or `vb cli <run> <command> --help`. Errors go to stderr with exit 1. Use `--json` for assertions. The CLI writes the same DB the server watches, so an open page picks the change up live (within about a second, or after `t.sync()`).
 
 ### REST: `vb api`
 

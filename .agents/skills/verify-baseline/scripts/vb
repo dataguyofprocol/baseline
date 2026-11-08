@@ -111,7 +111,7 @@ cmd_doctor() {
   return $bad
 }
 
-cmd_cli() { local r="$1"; shift; load "$r"; guard_db "$DB"; cd "$REPO" && BASELINE_DB="$DB" BASELINE_URL="$URL" BASELINE_PORT="$PORT" node bin/baseline.js "$@"; }
+cmd_cli() { local r="$1"; shift; load "$r"; guard_db "$DB"; cd "$REPO" && BASELINE_DB="$DB" BASELINE_PORT="$PORT" node bin/baseline.js "$@"; }
 cmd_api() { load "$1"; curl -sf "$URL${2:-/api/bootstrap}"; }
 cmd_info() { load "$1"; cat "$INST/env"; echo "EVIDENCE=$EVID"; }
 

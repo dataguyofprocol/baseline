@@ -118,7 +118,9 @@ export function buildHandoff(
     .filter((n): n is string => !!n);
   const branch = branchName(key, issue.title, ctx.branchFormat, ctx.username);
   // core also runs in the browser (Settings ▸ Handoff preview), where `process` doesn't exist
-  const envUrl = typeof process !== 'undefined' ? process.env.BASELINE_URL : undefined;
+  const env = typeof process !== 'undefined' ? process.env : {};
+  // a local CLI can't also name BASELINE_URL (that would mean a server), so its port says where the app is
+  const envUrl = env.BASELINE_URL ?? (env.BASELINE_PORT ? `http://localhost:${env.BASELINE_PORT}` : undefined);
   const base = (ctx.baseUrl ?? envUrl ?? windowOrigin() ?? 'http://localhost:7770').replace(/\/+$/, '');
   const vars: Record<string, string> = {
     key,
