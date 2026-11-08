@@ -16,6 +16,9 @@ const hashToken = (token: string) => createHash('sha256').update(token).digest('
 export interface GoogleIdentity { sub: string; email: string; name: string; picture: string; hd?: string }
 
 export type SignInError = 'not-invited' | 'suspended' | 'invite-mismatch' | 'invite-expired';
+/** a password sign-in never says which half was wrong */
+export type PasswordSignInError = 'invalid' | 'suspended';
+export type InviteAcceptError = 'invite-expired' | 'invite-mismatch' | 'already-member';
 export type SignInResult =
   | { userId: string; joined?: 'owner' | 'invite' | 'domain'; invitedBy?: string | null }
   | { error: SignInError };
@@ -139,11 +142,103 @@ export class Accounts {
     // the owner can never be locked out of admin
     if (isOwner) this.db.prepare('UPDATE users SET admin = 1 WHERE id = ?').run(user.id);
     if (g.picture) this.db.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').run(g.picture, user.id);
-    // a fresh hosted workspace has no "own" user yet: the first person in becomes it (the inbox
-    // owner and the CLI's default identity on the server until notifications go per person)
-    const own = getMeta(this.db, 'currentUser');
-    if (!own || !this.db.prepare('SELECT 1 FROM users WHERE id = ?').get(own)) setMeta(this.db, 'currentUser', user.id);
+    this.claimOwnUser(user.id);
     return { userId: user.id, joined, invitedBy };
+  }
+
+  /** a fresh hosted workspace has no "own" user yet: the first person in becomes it (the inbox
+   *  owner and the CLI's default identity on the server until notifications go per person) */
+  private claimOwnUser(userId: string): void {
+    const own = getMeta(this.db, 'currentUser');
+    if (!own || !this.db.prepare('SELECT 1 FROM users WHERE id = ?').get(own)) setMeta(this.db, 'currentUser', userId);
+  }
+
+  // ---------- passwords ----------
+  /** the stored hash for an address (null: no password set), or undefined when no person has it */
+  passwordFor(email: string): { id: string; status: string; hash: string | null } | undefined {
+    const row = this.db.prepare("SELECT id, status, password_hash FROM users WHERE kind = 'human' AND lower(email) = ? ORDER BY rowid LIMIT 1")
+      .get(normalizeEmail(email)) as { id: string; status: string; password_hash: string | null } | undefined;
+    return row && { id: row.id, status: row.status, hash: row.password_hash };
+  }
+  passwordHashOf(userId: string): string | null {
+    return (this.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string | null } | undefined)?.password_hash ?? null;
+  }
+  /** a new password signs the person out everywhere; the caller starts the session they continue in */
+  setPassword(userId: string, hash: string): void {
+    this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
+    this.revokeUserSessions(userId);
+  }
+  /** the outcome of a password check the caller already ran (verifyPassword is async; this isn't) */
+  passwordSignIn(user: { id: string; status: string } | undefined, matched: boolean): { userId: string } | { error: PasswordSignInError } {
+    if (!user || !matched) return { error: 'invalid' };
+    if (user.status === 'suspended') return { error: 'suspended' };
+    this.claimOwnUser(user.id);
+    return { userId: user.id };
+  }
+
+  // ---------- first run ----------
+  /** nobody can sign in yet: no person has a password or a linked Google account */
+  needsSetup(): boolean {
+    return !this.db.prepare("SELECT 1 FROM users WHERE kind = 'human' AND status = 'active' AND (password_hash IS NOT NULL OR google_sub IS NOT NULL) LIMIT 1").get();
+  }
+  /** The first admin, created by whoever holds the setup token. Synchronous from the re-check to the
+   *  last write, so two racing requests can't both get through (one process, one thread). A person
+   *  already in the data with that email (imported) becomes the owner rather than a duplicate. */
+  completeSetup(o: { name: string; email: string; passwordHash: string; workspaceName: string }): { userId: string } | { error: 'already-set-up' } {
+    if (!this.needsSetup()) return { error: 'already-set-up' };
+    const email = normalizeEmail(o.email);
+    const existing = this.memberByEmail(email);
+    const userId = existing?.id ?? this.store.createUser(o.name, email, true).id;
+    this.db.prepare("UPDATE users SET admin = 1, status = 'active', name = ?, password_hash = ? WHERE id = ?").run(o.name, o.passwordHash, userId);
+    if (o.workspaceName) this.store.setWorkspaceName(o.workspaceName);
+    this.claimOwnUser(userId);
+    return { userId };
+  }
+
+  /** Joining through an invite link with a password. The link is the credential, so the person also
+   *  types the address it was sent to: a forwarded link alone (which shows that address masked)
+   *  isn't enough. */
+  acceptInvite(code: string, o: { email: string; name: string; passwordHash: string }): { userId: string; invitedBy: string | null } | { error: InviteAcceptError } {
+    const email = normalizeEmail(o.email);
+    const inv = this.inviteByCode(code);
+    if (!inv || inv.revoked_at || inv.accepted_at || Date.parse(inv.expires_at) <= Date.now()) return { error: 'invite-expired' };
+    if (inv.email !== email) return { error: 'invite-mismatch' };
+    if (this.memberByEmail(email)) return { error: 'already-member' };
+    const created = this.store.createUser(o.name || email, email, !!inv.admin);
+    this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(o.passwordHash, created.id);
+    this.store.setUserTeams(created.id, JSON.parse(inv.team_ids) as string[]);
+    this.db.prepare('UPDATE invites SET accepted_at = ?, accepted_user_id = ? WHERE email = ? AND accepted_at IS NULL AND revoked_at IS NULL')
+      .run(new Date().toISOString(), created.id, email);
+    this.claimOwnUser(created.id);
+    return { userId: created.id, invitedBy: inv.invited_by };
+  }
+
+  // ---------- password reset links ----------
+  /** a one-use link; any earlier unused link for the same person stops working */
+  createPasswordReset(userId: string, createdBy: string | null, ttlMs: number): { token: string; expiresAt: string } {
+    const token = randomBytes(32).toString('base64url');
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlMs).toISOString();
+    this.db.prepare('DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?').run(userId, now.toISOString());
+    this.db.prepare('INSERT INTO password_resets (token_hash, user_id, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
+      .run(hashToken(token), userId, createdBy, now.toISOString(), expiresAt);
+    return { token, expiresAt };
+  }
+  /** who an unused, unexpired reset link is for (an active person), or null */
+  passwordReset(token: string): { userId: string; name: string; email: string } | null {
+    const row = this.db.prepare("SELECT r.user_id, u.name, u.email FROM password_resets r JOIN users u ON u.id = r.user_id WHERE r.token_hash = ? AND r.used_at IS NULL AND r.expires_at > ? AND u.status = 'active' AND u.kind = 'human'")
+      .get(hashToken(token), new Date().toISOString()) as { user_id: string; name: string; email: string } | undefined;
+    return row ? { userId: row.user_id, name: row.name, email: row.email } : null;
+  }
+  /** spends the link and sets the password; null when it was already used, expired or unknown */
+  usePasswordReset(token: string, passwordHash: string): string | null {
+    const valid = this.passwordReset(token);
+    if (!valid) return null;
+    // one use, even when two requests race for it
+    const spent = this.db.prepare('UPDATE password_resets SET used_at = ? WHERE token_hash = ? AND used_at IS NULL').run(new Date().toISOString(), hashToken(token));
+    if (Number(spent.changes) !== 1) return null;
+    this.setPassword(valid.userId, passwordHash);
+    return valid.userId;
   }
 
   private join(g: GoogleIdentity, admin: boolean, teamIds: string[]): { id: string; status: string } {
@@ -159,8 +254,8 @@ export class Accounts {
     return this.db.prepare("SELECT id, status FROM users WHERE kind = 'human' AND lower(email) = ? LIMIT 1").get(normalizeEmail(email)) as { id: string; status: string } | undefined;
   }
   /** Invite an address. An earlier open invite to it is replaced, so the newest role and teams win.
-   *  The link's code isn't a credential — joining still takes the invited Google account — so it's
-   *  stored as is and can be copied again later. */
+   *  The code is kept as is so the link can be copied again later (admins see it anyway); joining
+   *  with it still takes the invited Google account, or typing the invited address (acceptInvite). */
   createInvite(email: string, admin: boolean, teamIds: string[], invitedBy: string): InviteRow {
     const addr = normalizeEmail(email);
     const now = new Date();
