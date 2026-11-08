@@ -444,11 +444,13 @@ export interface WorkspaceSecurity {
 }
 export const DEFAULT_SECURITY: WorkspaceSecurity = { approvedDomains: [], domainTeamIds: [], whoCanInvite: 'admins' };
 
-/** a pending invite as admins see it (the link is safe to show: joining still needs the invited Google account) */
 export type AuthMode = 'local' | 'hosted';
 /** a hosted server always offers 'password'; 'google' when a Google OAuth client is configured */
 export type SignInMethod = 'password' | 'google';
+/** shared with the web app so its forms ask for what the server will accept */
+export const PASSWORD_MIN = 10;
 
+/** a pending invite as admins see it (joining still needs the invited Google account, or typing the invited address) */
 export interface Invite {
   id: string;
   email: string;
