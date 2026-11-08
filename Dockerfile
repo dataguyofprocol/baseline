@@ -12,7 +12,7 @@ RUN npm run build && npm prune --omit=dev --ignore-scripts
 
 FROM node:22-alpine
 # PID 1 must forward SIGTERM, or `docker stop` waits out its timeout and kills the server
-RUN apk add --no-cache tini && mkdir /data && chown node:node /data
+RUN apk add --no-cache tini github-cli && mkdir /data && chown node:node /data
 WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules node_modules
