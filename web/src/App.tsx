@@ -22,7 +22,6 @@ import { CycleDetailPage, CyclesPage, CycleAlias } from './Cycles.js';
 import { InboxPage } from './Inbox.js';
 import { DocumentPage, TeamHomePage } from './Docs.js';
 import { PulsePage, CustomersPage, CustomerPage, TeamsPage, MembersPage, DraftsPage } from './Workspace.js';
-import { ReleasesPage, ReleasePage } from './Planning.js';
 import { InitiativesPage, InitiativePage } from './Initiatives.js';
 import { AsksPage, AskFormPage } from './AutomationUI.js';
 import { ProjectsPage, NewProjectPage, ProjectPage } from './Projects.js';
@@ -429,8 +428,6 @@ export function App() {
                 <Route path="/initiatives/view/:tab" element={<InitiativesPage />} />
                 <Route path="/initiatives/:initiativeId" element={<InitiativePage />} />
                 <Route path="/initiatives/:initiativeId/:tab" element={<InitiativePage />} />
-                <Route path="/releases" element={<ReleasesPage />} />
-                <Route path="/releases/:releaseId" element={<ReleasePage />} />
                 <Route path="/asks" element={<AsksPage />} />
                 <Route path="/asks/:formId" element={<AskFormPage />} />
                 <Route path="/customers" element={<CustomersPage />} />

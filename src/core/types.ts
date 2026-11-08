@@ -129,8 +129,6 @@ export interface Issue {
   creatorId: string | null;
   /** triage: hidden from the queue until this time */
   snoozedUntil: string | null;
-  /** the release it ships in */
-  releaseId?: string | null;
   /** the Ask form it was filed through */
   askFormId?: string | null;
   /** SLA: the rule that applies and when it breaches (cleared once the issue closes) */
@@ -303,11 +301,6 @@ export interface InitiativeLabel { id: string; name: string; color: string; desc
 /** a resource link on an initiative */
 export interface InitiativeLink { id: string; initiativeId: string; url: string; title: string; createdAt: string }
 
-/* ---------- releases ---------- */
-export type ReleaseStage = 'planned' | 'started' | 'released' | 'canceled';
-/** which issues ship in a version */
-export interface Release { id: string; name: string; description: string; stage: ReleaseStage; teamId: string | null; targetDate: string | null; releasedAt: string | null; createdAt: string }
-
 /* ---------- SLAs ---------- */
 /** an automation rule: issues matching it get a deadline `hours` after they start matching */
 export interface SlaRule { id: string; name: string; teamId: string | null; priorities: Priority[]; labelIds: string[]; hours: number; enabled: boolean; createdAt: string }
@@ -424,7 +417,6 @@ export interface WorkspaceFeatures {
   /** new issues created from a customer page go to this team's triage or backlog */
   customerDefaultTeamId: string | null;
   initiativesEnabled: boolean;
-  releasesEnabled: boolean;
   /** git / GitHub: poll `gh` for pull requests in your locations' repos */
   githubEnabled: boolean;
   /** branch name format for "Copy git branch": {issueIdentifier} {issueTitle} {username} */
@@ -473,7 +465,7 @@ export interface InviteResult {
   error?: string;
 }
 
-export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null, initiativesEnabled: true, releasesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
+export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null, initiativesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
 
 /** a directory on this machine that coding agents can work in — usually a git repo */
 export interface Location {
@@ -621,8 +613,6 @@ export interface ViewFilters {
   /** cycle ids; 'none' = no cycle, 'current' = the team's running cycle */
   cycleIds?: string[];
   milestoneIds?: string[];
-  /** release ids; 'none' = no release */
-  releaseIds?: string[];
   /** SLA status */
   sla?: Array<'breached' | 'risk' | 'ok' | 'none'>;
   /** linked pull request state */
@@ -715,7 +705,7 @@ export type ActivityType =
   | 'estimateChanged' | 'related' | 'unrelated' | 'cycleChanged' | 'locationChanged' | 'milestoneChanged' | 'teamChanged'
   | 'attached' | 'triageAccepted' | 'triageDeclined' | 'deleted'
   | 'projectCreated' | 'projectUpdated' | 'projectHealth'
-  | 'releaseChanged' | 'slaApplied' | 'slaBreached' | 'prLinked' | 'prStateMoved' | 'commitLinked' | 'loopRan' | 'askSubmitted';
+  | 'slaApplied' | 'slaBreached' | 'prLinked' | 'prStateMoved' | 'commitLinked' | 'loopRan' | 'askSubmitted';
 
 export interface ActivityItem {
   id: string;
@@ -838,7 +828,7 @@ export function notifyCategory(type: NotificationType, body = ''): NotifyCategor
     default: return null;
   }
 }
-export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', releases: 'show', asks: 'hide', pulse: 'show', customers: 'show', teams: 'hide', members: 'hide' };
+export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', asks: 'hide', pulse: 'show', customers: 'show', teams: 'hide', members: 'hide' };
 
 export const DEFAULT_PREFERENCES: Preferences = {
   homeView: 'inbox', firstDayOfWeek: 1,
@@ -888,7 +878,6 @@ export interface Snapshot {
   initiativeUpdates: InitiativeUpdate[];
   initiativeLabels: InitiativeLabel[];
   initiativeLinks: InitiativeLink[];
-  releases: Release[];
   slaRules: SlaRule[];
   askForms: AskForm[];
   loops: Loop[];
@@ -924,7 +913,7 @@ const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   attachments: true, subscriptions: true, relations: true, projects: true, projectLinks: true, docs: true, teamLinks: true,
   projectTemplates: true, projectRelations: true, projectLabels: true, projectStatuses: true, projectSubscriptions: true,
   docTemplates: true, emojis: true, customers: true, customerStatuses: true, customerTiers: true, customerRequests: true,
-  initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, releases: true, slaRules: true,
+  initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, slaRules: true,
   askForms: true, loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
   teamSubscriptions: true, teamWorkflows: true, recurring: true, locations: true, projectUpdates: true, milestones: true,
   cycles: true, views: true, favorites: true, notifications: true, activity: true, currentUser: true, updateDrafts: true,

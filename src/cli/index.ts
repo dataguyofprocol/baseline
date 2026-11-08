@@ -1155,7 +1155,7 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof lega
   return { ...projectJson(p, snap, store), issues, updates, milestones, blockedBy, blocking, links };
 }
 
-// ---------- initiatives & releases ----------
+// ---------- initiatives ----------
 const initiative = program.command('initiative').description('Initiatives: strategic efforts made of projects');
 const findInitiative = (snap: Snapshot, ref: string) => snap.initiatives.find(i => i.id === ref) ?? snap.initiatives.find(i => /^i-\d+$/i.test(ref) && i.number === Number(ref.slice(2)))
   ?? snap.initiatives.find(i => i.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown initiative "${ref}"`);
@@ -1225,26 +1225,6 @@ withAs(withDb(initiative.command('note <initiative> <body>'))).description('Post
     store.ext.planning.addInitiativeUpdate(findInitiative(snap, ref).id, actorId(snap, opts.as) ?? store.workspaceMeta().currentUser, body, opts.health as 'onTrack' | undefined);
     console.log('Posted update'); process.exit(0);
   });
-const release = program.command('release').description('Releases: which issues ship in a version');
-const findRelease = (snap: Snapshot, ref: string) => snap.releases.find(r => r.id === ref || r.name === ref) ?? fail(`Unknown release "${ref}"`);
-withDb(release.command('list')).description('List releases').option('--json', 'output as JSON', false).action((opts: { db?: string; json?: boolean }) => {
-  const snap = legacyStore(opts.db).snapshot();
-  const rows = snap.releases.map(r => ({ name: r.name, stage: r.stage, targetDate: r.targetDate, releasedAt: r.releasedAt, issues: snap.issues.filter(i => i.releaseId === r.id).map(i => issueKey(i, snap.teams)) }));
-  if (opts.json) console.log(JSON.stringify(rows, null, 2)); else for (const r of rows) console.log(`${r.name.padEnd(12)} ${r.stage.padEnd(9)} ${r.issues.join(' ')}`);
-  process.exit(0);
-});
-withDb(release.command('create <name>')).description('Create a release').option('-d, --description <text>').option('--target <date>').action((name: string, opts: { db?: string; description?: string; target?: string }) => {
-  legacyStore(opts.db).ext.planning.createRelease({ name, description: opts.description, targetDate: opts.target ?? null }); console.log(`Created release ${name}`); process.exit(0);
-});
-withDb(release.command('update <release>')).description('Change a release (stage: planned|started|released|canceled)').option('--stage <stage>').option('--add <keys...>', 'issue keys to add').option('--remove <keys...>', 'issue keys to remove')
-  .action((ref: string, opts: { db?: string; stage?: string; add?: string[]; remove?: string[] }) => {
-    const store = legacyStore(opts.db); const r = findRelease(store.snapshot(), ref);
-    if (opts.stage) store.ext.planning.updateRelease(r.id, { stage: opts.stage as 'released' });
-    for (const k of opts.add ?? []) store.updateIssue(store.getByKey(k)?.id ?? fail(`Unknown issue ${k}`), { releaseId: r.id });
-    for (const k of opts.remove ?? []) store.updateIssue(store.getByKey(k)?.id ?? fail(`Unknown issue ${k}`), { releaseId: null });
-    console.log(`Updated release ${r.name}`); process.exit(0);
-  });
-
 // ---------- personal API keys ----------
 const apiKey = program.command('api-key').description('Personal API keys for the REST API (Authorization: Bearer <key>)');
 withDb(apiKey.command('list')).description('List your API keys').option('--all', 'every member\'s keys', false).option('--json', 'output as JSON', false).action((opts: { db?: string; all?: boolean; json?: boolean }) => {

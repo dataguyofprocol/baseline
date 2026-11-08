@@ -5,7 +5,7 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, AdminLock, ADMIN_NOTE, useCanConfigure, useInFlight } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconRelease, IconAsk, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconAsk, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
 import { HostedMembersSettings, SecuritySettings as WorkspaceSecuritySettings, TeamMembersSettings } from './Members.js';
@@ -24,7 +24,7 @@ export const SETTINGS_NAV: Array<{ sec: string; items: Array<[string, string]> }
   { sec: 'Personal', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Security & access', 'security'], ['Keyboard shortcuts', 'shortcuts']] },
   { sec: 'Issues', items: [['Labels', 'labels'], ['Templates', 'templates'], ['SLAs', 'slas']] },
   { sec: 'Projects', items: [['Labels', 'project-labels'], ['Templates', 'project-templates'], ['Statuses', 'project-statuses'], ['Updates', 'project-updates']] },
-  { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Documents', 'documents'], ['Customer requests', 'customer-requests'], ['Releases', 'releases'], ['Pulse', 'pulse'], ['Asks', 'asks'], ['Loops', 'loops'], ['Emojis', 'emojis']] },
+  { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Documents', 'documents'], ['Customer requests', 'customer-requests'], ['Pulse', 'pulse'], ['Asks', 'asks'], ['Loops', 'loops'], ['Emojis', 'emojis']] },
   { sec: 'Integrations', items: [['GitHub', 'github']] },
   { sec: 'Administration', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Security', 'workspace-security'], ['API', 'api'], ['Coding tools', 'handoff'], ['Import & export', 'data']] },
 ];
@@ -33,14 +33,14 @@ const SETTINGS_ICONS: Record<string, React.ReactNode> = {
   preferences: <IconSliders size={14} />, profile: <IconUser size={14} />, notifications: <IconBell size={14} />, security: <IconShieldUser size={14} />, 'workspace-security': <IconShieldUser size={14} />, api: <IconCode size={14} />, shortcuts: <IconKeyboard size={14} />,
   labels: <IconTag size={14} />, templates: <IconDoc size={14} />, slas: <IconSla size={14} />,
   'project-labels': <IconTag size={14} />, 'project-templates': <IconDoc size={14} />, 'project-statuses': <IconStatusRing size={14} />, 'project-updates': <IconPulse size={14} />,
-  initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />, 'customer-requests': <IconCustomers size={14} />, releases: <IconRelease size={14} />,
+  initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />, 'customer-requests': <IconCustomers size={14} />,
   pulse: <IconPulse size={14} />, asks: <IconAsk size={14} />, loops: <IconLoop size={14} />, emojis: <IconEmoji size={14} />, github: <IconPr size={14} />,
   workspace: <IconSettings size={14} />, teams: <IconTeam size={14} />, members: <IconUsers size={14} />, handoff: <IconAgent size={14} />, data: <IconArchive size={14} />,
 };
 
 // hosted, these pages set up the workspace or a team: admins change them, members can read them
 const ADMIN_SECTIONS = new Set(['workspace', 'data', 'labels', 'templates', 'slas', 'project-labels', 'project-templates', 'project-statuses', 'project-updates',
-  'initiatives', 'documents', 'customer-requests', 'releases', 'pulse', 'asks', 'loops', 'github']);
+  'initiatives', 'documents', 'customer-requests', 'pulse', 'asks', 'loops', 'github']);
 const ADMIN_TEAM_PAGES = new Set(['general', 'labels', 'templates', 'statuses', 'triage', 'workflow']);
 const LABELS_NOTE = 'Only admins can change labels. Anyone can add one from a label menu.';
 
@@ -130,7 +130,6 @@ function SettingsPage() {
       {section === 'loops' && <LoopsSettings />}
       {section === 'github' && <GitHubSettings />}
       {section === 'initiatives' && <InitiativesSettings />}
-      {section === 'releases' && <FeatureToggle title="Releases" flag="releasesEnabled" help="Track which issues ship in each release: give issues a Release, move releases from Planned to In progress to Released." link={['/releases', 'Open releases']} />}
     </>
   );
 }
@@ -441,22 +440,6 @@ function RecurringIssues(props: { teamId: string }) {
         </select>
         <button className="btn primary" style={{ height: 28 }} disabled={!title.trim()} onClick={add}>Add</button>
       </div>
-    </div>
-  );
-}
-
-/** a settings page that's mostly one switch (Initiatives, Releases) */
-function FeatureToggle(props: { title: string; flag: 'initiativesEnabled' | 'releasesEnabled'; help: string; link: [string, string] }) {
-  const snap = useApp(s => s.snap)!;
-  const on = snap.workspace.features[props.flag];
-  return (
-    <div className="settings-card">
-      <h1>{props.title}</h1>
-      <div className="field-row">
-        <div><div className="field-label">Enable {props.title.toLowerCase()}</div><div className="field-help">{props.help}</div></div>
-        <SettingSwitch on={on} onChange={async v => { await api.setFeatures({ [props.flag]: v }); await useApp.getState().bootstrap(); }} />
-      </div>
-      {on && <Link className="btn secondary sm" to={props.link[0]}>{props.link[1]}</Link>}
     </div>
   );
 }

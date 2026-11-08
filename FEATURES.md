@@ -95,7 +95,6 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Document templates (Settings › Documents) offered in "Add document or link…"
 - ✅ Custom emojis (Settings › Emojis): reactions and :name: in Markdown
 - ✅ Initiatives (sidebar, G then N): Active / Planned / All, owner, target, health from updates, projects and sub-initiatives, progress across their projects; a project's properties show its initiatives
-- ✅ Releases: stages Planned / In progress / Released / Canceled, issues per release, Release on the issue rail, Release filter
 - ✅ Project saved views: Views has Issues | Projects tabs; a project view keeps filters, grouping, ordering, layout and properties; ⌥V saves whatever list is on screen
 
 ## 7. Command palette (⌘K)

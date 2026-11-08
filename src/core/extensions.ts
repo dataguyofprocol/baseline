@@ -7,7 +7,7 @@ import { ApiKeys } from './apikeys.js';
 import { GitHubWebhooks, migrateWebhooks } from './webhooks.js';
 import { migrateWork, Work, WORK_TABLES } from './work.js';
 
-/* Areas added after the core tracker — initiatives, releases, SLAs, asks, loops and the git
+/* Areas added after the core tracker — initiatives, SLAs, asks, loops and the git
    integration. Each lives in its own module with its own tables, and plugs into the store
    through issueHooks / tickHooks, so the core store stays small and merges stay mechanical. */
 
@@ -37,7 +37,7 @@ function numberInitiatives(db: DatabaseSync): void {
 function migrateExtensions(db: DatabaseSync): void {
   const columns = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map(c => c.name);
   const issueCols = columns('issues');
-  for (const [col, def] of [['release_id', 'TEXT'], ['ask_form_id', 'TEXT'], ['sla_rule_id', 'TEXT'], ['sla_breaches_at', 'TEXT']] as const) {
+  for (const [col, def] of [['ask_form_id', 'TEXT'], ['sla_rule_id', 'TEXT'], ['sla_breaches_at', 'TEXT']] as const) {
     if (!issueCols.includes(col)) db.exec(`ALTER TABLE issues ADD COLUMN ${col} ${def}`);
   }
   db.exec(`
@@ -61,10 +61,6 @@ function migrateExtensions(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS initiative_links (
       id TEXT PRIMARY KEY, initiative_id TEXT NOT NULL REFERENCES initiatives(id) ON DELETE CASCADE,
       url TEXT NOT NULL, title TEXT NOT NULL, created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS releases (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', stage TEXT NOT NULL DEFAULT 'planned',
-      team_id TEXT, target_date TEXT, released_at TEXT, created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sla_rules (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, team_id TEXT, priorities TEXT NOT NULL DEFAULT '[]', labels TEXT NOT NULL DEFAULT '[]',
@@ -133,7 +129,7 @@ export function createExtensions(store: Store, db: DatabaseSync): Extensions {
     planning, automation, git, apiKeys, webhooks, work,
     snapshot: () => ({ ...planning.snapshot(), ...automation.snapshot(), ...git.snapshot() }),
     // api_keys are not exported or imported (only their hashes exist), nor is agent work
-    tables: [...WORK_TABLES, 'github_issue_imports', 'github_deliveries', 'api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'releases', 'initiative_links', 'initiative_updates', 'initiative_projects', 'initiatives', 'initiative_labels'],
+    tables: [...WORK_TABLES, 'github_issue_imports', 'github_deliveries', 'api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'initiative_links', 'initiative_updates', 'initiative_projects', 'initiatives', 'initiative_labels'],
     importData(data, insert) {
       const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : []);
       for (const x of arr<Record<string, unknown>>(data.initiatives)) {
@@ -146,7 +142,6 @@ export function createExtensions(store: Store, db: DatabaseSync): Extensions {
       for (const x of arr<Record<string, unknown>>(data.initiativeLabels)) insert('initiative_labels', ['id', 'name', 'color', 'description', 'created_at'], { ...x, description: x.description ?? '', created_at: x.createdAt });
       for (const x of arr<Record<string, unknown>>(data.initiativeUpdates)) insert('initiative_updates', ['id', 'initiative_id', 'user_id', 'body', 'health', 'created_at', 'reactions'], { ...x, initiative_id: x.initiativeId, user_id: x.userId, health: x.health ?? null, created_at: x.createdAt, reactions: JSON.stringify(x.reactions ?? {}) });
       for (const x of arr<Record<string, unknown>>(data.initiativeLinks)) insert('initiative_links', ['id', 'initiative_id', 'url', 'title', 'created_at'], { ...x, initiative_id: x.initiativeId, created_at: x.createdAt });
-      for (const x of arr<Record<string, unknown>>(data.releases)) insert('releases', ['id', 'name', 'description', 'stage', 'team_id', 'target_date', 'released_at', 'created_at'], { ...x, description: x.description ?? '', team_id: x.teamId ?? null, target_date: x.targetDate ?? null, released_at: x.releasedAt ?? null, created_at: x.createdAt });
       for (const x of arr<Record<string, unknown>>(data.slaRules)) insert('sla_rules', ['id', 'name', 'team_id', 'priorities', 'labels', 'hours', 'enabled', 'created_at'], { ...x, team_id: x.teamId ?? null, priorities: JSON.stringify(x.priorities ?? []), labels: JSON.stringify(x.labelIds ?? []), enabled: x.enabled === false ? 0 : 1, created_at: x.createdAt });
       for (const x of arr<Record<string, unknown>>(data.askForms)) insert('ask_forms', ['id', 'name', 'description', 'team_id', 'fields', 'labels', 'priority', 'enabled', 'created_at'], { ...x, description: x.description ?? '', team_id: x.teamId, fields: JSON.stringify(x.fields ?? []), labels: JSON.stringify(x.labelIds ?? []), priority: x.priority ?? 0, enabled: x.enabled === false ? 0 : 1, created_at: x.createdAt });
       for (const x of arr<Record<string, unknown>>(data.loops)) insert('loops', ['id', 'name', 'team_id', 'trigger', 'actions', 'enabled', 'last_run_at', 'created_at'], { ...x, team_id: x.teamId ?? null, trigger: JSON.stringify(x.trigger), actions: JSON.stringify(x.actions ?? []), enabled: x.enabled === false ? 0 : 1, last_run_at: x.lastRunAt ?? null, created_at: x.createdAt });

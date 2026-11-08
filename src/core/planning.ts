@@ -1,16 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Store } from './store.js';
 import { id } from './util.js';
-import type { DateResolution, Initiative, InitiativeLabel, InitiativeLink, InitiativeUpdate, InitiativeStatus, Priority, ProjectHealth, Release, ReleaseStage, UpdateCadence } from './types.js';
+import type { DateResolution, Initiative, InitiativeLabel, InitiativeLink, InitiativeUpdate, InitiativeStatus, Priority, ProjectHealth, UpdateCadence } from './types.js';
 
 const ts = () => new Date().toISOString();
 
 type InitiativeRow = { id: string; name: string; description: string; summary: string; icon: string; color: string; status: InitiativeStatus; health: ProjectHealth | null; owner_id: string | null; target_date: string | null; target_resolution: DateResolution | null; parent_id: string | null; position: number; created_at: string; updated_at: string;
   number: number | null; priority: number; labels: string; team_id: string | null; update_cadence: UpdateCadence | null };
-type ReleaseRow = { id: string; name: string; description: string; stage: ReleaseStage; team_id: string | null; target_date: string | null; released_at: string | null; created_at: string };
 
-/* Initiatives (groups of projects with their own status, health and updates) and releases
-   (which issues ship in a version). */
+/* Initiatives: groups of projects with their own status, health and updates. */
 export class Planning {
   constructor(private store: Store, private db: DatabaseSync) {
     store.tickHooks.push(now => this.remindUpdates(now));
@@ -32,10 +30,7 @@ export class Planning {
       .map(l => ({ id: l.id, name: l.name, color: l.color, description: l.description, createdAt: l.created_at }));
     const initiativeLinks: InitiativeLink[] = this.rows<{ id: string; initiative_id: string; url: string; title: string; created_at: string }>('SELECT * FROM initiative_links ORDER BY created_at')
       .map(l => ({ id: l.id, initiativeId: l.initiative_id, url: l.url, title: l.title, createdAt: l.created_at }));
-    const releases: Release[] = this.rows<ReleaseRow>('SELECT * FROM releases ORDER BY created_at').map(r => ({
-      id: r.id, name: r.name, description: r.description, stage: r.stage, teamId: r.team_id, targetDate: r.target_date, releasedAt: r.released_at, createdAt: r.created_at,
-    }));
-    return { initiatives, initiativeUpdates, initiativeLabels, initiativeLinks, releases };
+    return { initiatives, initiativeUpdates, initiativeLabels, initiativeLinks };
   }
 
   // ---------- initiatives ----------
@@ -138,26 +133,5 @@ export class Planning {
       const already = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'initiativeUpdateReminder' AND user_id = ? AND body LIKE ? AND created_at >= ?").get(r.owner_id, `${r.id}|%`, due);
       if (!already) this.store.notifyEach([r.owner_id], 'initiativeUpdateReminder', { actorId: null, body: `${r.id}|An update on ${r.name} is due`, createdAt: now.toISOString() });
     }
-  }
-
-  // ---------- releases ----------
-  createRelease(input: { name: string; description?: string; stage?: ReleaseStage; teamId?: string | null; targetDate?: string | null }): Release {
-    const r: Release = { id: id('rl'), name: input.name.trim(), description: input.description ?? '', stage: input.stage ?? 'planned', teamId: input.teamId ?? null, targetDate: input.targetDate ?? null, releasedAt: input.stage === 'released' ? ts() : null, createdAt: ts() };
-    this.db.prepare('INSERT INTO releases (id, name, description, stage, team_id, target_date, released_at, created_at) VALUES (?,?,?,?,?,?,?,?)').run(r.id, r.name, r.description, r.stage, r.teamId, r.targetDate, r.releasedAt, r.createdAt);
-    return r;
-  }
-  updateRelease(releaseId: string, patch: Partial<Pick<Release, 'name' | 'description' | 'stage' | 'teamId' | 'targetDate'>>): void {
-    const col: Record<string, string> = { teamId: 'team_id', targetDate: 'target_date' };
-    const sets: string[] = []; const vals: Array<string | null> = [];
-    for (const [k, v] of Object.entries(patch)) { if (v === undefined || !['name', 'description', 'stage', 'teamId', 'targetDate'].includes(k)) continue; sets.push(`${col[k] ?? k} = ?`); vals.push(v as string | null); }
-    // shipping a release stamps it
-    if (patch.stage) { sets.push('released_at = ?'); vals.push(patch.stage === 'released' ? ts() : null); }
-    if (!sets.length) return;
-    vals.push(releaseId);
-    this.db.prepare(`UPDATE releases SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-  }
-  deleteRelease(releaseId: string): void {
-    this.db.prepare('UPDATE issues SET release_id = NULL WHERE release_id = ?').run(releaseId);
-    this.db.prepare('DELETE FROM releases WHERE id = ?').run(releaseId);
   }
 }

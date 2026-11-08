@@ -177,7 +177,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.addCustomerRequest({ customerId: acme.id, projectId: mobile.id, body: 'Our on-call team triages from phones — need the inbox on mobile.', important: true }, ada.id);
   const reqIssue = store.listIssues({ teamId: core.id }).find(i => /search/i.test(i.title));
   if (reqIssue) store.addCustomerRequest({ customerId: north.id, issueId: reqIssue.id, body: 'Search should match comment text too.' }, jun.id);
-  // initiatives, releases, SLAs, asks, loops and a few pull requests
+  // initiatives, SLAs, asks, loops and a few pull requests
   const { planning, automation, git } = store.ext;
   // finished work gets completion times spread over past weeks (initiative graphs and activity read them)
   const finished = store.listIssues({ teamId: core.id, stateType: 'completed' });
@@ -204,12 +204,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   planning.addInitiativeUpdate(onTheGo.id, jun.id, 'Waiting on the inbox API; design is ready.', 'atRisk');
   planning.createInitiative({ priority: 3, labelIds: [lGrowth.id], name: 'Developer love', icon: 'glyph:heart', color: '#e255a1', status: 'planned', summary: 'Docs, a CLI people brag about, and one-command self-hosting.', targetDate: yearEnd, targetResolution: 'year' });
   const coreIssues = store.listIssues({ teamId: core.id });
-  const done = coreIssues.filter(i => st(core.id, 'completed') === i.stateId).slice(0, 2);
   const open = coreIssues.filter(i => [st(core.id, 'unstarted'), st(core.id, 'started')].includes(i.stateId)).slice(0, 3);
-  const v09 = planning.createRelease({ name: 'v0.9.0', description: 'Rich editor and triage', stage: 'released' });
-  const v10 = planning.createRelease({ name: 'v1.0.0', description: 'Projects and cycles parity', stage: 'started', targetDate: iso(10).slice(0, 10) });
-  for (const i of done) store.updateIssue(i.id, { releaseId: v09.id });
-  for (const i of open) store.updateIssue(i.id, { releaseId: v10.id });
   automation.createSlaRule({ name: 'Urgent issues', priorities: [1], hours: 24 });
   automation.createSlaRule({ name: 'High-priority bugs', priorities: [2], labelIds: [coreBug.id], hours: 7 * 24 });
   automation.createAskForm({ name: 'Bug report', teamId: agents.id, description: 'Something broken? Tell us what you saw.', priority: 2,

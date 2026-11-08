@@ -798,11 +798,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/initiative-labels/:id', async (c) => { planning.updateLabel(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/initiative-labels/:id', (c) => { planning.deleteLabel(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- releases ----------
-  app.post('/api/releases', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ release: planning.createRelease(b) }, 201); });
-  app.patch('/api/releases/:id', async (c) => { planning.updateRelease(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/releases/:id', (c) => { planning.deleteRelease(c.req.param('id')); return c.json({ ok: true }); });
-
   // ---------- SLAs, asks, loops ----------
   app.post('/api/sla-rules', async (c) => { const b = await c.req.json(); if (!b.name || !(b.hours > 0)) return c.json({ error: 'name and hours are required' }, 400); return c.json({ rule: automation.createSlaRule(b) }, 201); });
   app.patch('/api/sla-rules/:id', async (c) => { automation.updateSlaRule(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });

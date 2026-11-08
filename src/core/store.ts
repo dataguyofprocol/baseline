@@ -18,8 +18,10 @@ interface TeamRow { id: string; key: string; name: string; icon: string; color: 
 interface CommentRow { id: string; issue_id: string; user_id: string; via_user_id: string | null; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null; parent_id: string | null }
 interface AttachmentRow { id: string; issue_id: string; user_id: string; kind: string; url: string; title: string; mime: string; size: number; created_at: string }
 const DAY = 86400000;
+/** activity types of removed features: old databases keep the rows, the timeline no longer shows them */
+const RETIRED_ACTIVITY = ['releaseChanged'].map(t => `'${t}'`).join(', ');
 
-interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; milestone_id: string | null; creator_id: string | null; snoozed_until: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; release_id?: string | null; ask_form_id?: string | null; sla_rule_id?: string | null; sla_breaches_at?: string | null; }
+interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; milestone_id: string | null; creator_id: string | null; snoozed_until: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; ask_form_id?: string | null; sla_rule_id?: string | null; sla_breaches_at?: string | null; }
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
@@ -32,10 +34,10 @@ function sqlPairs<T extends object>(patch: T, allowed: Array<keyof T>): Array<[s
 }
 
 /** the issue fields updateIssue accepts; everything else on an Issue is derived or fixed */
-const ISSUE_PATCH_KEYS = new Set<string>(['title', 'description', 'stateId', 'priority', 'assigneeId', 'projectId', 'parentId', 'cycleId', 'locationId', 'milestoneId', 'estimate', 'dueDate', 'labelIds', 'sortOrder', 'archivedAt', 'releaseId']);
+const ISSUE_PATCH_KEYS = new Set<string>(['title', 'description', 'stateId', 'priority', 'assigneeId', 'projectId', 'parentId', 'cycleId', 'locationId', 'milestoneId', 'estimate', 'dueDate', 'labelIds', 'sortOrder', 'archivedAt']);
 
 export class Store {
-  /** extension modules (initiatives, releases, SLAs, asks, loops, git) — see extensions.ts */
+  /** extension modules (initiatives, SLAs, asks, loops, git) — see extensions.ts */
   readonly ext: Extensions;
   /** called after every issue create (before = null) and update */
   readonly issueHooks: Array<(before: Issue | null, after: Issue, actorId?: string) => void> = [];
@@ -52,7 +54,7 @@ export class Store {
     dueDate: r.due_date, sortOrder: r.sort_order, labelIds: JSON.parse(r.labels),
     createdAt: r.created_at, updatedAt: r.updated_at, archivedAt: r.archived_at,
     completedAt: r.completed_at, canceledAt: r.canceled_at, deletedAt: r.deleted_at,
-    releaseId: r.release_id ?? null, askFormId: r.ask_form_id ?? null, slaRuleId: r.sla_rule_id ?? null, slaBreachesAt: r.sla_breaches_at ?? null,
+    askFormId: r.ask_form_id ?? null, slaRuleId: r.sla_rule_id ?? null, slaBreachesAt: r.sla_breaches_at ?? null,
   });
 
   private mapTeam = (t: TeamRow): Team => ({
@@ -128,7 +130,7 @@ export class Store {
       views: rows<{ id: string; team_id: string | null; name: string; icon: string; filters: string; group_by: string; order_by: string; layout: string; position: number; kind: string; project_options: string | null; owner_id: string | null; shared: number }>('SELECT * FROM views WHERE shared = 1 OR owner_id = ? ORDER BY position', me).map(v => ({ ownerId: v.owner_id, shared: !!v.shared, id: v.id, teamId: v.team_id, name: v.name, icon: v.icon, filters: JSON.parse(v.filters), groupBy: v.group_by as GroupBy, orderBy: v.order_by as OrderBy, layout: v.layout as 'list' | 'board', position: v.position, kind: (v.kind === 'projects' ? 'projects' : 'issues') as SavedView['kind'], projectOptions: v.project_options ? JSON.parse(v.project_options) : null })),
       favorites: rows<{ id: string; type: Favorite['type']; ref_id: string; position: number }>('SELECT * FROM favorites WHERE user_id = ? ORDER BY position', me).map(f => ({ id: f.id, type: f.type, refId: f.ref_id, position: f.position })),
       notifications: rows<{ id: string; type: Notification['type']; actor_id: string | null; issue_id: string | null; project_id: string | null; body: string; read_at: string | null; snoozed_until: string | null; created_at: string }>('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 500', me).map(n => ({ id: n.id, type: n.type, actorId: n.actor_id, issueId: n.issue_id, projectId: n.project_id, body: n.body, readAt: n.read_at, snoozedUntil: n.snoozed_until ?? null, createdAt: n.created_at })),
-      activity: rows<{ id: string; issue_id: string | null; project_id: string | null; user_id: string; via_user_id: string | null; type: ActivityType; data: string; created_at: string }>('SELECT * FROM activity ORDER BY created_at DESC LIMIT 2000').map(a => ({ id: a.id, issueId: a.issue_id, projectId: a.project_id, userId: a.user_id, viaUserId: a.via_user_id ?? null, type: a.type, data: JSON.parse(a.data), createdAt: a.created_at })),
+      activity: rows<{ id: string; issue_id: string | null; project_id: string | null; user_id: string; via_user_id: string | null; type: ActivityType; data: string; created_at: string }>(`SELECT * FROM activity WHERE type NOT IN (${RETIRED_ACTIVITY}) ORDER BY created_at DESC LIMIT 2000`).map(a => ({ id: a.id, issueId: a.issue_id, projectId: a.project_id, userId: a.user_id, viaUserId: a.via_user_id ?? null, type: a.type, data: JSON.parse(a.data), createdAt: a.created_at })),
       ...this.ext.snapshot(),
     };
   }
@@ -399,7 +401,7 @@ export class Store {
     return s.id;
   }
 
-  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null; releaseId?: string | null; askFormId?: string | null }, actorId?: string): Issue {
+  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null; askFormId?: string | null }, actorId?: string): Issue {
     const now = ts();
     const creatorId = actorId ?? this.actor();
     // with triage on, work filed by anyone but you (agents, teammates on the CLI) waits for review
@@ -424,15 +426,15 @@ export class Store {
     if (issue.assigneeId) { this.subscribe(issue.id, issue.assigneeId); this.notifyAssign(issue.id, issue.assigneeId, actorId); }
     for (const uid of this.mentions(issue.description)) this.subscribe(issue.id, uid);
     if (issue.projectId) this.notifyProject(issue.projectId, 'issueAdded', 'projectIssueAdded', creatorId, issue.title, issue.id);
-    if (input.releaseId !== undefined || input.askFormId) {
-      this.db.prepare('UPDATE issues SET release_id = ?, ask_form_id = ? WHERE id = ?').run(input.releaseId ?? null, input.askFormId ?? null, issue.id);
-      issue.releaseId = input.releaseId ?? null; issue.askFormId = input.askFormId ?? null;
+    if (input.askFormId) {
+      this.db.prepare('UPDATE issues SET ask_form_id = ? WHERE id = ?').run(input.askFormId, issue.id);
+      issue.askFormId = input.askFormId;
     }
     for (const h of this.issueHooks) h(null, issue, actorId);
     return issue;
   }
 
-  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'milestoneId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt' | 'releaseId'>>, actorId?: string): Issue | undefined {
+  updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'milestoneId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt'>>, actorId?: string): Issue | undefined {
     // keep only the fields a caller may set, and drop explicitly-undefined keys so partial
     // patches never clobber values. The REST route hands us the raw request body: without the
     // allow-list, `completedAt`/`canceledAt` (or `teamId`, `number`…) would be spread into
@@ -503,10 +505,6 @@ export class Store {
       for (const lid of before.labelIds) if (!patch.labelIds.includes(lid)) acts.push(['unlabeled', { labelId: lid }]);
     }
     if (patch.archivedAt !== undefined) acts.push([patch.archivedAt ? 'archived' : 'restored', {}]);
-    if (patch.releaseId !== undefined && patch.releaseId !== before.releaseId) {
-      this.db.prepare('UPDATE issues SET release_id = ? WHERE id = ?').run(patch.releaseId, issueId);
-      acts.push(['releaseChanged', { to: patch.releaseId, from: before.releaseId ?? null }]);
-    }
     for (const [type, data] of acts) this.logActivity({ issueId, type, data }, actorId);
     for (const h of this.issueHooks) h(before, next, actorId);
     return next;
@@ -1104,7 +1102,8 @@ export class Store {
   }
 
   getFeatures(): WorkspaceFeatures {
-    try { return { ...DEFAULT_FEATURES, ...(JSON.parse(getMeta(this.db, 'features') ?? '{}') as Partial<WorkspaceFeatures>) }; } catch { return DEFAULT_FEATURES; }
+    // keys of switches that no longer exist are dropped, so old workspaces don't leak them
+    try { const stored = JSON.parse(getMeta(this.db, 'features') ?? '{}') as Record<string, unknown>; return { ...DEFAULT_FEATURES, ...Object.fromEntries(Object.entries(stored).filter(([k]) => k in DEFAULT_FEATURES)) } as WorkspaceFeatures; } catch { return DEFAULT_FEATURES; }
   }
   setFeatures(patch: Partial<WorkspaceFeatures>): void { setMeta(this.db, 'features', JSON.stringify({ ...this.getFeatures(), ...patch })); }
 
@@ -1453,7 +1452,7 @@ export class Store {
     for (const p of arr<Record<string, unknown>>(data.projects)) this.db.prepare('UPDATE projects SET labels = ?, status_id = ?, update_cadence = ? WHERE id = ?').run(JSON.stringify(p.labelIds ?? []), (p.statusId as string | null) ?? null, (p.updateCadence as string | null) ?? null, p.id as string);
     if (ws && (ws as { features?: WorkspaceFeatures }).features) setMeta(this.db, 'features', JSON.stringify((ws as { features?: WorkspaceFeatures }).features));
     this.ext.importData(data, insert);
-    for (const i of arr<Record<string, unknown>>(data.issues)) this.db.prepare('UPDATE issues SET release_id = ?, ask_form_id = ?, sla_rule_id = ?, sla_breaches_at = ? WHERE id = ?').run((i.releaseId as string | null) ?? null, (i.askFormId as string | null) ?? null, (i.slaRuleId as string | null) ?? null, (i.slaBreachesAt as string | null) ?? null, i.id as string);
+    for (const i of arr<Record<string, unknown>>(data.issues)) this.db.prepare('UPDATE issues SET ask_form_id = ?, sla_rule_id = ?, sla_breaches_at = ? WHERE id = ?').run((i.askFormId as string | null) ?? null, (i.slaRuleId as string | null) ?? null, (i.slaBreachesAt as string | null) ?? null, i.id as string);
     ensureDefaults(this.db);
     // a pre-locations export: its project directories and default become locations, as on upgrade
     migrateDirectoriesToLocations(this.db);

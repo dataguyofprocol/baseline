@@ -30,7 +30,7 @@ import {
   IconEstimate, IconCycle, IconCalendar, IconBox, IconBranch, IconHandoff, IconSpark, IconCopyId,
   IconMilestone, IconLink, IconFile, IconReply, IconResolve, IconChevronDown, IconChevronUp, IconExternal,
   IconBell, IconBellOff, IconTeam, IconClock, IconTriage, IconCheck, IconEmoji, IconMore, IconDoc,
-  IconRelease, IconArrowUp,
+  IconArrowUp,
 } from './icons.js';
 import type { Issue, Comment } from '../../src/core/types.js';
 
@@ -88,9 +88,6 @@ function useActivityText() {
         : <>{who} removed the location {when}</>;
       case 'archived': return <>{who} archived the issue {when}</>;
       case 'restored': return <>{who} restored the issue {when}</>;
-      case 'releaseChanged': return a.data.to
-        ? <>{who} added the issue to release <b>{snap.releases.find(r => r.id === a.data.to)?.name ?? 'a removed release'}</b> {when}</>
-        : <>{who} removed the issue from its release {when}</>;
       case 'slaApplied': return <>{who} applied SLA <b>{String(a.data.rule)}</b> — due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
       case 'slaBreached': return <>{who} marked the SLA as breached {when}</>;
       case 'prLinked': return <>{who} linked {a.data.kind === 'closing' ? 'pull request' : 'a reference from'} <a href={String(a.data.url)} target="_blank" rel="noreferrer"><b>{String(a.data.pr)}</b></a> {String(a.data.title ?? '')} {when}</>;
@@ -519,34 +516,11 @@ export function PropertiesRail(props: { issue: Issue }) {
             )}
           </MilestoneMenu>
         )}
-        <ReleaseRow issue={issue} />
         {issue.slaBreachesAt && <div className="prop-line" data-prop="sla"><SlaBadge issue={issue} long /></div>}
       </div>
 
       <RelationsCard issue={issue} />
     </aside>
-  );
-}
-
-/** Release in the rail: which version the issue ships in */
-function ReleaseRow({ issue }: { issue: Issue }) {
-  const snap = useApp(s => s.snap)!;
-  const menu = useMenu();
-  if (!snap.workspace.features.releasesEnabled) return null;
-  const rel = snap.releases.find(r => r.id === issue.releaseId);
-  const open = snap.releases.filter(r => r.stage !== 'released' && r.stage !== 'canceled');
-  return (
-    <>
-      <button className={`prop-line ${rel ? '' : 'dim'}`} data-prop="release" onClick={menu.open} title="Set release"><IconRelease size={14} /><span className="prop-line-label">{rel ? rel.name : 'Add to release'}</span></button>
-      {menu.anchor && (
-        <Menu anchor={menu.anchor} onClose={menu.close} width={220}>
-          <div className="menu-header"><span>Release</span></div>
-          {(open.length ? open : snap.releases).map(r => <MenuItem key={r.id} icon={<IconRelease size={14} />} label={r.name} selected={issue.releaseId === r.id} onClick={() => void setIssueProps([issue.id], { releaseId: r.id })} />)}
-          {!snap.releases.length && <div className="menu-empty">No releases yet — create one on the Releases page.</div>}
-          {issue.releaseId && <><MenuSep /><MenuItem label="Remove from release" onClick={() => void setIssueProps([issue.id], { releaseId: null })} /></>}
-        </Menu>
-      )}
-    </>
   );
 }
 

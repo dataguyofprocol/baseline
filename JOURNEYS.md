@@ -132,7 +132,6 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Journey | Status | Check | How it works |
 |---|---|---|---|
 | Initiatives: Active / Planned / All, owner, target, health from updates, projects, sub-initiatives, G then N | ✅ | 11.1, 11.2 | brought back at your request; a project's properties list its initiatives |
-| Releases: Planned → In progress → Released, issues per release, Release on the issue, filter | ✅ | 11.3 | |
 | SLAs: rules by priority / label / team, deadline badges, SLA filter, breach notifications | ✅ | 11.4 | breach timing also checked on a scratch database |
 | Asks: intake forms with fields and validation; submissions land in triage | ✅ | 11.5 | |
 | Loops: issue created / label added / status changed / schedule → comment, assign, label, move, file an issue, Claude Code | ✅ | 11.6 | actions run as the Automation agent |
@@ -178,7 +177,6 @@ window size, and every difference that showed was fixed:
 | Search, shortcuts, archive, drafts, members, teams | issue-only search under a "Search" crumb; centered shortcuts modal on `?`; archive without tabs; serif empty-state titles; pills for Joined / teams | query in the header with tabs; `?` help menu + ⌘/ drawer; archive tabs; plain empty-state titles; plain Joined, team icons, cycle / project counts |
 | Project board and timeline | progress chip, "No projects" placeholders; red Today line, segmented zoom on the left | Linear's card props + issue count, + per column; brand Today pill, Today button and zoom select on the right |
 | Initiatives | no filter or display options | filter by health / owner; ordering; nest sub-initiatives |
-| Releases | — | Linear's workspace has no Releases page (it returns Not found), so there was nothing to compare against |
 | Security & access, Create API key, Administration › API | page was missing | same sections, form, permission list and team limits; Linear's Passkeys, Commit signing key and Authorized applications sections are left out (no sign-in, no OAuth apps) |
 
 ## Not built

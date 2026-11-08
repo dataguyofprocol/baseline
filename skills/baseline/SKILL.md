@@ -142,16 +142,13 @@ baseline project statuses                     # named statuses by category
 baseline project status-create started "In Review"
 baseline project update "Name" --status "In Review" --label Infra --remove-label "Q4 bet" --updates weekly   # --updates none|weekly|biweekly|monthly|default
 
-# initiatives & releases
+# initiatives
 baseline initiative list [--json]
 baseline initiative create "Agent-first tracker" --status active --project "Agent Handoff" "Design System" [--parent "…"] [--target 2026-12-01]
 baseline initiative update "Agent-first tracker" --status completed --add-project "Mobile" --remove-project "…"
 baseline initiative update I-3 --priority high --label Growth "Q1 bet" --remove-label Docs --team CORE --updates weekly   # by name or I-12; labels are created if new
 baseline initiative label list | create <name> [--color #hex] | delete <name>
 baseline initiative note "Agent-first tracker" "On track for Q4" --health onTrack
-baseline release list [--json]
-baseline release create v1.5.0 [--target 2026-11-01] [-d "notes"]
-baseline release update v1.5.0 --add CORE-3 CORE-7 --stage released   # planned|started|released|canceled
 
 # SLAs, Asks, Loops
 baseline sla list                               # rules + breached issues

@@ -3,7 +3,7 @@
    Colors come from --illo-ink / --illo-shade / --illo-fill, so both themes work. */
 
 export type IllustrationName =
-  | 'initiatives' | 'views' | 'projects' | 'issues' | 'inbox' | 'cycles' | 'releases' | 'updates' | 'search'
+  | 'initiatives' | 'views' | 'projects' | 'issues' | 'inbox' | 'cycles' | 'updates' | 'search'
   | 'archive' | 'trash' | 'customers' | 'drafts' | 'triage' | 'docs' | 'asks' | 'activity';
 
 const INK = 'var(--illo-ink)';
@@ -96,13 +96,6 @@ const ART: Record<IllustrationName, React.ReactNode> = {
         </g>
       ))}
       <circle cx="62" cy="48" r="9" {...line} /><path d="M62 43v5l3 2" {...line} />
-    </>
-  ),
-  releases: (
-    <>
-      <Solid d="M62 10 102 30v38L62 88 22 68V30Z" />
-      <path d="M22 30 62 50l40-20M62 50v38" {...line} />
-      <path d="M42 20 82 40v12" {...line} strokeWidth="2.4" />
     </>
   ),
   updates: (

@@ -9,7 +9,7 @@ import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { PropertyMenu, PropertyMenuBody, propMenuWidth, PROP_KBD, type PropKind } from './propertyMenus.js';
 import { deleteIssues, toggleFavoriteIssue, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS } from './actions.js';
 import { useLanding } from './motion.js';
-import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc, IconRelease, IconSla, IconPr, IconSortDir, IconMore, IconLink, IconBranch, IconHandoff, IconExternal, IconSettings } from './icons.js';
+import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc, IconSla, IconPr, IconSortDir, IconMore, IconLink, IconBranch, IconHandoff, IconExternal, IconSettings } from './icons.js';
 import { slaState, SlaBadge } from './AutomationUI.js';
 import { issuePrList, issuePrState, prSummary, PrIcon } from './GitHubUI.js';
 import { teamScale, pointsOf, type Issue, type Priority, type ViewFilters, type GroupBy, type OrderBy, type FilterCondition, type FilterGroup } from '../../src/core/types.js';
@@ -96,7 +96,6 @@ function testField(key: keyof ViewFilters, i: Issue, f: ViewFilters, snap: Snap)
     case 'labelIds': return f.labelIds!.some(l => l === 'none' ? i.labelIds.length === 0 : i.labelIds.includes(l));
     case 'projectIds': return f.projectIds!.includes(i.projectId ?? 'none');
     case 'milestoneIds': return f.milestoneIds!.includes(i.milestoneId ?? 'none');
-    case 'releaseIds': return f.releaseIds!.includes(i.releaseId ?? 'none');
     case 'sla': return f.sla!.includes(slaState(i) ?? 'none');
     case 'prs': { const st = issuePrState(snap, i.id); return f.prs!.some(v => v === 'none' ? !st : st === v); }
     case 'cycleIds': {
@@ -149,7 +148,7 @@ function testField(key: keyof ViewFilters, i: Issue, f: ViewFilters, snap: Snap)
   }
 }
 
-const FILTER_KEYS: Array<keyof ViewFilters> = ['states', 'stateTypes', 'priority', 'assigneeIds', 'creatorIds', 'labelIds', 'projectIds', 'milestoneIds', 'releaseIds', 'sla', 'prs', 'cycleIds', 'estimates', 'due', 'created', 'updated', 'hierarchy', 'relations', 'subscriberIds', 'links', 'query'];
+const FILTER_KEYS: Array<keyof ViewFilters> = ['states', 'stateTypes', 'priority', 'assigneeIds', 'creatorIds', 'labelIds', 'projectIds', 'milestoneIds', 'sla', 'prs', 'cycleIds', 'estimates', 'due', 'created', 'updated', 'hierarchy', 'relations', 'subscriberIds', 'links', 'query'];
 const isSet = (f: ViewFilters, k: keyof ViewFilters) => { const v = f[k]; return Array.isArray(v) ? v.length > 0 : !!v; };
 
 export function applyFilters(issues: Issue[], f: ViewFilters, _states?: unknown): Issue[] {
@@ -648,7 +647,7 @@ export function QuickMenus() {
 }
 
 /* ================= filters ================= */
-type FieldKey = 'states' | 'assigneeIds' | 'creatorIds' | 'priority' | 'labelIds' | 'projectIds' | 'milestoneIds' | 'releaseIds' | 'sla' | 'prs' | 'cycleIds' | 'estimates' | 'due' | 'created' | 'updated' | 'hierarchy' | 'relations' | 'subscriberIds' | 'links' | 'query';
+type FieldKey = 'states' | 'assigneeIds' | 'creatorIds' | 'priority' | 'labelIds' | 'projectIds' | 'milestoneIds' | 'sla' | 'prs' | 'cycleIds' | 'estimates' | 'due' | 'created' | 'updated' | 'hierarchy' | 'relations' | 'subscriberIds' | 'links' | 'query';
 interface FieldValue { id: string; label: string; icon?: React.ReactNode }
 interface FieldDef { key: FieldKey; label: string; plural: string; icon: React.ReactNode; single?: boolean }
 
@@ -667,7 +666,6 @@ const FIELDS: FieldDef[] = [
   { key: 'projectIds', label: 'Project', plural: 'projects', icon: <IconBox size={14} /> },
   { key: 'milestoneIds', label: 'Milestone', plural: 'milestones', icon: <IconMilestone size={14} /> },
   { key: 'cycleIds', label: 'Cycle', plural: 'cycles', icon: <IconCycle size={14} /> },
-  { key: 'releaseIds', label: 'Release', plural: 'releases', icon: <IconRelease size={14} /> },
   { key: 'sla', label: 'SLA status', plural: 'statuses', icon: <IconSla size={14} /> },
   { key: 'prs', label: 'Pull requests', plural: 'states', icon: <IconPr size={14} /> },
   { key: 'subscriberIds', label: 'Subscribers', plural: 'people', icon: <IconBell size={14} /> },
@@ -678,7 +676,7 @@ const FIELDS: FieldDef[] = [
 const DATE_FIELDS: FieldKey[] = ['due', 'created', 'updated'];
 const FIELD_GROUPS: FieldKey[][] = [
   ['states', 'assigneeIds', 'creatorIds', 'priority', 'estimates', 'labelIds', 'relations', 'hierarchy'],
-  ['projectIds', 'milestoneIds', 'cycleIds', 'releaseIds'],
+  ['projectIds', 'milestoneIds', 'cycleIds'],
   ['subscriberIds', 'sla', 'prs', 'links', 'query'],
 ];
 
@@ -746,7 +744,6 @@ function fieldValues(key: FieldKey, snap: Snap, teamId?: string): FieldValue[] {
       ...snap.users.filter(u => u.id !== me.id).map(u => ({ id: u.id, label: u.name, icon: <Avatar user={u} size={16} /> })),
     ];
     case 'links': return [{ id: 'any', label: 'Has links or files', icon: <IconAttach size={13} /> }, { id: 'none', label: 'No links', icon: <IconAttach size={13} /> }];
-    case 'releaseIds': return [{ id: 'none', label: 'No release', icon: <IconRelease size={13} /> }, ...snap.releases.map(r => ({ id: r.id, label: r.name, icon: <IconRelease size={13} /> }))];
     case 'sla': return [{ id: 'breached', label: 'Breached' }, { id: 'risk', label: 'Breaching within a day' }, { id: 'ok', label: 'Within SLA' }, { id: 'none', label: 'No SLA' }].map(v => ({ ...v, icon: <IconSla size={13} /> }));
     case 'prs': return [{ id: 'open', label: 'Open PR' }, { id: 'draft', label: 'Draft PR' }, { id: 'merged', label: 'Merged PR' }, { id: 'none', label: 'No pull requests' }].map(v => ({ ...v, icon: <IconPr size={13} /> }));
     case 'query': return [];

@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -147,9 +147,6 @@ export const api = {
   createInitiativeLabel: (b: Record<string, unknown>) => req<{ ok: true }>('POST', '/api/initiative-labels', b),
   updateInitiativeLabel: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/initiative-labels/${id}`, b),
   deleteInitiativeLabel: (id: string) => req<{ ok: true }>('DELETE', `/api/initiative-labels/${id}`),
-  createRelease: (b: Record<string, unknown>) => req<{ release: Release }>('POST', '/api/releases', b),
-  updateRelease: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/releases/${id}`, b),
-  deleteRelease: (id: string) => req<{ ok: true }>('DELETE', `/api/releases/${id}`),
   createSlaRule: (b: Record<string, unknown>) => req<{ rule: SlaRule }>('POST', '/api/sla-rules', b),
   updateSlaRule: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/sla-rules/${id}`, b),
   deleteSlaRule: (id: string) => req<{ ok: true }>('DELETE', `/api/sla-rules/${id}`),

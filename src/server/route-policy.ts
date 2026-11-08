@@ -181,7 +181,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'PATCH /api/doc-templates/:id': { scope: 'write', team: 'workspace' },
   'DELETE /api/doc-templates/:id': { scope: 'write', team: 'workspace' },
 
-  // initiatives and releases span teams
+  // initiatives span teams
   'POST /api/initiatives': { scope: 'write', team: 'workspace' },
   'PATCH /api/initiatives/:id': { scope: 'write', team: 'workspace' },
   'DELETE /api/initiatives/:id': { scope: 'write', team: 'workspace' },
@@ -194,9 +194,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/initiative-labels': { scope: 'write', team: 'workspace' },
   'PATCH /api/initiative-labels/:id': { scope: 'write', team: 'workspace' },
   'DELETE /api/initiative-labels/:id': { scope: 'write', team: 'workspace' },
-  'POST /api/releases': { scope: 'write', team: 'workspace' },
-  'PATCH /api/releases/:id': { scope: 'write', team: 'workspace' },
-  'DELETE /api/releases/:id': { scope: 'write', team: 'workspace' },
 
   // customers
   'POST /api/customers': { scope: 'write', team: 'workspace' },

@@ -600,7 +600,7 @@
     });
   });
 
-  /* ================= 11. initiatives, releases, SLAs, asks, loops, GitHub ================= */
+  /* ================= 11. initiatives, SLAs, asks, loops, GitHub ================= */
   S('more', async t => {
     await t.run('11.1 Initiatives: sidebar, G then N, create, add project, post update, status', async () => {
       await t.nav('/inbox', 500); if (!t.q('.sidebar').innerText.includes('Initiatives')) t.fail('no sidebar item');
@@ -617,15 +617,6 @@
     await t.run('11.2 Project page shows its initiatives', async () => {
       const s = await t.snap(); const p = s.projects.find(x => x.name === 'Agent Handoff'); await t.nav('/projects/' + p.id, 900);
       const chip = t.q('[data-pprop="initiatives"]')?.innerText ?? ''; if (!chip.includes('Agent-first tracker')) t.fail(chip); return 'chip: ' + chip;
-    });
-    await t.run('11.3 Releases: create, add issues, issue Release property, ship it', async () => {
-      await t.nav('/releases', 700); await t.type(t.q('.rel-new input'), 'v9.9.9', 150); t.key('Enter'); await sleep(1100);
-      if (!location.hash.startsWith('#/releases/rl_')) t.fail('not on release page');
-      await t.click(t.byText('Add issues'), 500); await t.click(t.qa('.menu:not(.closing) .menu-item')[0], 800); await t.closeAll();
-      const rows = t.rows(); await t.click('[data-rprop="stage"]', 400); await t.click(t.menuItem('Released'), 800);
-      const r = (await t.snap()).releases.find(x => x.name === 'v9.9.9'); const k = await t.keyOf((await t.snap()).issues.find(i => i.releaseId === r.id).id);
-      await t.nav('/issue/' + k, 900); const rail = t.q('[data-prop="release"]')?.innerText;
-      if (!rows || r.stage !== 'released' || !r.releasedAt || rail !== 'v9.9.9') t.fail(`rows ${rows} stage ${r.stage} rail ${rail}`); return `${k} in v9.9.9 (released); rail shows it`;
     });
     await t.run('11.4 SLAs: add a rule in settings; urgent issues get a deadline badge; SLA filter', async () => {
       await t.nav('/settings/slas', 700); const before = (await t.snap()).slaRules.length;
@@ -745,9 +736,9 @@
   S('routes', async t => {
     await t.run('10.1 Every route renders without console errors', async () => {
       const s = await t.snap(); const p = s.projects[0].id; const d = s.docs[0].id; const c = s.customers[0].id; const cyc = s.cycles.find(x => x.teamId === s.teams[0].id).id;
-      const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/pulse', '/customers', `/customers/${c}`, '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`), '/releases', ...s.releases.map(r => `/releases/${r.id}`), '/asks', ...s.askForms.map(f => `/asks/${f.id}`),
+      const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/pulse', '/customers', `/customers/${c}`, '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`), '/asks', ...s.askForms.map(f => `/asks/${f.id}`),
         '/team/CORE/all', '/team/CORE/active', '/team/CORE/backlog', '/team/CORE/overview', '/team/CORE/overview/documents', '/team/CORE/overview/members', '/team/CORE/cycles', `/team/CORE/cycles/${cyc}`, '/team/CORE/projects', '/team/CORE/views', '/team/CORE/views/projects', '/team/AGO/triage', '/team/CORE/archive', '/trash', '/search', `/docs/${d}`, '/issue/CORE-1',
-        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'customer-requests', 'pulse', 'emojis', 'slas', 'asks', 'loops', 'github', 'initiatives', 'releases', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
+        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'customer-requests', 'pulse', 'emojis', 'slas', 'asks', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
       const errs = []; const orig = console.error; console.error = (...a) => { errs.push(location.hash + ' ' + a.map(String).join(' ').slice(0, 120)); orig(...a); };
       for (const r of routes) { location.hash = '#' + r; await sleep(420); }
       console.error = orig; if (errs.length) t.fail(errs.slice(0, 4).join(' | ')); return routes.length + ' routes, no console errors';

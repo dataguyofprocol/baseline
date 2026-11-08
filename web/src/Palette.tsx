@@ -16,7 +16,7 @@ import {
   IconSearch, IconPlus, IconSettings, IconInbox, IconBox, IconViews, IconMyIssues,
   IconCycle, IconTeam, IconMoon, IconSun, IconHandoff, IconSpark, IconPanel, IconCopyId,
   IconArchive, IconBack, IconCalendar, IconCheck, IconClose, IconEstimate, IconTag, IconTrash, IconUser,
-  IconDoc, IconFilter, IconStar, IconIssues, IconDrafts, IconTriage, IconInitiative, IconUsers, IconRelease, IconAsk, IconPulse, IconCustomers, IconKeyboard,
+  IconDoc, IconFilter, IconStar, IconIssues, IconDrafts, IconTriage, IconInitiative, IconUsers, IconAsk, IconPulse, IconCustomers, IconKeyboard,
 } from './icons.js';
 import { teamScale, type Issue, type Priority } from '../../src/core/types.js';
 
@@ -458,7 +458,6 @@ export function CommandPalette() {
       { id: 'nav-views', icon: <IconViews size={14} />, label: 'Go to views', section: 'Navigation', hint: 'G then U', action: () => navigate('/views') },
       { id: 'nav-teams', icon: <IconTeam size={14} />, label: 'Go to teams', section: 'Navigation', action: () => navigate('/teams') },
       { id: 'nav-members', icon: <IconUsers size={14} />, label: 'Go to members', section: 'Navigation', action: () => navigate('/members') },
-      { id: 'nav-releases', icon: <IconRelease size={14} />, label: 'Go to releases', section: 'Navigation', keywords: 'versions ship', action: () => navigate('/releases') },
       { id: 'nav-asks', icon: <IconAsk size={14} />, label: 'Go to asks', section: 'Navigation', keywords: 'intake forms requests', action: () => navigate('/asks') },
       { id: 'nav-pulse', icon: <IconPulse size={14} />, label: 'Go to Pulse', section: 'Navigation', keywords: 'updates feed', action: () => navigate('/pulse') },
       { id: 'nav-customers', icon: <IconCustomers size={14} />, label: 'Go to customers', section: 'Navigation', keywords: 'customer requests', action: () => navigate('/customers') },
