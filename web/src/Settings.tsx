@@ -23,7 +23,7 @@ import { readInboxPrefs, writeInboxPrefs, DEFAULT_PRIORITY_CATS } from './Inbox.
 export const SETTINGS_NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
   { sec: 'Personal', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Security & access', 'security'], ['Keyboard shortcuts', 'shortcuts']] },
   { sec: 'Issues', items: [['Labels', 'labels'], ['Templates', 'templates'], ['SLAs', 'slas']] },
-  { sec: 'Projects', items: [['Labels', 'project-labels'], ['Templates', 'project-templates'], ['Statuses', 'project-statuses'], ['Updates', 'project-updates']] },
+  { sec: 'Projects', items: [['Labels', 'project-labels'], ['Statuses', 'project-statuses'], ['Updates', 'project-updates']] },
   { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Documents', 'documents'], ['Loops', 'loops']] },
   { sec: 'Integrations', items: [['GitHub', 'github']] },
   { sec: 'Administration', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Security', 'workspace-security'], ['API', 'api'], ['Coding tools', 'handoff'], ['Import & export', 'data']] },
@@ -32,14 +32,14 @@ export const SETTINGS_NAV: Array<{ sec: string; items: Array<[string, string]> }
 const SETTINGS_ICONS: Record<string, React.ReactNode> = {
   preferences: <IconSliders size={14} />, profile: <IconUser size={14} />, notifications: <IconBell size={14} />, security: <IconShieldUser size={14} />, 'workspace-security': <IconShieldUser size={14} />, api: <IconCode size={14} />, shortcuts: <IconKeyboard size={14} />,
   labels: <IconTag size={14} />, templates: <IconDoc size={14} />, slas: <IconSla size={14} />,
-  'project-labels': <IconTag size={14} />, 'project-templates': <IconDoc size={14} />, 'project-statuses': <IconStatusRing size={14} />, 'project-updates': <IconUpdates size={14} />,
+  'project-labels': <IconTag size={14} />, 'project-statuses': <IconStatusRing size={14} />, 'project-updates': <IconUpdates size={14} />,
   initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />,
   loops: <IconLoop size={14} />, github: <IconPr size={14} />,
   workspace: <IconSettings size={14} />, teams: <IconTeam size={14} />, members: <IconUsers size={14} />, handoff: <IconAgent size={14} />, data: <IconArchive size={14} />,
 };
 
 // hosted, these pages set up the workspace or a team: admins change them, members can read them
-const ADMIN_SECTIONS = new Set(['workspace', 'data', 'labels', 'templates', 'slas', 'project-labels', 'project-templates', 'project-statuses', 'project-updates',
+const ADMIN_SECTIONS = new Set(['workspace', 'data', 'labels', 'templates', 'slas', 'project-labels', 'project-statuses', 'project-updates',
   'initiatives', 'documents', 'loops', 'github']);
 const ADMIN_TEAM_PAGES = new Set(['general', 'labels', 'templates', 'statuses', 'triage', 'workflow']);
 const LABELS_NOTE = 'Only admins can change labels. Anyone can add one from a label menu.';
@@ -118,7 +118,6 @@ function SettingsPage() {
       {section === 'data' && <DataSettings />}
       {section === 'shortcuts' && <ShortcutSettings />}
       {section === 'project-labels' && <ProjectLabelsSettings />}
-      {section === 'project-templates' && <div className="settings-card"><h1>Project templates</h1><ProjectTemplatesSection /></div>}
       {section === 'project-statuses' && <ProjectStatusesSettings />}
       {section === 'project-updates' && <ProjectUpdatesSettings />}
       {section === 'documents' && <DocumentsSettings />}
@@ -1296,69 +1295,6 @@ function TemplatesSettings(props: { onlyTeamId?: string } = {}) {
   );
 }
 
-/* project templates: the fields a new project starts with, plus the milestones and issues created with it */
-function ProjectTemplatesSection() {
-  const snap = useApp(s => s.snap)!;
-  const [name, setName] = useState('');
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ name: '', icon: '', summary: '', description: '', milestones: '', issues: '' });
-  const create = async () => {
-    if (!name.trim()) return;
-    const { template } = await api.createProjectTemplate({ name: name.trim() });
-    setName('');
-    await useApp.getState().bootstrap();
-    const t = useApp.getState().snap!.projectTemplates.find(x => x.id === template.id);
-    if (t) edit(t);
-  };
-  const edit = (t: (typeof snap.projectTemplates)[number]) => {
-    setEditing(t.id);
-    setDraft({ name: t.name, icon: t.icon, summary: t.summary, description: t.description, milestones: t.milestones.join('\n'), issues: t.issues.join('\n') });
-  };
-  const save = async (id: string) => {
-    const lines = (v: string) => v.split('\n').map(x => x.trim()).filter(Boolean);
-    await api.updateProjectTemplate(id, { name: draft.name, icon: draft.icon || '🧊', summary: draft.summary, description: draft.description, milestones: lines(draft.milestones), issues: lines(draft.issues) });
-    setEditing(null);
-    await useApp.getState().bootstrap();
-    useApp.getState().toast({ title: 'Project template saved' });
-  };
-  return (
-    <>
-      <div className="field-help" style={{ marginBottom: 8 }}>Offered in New project. A template fills the project's fields and creates its milestones and starter issues.</div>
-      <div className="card" style={{ padding: '6px 10px' }}>
-        {snap.projectTemplates.map(t => editing === t.id ? (
-          <div key={t.id} className="ptpl-edit">
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input className="text-input" style={{ width: 44, textAlign: 'center' }} value={draft.icon} onChange={e => setDraft(d => ({ ...d, icon: e.target.value }))} />
-              <input className="text-input" style={{ flex: 1 }} placeholder="Template name" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} />
-            </div>
-            <input className="text-input" placeholder="Summary" value={draft.summary} onChange={e => setDraft(d => ({ ...d, summary: e.target.value }))} />
-            <textarea className="text-input" placeholder="Description (markdown)" value={draft.description} onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} />
-            <div style={{ display: 'flex', gap: 6 }}>
-              <textarea className="text-input" style={{ flex: 1 }} placeholder="Milestones — one per line" value={draft.milestones} onChange={e => setDraft(d => ({ ...d, milestones: e.target.value }))} />
-              <textarea className="text-input" style={{ flex: 1 }} placeholder="Starter issues — one title per line" value={draft.issues} onChange={e => setDraft(d => ({ ...d, issues: e.target.value }))} />
-            </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn primary" style={{ height: 26, fontSize: 12 }} onClick={() => save(t.id)}>Save</button>
-              <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => setEditing(null)}>Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <div key={t.id} className="prop-row group">
-            <span>{t.icon}</span>
-            <span style={{ flex: 1 }}>{t.name}<span style={{ color: 'var(--text-dim)', fontSize: 12 }}> — {t.milestones.length} milestone{t.milestones.length === 1 ? '' : 's'}, {t.issues.length} issue{t.issues.length === 1 ? '' : 's'}</span></span>
-            <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Edit template" onClick={() => edit(t)}><span style={{ fontSize: 11 }}>✎</span></button>
-            <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Delete template" onClick={async () => { await api.deleteProjectTemplate(t.id); await useApp.getState().bootstrap(); }}><IconTrash size={13} /></button>
-          </div>
-        ))}
-        {snap.projectTemplates.length === 0 && <div style={{ color: 'var(--text-dim)', padding: '4px 0', fontSize: 12 }}>No project templates yet.</div>}
-        <div className="recurring-row">
-          <input className="text-input" placeholder="New project template name…" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create(); }} />
-          <button className="btn primary" style={{ height: 28 }} disabled={!name.trim()} onClick={create}>Create</button>
-        </div>
-      </div>
-    </>
-  );
-}
 
 function DataSettings() {
   const toast = useApp(s => s.toast);

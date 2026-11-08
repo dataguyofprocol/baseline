@@ -489,22 +489,6 @@ export interface TeamLink {
   createdAt: string;
 }
 
-/** starter content for new projects: fields, plus milestones and issues created with it */
-export interface ProjectTemplate {
-  id: string;
-  name: string;
-  icon: string;
-  summary: string;
-  description: string;
-  status: ProjectStatus;
-  priority: Priority;
-  /** milestone names created with the project */
-  milestones: string[];
-  /** issue titles filed into the project when it's created */
-  issues: string[];
-  createdAt: string;
-}
-
 /** project → project dependency ("this project blocks that one") */
 export interface ProjectRelation {
   id: string;
@@ -845,7 +829,6 @@ export interface Snapshot {
   projectLinks: ProjectLink[];
   docs: Doc[];
   teamLinks: TeamLink[];
-  projectTemplates: ProjectTemplate[];
   projectRelations: ProjectRelation[];
   projectLabels: ProjectLabel[];
   projectStatuses: ProjectStatusDef[];
@@ -887,7 +870,7 @@ export type SnapshotSection = keyof Snapshot;
 const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   workspace: true, users: true, teams: true, states: true, labels: true, templates: true, issues: true, comments: true,
   attachments: true, subscriptions: true, relations: true, projects: true, projectLinks: true, docs: true, teamLinks: true,
-  projectTemplates: true, projectRelations: true, projectLabels: true, projectStatuses: true, projectSubscriptions: true,
+  projectRelations: true, projectLabels: true, projectStatuses: true, projectSubscriptions: true,
   docTemplates: true,
   initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, slaRules: true,
   loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,

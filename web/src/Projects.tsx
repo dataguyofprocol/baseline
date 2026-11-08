@@ -909,32 +909,16 @@ export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: (
   const [startDate, setStartDate] = useState('');
   const [targetDate, setTargetDate] = useState('');
   const nameRef = useRef<HTMLInputElement>(null);
-  const [templateId, setTemplateId] = useState<string | null>(null);
-  const [descKey, setDescKey] = useState(0);
-  const tpl = snap.projectTemplates.find(t => t.id === templateId);
-  const applyTemplate = (id: string | null) => {
-    setTemplateId(id);
-    const t = snap.projectTemplates.find(x => x.id === id);
-    if (!t) return;
-    setIcon(t.icon); setSummary(t.summary); setDescription(t.description); setStatus(t.status); setStatusId(null); setPriority(t.priority);
-    if (!name.trim()) setName(t.name);
-    setDescKey(k => k + 1);
-  };
-  const menus = { labels: useMenu(), template: useMenu(), icon: useMenu(), status: useMenu(), priority: useMenu(), lead: useMenu(), members: useMenu(), team: useMenu(), start: useMenu(), target: useMenu() };
+  const menus = { labels: useMenu(), icon: useMenu(), status: useMenu(), priority: useMenu(), lead: useMenu(), members: useMenu(), team: useMenu(), start: useMenu(), target: useMenu() };
   useEffect(() => { const t = setTimeout(() => nameRef.current?.focus(), 30); return () => clearTimeout(t); }, []);
   const { busy, guard } = useInFlight();
   const create = guard(async () => {
     if (!name.trim()) return;
     const { project } = await api.createProject({ name: name.trim(), summary: summary.trim(), description, icon, status, statusId, labelIds, startDate: startDate || null, targetDate: targetDate || null, leadId, priority, memberIds, teamId: team });
-    // the project exists now: a failed template must not leave the modal open, where Create would make a second one
-    let templateFailed = false;
-    if (templateId) { try { await api.applyProjectTemplate(project.id, templateId); } catch { templateFailed = true; } }
     await useApp.getState().bootstrap();
     onClose();
     navigate(`/projects/${project.id}`);
-    useApp.getState().toast(templateFailed
-      ? { title: 'Project created without its template', line: <>{icon} {project.name} — apply the template again from the project</> }
-      : { title: 'Project created', line: <>{icon} {project.name}</> });
+    useApp.getState().toast({ title: 'Project created', line: <>{icon} {project.name}</> });
   });
   const lead = snap.users.find(u => u.id === leadId);
   const teamObj = snap.teams.find(t => t.id === team);
@@ -950,7 +934,6 @@ export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: (
           <span className="crumb-sep">›</span>
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>New project</span>
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-            {snap.projectTemplates.length > 0 && <button className={`cm-template${tpl ? ' on' : ''}`} onClick={menus.template.open}>{tpl ? `${tpl.icon} ${tpl.name}` : 'Template'} <IconChevronDown size={10} /></button>}
             <button className="icon-btn" onClick={onClose}><IconClose size={14} /></button>
           </span>
         </div>
@@ -969,21 +952,15 @@ export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: (
           <button className="prop-chip" onClick={menus.labels.open}><IconTag size={13} />{labelIds.length ? snap.projectLabels.filter(l => labelIds.includes(l.id)).map(l => l.name).join(', ') : 'Labels'}</button>
         </div>
         <div className="np-desc">
-          <RichEditor key={descKey} value={description} placeholder="Write a description, a project brief, or collect ideas…" onChange={setDescription} onBlur={setDescription} />
+          <RichEditor value={description} placeholder="Write a description, a project brief, or collect ideas…" onChange={setDescription} onBlur={setDescription} />
         </div>
         <div className="cm-footer">
-          {tpl && (tpl.milestones.length > 0 || tpl.issues.length > 0) && <span className="cbox-hint">Also creates {[tpl.milestones.length && `${tpl.milestones.length} milestone${tpl.milestones.length === 1 ? '' : 's'}`, tpl.issues.length && `${tpl.issues.length} issue${tpl.issues.length === 1 ? '' : 's'}`].filter(Boolean).join(' and ')}</span>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
             <button className="btn" onClick={onClose}>Cancel</button>
             <button className="btn primary" onClick={() => void create()} disabled={!name.trim() || busy}>Create project <span className="btn-kbd kbd">⌘↵</span></button>
           </div>
         </div>
       </div>
-      {menus.template.anchor && <Menu anchor={menus.template.anchor} onClose={menus.template.close} width={240}>
-        <div className="menu-header"><span>Project templates</span></div>
-        {snap.projectTemplates.map(t => <MenuItem key={t.id} icon={<span>{t.icon}</span>} label={t.name} selected={templateId === t.id} onClick={() => applyTemplate(t.id)} />)}
-        <MenuSep /><MenuItem label="No template" selected={!templateId} onClick={() => setTemplateId(null)} />
-      </Menu>}
       {menus.icon.anchor && <Menu anchor={menus.icon.anchor} onClose={menus.icon.close} width={252}><div className="icon-grid">{ICONS.map(ic => <button key={ic} className={`icon-pick${icon === ic ? ' on' : ''}`} onClick={() => { setIcon(ic); menus.icon.close(); }}>{ic}</button>)}</div></Menu>}
       {menus.status.anchor && <Menu anchor={menus.status.anchor} onClose={menus.status.close} width={210}>{orderedStatuses(snap).map(st => <MenuItem key={st.id} icon={<ProjectStatusIcon status={st.type} color={st.color} />} label={st.name} selected={statusId ? statusId === st.id : status === st.type} onClick={() => { setStatus(st.type); setStatusId(st.id); }} />)}</Menu>}
       {menus.labels.anchor && (

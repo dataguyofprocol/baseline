@@ -84,7 +84,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Projects list: filters (status, priority, lead, members, health, team, target, text), grouping, ordering, closed-projects window, display properties; Board and draggable Timeline layouts
 - ✅ Project statuses Backlog / Planned / In Progress / Paused / Completed / Canceled; summary; resources (links); Overview · Activity · Issues tabs; details panel (⌘I) with milestones and progress breakdown
 - ✅ Issues belong to milestones (rail, filter, grouping, CLI `--milestone`), milestone progress
-- ✅ Project templates (Settings › Templates; pick one in New project) and project dependencies (blocked by / blocking, arrows on the timeline)
+- ✅ Project dependencies (blocked by / blocking, arrows on the timeline)
 - ✅ Documents: "Add document or link…" in project and team resources; document page with the rich editor; `baseline doc`
 - ✅ Project labels (Settings › Projects › Labels) with groups whose labels are exclusive; Labels in the properties "…" menu (P then L), list chips, filter and display property
 - ✅ Named project statuses (Settings › Projects › Statuses): add, rename, recolour or delete statuses inside each category

@@ -431,7 +431,6 @@ export function CommandPalette() {
       { id: 'act-filter', icon: <IconFilter size={14} />, label: 'Add filter…', section: 'Filter', hint: 'F', keywords: 'filter narrow', action: () => setTimeout(() => window.dispatchEvent(new CustomEvent('baseline:focus-filter')), 50) },
       { id: 'act-tpl-issue', icon: <IconDoc size={14} />, label: 'Create new issue template…', section: 'Templates', keywords: 'template', action: () => navigate('/settings/templates') },
       { id: 'act-tpl-doc', icon: <IconDoc size={14} />, label: 'Create new document template…', section: 'Templates', keywords: 'template', action: () => navigate('/settings/documents') },
-      { id: 'act-tpl-project', icon: <IconDoc size={14} />, label: 'Create new project template…', section: 'Templates', keywords: 'template', action: () => navigate('/settings/project-templates') },
       { id: 'act-favorite', icon: <IconStar size={14} />, label: 'Favorite page', section: 'Favorite', hint: '⌥F', keywords: 'star favorite pin', action: () => { const b = document.querySelector<HTMLButtonElement>('[data-favorite-star]'); if (b) b.click(); else useApp.getState().toast({ title: 'This page can’t be a favorite' }); } },
       { id: 'pick-issue', icon: <IconIssues size={14} />, label: 'Open issue…', section: 'Navigation', hint: 'O then I', keepOpen: true, action: pick('issue') },
       { id: 'nav-archive', icon: <IconArchive size={14} />, label: 'Open team archive…', section: 'Navigation', hint: 'G then X', keywords: 'archived', action: () => navigate(`/team/${tk}/archive`) },

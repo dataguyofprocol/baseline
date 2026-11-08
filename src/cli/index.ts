@@ -840,7 +840,6 @@ withDb(comment.command('delete <commentId>')).description('Delete a comment').ac
 const project = program.command('project').description('Project operations');
 
 withDb(project.command('create <name>')).description('Create a project')
-  .option('--template <name>', 'start from a project template (fields, milestones, starter issues)')
   .option('--summary <text>', 'one-line summary')
   .option('-d, --description <text>', 'description')
   .option('-l, --lead <name>', 'lead user name')
@@ -860,12 +859,6 @@ withDb(project.command('create <name>')).description('Create a project')
       startDate: opts.start ?? null, targetDate: opts.target ?? null,
       priority: priorityNum(opts.priority), icon: opts.icon, color: opts.color,
     });
-    if (opts.template) {
-      const tpl = snap.projectTemplates.find(x => x.name.toLowerCase() === opts.template!.toLowerCase());
-      if (!tpl) fail(`Unknown template "${opts.template}" — templates: ${snap.projectTemplates.map(x => x.name).join(', ') || '(none)'}`);
-      store.updateProject(p.id, { ...(opts.summary ? {} : { summary: tpl.summary }), ...(opts.description ? {} : { description: tpl.description }), icon: opts.icon ?? tpl.icon });
-      store.applyProjectTemplate(p.id, tpl.id);
-    }
     console.log(`Created project ${p.name}`);
     process.exit(0);
   });
@@ -1016,12 +1009,6 @@ withDb(project.command('depend <name> <blockedBy>')).description('Mark a project
     }
     process.exit(0);
   });
-withDb(project.command('templates')).description('List project templates').action((opts: { db?: string }) => {
-  const store = legacyStore(opts.db);
-  for (const t of store.snapshot().projectTemplates) console.log(`${t.icon} ${t.name} — ${t.milestones.length} milestones, ${t.issues.length} issues`);
-  process.exit(0);
-});
-
 withDb(project.command('labels')).description('List project labels (groups show their labels)').action((opts: { db?: string }) => {
   const snap = legacyStore(opts.db).snapshot();
   for (const l of snap.projectLabels.filter(x => !x.parentId)) {

@@ -427,10 +427,6 @@
       const u = (await t.snap()).projectUpdates.find(x => x.body.includes('Harness weekly update')); await t.nav(`/projects/${p.id}/activity`, 800);
       if (!u || u.health !== 'atRisk') t.fail(`update ${!!u} ${u?.health}`); return 'posted (at risk); activity tab renders';
     });
-    await t.run('6.10 Project templates', async () => {
-      await t.nav('/projects', 800); await t.click(t.byText('New project'), 700); const b = t.qa('.modal button').find(x => /template/i.test(x.textContent)); await t.click(b, 500); const m = t.q('.menu:not(.closing)')?.innerText ?? ''; await t.closeAll();
-      await t.nav('/settings/project-templates', 700); if (!m.includes('Feature launch') || !t.text().includes('Feature launch')) t.fail('template'); return 'offered in New project; managed in Settings › Projects › Templates';
-    });
     await t.run('6.11 Dependencies from the properties "…" menu', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click('[data-pprop="more"]', 500); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Dependencies'), 500);
       const target = t.qa('.menu:not(.closing) .menu-item').find(e => /Design System/.test(e.innerText)); if (target) await t.click(target, 900); const rel = (await t.snap()).projectRelations.find(r => r.relatedProjectId === p.id);
@@ -707,7 +703,7 @@
       const s = await t.snap(); const p = s.projects[0].id; const d = s.docs[0].id; const cyc = s.cycles.find(x => x.teamId === s.teams[0].id).id;
       const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`),
         '/team/CORE/all', '/team/CORE/active', '/team/CORE/backlog', '/team/CORE/overview', '/team/CORE/overview/documents', '/team/CORE/overview/members', '/team/CORE/cycles', `/team/CORE/cycles/${cyc}`, '/team/CORE/projects', '/team/CORE/views', '/team/CORE/views/projects', '/team/AGO/triage', '/team/CORE/archive', '/trash', '/search', `/docs/${d}`, '/issue/CORE-1',
-        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'slas', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
+        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-statuses', 'project-updates', 'documents', 'slas', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
       const errs = []; const orig = console.error; console.error = (...a) => { errs.push(location.hash + ' ' + a.map(String).join(' ').slice(0, 120)); orig(...a); };
       for (const r of routes) { location.hash = '#' + r; await sleep(420); }
       console.error = orig; if (errs.length) t.fail(errs.slice(0, 4).join(' | ')); return routes.length + ' routes, no console errors';

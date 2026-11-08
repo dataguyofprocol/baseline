@@ -204,12 +204,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   automation.createLoop({ name: 'Bug acknowledgement', teamId: core.id, trigger: { kind: 'labelAdded', labelId: coreBug.id }, actions: [{ kind: 'comment', body: 'Thanks — {issue.key} is queued for the bug rotation.' }] });
   if (open[0]) git.ingestPullRequest({ repo: 'example/baseline', number: 41, title: `${store.keyOf(open[0])} ${open[0].title}`, body: '', url: 'https://github.com/example/baseline/pull/41', state: 'open', branch: `parth/${store.keyOf(open[0]).toLowerCase()}`, base: 'main', author: 'parth', reviewDecision: 'review_required', checks: 'success', updatedAt: iso(-0.1), mergedAt: null });
   store.createDocTemplate({ name: 'Spec', title: 'Spec: ', content: '## Problem\n\n## Proposal\n\n## Open questions\n' });
-  store.createProjectTemplate({
-    name: 'Feature launch', icon: '🚀', summary: 'Ship a feature from spec to rollout.', priority: 2,
-    description: '## Goal\n\n## Scope\n\n## Rollout\n',
-    milestones: ['Spec signed off', 'Beta', 'General availability'],
-    issues: ['Write the spec', 'Build behind a flag', 'Beta feedback round', 'Docs and changelog'],
-  });
 
   // triage on the agent team: two issues an agent filed through the CLI wait for review
   store.updateTeam(agents.id, { triageEnabled: true });

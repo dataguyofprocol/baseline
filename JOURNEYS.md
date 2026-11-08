@@ -90,7 +90,6 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Documents from resources (blank or template), editor page, team Documents tab | ✅ | 6.7 | templates in Settings › Documents (9.5) |
 | Milestones with progress | ✅ | 6.8 | |
 | Updates with health; Activity tab | ✅ | 6.9 | |
-| Project templates | ✅ | 6.10 | |
 | Dependencies from the properties "…" menu | ✅ | 6.11 | |
 | Project labels with groups (P then L) | ✅ | 6.12 | Settings › Projects › Labels |
 | Project bell: per-project inbox notifications + update schedule | ✅ | 6.13 | |

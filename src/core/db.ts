@@ -390,18 +390,6 @@ function migrate(db: DatabaseSync): void {
       title TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS project_templates (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      icon TEXT NOT NULL DEFAULT '🧊',
-      summary TEXT NOT NULL DEFAULT '',
-      description TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'planned',
-      priority INTEGER NOT NULL DEFAULT 0,
-      milestones TEXT NOT NULL DEFAULT '[]',
-      issues TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS project_relations (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

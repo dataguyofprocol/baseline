@@ -123,8 +123,6 @@ baseline project show "Name" [--json]         # status, health, progress %, issu
 baseline project update "Name" --status started --health atRisk -p low --target none --summary "…"   # backlog|planned|started|paused|completed|canceled, onTrack|atRisk|offTrack
 baseline project link "Name" https://figma.com/file/… --title "Designs"   # project resources
 baseline project depend "Mobile" "Design System"     # Mobile is blocked by Design System (--remove to drop)
-baseline project templates                            # list project templates
-baseline project create "Search v2" --template "Feature launch"   # fields + milestones + starter issues
 baseline location list                           # directories agents work in (usually git repos), with the projects using them
 baseline location add ~/code/api -n api -j "Name"  # register one (and link it to a project); a location can serve several projects
 baseline project update "Name" --add-location api  # / --remove-location api

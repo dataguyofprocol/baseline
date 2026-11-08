@@ -181,7 +181,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     ['PATCH', '/api/initiative-labels/:id'], ['DELETE', '/api/initiative-labels/:id'],
     ['POST', '/api/project-statuses'], ['PATCH', '/api/project-statuses/:id'], ['DELETE', '/api/project-statuses/:id'],
     ['POST', '/api/issue-templates'], ['PATCH', '/api/issue-templates/:id'], ['DELETE', '/api/issue-templates/:id'],
-    ['POST', '/api/project-templates'], ['PATCH', '/api/project-templates/:id'], ['DELETE', '/api/project-templates/:id'],
     ['POST', '/api/doc-templates'], ['PATCH', '/api/doc-templates/:id'], ['DELETE', '/api/doc-templates/:id'],
     ['POST', '/api/sla-rules'], ['PATCH', '/api/sla-rules/:id'], ['DELETE', '/api/sla-rules/:id'],
     ['POST', '/api/loops'], ['PATCH', '/api/loops/:id'], ['DELETE', '/api/loops/:id'], ['POST', '/api/loops/:id/run'],
@@ -635,19 +634,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/team-links/:id', (c) => { store.deleteTeamLink(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- project templates & dependencies ----------
-  app.post('/api/project-templates', async (c) => {
-    const b = await c.req.json();
-    if (!b.name) return c.json({ error: 'name is required' }, 400);
-    return c.json({ template: store.createProjectTemplate(b) }, 201);
-  });
-  app.patch('/api/project-templates/:id', async (c) => { store.updateProjectTemplate(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/project-templates/:id', (c) => { store.deleteProjectTemplate(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/projects/:id/apply-template', async (c) => {
-    const b = await c.req.json();
-    store.applyProjectTemplate(c.req.param('id'), b.templateId);
-    return c.json({ ok: true });
-  });
+  // ---------- project dependencies ----------
   app.post('/api/projects/:id/dependencies', async (c) => {
     const b = await c.req.json();
     if (b.blocks) store.addProjectDependency(c.req.param('id'), b.blocks);
