@@ -542,6 +542,33 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
   check('…and leave it', !store.getTeam(t2.team.id)!.memberIds.includes(ownerId));
   await patch(`/api/members/${raj!.id}`, { teamIds: [t2.team.id] }, ownerCookie);
   check('an admin can set someone\'s teams', !store.getTeam(team.team.id)!.memberIds.includes(raj!.id) && store.getTeam(t2.team.id)!.memberIds.includes(raj!.id));
+
+  // ---- adding people to a team, and taking them off (Team settings › Members) ----
+  // Raj is a member (not an admin) on Ops only; Ada (a member) isn't on Ops
+  const rajNow = `__Host-baseline_session=${(await signIn({ sub: 'g-raj', email: 'raj@acme.dev', name: 'Raj', hd: 'acme.dev' })).session}`;
+  const members = (teamId: string) => store.getTeam(teamId)!.memberIds;
+  const addTo = (teamId: string, userIds: unknown, cookie: string) => req(`/api/teams/${teamId}/members`, { ...json({ userIds }), cookie });
+  const removeFrom = (teamId: string, userId: string, cookie: string) => req(`/api/teams/${teamId}/members/${userId}`, { method: 'DELETE', headers: { origin: ORIGIN }, cookie });
+  const added = await addTo(t2.team.id, [ada.id], rajNow);
+  check('a team\'s member can add someone to it', added.status === 200 && members(t2.team.id).includes(ada.id), String(added.status));
+  check('…and they hear about it in their inbox', (await (await req('/api/bootstrap', { cookie: adaCookie })).json() as { notifications: Array<{ type: string; actorId: string; body: string }> }).notifications
+      .some(n => n.type === 'teamMemberAdded' && n.actorId === raj!.id && n.body.startsWith(`${t2.team.id}|`)));
+  const before = members(t2.team.id).length;
+  const again = await addTo(t2.team.id, [ada.id, ada.id], rajNow);
+  check('adding someone already on the team changes nothing', again.status === 200 && members(t2.team.id).length === before
+    && JSON.stringify((await again.json() as { added: string[] }).added) === '[]');
+  const outsider = await addTo(team.team.id, [raj!.id], rajNow);
+  check('someone not on a team (and not an admin) can\'t add people to it', outsider.status === 403 && !members(team.team.id).includes(raj!.id), String(outsider.status));
+  const agentId = store.snapshot().users.find(u => u.kind === 'agent')!.id;
+  const agentAdd = await addTo(t2.team.id, [agentId], rajNow);
+  check('an agent can\'t be added to a team', agentAdd.status === 400 && !members(t2.team.id).includes(agentId), String(agentAdd.status));
+  check('…nor an unknown id, nor nobody', (await addTo(t2.team.id, ['u_nope'], rajNow)).status === 400 && (await addTo(t2.team.id, [], rajNow)).status === 400);
+  check('…and an unknown team is 404', (await addTo('t_nope', [ada.id], ownerCookie)).status === 404);
+  check('an admin can add people to a team they aren\'t on', (await addTo(team.team.id, [raj!.id], ownerCookie)).status === 200 && members(team.team.id).includes(raj!.id));
+  const memberRemoves = await removeFrom(t2.team.id, ada.id, rajNow);
+  check('a member can\'t remove someone else', memberRemoves.status === 403 && members(t2.team.id).includes(ada.id), String(memberRemoves.status));
+  check('an admin removes someone from a team', (await removeFrom(t2.team.id, ada.id, ownerCookie)).status === 200 && !members(t2.team.id).includes(ada.id));
+  check('anyone can take themselves off a team', (await removeFrom(team.team.id, raj!.id, rajNow)).status === 200 && !members(team.team.id).includes(raj!.id));
   await patch(`/api/users/${caraUser.id}`, { name: 'Cara <script>alert(1)</script>' }, caraCookie);
   sent.length = 0;
   await req('/api/invites', { ...json({ emails: 'q@example.com' }), cookie: caraCookie });

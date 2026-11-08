@@ -695,6 +695,8 @@ export type NotificationType =
   | 'loopFailed'
   /** team bell: an issue was added to a team you follow, closed, or landed in its triage */
   | 'teamActivity'
+  /** someone added you to a team; body is "<teamId>|<team name>" */
+  | 'teamMemberAdded'
   /** someone reacted to your comment */
   | 'commentReacted'
   /** someone else changed a document you wrote; body is "<docId>|<title>" */
@@ -838,6 +840,7 @@ export function notifyCategory(type: NotificationType, body = ''): NotifyCategor
     case 'docChanged': return 'documents';
     case 'projectIssueAdded': case 'projectIssueClosed': case 'projectChanged': case 'prActivity': return 'subscriptions';
     case 'teamActivity': return /triage/i.test(body) ? 'triage' : 'subscriptions';
+    case 'teamMemberAdded': return 'subscriptions';
     case 'projectUpdate': case 'projectUpdateReminder': case 'initiativeUpdateReminder': case 'pulseDigest': return 'updates';
     case 'issueReminder': case 'slaBreached': return 'reminders';
     case 'loopFailed': return 'loops';

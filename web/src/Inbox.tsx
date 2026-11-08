@@ -5,7 +5,7 @@ import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
 import { IssueDetail } from './IssueDetail.js';
-import { Avatar, StateIcon } from './pickers.js';
+import { Avatar, StateIcon, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { parseReminder } from './propertyMenus.js';
 import { Markdown } from './Markdown.js';
@@ -35,7 +35,7 @@ const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
   issueAssignedToYou: 'Assignments', issueCommented: 'Comments', issueReplied: 'Replies', issueMentioned: 'Mentions', commentReacted: 'Reactions',
   issueStatusChanged: 'Status changes', issueReminder: 'Reminders', systemUpdate: 'Updates',
   projectUpdate: 'Project updates', projectIssueAdded: 'Project activity', projectUpdateReminder: 'Update reminders', initiativeUpdateReminder: 'Initiative update reminders', pulseDigest: 'Pulse',
-  slaBreached: 'SLA breaches', prActivity: 'Pull requests', loopFailed: 'Loops', teamActivity: 'Team activity',
+  slaBreached: 'SLA breaches', prActivity: 'Pull requests', loopFailed: 'Loops', teamActivity: 'Team activity', teamMemberAdded: 'Added to a team',
 };
 /* one filter value covers several kinds */
 const TYPE_ALIASES: Partial<Record<NotificationType, NotificationType[]>> = { projectIssueAdded: ['projectIssueAdded', 'projectIssueClosed', 'projectChanged'] };
@@ -126,6 +126,8 @@ export function InboxPage() {
   const sectioned = useMemo(() => rows.map((r, i) => ({ r, i, sec: sectionOf(r) })).sort((a, b) => sectionRank(a.sec) - sectionRank(b.sec) || a.i - b.i), [rows, prefs.priority, prefs.groupUnreads]); // eslint-disable-line react-hooks/exhaustive-deps
   const orderedRows = sectioned.map(x => x.r);
 
+  /** a teamMemberAdded body is "<teamId>|<name at the time>"; the team may since be renamed or gone */
+  const teamOf = (n: Notification) => { const [id, ...name] = n.body.split('|'); const t = snap.teams.find(x => x.id === id); return { key: t?.key, name: t?.name ?? name.join('|') }; };
   const issueOf = (n: Notification) => n.issueId ? snap.issues.find(i => i.id === n.issueId) : undefined;
   const keyOf = (n: Notification) => { const i = issueOf(n); const t = i && snap.teams.find(x => x.id === i.teamId); return i && t ? `${t.key}-${i.number}` : ''; };
 
@@ -206,6 +208,7 @@ export function InboxPage() {
       case 'prActivity': return { icon: <PrIcon state={prStateOfNotice(n.body)} size={14} title="Pull request" />, what: n.body };
       case 'loopFailed': return { icon: <IconClose size={12} />, what: `loop failed — ${n.body}` };
       case 'teamActivity': return { icon: <IconBell size={12} />, what: n.body };
+      case 'teamMemberAdded': return { icon: <IconPlus size={12} />, what: 'added you to the team' };
       default: return { icon: <IconComment size={12} />, what: 'updated the issue' };
     }
   };
@@ -252,7 +255,8 @@ export function InboxPage() {
             const project = !issue && n.projectId ? snap.projects.find(p => p.id === n.projectId) : undefined;
             const doc = n.type === 'docChanged' ? { id: n.body.split('|')[0], title: n.body.split('|').slice(1).join('|') } : null;
             const ini = n.type === 'initiativeUpdateReminder' ? snap.initiatives.find(i => i.id === n.body.split('|')[0]) : undefined;
-            const projTitle = doc ? `📄 ${doc.title}` : ini ? ini.name : project ? `${project.icon} ${project.name}` : n.type === 'pulseDigest' ? 'Pulse' : '';
+            const addedTo = n.type === 'teamMemberAdded' ? teamOf(n) : null;
+            const projTitle = doc ? `📄 ${doc.title}` : addedTo ? addedTo.name : ini ? ini.name : project ? `${project.icon} ${project.name}` : n.type === 'pulseDigest' ? 'Pulse' : '';
             const snoozed = n.snoozedUntil && n.snoozedUntil > now;
             return (
               <div key={n.id}>
@@ -260,7 +264,7 @@ export function InboxPage() {
               <div
                 className={`inbox-row${row.unread ? ' unread' : ''}${isSel || openRow?.lead.id === n.id ? ' selected' : ''}${idx < 0 ? ' static' : ''}${snoozed ? ' snoozed' : ''}`}
                 onClick={() => { if (idx >= 0) { useCursor.setState({ index: idx }); setOpenRow(null); } else { setOpenRow(row); if (row.unread) void markRead(row, true); } }}
-                onDoubleClick={() => { const k = keyOf(n); if (doc) navigate(`/docs/${doc.id}`); else if (ini) navigate(`/initiatives/${ini.id}`); else if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); else if (n.type === 'pulseDigest') navigate('/pulse'); }}
+                onDoubleClick={() => { const k = keyOf(n); if (doc) navigate(`/docs/${doc.id}`); else if (addedTo?.key) navigate(`/team/${addedTo.key}/overview`); else if (ini) navigate(`/initiatives/${ini.id}`); else if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); else if (n.type === 'pulseDigest') navigate('/pulse'); }}
                 onContextMenu={e => { setMenuRow(row); rowMenu.open(e); }}>
                 <span className="inbox-lead">
                   {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'initiativeUpdateReminder' || n.type === 'pulseDigest' || n.type === 'prActivity' ? <span className="inbox-sys">{d.icon}</span>
@@ -377,6 +381,17 @@ function ProjectNotice({ n }: { n: Notification }) {
         <div className="pn-title"><span>📄</span>{rest.join('|')}</div>
         <div className="pn-body">{snap.users.find(u => u.id === n.actorId)?.name ?? 'Someone'} edited this document{p ? ` in ${p.name}` : ''}.</div>
         <div style={{ display: 'flex', gap: 8 }}><button className="btn primary sm" onClick={() => navigate(`/docs/${docId}`)}>Open document</button></div>
+      </div>
+    );
+  }
+  if (n.type === 'teamMemberAdded') {
+    const [teamId, ...name] = n.body.split('|');
+    const t = snap.teams.find(x => x.id === teamId);
+    return (
+      <div className="proj-notice">
+        <div className="pn-title">{t ? <>{teamDisplayIcon(t)}{t.name}</> : name.join('|')}</div>
+        <div className="pn-body">{snap.users.find(u => u.id === n.actorId)?.name ?? 'Someone'} added you to this team.</div>
+        {t && <div style={{ display: 'flex', gap: 8 }}><button className="btn primary sm" onClick={() => navigate(`/team/${t.key}/overview`)}>Open team</button></div>}
       </div>
     );
   }

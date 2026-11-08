@@ -294,6 +294,10 @@ export class Accounts {
   }
 
   // ---------- roles ----------
+  /** a person (not an agent) who can sign in */
+  isActivePerson(userId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'human' AND status = 'active'").get(userId);
+  }
   canInvite(userId: string): boolean {
     const u = this.db.prepare("SELECT admin, status, kind FROM users WHERE id = ?").get(userId) as { admin: number; status: string; kind: string } | undefined;
     if (!u || u.status === 'suspended' || u.kind !== 'human') return false;

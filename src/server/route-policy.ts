@@ -112,6 +112,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'PUT /api/teams/:id/subscription': { scope: 'write', team: 'team' },
   'POST /api/teams/:id/join': { scope: 'write', team: 'team' },
   'POST /api/teams/:id/leave': { scope: 'write', team: 'team' },
+  'POST /api/teams/:id/members': { scope: 'write', team: 'team' },
+  'DELETE /api/teams/:id/members/:userId': { scope: 'write', team: 'team' },
   'POST /api/teams/:id/links': { scope: 'write', team: 'team' },
   'DELETE /api/team-links/:id': { scope: 'write', team: 'unchecked' },
   'GET /api/git/automation/:teamId': { scope: 'read', team: 'team' },
