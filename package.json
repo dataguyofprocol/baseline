@@ -19,7 +19,7 @@
     "build:web": "cd web && vite build",
     "start": "npm run build && BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" BASELINE_PORT=\"${BASELINE_PORT:-7327}\" node dist/server/index.js --open",
     "serve": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" BASELINE_PORT=\"${BASELINE_PORT:-7327}\" node dist/server/index.js --open",
-    "cli": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" BASELINE_URL=\"${BASELINE_URL:-http://localhost:7327}\" BASELINE_PORT=\"${BASELINE_PORT:-7327}\" tsx src/cli/index.ts",
+    "cli": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" BASELINE_PORT=\"${BASELINE_PORT:-7327}\" tsx src/cli/index.ts",
     "seed": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" tsx src/cli/index.ts seed --reset",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p web/tsconfig.json --noEmit",
     "test:cli": "bash scripts/test-cli.sh",

@@ -244,6 +244,15 @@ function migrate(db: DatabaseSync): void {
       ip TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    -- a CLI sign-in approved in the browser, waiting for the CLI to trade its code for a key
+    CREATE TABLE IF NOT EXISTS cli_grants (
+      code_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      challenge TEXT NOT NULL,
+      device TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS invites (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL,

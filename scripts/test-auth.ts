@@ -595,6 +595,32 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
   check('DELETE /api/me/key with a cookie is refused', (await req('/api/me/key', { method: 'DELETE', headers: { origin: ORIGIN }, cookie: ownerCookie })).status === 400);
 }
 
+// ---- `baseline login`: browser approval, loopback redirect, PKCE ----
+{
+  const { createHash, randomBytes } = await import('node:crypto');
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const ask = { port: 54321, state: randomBytes(18).toString('base64url'), challenge, device: 'test-laptop' };
+  const page = await req(`/cli/authorize?${new URLSearchParams({ ...ask, port: String(ask.port) })}`);
+  check('the CLI sign-in page is served', page.status === 200 && (await page.text()).includes('Sign in the Baseline CLI'));
+  check('…and refuses an incomplete link', (await req('/cli/authorize?port=1')).status === 400);
+  check('approving needs a session', (await req('/api/cli-auth/approve', json(ask))).status === 401);
+  check('…from this site', (await req('/api/cli-auth/approve', { ...json(ask), headers: { 'content-type': 'application/json' }, cookie: ownerCookie })).status === 403);
+  const approved = await (await req('/api/cli-auth/approve', { ...json(ask), cookie: ownerCookie })).json() as { redirect: string };
+  const back = new URL(approved.redirect);
+  check('approval redirects to the CLI on loopback with the state', back.origin === 'http://127.0.0.1:54321' && back.pathname === '/cb' && back.searchParams.get('state') === ask.state && !!back.searchParams.get('code'));
+  const code = back.searchParams.get('code')!;
+  const trade = (body: unknown) => req('/auth/cli/token', { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } });
+  check('a wrong verifier gets no key', (await trade({ code, verifier: randomBytes(32).toString('base64url') })).status === 400);
+  const got = await (await trade({ code, verifier })).json() as { token: string; keyId: string; user: { id: string } };
+  const key = store.ext.apiKeys.get(got.keyId);
+  check('code + verifier trade for a key as the approver', got.token?.startsWith('bl_api_') && got.user.id === boot.currentUser.id && key?.userId === boot.currentUser.id);
+  check('…named for the device, read and write only', key?.name === 'CLI on test-laptop' && key.scopes?.join() === 'read,write');
+  check('a code works once', (await trade({ code, verifier })).status === 400);
+  check('the key works on the API', (await req('/api/me', { headers: { authorization: `Bearer ${got.token}` } })).status === 200);
+  store.ext.apiKeys.revoke(got.keyId);
+}
+
 // ---- sessions ----
 {
   const out = await req('/api/auth/logout', { ...json({}), cookie: adaCookie });

@@ -4,7 +4,7 @@ import type { Issue } from '../core/types.js';
 import { HttpBaseline, type Baseline } from './baseline.js';
 import { readConfig } from './config.js';
 import { resolveTarget, type Target } from './target.js';
-import { transportFor } from './transport.js';
+import { httpTransport, transportFor } from './transport.js';
 import type { IssueIndex } from './views.js';
 
 export type { Baseline, IssueFilter, IssuePatch, Me, NewIssue } from './baseline.js';
@@ -23,6 +23,11 @@ export function targetFor(flags: { db?: string }): Target {
 export async function connect(flags: { db?: string }): Promise<Baseline> {
   const target = targetFor(flags);
   return new HttpBaseline(target, await transportFor(target));
+}
+
+/** one server and key, whatever the environment or config file says (login and logout) */
+export function connectTo(url: URL, token: string): Baseline {
+  return new HttpBaseline({ kind: 'remote', url, token, source: 'config' }, httpTransport(url, token));
 }
 
 /** `issues` by id, plus any parent of `of` that isn't among them (archived or deleted), fetched by id */

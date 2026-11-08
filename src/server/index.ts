@@ -7,6 +7,7 @@ import { installedTerminals, isDirectory, LaunchError, openInClaudeCode, pickDir
 import { authConfigFromEnv, cookieSessions, mountAuth, type AuthConfig } from './auth.js';
 import { attributedActor, authenticate, hostOf, isLoopback, originHostOf, principalOf, principalUser, Refusal } from './principal.js';
 import { mountMembers } from './members.js';
+import { mountCliAuth } from './cli-auth.js';
 import { ChangeFeed, startScheduler } from './live.js';
 import { streamSSE } from 'hono/streaming';
 import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
@@ -166,6 +167,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   ];
   for (const [method, path] of configRoutes) app.on(method, path, adminOnly);
   mountMembers(app, { store, accounts, mailer, publicUrl: hosted ? auth.publicUrl : null });
+  mountCliAuth(app, { db, store, accounts, apiKeys });
 
   // ---------- bootstrap ----------
   // ?sections=teams,states,… returns only those parts (a CLI command needs a few, not the whole workspace)

@@ -10,6 +10,7 @@ import { issueKey, initiativeKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS
 import type { RelationType, Snapshot, Team, Label, Project, Issue, Location, ApiKeyScope } from '../core/types.js';
 import { BaselineError, connect, issueIndex, resolve, ResolveError, TargetError, views, type Baseline } from '../client/index.js';
 import { legacyApp, legacyStore, setLegacyCommand } from './legacy.js';
+import { mountAccountCommands } from './login.js';
 
 const { priorityNum, resolveTeam, resolveState, resolveUser, resolveProject, resolveLabel, resolveCycle, milestoneIdFor } = resolve;
 const { relationRows, invertRelation } = views;
@@ -1505,6 +1506,8 @@ withDb(location.command('remove <name>')).description('Unregister a location (pr
   console.log(`Removed location ${loc.name}`);
   process.exit(0);
 });
+
+mountAccountCommands(program);
 
 const commandPath = (c: Command): string => c.parent?.parent ? `${commandPath(c.parent)} ${c.name()}` : c.name();
 program.hook('preAction', (_root, action) => setLegacyCommand(commandPath(action)));
