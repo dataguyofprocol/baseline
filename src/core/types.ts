@@ -378,6 +378,15 @@ export interface ApiKey {
   lastUsedAt: string | null;
 }
 
+/** The coding agents Baseline supports out of the box. Every workspace has an agent user for each,
+ *  so a person's agent connects without an admin adding it first (a CLI key never has admin rights). */
+export const SUPPORTED_AGENTS = [
+  { name: 'Claude Code', email: 'claude-code@local', initials: 'CC', color: '#d97757' },
+  { name: 'Codex', email: 'codex@local', initials: 'CX', color: '#10a37f' },
+  { name: 'pi', email: 'pi@local', initials: 'PI', color: '#8b5cf6' },
+] as const;
+export type SupportedAgent = (typeof SUPPORTED_AGENTS)[number]['name'];
+
 export const API_KEY_SCOPES: Array<[ApiKeyScope, string, string]> = [
   ['read', 'Read', 'Read all workspace data available to you'],
   ['write', 'Write', 'Read and write all workspace data available to you'],

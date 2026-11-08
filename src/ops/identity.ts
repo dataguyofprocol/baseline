@@ -1,7 +1,7 @@
 // Who an agent session writes as, and in which session. The front doors (the CLI and the MCP
 // server) call these once per process with what they were given; op bodies only see the result.
 import { BaselineError, resolve, ResolveError, type Baseline } from '../client/index.js';
-import type { User } from '../core/types.js';
+import type { SupportedAgent, User } from '../core/types.js';
 import { SESSION_KEY } from '../core/work-types.js';
 import { OpError, type Actor, type SessionKey } from './operation.js';
 
@@ -20,7 +20,7 @@ export const KNOWN_AGENTS = [
   { agent: 'Claude Code', clientNames: ['claude-code'], verified: 'claude-code 2.1.319' },
   { agent: 'Codex', clientNames: ['codex-mcp-client'], verified: 'codex-cli 0.166.0' },
   { agent: 'pi', clientNames: ['pi'], verified: 'pi 1.5.0' },
-] as const satisfies ReadonlyArray<{ agent: string; clientNames: readonly string[]; verified: string | null }>;
+] as const satisfies ReadonlyArray<{ agent: SupportedAgent; clientNames: readonly string[]; verified: string | null }>;
 
 export type KnownAgent = (typeof KNOWN_AGENTS)[number]['agent'];
 

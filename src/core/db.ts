@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { id } from './util.js';
+import { SUPPORTED_AGENTS } from './types.js';
 
 export const DEFAULT_DB_PATH = resolve(homedir(), '.baseline', 'baseline.db');
 
@@ -579,6 +580,9 @@ function migrate(db: DatabaseSync): void {
     db.prepare("INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES (?, 'Agent', 'agent@local', 'AG', '#4cb782', 0, 'agent')")
       .run(id('u'));
   }
+  const hasAgentUser = db.prepare("SELECT 1 FROM users WHERE kind = 'agent' AND (lower(name) = lower(?) OR email = ?)");
+  const addAgentUser = db.prepare("INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES (?, ?, ?, ?, ?, 0, 'agent')");
+  for (const a of SUPPORTED_AGENTS) if (!hasAgentUser.get(a.name, a.email)) addAgentUser.run(id('u'), a.name, a.email, a.initials, a.color);
 }
 
 /* One-time move from "a directory per project + a workspace default" to a list of locations:
