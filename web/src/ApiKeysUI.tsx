@@ -61,7 +61,7 @@ function PasswordSection() {
             <input className="text-input" type="password" name="current" autoComplete="current-password" value={current} onChange={e => setCurrent(e.target.value)} />
           </div>
           <div className="set-row">
-            <div style={{ flex: 1 }}><div className="field-label">New password</div><div className="set-meta" style={{ marginLeft: 0 }}>At least {PASSWORD_MIN} characters. Other devices are signed out.</div></div>
+            <div style={{ flex: 1 }}><div className="field-label">New password</div><div className="set-meta" style={{ marginLeft: 0 }}>At least {PASSWORD_MIN} characters.</div></div>
             <input className="text-input" type="password" name="next" autoComplete="new-password" value={next} onChange={e => setNext(e.target.value)} />
           </div>
           <div className="set-row">

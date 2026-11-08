@@ -42,7 +42,12 @@ export function SignIn() {
   useEffect(() => { void authApi.config().then(setConfig); }, []);
   // where to land once signed in: back to the page that asked (the CLI's approval page sends ?next)
   const back = params.next ?? window.location.pathname + window.location.hash;
-  const done = () => window.location.replace(back);
+  const done = () => {
+    const to = new URL(back, window.location.href);
+    // a hash-only change doesn't load the page, and the app has to start over signed in
+    if (to.pathname === window.location.pathname && to.search === window.location.search) { window.location.hash = to.hash; window.location.reload(); }
+    else window.location.replace(to.href);
+  };
   const google = (invite?: string | null) => {
     window.location.href = `/auth/google?next=${encodeURIComponent(back)}${invite ? `&invite=${encodeURIComponent(invite)}` : ''}`;
   };
@@ -121,7 +126,7 @@ function Setup({ ctx }: { ctx: Ctx }) {
   const [workspaceName, setWorkspaceName] = useState('');
   const { busy, error, submit } = useSubmit('/auth/setup', ctx.done);
   return (
-    <Shell headline="Set up Baseline" sub="Create the owner account for this server. The setup token is in the server log from when Baseline started, or run baseline setup-token beside the database.">
+    <Shell headline="Set up Baseline" sub={<>Create the owner account for this server. The setup token is in the server log from when Baseline started, or run <code>baseline setup-token</code> beside the database.</>}>
       <form className="auth-form" onSubmit={e => { e.preventDefault(); void submit({ token, name, email, password, workspaceName }); }}>
         <Alert>{error}</Alert>
         <Field label="Setup token" name="token" value={token} onChange={setToken} autoFocus mono autoComplete="off" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" />
