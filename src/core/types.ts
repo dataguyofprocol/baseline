@@ -1,4 +1,5 @@
 // Domain model shared by server, CLI and web surfaces.
+import type { ProjectUpdateDraft } from './work-types.js';
 
 export type WorkflowStateType = 'triage' | 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled';
 
@@ -897,6 +898,9 @@ export interface Snapshot {
   activity: ActivityItem[];
   /** current user for this local install */
   currentUser: User;
+  /** project updates an agent drafted for the requesting person, never anyone else's. Only
+   *  GET /api/bootstrap fills it: the store's own snapshot doesn't know who is asking. */
+  updateDrafts?: ProjectUpdateDraft[];
 }
 
 export type SnapshotSection = keyof Snapshot;
@@ -910,7 +914,7 @@ const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, releases: true, slaRules: true,
   askForms: true, loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
   teamSubscriptions: true, teamWorkflows: true, recurring: true, locations: true, projectUpdates: true, milestones: true,
-  cycles: true, views: true, favorites: true, notifications: true, activity: true, currentUser: true,
+  cycles: true, views: true, favorites: true, notifications: true, activity: true, currentUser: true, updateDrafts: true,
 };
 export const isSnapshotSection = (s: string): s is SnapshotSection => Object.hasOwn(SNAPSHOT_SECTIONS, s);
 

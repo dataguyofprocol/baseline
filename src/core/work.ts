@@ -125,6 +125,11 @@ export class Work {
     return r ? mapDraft(r) : null;
   }
 
+  /** every draft waiting for this person, newest first; nobody else's */
+  draftsFor(personId: string): ProjectUpdateDraft[] {
+    return (this.db.prepare('SELECT * FROM project_update_drafts WHERE person_id = ? ORDER BY updated_at DESC').all(personId) as unknown as DraftRow[]).map(mapDraft);
+  }
+
   /** the lane an op was written in, so the route can check who may undo it */
   opOwner(opId: string): { actorId: string; personId: string; teamId: string | null } | undefined {
     const r = this.db.prepare('SELECT o.actor_id, o.person_id, i.team_id FROM agent_ops o LEFT JOIN issues i ON i.id = o.issue_id WHERE o.id = ?').get(opId) as { actor_id: string; person_id: string; team_id: string | null } | undefined;
@@ -284,11 +289,13 @@ export class Work {
     });
   }
 
-  /** the person publishes their draft: it becomes a project update by them, and the draft is gone */
-  publishDraft(projectId: string, personId: string): ProjectUpdateDraft & { updateId: string } {
+  /** the person publishes their draft: it becomes a project update by them, and the draft is gone.
+   *  `edits` is what the person changed in the composer before publishing. */
+  publishDraft(projectId: string, personId: string, edits: { body?: string; health?: Health } = {}): ProjectUpdateDraft & { updateId: string } {
     return this.store.transaction(() => {
-      const d = this.draft(projectId, personId);
-      if (!d) throw new WorkError(404, 'not-found', 'There is no draft update for this project');
+      const stored = this.draft(projectId, personId);
+      if (!stored) throw new WorkError(404, 'not-found', 'There is no draft update for this project');
+      const d = { ...stored, body: edits.body?.trim() || stored.body, health: edits.health ?? stored.health };
       const u = this.store.addProjectUpdate(projectId, personId, d.body, d.health ?? undefined);
       this.db.prepare('DELETE FROM project_update_drafts WHERE project_id = ? AND person_id = ?').run(projectId, personId);
       return { ...d, updateId: u.id };

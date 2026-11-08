@@ -639,6 +639,26 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
   check('a session acting as an agent is recorded via that person', bySession.comment.userId === agent.id && bySession.comment.viaUserId === ada.id);
   const sessionAsOwner = await req(`/api/issues/${issue.id}`, { ...json({ title: 'x', actorId: ownerId }), method: 'PATCH', cookie: adaCookie });
   check('…and a session acting as another person is refused', sessionAsOwner.status === 403);
+
+  // a drafted project update is its person's alone: only they see it, only they publish it
+  type Drafts = { updateDrafts?: Array<{ projectId: string; personId: string; authorId: string; body: string }> };
+  const drafted = await keyReq(`/api/projects/${project.id}/update-draft`, { method: 'PUT', body: JSON.stringify({ body: 'Owner\'s draft', health: 'atRisk', actorId: agent.id }) });
+  const ownerDrafts = (await (await req('/api/bootstrap', { cookie: ownerCookie })).json() as Drafts).updateDrafts ?? [];
+  check('bootstrap shows a person the draft an agent wrote for them',
+    drafted.status === 200 && ownerDrafts.length === 1 && ownerDrafts[0]!.projectId === project.id && ownerDrafts[0]!.authorId === agent.id, JSON.stringify(ownerDrafts));
+  const adaDrafts = (await (await req('/api/bootstrap', { cookie: adaCookie })).json() as Drafts).updateDrafts;
+  const adaSection = (await (await req('/api/bootstrap?sections=updateDrafts', { cookie: adaCookie })).json() as Drafts).updateDrafts;
+  const adaOne = await (await req(`/api/projects/${project.id}/update-draft`, { cookie: adaCookie })).json() as { draft: unknown };
+  check('…and another person sees none of it, in bootstrap, its section or the project\'s draft route',
+    Array.isArray(adaDrafts) && adaDrafts.length === 0 && Array.isArray(adaSection) && adaSection.length === 0 && adaOne.draft === null, JSON.stringify({ adaDrafts, adaSection, adaOne }));
+  const adaPublish = await req(`/api/projects/${project.id}/update-draft/publish`, { ...json({ body: 'hijacked' }), cookie: adaCookie });
+  const adaDiscard = await req(`/api/projects/${project.id}/update-draft`, { method: 'DELETE', headers: { origin: ORIGIN }, cookie: adaCookie });
+  check('…can\'t publish or discard it', adaPublish.status === 404 && (await adaDiscard.json() as { ok: boolean }).ok === false && !!store.ext.work.draft(project.id, ownerId));
+  const published = await req(`/api/projects/${project.id}/update-draft/publish`, { ...json({ body: 'Owner\'s edited draft', health: 'onTrack' }), cookie: ownerCookie });
+  const pub = (await published.json() as { published: { updateId: string } }).published;
+  const pubRow = db.prepare('SELECT user_id, via_user_id, body, health FROM project_updates WHERE id = ?').get(pub.updateId) as { user_id: string; via_user_id: string | null; body: string; health: string };
+  check('the person publishes it, with their edits, as their own update; the draft is gone',
+    published.status === 201 && pubRow.user_id === ownerId && pubRow.via_user_id === null && pubRow.body === 'Owner\'s edited draft' && pubRow.health === 'onTrack' && !store.ext.work.draft(project.id, ownerId), JSON.stringify(pubRow));
   store.ext.apiKeys.revoke(key.key.id);
 }
 {
