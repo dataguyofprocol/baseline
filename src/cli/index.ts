@@ -14,6 +14,7 @@ import { mountAccountCommands } from './login.js';
 import { mountOperations } from './ops.js';
 import { actorFrom, sessionFrom } from '../ops/identity.js';
 import { serveStdio } from '../mcp/server.js';
+import { mountConnectCommand } from './connect.js';
 
 const { priorityNum, resolveTeam, resolveState, resolveUser, resolveProject, resolveLabel, resolveCycle, milestoneIdFor } = resolve;
 const { relationRows, invertRelation } = views;
@@ -1518,6 +1519,7 @@ withDb(location.command('remove <name>')).description('Unregister a location (pr
 });
 
 mountAccountCommands(program);
+mountConnectCommand(program);
 
 const commandPath = (c: Command): string => c.parent?.parent ? `${commandPath(c.parent)} ${c.name()}` : c.name();
 program.hook('preAction', (_root, action) => setLegacyCommand(commandPath(action), action.opts().as as string | undefined));
