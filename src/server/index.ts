@@ -12,7 +12,10 @@ import { ChangeFeed, startScheduler } from './live.js';
 import { streamSSE } from 'hono/streaming';
 import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
 import { Accounts, AccountError } from '../core/accounts.js';
-import { attributing } from '../core/actor.js';
+import { attributing, type Attribution } from '../core/actor.js';
+import { laneOf, WorkError } from '../core/work.js';
+import { SESSION_KEY, WORK_OUTCOMES } from '../core/work-types.js';
+import { z } from 'zod';
 import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
 import { isSnapshotSection, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
@@ -44,7 +47,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const accounts = new Accounts(db, store);
   const changes = new ChangeFeed(db);
   const hosted = auth.mode === 'google';
-  const { planning, automation, git, apiKeys, webhooks } = store.ext;
+  const { planning, automation, git, apiKeys, webhooks, work } = store.ext;
   // images (avatars, emoji, pasted pictures) live in the database; pick up any from the old uploads folder
   const files = new FileService(db, join(dirname(dbPath), 'attachments'));
   const moved = files.migrateLegacy();
@@ -88,7 +91,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const sessions = hosted ? cookieSessions(auth, accounts) : null;
   app.use('/api/*', authenticate({ auth, sessions, apiKeys, store, lanOpen: LAN_OPEN }));
   app.onError((err, c) => {
-    if (err instanceof Refusal) return c.json({ error: err.message, code: err.code }, err.status);
+    if (err instanceof Refusal || err instanceof WorkError) return c.json({ error: err.message, code: err.code }, err.status);
     console.error(err);
     return c.text('Internal Server Error', 500);
   });
@@ -467,6 +470,63 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
   app.delete('/api/comments/:id', (c) => { store.deleteComment(c.req.param('id')); return c.json({ ok: true }); });
+
+  // ---------- agent work (core/work.ts) ----------
+  // One route per agent operation that writes, each one SQLite transaction. The operations in
+  // src/ops call these through the client; the server alone decides attribution and convergence.
+  const workBase = hosted ? auth.publicUrl.origin : undefined;
+  /** the write's attribution: the agent asked for (recorded via the request's person), else that person */
+  const workAs = (c: Context, requested: unknown): Attribution =>
+    attributedActor(c, requested, store) ?? { actor: 'person', actorId: actor(c), viaUserId: null };
+  const body = async <T extends z.ZodType>(c: Context, schema: T): Promise<z.infer<T>> => {
+    const r = schema.safeParse(await c.req.json().catch(() => undefined));
+    if (!r.success) throw new Refusal(400, 'invalid', r.error.issues.map(i => `${i.path.join('.') || 'body'}: ${i.message}`).join('; '));
+    return r.data;
+  };
+  const session = z.string().regex(SESSION_KEY, 'BASELINE_SESSION is 1-64 characters of A-Z, a-z, 0-9 and . _ : -').nullish().transform(s => s ?? null);
+  const urls = z.array(z.url()).max(10).default([]);
+  const actorField = { actorId: z.string().optional(), session };
+  app.post('/api/issues/:id/work/start', async (c) => {
+    const b = await body(c, z.object(actorField));
+    const who = workAs(c, b.actorId);
+    return c.json(work.start(c.req.param('id'), laneOf(who, b.session), who, workBase));
+  });
+  app.post('/api/issues/:id/work/progress', async (c) => {
+    const b = await body(c, z.object({ ...actorField, did: z.string().optional(), left: z.string().optional(), blocked: z.string().optional(), links: urls }));
+    const who = workAs(c, b.actorId);
+    return c.json(work.progress(c.req.param('id'), laneOf(who, b.session), { did: b.did, left: b.left, blocked: b.blocked }, b.links, who, workBase));
+  });
+  app.post('/api/issues/:id/work/finish', async (c) => {
+    const b = await body(c, z.object({ ...actorField, outcome: z.enum(WORK_OUTCOMES), summary: z.string().trim().min(1), left: z.string().optional(), links: urls }));
+    const who = workAs(c, b.actorId);
+    return c.json(work.finish(c.req.param('id'), laneOf(who, b.session), b, who, workBase));
+  });
+  app.post('/api/issues/:id/followups', async (c) => {
+    const b = await body(c, z.object({ ...actorField, title: z.string().trim().min(3).max(200), description: z.string().optional(), teamId: z.string().optional() }));
+    const who = workAs(c, b.actorId);
+    const r = work.followup(c.req.param('id'), laneOf(who, b.session), b, who, workBase);
+    return c.json(r, r.deduplicated ? 200 : 201);
+  });
+  app.get('/api/issues/:id/work', (c) => c.json({ threads: work.threads(c.req.param('id')) }));
+  app.get('/api/projects/:id/update-draft', (c) => c.json({ draft: work.draft(c.req.param('id'), actor(c)) }));
+  app.put('/api/projects/:id/update-draft', async (c) => {
+    const b = await body(c, z.object({ actorId: z.string().optional(), body: z.string().optional(), health: z.enum(['onTrack', 'atRisk', 'offTrack']).optional() }));
+    const who = workAs(c, b.actorId);
+    return c.json(work.draftUpdate(c.req.param('id'), laneOf(who, null), b, who, workBase));
+  });
+  app.delete('/api/projects/:id/update-draft', (c) => c.json({ ok: work.discardDraft(c.req.param('id'), actor(c)) }));
+  // a person's call, made in the web app: authenticate refuses any key here (principal.ts PUBLISH)
+  app.post('/api/projects/:id/update-draft/publish', (c) => c.json({ published: work.publishDraft(c.req.param('id'), actor(c)) }, 201));
+  app.post('/api/ops/:id/undo', async (c) => {
+    const b = await body(c, z.object({ actorId: z.string().optional() }));
+    const owner = work.opOwner(c.req.param('id'));
+    if (!owner) throw new WorkError(404, 'not-found', `No change ${c.req.param('id')}`);
+    const p = principalOf(c);
+    if (p.via !== 'local' && ![owner.actorId, owner.personId].includes(p.userId) && !isAdmin(p.userId)) throw new Refusal(403, 'forbidden', 'Only the person a change was made for (or an admin) can undo it');
+    if (p.via === 'key' && p.key.teamIds && owner.teamId && !p.key.teamIds.includes(owner.teamId)) throw new Refusal(403, 'forbidden', 'This API key can’t access that team');
+    const who = workAs(c, b.actorId);
+    return c.json(work.undo(c.req.param('id'), who));
+  });
 
   // ---------- relations ----------
   app.post('/api/issues/:id/relations', async (c) => {

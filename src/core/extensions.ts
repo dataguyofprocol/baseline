@@ -5,7 +5,7 @@ import { Automation } from './automation.js';
 import { GitSync } from './git.js';
 import { ApiKeys } from './apikeys.js';
 import { GitHubWebhooks, migrateWebhooks } from './webhooks.js';
-import { migrateWork, WORK_TABLES } from './work.js';
+import { migrateWork, Work, WORK_TABLES } from './work.js';
 
 /* Areas added after the core tracker — initiatives, releases, SLAs, asks, loops and the git
    integration. Each lives in its own module with its own tables, and plugs into the store
@@ -17,6 +17,8 @@ export interface Extensions {
   git: GitSync;
   apiKeys: ApiKeys;
   webhooks: GitHubWebhooks;
+  /** agent work: threads, ops and drafts (work.ts) */
+  work: Work;
   /** extra snapshot fields */
   snapshot(): ReturnType<Planning['snapshot']> & ReturnType<Automation['snapshot']> & ReturnType<GitSync['snapshot']>;
   /** tables wipe() clears (children first) */
@@ -126,8 +128,9 @@ export function createExtensions(store: Store, db: DatabaseSync): Extensions {
   const git = new GitSync(store, db);
   const apiKeys = new ApiKeys(store, db);
   const webhooks = new GitHubWebhooks(store, db, git);
+  const work = new Work(store, db);
   return {
-    planning, automation, git, apiKeys, webhooks,
+    planning, automation, git, apiKeys, webhooks, work,
     snapshot: () => ({ ...planning.snapshot(), ...automation.snapshot(), ...git.snapshot() }),
     // api_keys are not exported or imported (only their hashes exist), nor is agent work
     tables: [...WORK_TABLES, 'github_issue_imports', 'github_deliveries', 'api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'ask_forms', 'sla_rules', 'releases', 'initiative_links', 'initiative_updates', 'initiative_projects', 'initiatives', 'initiative_labels'],

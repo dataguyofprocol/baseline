@@ -31,6 +31,8 @@ const isRead = (method: string) => method === 'GET' || method === 'HEAD';
 
 /** a key can't mint, list or approve keys: those doors need a person (cookie or this machine) */
 const KEYLESS = /^\/api\/(api-keys|cli-auth)(\/|$)/;
+/** an agent drafts project updates with a key; only a person (cookie or this machine) publishes one */
+const PUBLISH = /^\/api\/projects\/[^/]+\/update-draft\/publish$/;
 
 const principals = new WeakMap<Request, Principal>();
 
@@ -93,6 +95,7 @@ export function authenticate(d: AuthenticateDeps): MiddlewareHandler {
     if (!key) return c.json({ error: 'Invalid API key', code: 'unauthorized' }, 401);
     const path = c.req.path;
     if (KEYLESS.test(path)) return forbid(c, 'API keys are managed in Settings › Security & access, not with an API key');
+    if (PUBLISH.test(path)) return forbid(c, 'A person publishes project updates from the project page in Baseline; an API key can only draft them');
     const missing = apiKeys.missingScope(key, c.req.method, path);
     if (missing) return forbid(c, `This API key doesn't have the “${API_KEY_SCOPES.find(([k]) => k === missing)?.[1]}” permission`);
     const body = !isRead(c.req.method) && (c.req.header('content-type') ?? '').includes('application/json')

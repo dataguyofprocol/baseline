@@ -70,6 +70,14 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/issues/:id/open-claude': { scope: 'admin', team: 'issue' },
   'POST /api/issues/:id/comments': { scope: 'write', team: 'issue' },
   'POST /api/issues/:id/relations': { scope: 'write', team: 'issue' },
+  // agent work (core/work.ts); a follow-up's body.teamId is checked too
+  'POST /api/issues/:id/work/start': { scope: 'write', team: 'issue' },
+  'POST /api/issues/:id/work/progress': { scope: 'write', team: 'issue' },
+  'POST /api/issues/:id/work/finish': { scope: 'write', team: 'issue' },
+  'POST /api/issues/:id/followups': { scope: 'write', team: 'issue' },
+  'GET /api/issues/:id/work': { scope: 'read', team: 'issue' },
+  // an op id names no team for the middleware; the route itself refuses a team-limited key's undo outside its teams
+  'POST /api/ops/:id/undo': { scope: 'write', team: 'unchecked' },
   'PATCH /api/comments/:id': { scope: 'write', team: 'unchecked' },
   'DELETE /api/comments/:id': { scope: 'write', team: 'unchecked' },
   'DELETE /api/relations/:id': { scope: 'write', team: 'unchecked' },
@@ -133,6 +141,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'DELETE /api/projects/:id': { scope: 'write', team: 'unchecked' },
   'GET /api/projects/:id/progress': { scope: 'read', team: 'unchecked' },
   'POST /api/projects/:id/updates': { scope: 'write', team: 'unchecked' },
+  'GET /api/projects/:id/update-draft': { scope: 'read', team: 'unchecked' },
+  'PUT /api/projects/:id/update-draft': { scope: 'write', team: 'unchecked' },
+  'DELETE /api/projects/:id/update-draft': { scope: 'write', team: 'unchecked' },
+  // a person publishes a draft from the web app; a key is refused, whatever its scopes
+  'POST /api/projects/:id/update-draft/publish': { scope: 'write', team: 'keyless' },
   'POST /api/projects/:id/links': { scope: 'write', team: 'unchecked' },
   'DELETE /api/project-links/:id': { scope: 'write', team: 'unchecked' },
   'POST /api/projects/:id/apply-template': { scope: 'write', team: 'unchecked' },

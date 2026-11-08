@@ -117,11 +117,7 @@ export function buildHandoff(
     .map(lid => ctx.labels.find(l => l.id === lid)?.name)
     .filter((n): n is string => !!n);
   const branch = branchName(key, issue.title, ctx.branchFormat, ctx.username);
-  // core also runs in the browser (Settings ▸ Handoff preview), where `process` doesn't exist
-  const env = typeof process !== 'undefined' ? process.env : {};
-  // a local CLI can't also name BASELINE_URL (that would mean a server), so its port says where the app is
-  const envUrl = env.BASELINE_URL ?? (env.BASELINE_PORT ? `http://localhost:${env.BASELINE_PORT}` : undefined);
-  const base = (ctx.baseUrl ?? envUrl ?? windowOrigin() ?? 'http://localhost:7770').replace(/\/+$/, '');
+  const base = appBaseUrl(ctx.baseUrl);
   const vars: Record<string, string> = {
     key,
     title: issue.title,
@@ -139,6 +135,15 @@ export function buildHandoff(
     labels: labelNames.join(', '),
   };
   return { key, title: issue.title, branchName: branch, url: vars.url, prompt: renderHandoff(template, vars) };
+}
+
+/** where the web app is, for links: the server's public URL when it has one, else this machine's */
+export function appBaseUrl(baseUrl?: string): string {
+  // core also runs in the browser (Settings ▸ Handoff preview), where `process` doesn't exist
+  const env = typeof process !== 'undefined' ? process.env : {};
+  // a local CLI can't also name BASELINE_URL (that would mean a server), so its port says where the app is
+  const envUrl = env.BASELINE_URL ?? (env.BASELINE_PORT ? `http://localhost:${env.BASELINE_PORT}` : undefined);
+  return (baseUrl ?? envUrl ?? windowOrigin() ?? 'http://localhost:7770').replace(/\/+$/, '');
 }
 
 /** in the browser, prompt links point at the instance actually being used */
