@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, GitStatus, GithubTokenInfo, TrackedRepo, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -162,7 +162,11 @@ export const api = {
   deleteLoop: (id: string) => req<{ ok: true }>('DELETE', `/api/loops/${id}`),
   runLoop: (id: string, issueId?: string | null) => req<{ run: LoopRun }>('POST', `/api/loops/${id}/run`, { issueId: issueId ?? null }),
   setTeamSubscription: (teamId: string, flags: Record<string, boolean>) => req<{ ok: true }>('PUT', `/api/teams/${teamId}/subscription`, flags),
-  gitStatus: () => req<{ ghInstalled: boolean; ghUser: string | null; repos: Array<{ location: string; path: string; repo: string | null }>; lastSyncAt: string | null; lastError: string | null }>('GET', '/api/git/status'),
+  gitStatus: () => req<GitStatus>('GET', '/api/git/status'),
+  saveGithubToken: (token: string) => req<{ token: GithubTokenInfo }>('PUT', '/api/github/token', { token }),
+  removeGithubToken: () => req<{ ok: true }>('DELETE', '/api/github/token'),
+  availableGithubRepos: () => req<{ repos: string[] }>('GET', '/api/github/repos/available'),
+  setGithubRepos: (repos: string[]) => req<{ repos: TrackedRepo[] }>('PUT', '/api/github/repos', { repos }),
   gitSync: () => req<{ prs: number; commits: number; error?: string }>('POST', '/api/git/sync'),
   gitAutomation: (teamId: string) => req<PrAutomation>('GET', `/api/git/automation/${teamId}`),
   setGitAutomation: (teamId: string, b: Partial<PrAutomation>) => req<{ ok: true }>('PUT', `/api/git/automation/${teamId}`, b),

@@ -314,7 +314,7 @@ function GitHubStep({ next, back }: StepProps) {
   const [path, setPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const load = () => api.gitStatus().then(setStatus).catch(() => setStatus({ ghInstalled: false, ghUser: null, repos: [], lastSyncAt: null, lastError: null }));
+  const load = () => api.gitStatus().then(setStatus).catch(() => setStatus({ source: 'login', token: null, ghInstalled: false, ghUser: null, repos: [], lastSyncAt: null, lastError: null }));
   useEffect(() => { void load(); }, []);
 
   const ready = !!status?.ghUser;
