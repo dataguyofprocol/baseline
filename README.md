@@ -113,6 +113,19 @@ seed [--reset]
 
 Regression suite for all of the above: `npm run test:cli` (builds, then exercises every command against throwaway databases — never touches your workspace).
 
+### Against a hosted server
+
+```bash
+baseline login --server https://baseline.example.com   # approve in the browser; the key goes to ~/.baseline/config.json (0600)
+baseline whoami                                         # who the CLI acts as, and where commands go
+baseline logout                                         # revokes that key and forgets it
+BASELINE_URL=https://… BASELINE_TOKEN=bl_api_… baseline issue list   # or a key from the environment
+```
+
+Where a command goes: `--db <path>` (a local database), else `BASELINE_DB`, else `BASELINE_URL` + `BASELINE_TOKEN`, else the login in `~/.baseline/config.json`, else `~/.baseline/baseline.db`. Setting both `BASELINE_DB` and `BASELINE_URL`, only one of `BASELINE_URL`/`BASELINE_TOKEN`, or an unusable config file is an error; a command never falls back from a server to a local file. The login key can read and write, never administer. On a server every write is yours: `--as`/`BASELINE_AS` naming someone else is refused, not rewritten.
+
+So far `team list`, `user list`, `issue list|show|create|update|comment|handoff` and `search` work against a server; the other commands still need a local database and say so.
+
 ## Skill (AI coding tools)
 
 `skills/baseline/SKILL.md` is an [Agent Skills](https://agentskills.io)-format skill that teaches Claude Code / OpenCode / ZCode to drive the tracker through this CLI. It ships with the repo; to install it user-wide, symlink the directory into your tools' skill folders:
