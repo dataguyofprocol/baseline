@@ -21,7 +21,8 @@ import { mentionToken, uniquelyNamed } from '../../src/core/mentions.js';
 
 /* Descriptions and comments are stored as Markdown (agents read and write them through the
    CLI), and edited as rich text, like Linear: headings, lists, checklists, code, quotes,
-   links, images, @mentions and a "/" command menu. Markdown ↔ HTML happens at the edges. */
+   links, images, @mentions and a "/" command menu. Markdown is converted to HTML on load
+   and back to Markdown on each change. */
 
 /* ---------- markdown → editor HTML ---------- */
 function escapeRe(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -229,7 +230,7 @@ export function RichEditor(props: {
   const upload = async (editor: Editor, files: File[], pos?: number) => {
     const owner = uploadOwner(propsRef.current);
     if (!owner) return false;
-    // only small images are hosted; other files are linked to wherever they live
+    // only small images are hosted; other files are linked to wherever they are stored
     if (files.some(f => !f.type.startsWith('image/'))) useApp.getState().toast({ title: 'Only images can be added', line: 'Paste a link to other files instead' });
     for (const f of files.filter(f => f.type.startsWith('image/'))) {
       try {

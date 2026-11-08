@@ -62,7 +62,7 @@ export function resolveTheme(p: ThemePref): 'dark' | 'light' {
 
 let toastSeq = 1;
 
-/** a narrow window hides the nav on its own (the saved preference is left alone) so the page keeps its room */
+/** a narrow window hides the nav on its own (the saved preference is left alone) so the page keeps its width */
 const narrowNav = window.matchMedia('(max-width: 760px)');
 const savedCollapsed = () => localStorage.getItem('baseline:sidebarCollapsed') === '1';
 
@@ -131,7 +131,7 @@ export const useApp = create<AppState>((set, get) => ({
 narrowNav.addEventListener('change', (e) => { useApp.setState({ sidebarCollapsed: e.matches || savedCollapsed() }); });
 
 // while the preference is 'system', follow the OS/browser appearance live;
-// e.matches is that change's own verdict, so no re-query race
+// e.matches is the new value, so nothing is re-queried and nothing can race
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   if (useApp.getState().theme !== 'system') return;
   const resolved = e.matches ? 'dark' : 'light';
@@ -244,7 +244,7 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** first-run progress and the Getting started checklist: applied here at once, saved behind */
+/** first-run progress and the Getting started checklist: applied here at once, saved in the background */
 export function setGettingStarted(patch: Partial<GettingStarted>): Promise<unknown> {
   const s = useApp.getState().snap;
   if (s) {

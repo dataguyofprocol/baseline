@@ -110,7 +110,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
 
   // ---------- team membership (TEAM_PLAN.md › Team membership) ----------
   // as in Linear: anyone on a team, or an admin, adds people to it; only admins remove someone else.
-  // A laptop has one person, who holds everything.
+  // A laptop has one person, who passes every admin and team check.
   const admin = () => !hosted || accounts.isAdmin(me());
   app.post('/api/teams/:id/members', async (c) => {
     const team = store.getTeam(c.req.param('id'));

@@ -38,7 +38,7 @@ export interface ServeOptions {
 
 const WEB_DIST = resolve(fileURLToPath(import.meta.url), '../../../web/dist');
 
-/** BASELINE_HOST opens the server beyond this machine (e.g. 0.0.0.0); unset = loopback only */
+/** BASELINE_HOST opens the server beyond this machine (e.g. 0.0.0.0); unset: loopback only */
 const LISTEN_HOST = process.env.BASELINE_HOST?.trim() || '';
 const LAN_OPEN = !!LISTEN_HOST && !isLoopback(LISTEN_HOST);
 
@@ -50,7 +50,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const changes = new ChangeFeed(db);
   const hosted = auth.mode === 'hosted';
   const { planning, automation, git, apiKeys, webhooks, work } = store.ext;
-  // images (avatars, emoji, pasted pictures) live in the database; pick up any from the old uploads folder
+  // images (avatars, emoji, pasted pictures) are stored in the database; pick up any from the old uploads folder
   const files = new FileService(db, join(dirname(dbPath), 'attachments'));
   const moved = files.migrateLegacy();
   if (moved) console.error(`[baseline] moved ${moved} upload(s) into the database`);
@@ -86,7 +86,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // GitHub webhooks are the one door open to other hosts (GitHub reaches this machine through
+  // GitHub webhooks are the one route open to other hosts (GitHub reaches this machine through
   // a tunnel): they carry no cookies or keys and are authenticated by their HMAC signature alone
   app.post(WEBHOOK_PATH, async (c) => {
     if (Number(c.req.header('content-length') ?? 0) > WEBHOOK_MAX_BYTES) return c.json({ error: 'Payload too large' }, 413);
@@ -158,7 +158,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/api-keys/:id', async (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.rename(c.req.param('id'), String((await c.req.json()).name ?? '')); return c.json({ ok: true }); });
   app.delete('/api/api-keys/:id', (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.revoke(c.req.param('id')); return c.json({ ok: true }); });
 
-  // a write tells open tabs at once, rather than at the feed's next look
+  // after a write, tell open tabs at once instead of waiting for the feed's next check
   app.use('/api/*', async (c, next) => {
     await next();
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') changes.check();
@@ -241,7 +241,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- live updates ----------
   // Server-sent events: the current version on connect, every new one after, and a comment every
-  // 25s so proxies keep the connection open. Only a number travels, and each tab then fetches its own
+  // 25s so proxies keep the connection open. Only the version number is sent, and each tab then fetches its own
   // snapshot, so nobody learns anything here they couldn't already see.
   app.get('/api/events', (c) => streamSSE(c, async (stream) => {
     let open = true;
@@ -263,7 +263,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       priority: b.priority, assigneeId: b.assigneeId ?? null, projectId: b.projectId ?? null,
       parentId: b.parentId ?? null, cycleId: b.cycleId ?? null, labelIds: b.labelIds,
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null, milestoneId: b.milestoneId ?? null,
-      // omitted = a sub-issue inherits its parent's (nothing else is defaulted); null = explicitly none
+      // omitted: a sub-issue inherits its parent's (nothing else is defaulted); null: explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
     }, actorId));
     return c.json({ issue }, 201);
@@ -289,7 +289,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const issue = store.getByKey(c.req.param('key'));
     return issue ? c.json({ issue }) : c.json({ error: 'not found' }, 404);
   });
-  // archive & trash (registered before /api/issues/:id so the words don't read as ids)
+  // archive & trash (registered before /api/issues/:id so the words aren't matched as ids)
   app.get('/api/issues/archived', (c) => c.json({ issues: store.listArchived(c.req.query('teamId') || undefined) }));
   app.get('/api/issues/deleted', (c) => c.json({ issues: store.listDeleted(c.req.query('teamId') || undefined) }));
   app.get('/api/issues/:id', (c) => {
@@ -407,7 +407,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     store.moveIssue(c.req.param('id'), b.beforeId ?? null, b.afterId ?? null);
     return c.json({ ok: true });
   });
-  // branch copy / hand-off: backlog or unstarted → first started state, unassigned → you
+  // branch copy / hand-off: a backlog or unstarted issue moves to the first started state, and an
+  // unassigned one is assigned to you
   app.post('/api/issues/:id/start', (c) => c.json(store.startIssue(c.req.param('id'), actor(c))));
   app.get('/api/issues/:id/handoff', (c) => {
     const handoff = store.handoffFor(c.req.param('id'), hosted ? auth.publicUrl.origin : undefined);

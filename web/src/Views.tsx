@@ -27,7 +27,7 @@ export const TEAM_DEFAULT_OPTS: ViewOptions = { ...DEFAULT_VIEW_OPTIONS, filters
 
 /* ================= shared issue-list page body =================
    Every issue list (team, my issues, views, project, cycle) is the same thing: filter
-   pills over a list or board, with display options. ⌘B flips list ↔ board. */
+   pills over a list or board, with display options. ⌘B switches between list and board. */
 export function useListLayoutToggle(opts: ViewOptions, patch: (p: Partial<ViewOptions>) => void) {
   const ref = useRef(opts.layout);
   ref.current = opts.layout;
@@ -173,7 +173,7 @@ function teamStates(states: Array<{ id: string; teamId: string; type: string }>,
 }
 
 /** A stale team route (pre-reset URL left in the tab, an old localStorage key) should
- *  fall back to the first team instead of dead-ending on "Team not found". */
+ *  fall back to the first team instead of stopping at "Team not found". */
 export function TeamMissingRedirect() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();

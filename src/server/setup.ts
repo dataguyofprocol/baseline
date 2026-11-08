@@ -1,7 +1,7 @@
 // First run of a hosted server: the owner account is created in the browser by whoever holds the
 // setup token. The token is printed to the server log at startup and kept in a file beside the
 // database (`<db>.setup-token`, mode 0600) so `baseline setup-token` can show it again. A fresh
-// public server can't be claimed by the first stranger who finds it. Gone once setup is done.
+// public server can't be claimed by the first stranger who finds it. The token is removed once setup is done.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 

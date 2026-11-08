@@ -282,7 +282,7 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
    Enter 260ms rise on the global ease; exit 220ms. The auto-close window is
    drawn as a depleting register line on the bottom edge (5200ms linear, square
    ends, on the same clock as the store's undo timer). Three at most; the older two
-   recede to 72% and drop their line. Undo is the surface's paper button. */
+   recede to 72% and drop their line. Undo is the toast's paper button. */
 export function Toasts() {
   const toasts = useApp(s => s.toasts);
   const dismiss = useApp(s => s.dismissToast);

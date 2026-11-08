@@ -48,7 +48,7 @@ export function TriagePage() {
   }, [snap.issues, triageState, prefs.filters, prefs.orderBy]);
   const pool = useMemo(() => triageState ? snap.issues.filter(i => i.stateId === triageState.id) : [], [snap.issues, triageState]);
   const snoozedCount = all.filter(i => i.snoozedUntil && i.snoozedUntil > nowIso).length;
-  // snoozed issues leave the queue until their time comes back round
+  // snoozed issues leave the queue until their snooze time passes
   const queue = useMemo(() => showSnoozed ? all : all.filter(i => !i.snoozedUntil || i.snoozedUntil <= nowIso), [all, showSnoozed, nowIso]);
   const snoozeMenu = useMenu();
   const createTriage = () => team && triageState && useApp.getState().openCreate({ teamId: team.id, stateId: triageState.id });
@@ -62,7 +62,7 @@ export function TriagePage() {
   const accept = (i: Issue) => { const s = stateOf('unstarted') ?? stateOf('backlog'); if (s) void setIssueProps([i.id], { stateId: s.id }); };
   const decline = (i: Issue) => { const s = stateOf('canceled'); if (s) void setIssueProps([i.id], { stateId: s.id }); };
 
-  // the triage keys win over the global 1-9 status shortcuts while this page is up
+  // the triage keys take precedence over the global 1-9 status shortcuts while this page is up
   const currentRef = useRef(current);
   currentRef.current = current;
   useEffect(() => {

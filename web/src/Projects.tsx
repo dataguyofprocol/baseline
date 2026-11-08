@@ -1434,7 +1434,7 @@ function ProjectDetails(props: { project: Project }) {
   );
 }
 
-/* dependencies: "blocked by" projects must land first; "blocking" ones wait on this */
+/* dependencies: "blocked by" projects must finish first; "blocking" ones wait on this */
 function ProjectDependencies(props: { project: Project }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();

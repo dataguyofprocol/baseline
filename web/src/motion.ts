@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 export const reducedMotion = () =>
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/* Where the last press landed. The theme reveal grows from that point, so the switch
+/* Where the last press happened. The theme reveal grows from that point, so the switch
    visibly starts at the control that was pressed. */
 let lastPress = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 window.addEventListener('pointerdown', (e) => { lastPress = { x: e.clientX, y: e.clientY }; }, { capture: true, passive: true });
@@ -32,13 +32,13 @@ const lastStateById = new Map<string, string>();
 
 /* Issues created this session that have not yet played their enter animation.
    Filled by api.createIssue, so every creation path (C, palette, modal,
-   duplicate, sub-issue) lands the same way. */
+   duplicate, sub-issue) animates the same way. */
 const pendingEnter = new Set<string>();
 export function markCreated(id: string) { pendingEnter.add(id); }
 
 type Landing = 'new' | 'moved' | null;
 
-/** One landing per change: the row enters (340ms) and flashes brand at 220ms.
+/** One entry animation per change: the row enters (340ms) and flashes brand at 220ms.
     `becameDone` also morphs the status icon, which fills and then draws the check. */
 export function useLanding(issue: { id: string; stateId: string }, stateType?: string) {
   const [landing, setLanding] = useState<Landing>(() => {

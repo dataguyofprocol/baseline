@@ -51,7 +51,7 @@ export function Avatar({ user, size = 20 }: { user?: { name: string; initials: s
 type MenuChildren = (p: { isOpen: boolean; open: (e: React.MouseEvent) => void }) => React.ReactNode;
 
 /* property menus over one issue, opened from any trigger (the rail, chips). The
-   menus themselves live in propertyMenus.tsx so keyboard, palette and rail share them */
+   menus themselves are in propertyMenus.tsx so keyboard, palette and rail share them */
 function propMenu(kind: PropKind) {
   return function IssuePropMenu(props: { issue: Issue; children: MenuChildren }) {
     const { anchor, open, close, isOpen } = useMenu();

@@ -78,7 +78,7 @@ function Highlighted({ text, indices }: { text: string; indices: number[] }) {
 }
 
 /* ================= bulk actions =================
-   The palette reads the selection store directly, so any surface that fills
+   The palette reads the selection store directly, so anything that fills
    useSelection (row checkboxes, X key) instantly gets the bulk section here.
    Everything is resolved from getState() at call time so sub-page builders
    stay fresh across snapshot refreshes and selection edits. */

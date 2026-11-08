@@ -29,7 +29,7 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [cycleId, setCycleId] = useState<string | null>(parent.cycleId);
   const [projectId, setProjectId] = useState<string | null>(parent.projectId);
-  // one location per task: until you pick one, a sub-task starts where its parent happens
+  // one location per task: until you pick one, a sub-task starts in its parent's location
   // (the server's default, shown here but never sent)
   const [pickedLocation, setPickedLocation] = useState<{ id: string | null } | null>(null);
   const setLocationId = (id: string | null) => setPickedLocation({ id });

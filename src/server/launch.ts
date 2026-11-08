@@ -69,7 +69,8 @@ export function installedTerminals(): TerminalApp[] {
 export interface LaunchResult { key: string; directory: string; location: { id: string; name: string }; pinned: boolean; scriptPath: string }
 
 /** Opens the issue's location, or pins the one given (an existing location, or a new folder,
- *  which is registered as a location) and opens that. Nothing is guessed: no location, no launch. */
+ *  which is registered as a location) and opens that. Nothing is guessed: without a location,
+ *  nothing launches. */
 export function openInClaudeCode(store: Store, dbPath: string, issueId: string, opts: { locationId?: string; directory?: string } = {}): LaunchResult {
   if (process.platform !== 'darwin' && !process.env.BASELINE_OPEN_CMD) throw new LaunchError('unsupported', 'Opening a terminal session is only supported on macOS. Use `baseline issue handoff` instead.');
   const issue = store.getIssue(issueId);
@@ -83,7 +84,7 @@ export function openInClaudeCode(store: Store, dbPath: string, issueId: string, 
   if (!location) throw new LaunchError('no-location', `${key} has no location. Pick one.`);
   const directory = location.path;
   if (!isDirectory(directory)) throw new LaunchError('bad-directory', `The location ${location.name} points at ${directory}, which doesn't exist`);
-  // choosing where to open it is choosing where the task lives
+  // the location chosen to open it in becomes the issue's location
   const pinned = issue.locationId !== location.id;
   if (pinned) store.updateIssue(issue.id, { locationId: location.id });
 

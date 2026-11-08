@@ -45,13 +45,13 @@ export function Onboarding() {
   const gs = snap.workspace.preferences.gettingStarted;
   const hasTeam = snap.teams.length > 0;
   const steps = snap.workspace.auth === 'hosted' ? HOSTED_STEPS : ALL_STEPS;
-  // without a team the flow can't get past naming one (a workspace whose teams were all deleted lands there too)
+  // without a team the flow can't get past naming one (a workspace whose teams were all deleted ends up there too)
   const [step, setStep] = useState(() => Math.min(gs.step, hasTeam ? steps.length - 1 : TEAM_STEP));
   const go = (n: number) => { setStep(n); void setGettingStarted({ step: n }); };
   const next = () => (step < steps.length - 1 ? go(step + 1) : void finish());
   const back = step > 0 ? () => go(step - 1) : undefined;
 
-  /** the last step is the product itself: the team's issues with a blank issue open, cursor in the title */
+  /** the last step opens the app itself: the team's issues with a blank issue open, cursor in the title */
   const finish = async () => {
     const s = useApp.getState().snap!;
     const team = s.teams[0];
@@ -181,7 +181,7 @@ function ThemeStep({ next, back }: StepProps) {
 const SunGlyph = () => <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><circle cx="7.5" cy="7.5" r="2.6" /><path d="M7.5 1.5v1.4M7.5 12.1v1.4M1.5 7.5h1.4M12.1 7.5h1.4M3.3 3.3l1 1M10.7 10.7l1 1M3.3 11.7l1-1M10.7 4.3l1-1" /></svg>;
 const SystemGlyph = () => <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><rect x="1.8" y="2.6" width="11.4" height="7.8" rx="1.6" /><path d="M5.5 12.8h4M7.5 10.4v2.4" strokeLinecap="round" /><path d="M7.5 2.6v7.8" /></svg>;
 
-/* the app in miniature, painted with each theme's own tokens (the live page can only wear one) */
+/* the app in miniature, painted with each theme's own tokens (the live page can only show one) */
 const MOCK = {
   dark: { ground: '#09090a', page: '#121213', line: 'rgba(255,255,255,0.08)', text: '#f7f8f8', soft: '#8a8f98', dim: '#3a3b3f', active: '#232325' },
   light: { ground: '#f3f3f4', page: '#ffffff', line: 'rgba(9,9,10,0.10)', text: '#17181a', soft: '#6b6f76', dim: '#d5d6d9', active: '#e4e5e8' },
@@ -264,7 +264,7 @@ function TeamStep({ next, back }: StepProps) {
     }
   };
   const submit = () => void save(name, key);
-  // skipping still leaves a team behind, because issues always live in one
+  // skipping still leaves a team behind, because every issue needs one
   const skip = () => (existing ? next() : void save('General', keyFromName('General')));
   useStepKeys(submit, skip);
 
@@ -467,7 +467,7 @@ function PaletteStep({ back, finish }: StepProps) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
-  // with the palette up, Enter and Esc belong to it
+  // with the palette up, Enter and Esc go to the palette
   useStepKeys(open ? null : () => used && void finish(), open ? null : () => void finish());
 
   return (

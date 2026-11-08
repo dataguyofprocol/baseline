@@ -69,7 +69,7 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
       const current = same(i => i.stateId);
       const pick = async (stateId: string) => {
         const target = snap.states.find(s => s.id === stateId)!;
-        // a selection spanning teams lands on each team's state of the same name (or type)
+        // a selection spanning teams moves to each team's state of the same name (or type)
         const byTeam = new Map<string, string[]>();
         for (const i of issues) byTeam.set(i.teamId, [...(byTeam.get(i.teamId) ?? []), i.id]);
         for (const [teamId, group] of byTeam) {
