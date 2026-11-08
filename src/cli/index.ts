@@ -13,6 +13,7 @@ import { legacyApp, legacyStore, setLegacyCommand } from './legacy.js';
 import { mountAccountCommands } from './login.js';
 import { mountOperations } from './ops.js';
 import { actorFrom, sessionFrom } from '../ops/identity.js';
+import { serveStdio } from '../mcp/server.js';
 
 const { priorityNum, resolveTeam, resolveState, resolveUser, resolveProject, resolveLabel, resolveCycle, milestoneIdFor } = resolve;
 const { relationRows, invertRelation } = views;
@@ -1458,6 +1459,9 @@ mountOperations(agent, async (flags) => {
   const bl = await connect(flags);
   return { bl, actor: await actorFrom(bl, flags.as ?? process.env.BASELINE_AS), session: sessionFrom(process.env.BASELINE_SESSION) };
 });
+withDb(program.command('mcp')).description('Serve the agent operations as MCP tools on stdin/stdout, for Claude Code, Codex and other MCP clients (set up with `baseline connect`)')
+  .action(async (opts: { db?: string }) => { await serveStdio(opts); });
+
 withDb(agent.command('config')).description('Show or change where `issue open` sessions launch')
   .option('--terminal <app>', TERMINAL_APPS.join('|'))
   .action((opts: { db?: string; terminal?: string }) => {

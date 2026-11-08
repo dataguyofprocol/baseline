@@ -72,7 +72,8 @@ export class OpError extends Error {
   constructor(readonly code: 'not-found' | 'invalid' | 'conflict' | 'forbidden' | 'unreachable' | 'needs-human', message: string) { super(message); }
 }
 
-function toOpError(e: unknown): OpError | undefined {
+/** an error the model or person can act on, as an OpError; undefined for a bug */
+export function toOpError(e: unknown): OpError | undefined {
   if (e instanceof OpError) return e;
   if (e instanceof ResolveError || e instanceof TargetError) return new OpError('invalid', e.message);
   if (e instanceof BaselineError) {
