@@ -7,6 +7,7 @@ import { PriorityIcon } from './pickers.js';
 import { IconPlus, IconTrash, IconSla, IconAsk, IconLoop, IconClose } from './icons.js';
 import type { AskField, Issue, Loop, LoopAction, LoopTrigger, Priority, WorkflowStateType } from '../../src/core/types.js';
 import { Illustration } from './illustrations.js';
+import { useInFlight } from './ui.js';
 
 const refresh = () => useApp.getState().bootstrap();
 const PRIORITIES: Array<[Priority, string]> = [[1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low'], [0, 'No priority']];
@@ -165,11 +166,14 @@ export function AskFormPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [done, setDone] = useState<Issue | null>(null);
+  const { busy, guard } = useInFlight();
   if (!f) return <div className="empty-state"><div className="empty-title">Form not found</div></div>;
-  const submit = async () => {
-    try { const { issue } = await api.submitAsk(f.id, values); setDone(issue); setValues({}); setError(''); await refresh(); }
+  // a fresh submit clears the last "Filed as" line, so a failure never shows next to an old success
+  const submit = guard(async () => {
+    setDone(null); setError('');
+    try { const { issue } = await api.submitAsk(f.id, values); setDone(issue); setValues({}); await refresh(); }
     catch (e) { setError((e as Error).message); }
-  };
+  });
   const key = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -188,7 +192,7 @@ export function AskFormPage() {
           ))}
           {error && <div className="ask-error">{error}</div>}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="btn primary" type="submit">Submit</button>
+            <button className="btn primary" type="submit" disabled={busy}>Submit</button>
             {done && <span className="ask-done">Filed as <a href={`#/issue/${key(done)}`} onClick={e => { e.preventDefault(); navigate(`/issue/${key(done)}`); }}>{key(done)}</a> in {snap.teams.find(t => t.id === done.teamId)?.name} triage</span>}
           </div>
         </form>

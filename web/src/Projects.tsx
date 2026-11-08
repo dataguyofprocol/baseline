@@ -4,7 +4,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useApp, shortDate, relTime, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, MenuSub, useMenu, Modal, RegisterMark } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, Modal, RegisterMark, useInFlight } from './ui.js';
 import { Avatar, PriorityIcon, CalendarGrid, StateIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
@@ -791,12 +791,17 @@ export function ProjectTimeline(props: { projects: Project[] }) {
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => { if (scroller.current) scroller.current.scrollLeft = Math.max(0, x(today.getTime()) - 200); }, [zoom]); // eslint-disable-line react-hooks/exhaustive-deps
   const [drag, setDrag] = useState<{ id: string; mode: 'move' | 'start' | 'end'; originX: number; s: number; e: number; dx: number } | null>(null);
+  // the listeners below are bound once per drag, so they read the live drag (with its
+  // current dx) through this ref — the `drag` they close over is the dx: 0 start value
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
   useEffect(() => {
     if (!drag) return;
     const onMove = (ev: PointerEvent) => setDrag(d => d ? { ...d, dx: ev.clientX - d.originX } : d);
     const onUp = async () => {
-      const d = drag;
+      const d = dragRef.current;
       setDrag(null);
+      if (!d) return;
       const days = Math.round(d.dx / pxPerDay);
       if (!days) return;
       const s = d.mode === 'end' ? d.s : d.s + days * DAY;
@@ -917,15 +922,20 @@ export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: (
   };
   const menus = { labels: useMenu(), template: useMenu(), icon: useMenu(), status: useMenu(), priority: useMenu(), lead: useMenu(), members: useMenu(), team: useMenu(), start: useMenu(), target: useMenu() };
   useEffect(() => { const t = setTimeout(() => nameRef.current?.focus(), 30); return () => clearTimeout(t); }, []);
-  const create = async () => {
+  const { busy, guard } = useInFlight();
+  const create = guard(async () => {
     if (!name.trim()) return;
     const { project } = await api.createProject({ name: name.trim(), summary: summary.trim(), description, icon, status, statusId, labelIds, startDate: startDate || null, targetDate: targetDate || null, leadId, priority, memberIds, teamId: team });
-    if (templateId) await api.applyProjectTemplate(project.id, templateId);
+    // the project exists now: a failed template must not leave the modal open, where Create would make a second one
+    let templateFailed = false;
+    if (templateId) { try { await api.applyProjectTemplate(project.id, templateId); } catch { templateFailed = true; } }
     await useApp.getState().bootstrap();
     onClose();
     navigate(`/projects/${project.id}`);
-    useApp.getState().toast({ title: 'Project created', line: <>{icon} {project.name}</> });
-  };
+    useApp.getState().toast(templateFailed
+      ? { title: 'Project created without its template', line: <>{icon} {project.name} — apply the template again from the project</> }
+      : { title: 'Project created', line: <>{icon} {project.name}</> });
+  });
   const lead = snap.users.find(u => u.id === leadId);
   const teamObj = snap.teams.find(t => t.id === team);
   const fmt = (iso: string) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
@@ -965,7 +975,7 @@ export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: (
           {tpl && (tpl.milestones.length > 0 || tpl.issues.length > 0) && <span className="cbox-hint">Also creates {[tpl.milestones.length && `${tpl.milestones.length} milestone${tpl.milestones.length === 1 ? '' : 's'}`, tpl.issues.length && `${tpl.issues.length} issue${tpl.issues.length === 1 ? '' : 's'}`].filter(Boolean).join(' and ')}</span>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
             <button className="btn" onClick={onClose}>Cancel</button>
-            <button className="btn primary" onClick={create} disabled={!name.trim()}>Create project <span className="btn-kbd kbd">⌘↵</span></button>
+            <button className="btn primary" onClick={() => void create()} disabled={!name.trim() || busy}>Create project <span className="btn-kbd kbd">⌘↵</span></button>
           </div>
         </div>
       </div>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp, relTime, copyText } from './store.js';
 import { api } from './api.js';
-import { ConfirmButton } from './ui.js';
+import { ConfirmButton, useInFlight } from './ui.js';
 import { Avatar } from './pickers.js';
 import { IconBack, IconCopy } from './icons.js';
 import { API_KEY_SCOPES, type ApiKey, type ApiKeyScope } from '../../src/core/types.js';
@@ -78,11 +78,13 @@ export function NewApiKey() {
   const [created, setCreated] = useState<{ key: ApiKey; token: string } | null>(null);
   const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter(x => x !== v) : [...list, v]);
   const valid = name.trim() && (!limitScopes || scopes.length) && (!limitTeams || teamIds.length);
-  const create = async () => {
+  // a second create would mint a second live key and overwrite the first one's token, which is shown only once
+  const { busy, guard } = useInFlight();
+  const create = guard(async () => {
     if (!valid) return;
     try { setCreated(await api.createApiKey({ name: name.trim(), scopes: limitScopes ? scopes : null, teamIds: limitTeams ? teamIds : null })); setErr(''); }
     catch (e) { setErr((e as Error).message); }
-  };
+  });
   const back = <Link to="/settings/security" className="settings-crumb"><IconBack size={13} /> Security settings</Link>;
   if (created) return (
     <div className="settings-card">
@@ -129,7 +131,7 @@ export function NewApiKey() {
         {err && <div className="field-help" style={{ color: 'var(--danger, #e5484d)', marginTop: 10 }}>{err}</div>}
         <div className="form-actions">
           <button className="btn secondary" onClick={() => navigate('/settings/security')}>Cancel</button>
-          <button className="btn primary" disabled={!valid} onClick={create}>Create</button>
+          <button className="btn primary" disabled={!valid || busy} onClick={() => void create()}>Create</button>
         </div>
       </div>
     </div>

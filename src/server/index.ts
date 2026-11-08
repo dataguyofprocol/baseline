@@ -9,7 +9,7 @@ import { mountMembers } from './members.js';
 import { ChangeFeed, startScheduler } from './live.js';
 import { streamSSE } from 'hono/streaming';
 import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
-import { Accounts } from '../core/accounts.js';
+import { Accounts, AccountError } from '../core/accounts.js';
 import { actingUser } from '../core/actor.js';
 import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
@@ -597,7 +597,14 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim();
     if (typeof b.color === 'string') patch.color = b.color;
     if (!hosted && typeof b.email === 'string') patch.email = b.email;
-    if (admin && typeof b.admin === 'boolean') patch.admin = b.admin;
+    // admin rights go through setAdmin, which refuses to demote the last active admin
+    if (admin && typeof b.admin === 'boolean') {
+      try { accounts.setAdmin(targetId, b.admin); }
+      catch (err) {
+        if (err instanceof AccountError) return c.json({ error: err.message, code: err.code }, err.code === 'not-found' ? 404 : 400);
+        throw err;
+      }
+    }
     store.updateUser(targetId, patch);
     return c.json({ ok: true });
   });

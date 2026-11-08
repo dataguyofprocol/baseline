@@ -40,6 +40,9 @@ function sqlPairs<T extends object>(patch: T, allowed: Array<keyof T>): Array<[s
   return Object.entries(patch).filter(([k]) => (allowed as string[]).includes(k));
 }
 
+/** the issue fields updateIssue accepts; everything else on an Issue is derived or fixed */
+const ISSUE_PATCH_KEYS = new Set<string>(['title', 'description', 'stateId', 'priority', 'assigneeId', 'projectId', 'parentId', 'cycleId', 'locationId', 'milestoneId', 'estimate', 'dueDate', 'labelIds', 'sortOrder', 'archivedAt', 'releaseId']);
+
 export class Store {
   /** extension modules (initiatives, releases, SLAs, asks, loops, git) — see extensions.ts */
   readonly ext: Extensions;
@@ -213,13 +216,14 @@ export class Store {
   }
 
   // ---------- users ----------
-  updateUser(userId: string, patch: Partial<Pick<User, 'name' | 'email' | 'color' | 'admin' | 'title' | 'username' | 'githubUsername' | 'avatarUrl'>>): void {
+  /** profile fields only — admin rights go through Accounts.setAdmin, which keeps at least one admin */
+  updateUser(userId: string, patch: Partial<Pick<User, 'name' | 'email' | 'color' | 'title' | 'username' | 'githubUsername' | 'avatarUrl'>>): void {
     const cur = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as { name: string; email: string } | undefined;
     if (!cur) return;
     const name = patch.name ?? cur.name;
     const initials = patch.name ? name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() : undefined;
     const sets: string[] = []; const vals: (string | number | null)[] = [];
-    for (const [k, v] of sqlPairs(patch, ['name', 'email', 'color', 'admin', 'title', 'username'])) { sets.push(`${k} = ?`); vals.push(k === 'admin' ? (v ? 1 : 0) : k === 'username' ? String(v).trim().split(/\s+/)[0] ?? '' : v as string | number); }
+    for (const [k, v] of sqlPairs(patch, ['name', 'email', 'color', 'title', 'username'])) { sets.push(`${k} = ?`); vals.push(k === 'username' ? String(v).trim().split(/\s+/)[0] ?? '' : v as string | number); }
     if ('avatarUrl' in patch) { sets.push('avatar_url = ?'); vals.push(patch.avatarUrl ?? null); }
     if (patch.githubUsername !== undefined) { sets.push('github_username = ?'); vals.push(String(patch.githubUsername ?? '').trim().replace(/^@/, '')); }
     if (initials) { sets.push('initials = ?'); vals.push(initials); }
@@ -442,8 +446,12 @@ export class Store {
   }
 
   updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'milestoneId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt' | 'releaseId'>>, actorId?: string): Issue | undefined {
-    // drop explicitly-undefined keys so partial patches never clobber values
-    const patch = Object.fromEntries(Object.entries(rawPatch).filter(([, v]) => v !== undefined)) as typeof rawPatch;
+    // keep only the fields a caller may set, and drop explicitly-undefined keys so partial
+    // patches never clobber values. The REST route hands us the raw request body: without the
+    // allow-list, `completedAt`/`canceledAt` (or `teamId`, `number`…) would be spread into
+    // `next` and persisted, giving e.g. a Todo issue a completion date. Those timestamps are
+    // only ever derived from a state change below.
+    const patch = Object.fromEntries(Object.entries(rawPatch).filter(([k, v]) => v !== undefined && ISSUE_PATCH_KEYS.has(k))) as typeof rawPatch;
     const row = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(issueId) as IssueRow | undefined;
     if (!row) return undefined;
     const before = this.mapIssue(row);
@@ -549,6 +557,7 @@ export class Store {
     if (!filter.includeDeleted) where.push('deleted_at IS NULL');
     if (filter.teamId) { where.push('team_id = ?'); vals.push(filter.teamId); }
     if (filter.stateId) { where.push('state_id = ?'); vals.push(filter.stateId); }
+    if (filter.stateType) { where.push('state_id IN (SELECT id FROM states WHERE type = ?)'); vals.push(filter.stateType); }
     if (filter.assigneeId && filter.assigneeId !== 'me') { where.push('assignee_id = ?'); vals.push(filter.assigneeId); }
     if (filter.projectId) { where.push('project_id = ?'); vals.push(filter.projectId); }
     if (filter.priority !== undefined) { where.push('priority = ?'); vals.push(filter.priority); }
@@ -1355,6 +1364,28 @@ export class Store {
   /** restore a full workspace from an exportJson payload (keeps ids) */
   importJson(json: string): void {
     const data = JSON.parse(json) as Record<string, unknown>;
+    // all-or-nothing: the wipe and every insert commit together, so a bad backup leaves the
+    // current workspace exactly as it was instead of wiped and half-restored
+    this.transaction(() => this.restore(data));
+  }
+  /** run `fn` in one SQLite transaction (rolled back if it throws); nested calls join the outer one */
+  transaction<T>(fn: () => T): T {
+    if (this.txDepth > 0) return fn();
+    this.db.exec('BEGIN IMMEDIATE');
+    this.txDepth++;
+    try {
+      const out = fn();
+      this.db.exec('COMMIT');
+      return out;
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    } finally {
+      this.txDepth--;
+    }
+  }
+  private txDepth = 0;
+  private restore(data: Record<string, unknown>): void {
     const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : []);
     this.wipe();
     const ws = data.workspace as Partial<Snapshot['workspace']> | undefined;

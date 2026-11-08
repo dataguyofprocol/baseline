@@ -10,7 +10,7 @@ import {
 import { useApp, shortDate, relTime, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, MenuSub, Modal, useMenu } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, Modal, useMenu, useInFlight } from './ui.js';
 import { Avatar, CalendarGrid, StateIcon, PriorityIcon, teamDisplayIcon } from './pickers.js';
 import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
 import { Markdown } from './Markdown.js';
@@ -510,6 +510,7 @@ function InitiativeContextMenu({ ini, anchor, onClose }: { ini: Initiative; anch
 /* ================= create ================= */
 function NewInitiativeModal(props: { onClose: () => void; onCreated?: (id: string) => void; parentId?: string; initialStatus?: InitiativeStatus }) {
   const snap = useApp(s => s.snap)!;
+  const { busy, guard } = useInFlight();
   const [name, setName] = useState('');
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
@@ -523,11 +524,11 @@ function NewInitiativeModal(props: { onClose: () => void; onCreated?: (id: strin
   const iconMenu = useMenu(); const statusMenu = useMenu(); const ownerMenu = useMenu(); const prioMenu = useMenu(); const labelMenu = useMenu(); const teamMenu = useMenu();
   const owner = snap.users.find(u => u.id === ownerId);
   const team = snap.teams.find(t => t.id === teamId);
-  const create = async () => {
+  const create = guard(async () => {
     if (!name.trim()) return;
     const { initiative } = await api.createInitiative({ name: name.trim(), summary, description, icon, color, ownerId, parentId: props.parentId ?? null, status, priority, labelIds, teamId });
     await refresh(); props.onClose(); props.onCreated?.(initiative.id);
-  };
+  });
   const parent = snap.initiatives.find(i => i.id === props.parentId);
   return (
     <Modal onClose={props.onClose} className="modal ini-modal">
@@ -548,7 +549,7 @@ function NewInitiativeModal(props: { onClose: () => void; onCreated?: (id: strin
         </div>
         <textarea className="ini-modal-desc" placeholder="Write a description, a goal or a plan…" value={description} onChange={e => setDescription(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void create(); }} />
       </div>
-      <div className="sm-foot"><button className="btn ghost" onClick={props.onClose}>Cancel</button><button className="btn primary" disabled={!name.trim()} onClick={create}>Create initiative</button></div>
+      <div className="sm-foot"><button className="btn ghost" onClick={props.onClose}>Cancel</button><button className="btn primary" disabled={!name.trim() || busy} onClick={() => void create()}>Create initiative</button></div>
       {iconMenu.anchor && <Menu anchor={iconMenu.anchor} onClose={iconMenu.close} width={292}><IconPicker value={icon} color={color} onPick={p => { if (p.icon) setIcon(p.icon); if (p.color) setColor(p.color); }} /></Menu>}
       {statusMenu.anchor && <Menu anchor={statusMenu.anchor} onClose={statusMenu.close} width={200}>{INITIATIVE_STATUS.map(([v, l]) => <MenuItem key={v} icon={<InitiativeStatusIcon status={v} />} label={l} selected={status === v} onClick={() => setStatus(v)} />)}</Menu>}
       {prioMenu.anchor && <Menu anchor={prioMenu.anchor} onClose={prioMenu.close} width={200}><PriorityMenuItems value={priority} onPick={setPriority} /></Menu>}

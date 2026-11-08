@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, refresh, shortDate } from './store.js';
 import { api } from './api.js';
-import { Modal, Menu, MenuItem, MenuSep, useMenu } from './ui.js';
+import { Modal, Menu, MenuItem, MenuSep, useMenu, useInFlight } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { IconClose, IconPlus, IconExpand, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck, IconCycle, IconMilestone } from './icons.js';
@@ -40,6 +40,7 @@ export function CreateIssueModal() {
   const closeCreate = useApp(s => s.closeCreate);
   const openCreate = useApp(s => s.openCreate);
   const toast = useApp(s => s.toast);
+  const { busy, guard } = useInFlight();
 
   const [teamId, setTeamId] = useState<string | undefined>(undefined);
   const [title, setTitle] = useState('');
@@ -215,7 +216,9 @@ export function CreateIssueModal() {
 
   if (!snap || !team) return null;
 
-  const create = async (descOverride?: string) => {
+  // ⌘↵ in the description reaches both the editor's onSubmit and the modal's keydown, so
+  // the guard is what keeps one keystroke from filing two issues
+  const create = guard(async (descOverride?: string) => {
     if (!title.trim() || !current) return;
     // the editor's own content is the truth — its onChange is debounced
     const desc = descOverride ?? (editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : description);
@@ -228,15 +231,19 @@ export function CreateIssueModal() {
     try { localStorage.removeItem(draftKey(team.id)); } catch { /* ignore */ }
     window.dispatchEvent(new Event('baseline:drafts'));
     // "Create related": wire the new issue to the one it was created from
+    // the issue exists now: if wiring it up fails, still finish (close/reset) so a retry can't file a duplicate
     const rel = state.related;
+    let relFailed = false;
     if (rel) {
-      if (rel.kind === 'parent') await api.updateIssue(rel.issueId, { parentId: issue.id });
-      else await api.addRelation(issue.id, rel.issueId, rel.kind);
+      try {
+        if (rel.kind === 'parent') await api.updateIssue(rel.issueId, { parentId: issue.id });
+        else await api.addRelation(issue.id, rel.issueId, rel.kind);
+      } catch { relFailed = true; }
     }
     await refresh();
     const key = `${team.key}-${issue.number}`;
     const toastBody = {
-      title: state.parentId ? 'Sub-issue created' : 'Issue created',
+      title: relFailed ? 'Issue created, but it couldn’t be linked' : state.parentId ? 'Sub-issue created' : 'Issue created',
       line: <><StateIcon type={current.type} color={current.color} size={12} /> {key} — {issue.title}</>,
     };
     if (createMore) {
@@ -246,7 +253,7 @@ export function CreateIssueModal() {
       closeCreate();
       useApp.getState().toast({ ...toastBody, link: { label: 'View issue', to: `/issue/${key}` } });
     }
-  };
+  });
 
   createRef.current = () => { if (title.trim() && current) void create(); };
   const switchTeam = (t: Team) => {
@@ -429,7 +436,7 @@ export function CreateIssueModal() {
             <span className={`toggle ${createMore ? 'on' : ''}`} />
             Create more
           </button>
-          <button className="btn primary cm-create" onClick={() => { if (title.trim()) void create(); else titleRef.current?.focus(); }} title="Create issue (⌘↵)">
+          <button className="btn primary cm-create" disabled={busy} onClick={() => { if (title.trim()) void create(); else titleRef.current?.focus(); }} title="Create issue (⌘↵)">
             {state.parentId ? 'Create sub-issue' : 'Create issue'}
           </button>
         </div>

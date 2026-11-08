@@ -430,6 +430,21 @@ export function Tooltips() {
    Destructive actions take two presses: the first arms it (the label turns
    into the consequence, in danger red), the second within 3s runs it. Leaving
    it alone disarms it — no modal for a one-line decision. */
+/** One submit at a time. `guard(fn)` wraps a create/save handler so a second call
+ *  while the first is still in flight (double-click, Enter then click, ⌘↵ firing from
+ *  both the editor and the modal) is dropped instead of creating a duplicate. The ref
+ *  catches calls in the same tick, before `busy` has re-rendered the button disabled. */
+export function useInFlight() {
+  const inFlight = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const guard = <A extends unknown[]>(fn: (...args: A) => Promise<unknown>) => async (...args: A): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true);
+    try { await fn(...args); } finally { inFlight.current = false; setBusy(false); }
+  };
+  return { busy, guard };
+}
+
 export function ConfirmButton(props: {
   label: React.ReactNode;
   confirmLabel: React.ReactNode;

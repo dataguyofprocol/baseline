@@ -9,3 +9,5 @@ web/dist/
 app.sh
 design-polish/
 screenshots/
+.v2c/
+.env

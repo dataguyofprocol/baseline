@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useApp, shortDate } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, AdminLock, ADMIN_NOTE, useCanConfigure } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, AdminLock, ADMIN_NOTE, useCanConfigure, useInFlight } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
 import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconRelease, IconAsk, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
@@ -814,6 +814,7 @@ function addDaysIso(iso: string, n: number): string {
 /* Linear-style create-cycle modal: big name field + calendar pill pickers */
 export function NewCycleModal(props: { teamId: string; number: number; onClose: () => void }) {
   const toast = useApp(s => s.toast);
+  const { busy, guard } = useInFlight();
   const [name, setName] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
@@ -827,7 +828,7 @@ export function NewCycleModal(props: { teamId: string; number: number; onClose: 
   }, []);
 
   const valid = !!start && !!end && end >= start;
-  const create = async () => {
+  const create = guard(async () => {
     if (!valid) return;
     await api.createCycle({
       teamId: props.teamId, number: props.number,
@@ -838,7 +839,7 @@ export function NewCycleModal(props: { teamId: string; number: number; onClose: 
     await useApp.getState().bootstrap();
     props.onClose();
     toast({ title: 'Cycle created', line: `${name.trim() || `Cycle ${props.number}`} · ${dateLabel(start)} → ${dateLabel(end)}` });
-  };
+  });
 
   // ⌘/Ctrl+Enter creates from anywhere in the modal (menus portal outside this
   // wrapper, but their React events still bubble here — so exclude them)
@@ -887,7 +888,7 @@ export function NewCycleModal(props: { teamId: string; number: number; onClose: 
           )}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
             <button className="btn" onClick={props.onClose}>Cancel</button>
-            <button className="btn primary" style={{ whiteSpace: 'nowrap' }} onClick={create} disabled={!valid}>
+            <button className="btn primary" style={{ whiteSpace: 'nowrap' }} onClick={() => void create()} disabled={!valid || busy}>
               Create cycle
               <span className="btn-kbd kbd">⌘↵</span>
             </button>

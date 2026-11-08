@@ -23,7 +23,8 @@
     "seed": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" tsx src/cli/index.ts seed --reset",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p web/tsconfig.json --noEmit",
     "test:cli": "bash scripts/test-cli.sh",
-    "test:auth": "tsx scripts/test-auth.ts"
+    "test:auth": "tsx scripts/test-auth.ts",
+    "test:guards": "tsx scripts/test-state-guards.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
