@@ -396,9 +396,9 @@
       const fmiss = ['Status', 'Priority', 'Lead', 'Members', 'Health', 'Team', 'Labels', 'Target date'].filter(x => !fm.includes(x)); const dmiss = ['Grouping', 'Ordering', 'closed', 'Labels'].filter(x => !new RegExp(x, 'i').test(dm));
       if (fmiss.length || dmiss.length || n1 >= n0) t.fail(`f ${fmiss} d ${dmiss} rows ${n0}→${n1}`); return `labels filter ${n0}→${n1}; display ok`;
     });
-    await t.run('6.3 Board and Timeline layouts', async () => {
-      await t.nav('/projects', 900); await t.openMenu('[title="Display options"]'); await t.click(t.byText('Board'), 600); const b = !!t.q('[class*=board]'); await t.click(t.byText('Timeline'), 700); const tl = !!t.q('[class*=timeline]'); await t.click(t.byText('List'), 500);
-      if (!b || !tl) t.fail(`board ${b} timeline ${tl}`); return 'both render';
+    await t.run('6.3 Board layout (List and Board only)', async () => {
+      await t.nav('/projects', 900); await t.openMenu('[title="Display options"]'); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.byText('Board'), 600); const b = !!t.q('[class*=board]'); await t.click(t.byText('List'), 500); await t.closeAll();
+      if (!b || /Timeline/.test(m)) t.fail(`board ${b} menu ${m.slice(0, 80)}`); return 'board renders; no Timeline layout';
     });
     await t.run('6.4 Named project statuses (incl. custom "In Review") in the status menu', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click('[data-pprop="status"]', 500); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('In Review'), 900);
@@ -427,11 +427,6 @@
       const pick = t.qa('.health-pick').find(b => b.innerText.includes('At risk')); if (pick) await t.click(pick, 200); await t.write(t.qa('.update-card .ProseMirror').pop(), 'Harness weekly update'); await t.click(t.byText('Post update'), 1100);
       const u = (await t.snap()).projectUpdates.find(x => x.body.includes('Harness weekly update')); await t.nav(`/projects/${p.id}/activity`, 800);
       if (!u || u.health !== 'atRisk') t.fail(`update ${!!u} ${u?.health}`); return 'posted (at risk); activity tab renders';
-    });
-    await t.run('6.11 Dependencies from the properties "…" menu', async () => {
-      const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click('[data-pprop="more"]', 500); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Dependencies'), 500);
-      const target = t.qa('.menu:not(.closing) .menu-item').find(e => /Design System/.test(e.innerText)); if (target) await t.click(target, 900); const rel = (await t.snap()).projectRelations.find(r => r.relatedProjectId === p.id);
-      if (!m.includes('Start date') || !m.includes('Labels') || !rel) t.fail(`menu ${m} rel ${!!rel}`); return '… menu: Start date, Dependencies, Labels; dependency added';
     });
     await t.run('6.12 Project labels: P then L, group exclusivity, settings page', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); await t.press('p', {}, 120); await t.press('l', {}, 650); const m = t.q('.menu:not(.closing)')?.innerText ?? '';
@@ -669,12 +664,14 @@
       await t.nav('/team/CORE/archive', 700); const tabs = t.qa('.subnav .seg').map(b => b.innerText.trim()).join(); await t.nav('/no-such-page', 500); const nf = t.text().includes('Not found');
       if (tabs !== 'Issues,Cycles,Recently deleted issues' || !nf) t.fail(`tabs ${tabs} notfound ${nf}`); return 'tabs; Not found page';
     });
-    await t.run('12.9 Project board cards and timeline header follow Linear', async () => {
+    await t.run('12.9 Project board cards follow Linear; the initiative Projects tab keeps its timeline', async () => {
       await t.nav('/projects', 700);
       await t.click(t.q('[title="Display options"]'), 400); await t.click(t.byText('Board'), 500); await t.closeAll(); const card = t.q('.pcard'); const props = !!card?.querySelector('.pcard-props') && /issue/.test(card?.innerText ?? '');
-      await t.click(t.q('[title="Display options"]'), 400); await t.click(t.byText('Timeline'), 600); await t.closeAll(); const today = t.q('.tl-today span')?.innerText ?? ''; const ctl = !!t.q('.tl-controls select');
       await t.click(t.q('[title="Display options"]'), 400); await t.click(t.byText('List'), 500); await t.closeAll();
-      if (!props || !/^[A-Z]{3} \d+$/.test(today) || !ctl) t.fail(`card ${props} today ${today} controls ${ctl}`); return `cards with status/priority/lead + issue count; today pill ${today}`;
+      const ini = (await t.snap()).initiatives.find(i => i.projectIds.length); await t.nav(`/initiatives/${ini.id}/projects`, 900);
+      await t.click(t.qa('.ini-layouts .pill-tab').find(b => b.innerText.includes('Timeline')), 600); const today = t.q('.tl-today span')?.innerText ?? ''; const ctl = !!t.q('.tl-controls select'); const arrows = !!t.q('.tl-deps');
+      await t.click(t.qa('.ini-layouts .pill-tab').find(b => b.innerText.includes('List')), 400);
+      if (!props || !/^[A-Z]{3} \d+$/.test(today) || !ctl || arrows) t.fail(`card ${props} today ${today} controls ${ctl} arrows ${arrows}`); return `cards with status/priority/lead + issue count; initiative timeline today pill ${today}`;
     });
     await t.run('12.10 Resting on a favorite project shows its preview card', async () => {
       await t.nav('/inbox', 500); const link = t.qa('.sidebar a.nav-item').find(a => a.getAttribute('href')?.includes('/projects/') && a.innerText.includes('Agent Handoff')); if (!link) t.fail('no favorite');

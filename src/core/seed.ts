@@ -161,8 +161,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.createDoc({ projectId: project.id, title: 'Hand-off spec', content: '## Problem\n\nAgents need to pick up an issue, work it and close it without opening the app.\n\n## Approach\n\n- `baseline issue start` claims the issue and moves it to In Progress\n- the hand-off prompt carries the description, comments and location\n- `baseline issue done` closes it with a summary comment\n\n## Open questions\n\n- [ ] Should agents be able to decline work?\n' }, ada.id);
   store.createDoc({ teamId: core.id, title: 'Release runbook', content: '1. Cut the release branch\n2. Run `npm run build` and the CLI test suite\n3. Tag and publish\n' }, me.id);
   store.addTeamLink(core.id, 'https://github.com/anthropics/claude-code', 'Repository');
-  // the mobile app waits on the design system's tokens
-  store.addProjectDependency(design.id, mobile.id);
   // project labels (one group, whose labels are exclusive), a custom status, an update schedule
   const area = store.createProjectLabel({ name: 'Area', isGroup: true, color: '#8a8f98' });
   const lAgents = store.createProjectLabel({ name: 'Agents', parentId: area.id, color: '#c770f4' });

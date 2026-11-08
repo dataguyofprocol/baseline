@@ -83,14 +83,13 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 |---|---|---|---|
 | Projects list: health, priority, lead, target, issues, status %, labels | ✅ | 6.1 | |
 | Projects filters (incl. labels) and display | ✅ | 6.2 | |
-| Board and Timeline | ✅ | 6.3 | |
+| Board layout | ✅ | 6.3 | the Timeline layout was removed from the Projects list |
 | Named project statuses, custom ones per category | ✅ | 6.4, 9.3 | Settings › Projects › Statuses |
 | Project page tabs, details panel (⌘I) | ✅ | 6.5 | |
 | Overview: hero, properties, resources, update, description, milestones | ✅ | 6.6 | |
 | Documents from resources, editor page, team Documents tab | ✅ | 6.7 | |
 | Milestones with progress | ✅ | 6.8 | |
 | Updates with health; Activity tab | ✅ | 6.9 | |
-| Dependencies from the properties "…" menu | ✅ | 6.11 | |
 | Project labels with groups (P then L) | ✅ | 6.12 | Settings › Projects › Labels |
 | Project bell: per-project inbox notifications + update schedule | ✅ | 6.13 | |
 | Update schedule: due hint, lead reminders | ✅ | 6.14, 9.4 | reminder timing also checked against the store on a scratch database |
@@ -147,7 +146,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Workflows & automations: auto-close parent / sub-issues, auto-close stale issues, auto-archive closed issues, re-order on status change | ✅ | 12.6 | stale + archive sweeps checked on a scratch database |
 | `?` help menu, ⌘/ keyboard-shortcuts drawer with Linear's groups | ✅ | 9.14 | |
 | Team archive: Issues · Cycles · Recently deleted issues; Not found page | ✅ | 12.8 | |
-| Project board cards (status · priority · lead, issue count, + per column) and timeline (caps months, day ticks, today pill, Today / zoom incl. Year) | ✅ | 12.9 | |
+| Project board cards (status · priority · lead, issue count, + per column); an initiative's Projects tab timeline (caps months, day ticks, today pill, Today / zoom incl. Year) | ✅ | 12.9 | |
 
 ## Side-by-side with Linear
 Each main page was screenshotted in the live Linear workspace and in Baseline at the same

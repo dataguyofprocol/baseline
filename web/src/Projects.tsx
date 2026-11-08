@@ -17,7 +17,7 @@ import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueVie
 import { IssueListBody, ListToolbar, useListLayoutToggle, openFilterMenu, ViewNameSeg } from './Views.js';
 import {
   IconPlus, IconStar, IconLink, IconTrash, IconClose, IconCalendar, IconUsers, IconUser, IconEdit, IconMilestone,
-  IconChevronDown, IconCheck, IconFilter, IconDisplay, IconList, IconBoard, IconTimeline, IconMore, IconPanel,
+  IconChevronDown, IconCheck, IconFilter, IconDisplay, IconList, IconBoard, IconMore, IconPanel,
   IconBox, IconTag, IconCycle, IconTeam, IconBell, IconViews,
 } from './icons.js';
 import { UPDATE_CADENCE_LABELS, type Project, type ProjectStatus, type ProjectHealth, type Priority, type Issue, type SavedView, type UpdateCadence } from '../../src/core/types.js';
@@ -250,9 +250,9 @@ interface ProjectFilters {
   statuses?: string[]; priorities?: number[]; leads?: string[]; members?: string[]; health?: string[]; teams?: string[]; labels?: string[];
   target?: Array<'overdue' | 'month' | 'quarter' | 'none'>; query?: string;
 }
-type ProjDisplay = Record<'summary' | 'priority' | 'status' | 'health' | 'team' | 'lead' | 'members' | 'start' | 'target' | 'issues' | 'created' | 'updated' | 'milestones' | 'dependencies' | 'labels', boolean>;
+type ProjDisplay = Record<'summary' | 'priority' | 'status' | 'health' | 'team' | 'lead' | 'members' | 'start' | 'target' | 'issues' | 'created' | 'updated' | 'milestones' | 'labels', boolean>;
 interface ProjOptions {
-  layout: 'list' | 'board' | 'timeline';
+  layout: 'list' | 'board';
   groupBy: 'none' | 'status' | 'priority' | 'lead' | 'health' | 'team';
   orderBy: 'manual' | 'name' | 'priority' | 'target' | 'start' | 'created' | 'updated' | 'progress';
   closed: 'all' | 'month' | 'week' | 'none';
@@ -261,7 +261,7 @@ interface ProjOptions {
 }
 const DEFAULT_PROJ: ProjOptions = {
   layout: 'list', groupBy: 'none', orderBy: 'manual', closed: 'all', filters: {},
-  display: { summary: false, priority: true, status: true, health: true, team: false, lead: true, members: false, start: false, target: true, issues: true, created: false, updated: false, milestones: false, dependencies: false, labels: true },
+  display: { summary: false, priority: true, status: true, health: true, team: false, lead: true, members: false, start: false, target: true, issues: true, created: false, updated: false, milestones: false, labels: true },
 };
 
 function applyProjectFilters(list: Project[], f: ProjectFilters, snap: Snap): Project[] {
@@ -411,14 +411,13 @@ function Seg<T extends string>(props: { value: T; options: Array<[T, string]>; o
 
 function ProjectDisplayMenu(props: { anchor: DOMRect; onClose: () => void; opts: ProjOptions; patch: (p: Partial<ProjOptions>) => void }) {
   const { opts, patch } = props;
-  const rows: Array<[keyof ProjDisplay, string]> = [['milestones', 'Milestones'], ['dependencies', 'Dependencies'], ['labels', 'Labels'], ['summary', 'Summary'], ['priority', 'Priority'], ['status', 'Status'], ['health', 'Health'], ['team', 'Team'], ['lead', 'Lead'], ['members', 'Members'], ['start', 'Start date'], ['target', 'Target date'], ['issues', 'Issues'], ['created', 'Created'], ['updated', 'Updated']];
+  const rows: Array<[keyof ProjDisplay, string]> = [['milestones', 'Milestones'], ['labels', 'Labels'], ['summary', 'Summary'], ['priority', 'Priority'], ['status', 'Status'], ['health', 'Health'], ['team', 'Team'], ['lead', 'Lead'], ['members', 'Members'], ['start', 'Start date'], ['target', 'Target date'], ['issues', 'Issues'], ['created', 'Created'], ['updated', 'Updated']];
   return (
     <Menu anchor={props.anchor} onClose={props.onClose} width={320}>
       <div className="dopts">
-        <div className="dopts-layout three">
+        <div className="dopts-layout">
           <button className={`dopts-lay${opts.layout === 'list' ? ' on' : ''}`} onClick={() => patch({ layout: 'list' })}><IconList size={14} /> List</button>
           <button className={`dopts-lay${opts.layout === 'board' ? ' on' : ''}`} onClick={() => patch({ layout: 'board' })}><IconBoard size={14} /> Board</button>
-          <button className={`dopts-lay${opts.layout === 'timeline' ? ' on' : ''}`} onClick={() => patch({ layout: 'timeline' })}><IconTimeline size={14} /> Timeline</button>
         </div>
         <div className="dopts-row"><span>{opts.layout === 'board' ? 'Columns' : 'Grouping'}</span>
           <Seg value={opts.groupBy} onChange={v => patch({ groupBy: v })} options={[['none', 'No grouping'], ['status', 'Status'], ['priority', 'Priority'], ['lead', 'Lead'], ['health', 'Health'], ['team', 'Team']]} /></div>
@@ -469,7 +468,7 @@ export function describeProjectView(v: SavedView, snap: Snap): Array<[string, st
     if (x.key === 'query') return ['Text', `“${String(val)}”`];
     return [x.label, (val as unknown[]).map(id => pfValues(x.key, snap).find(o2 => o2.id === String(id))?.label ?? String(id)).join(', ')];
   });
-  if (o.layout !== 'list') chips.push(['Layout', o.layout === 'timeline' ? 'Timeline' : 'Board']);
+  if (o.layout === 'board') chips.push(['Layout', 'Board']);
   return chips;
 }
 
@@ -488,7 +487,9 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
   const team = savedView ? snap.teams.find(t => t.id === savedView.teamId) : teamKey ? snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase()) : undefined;
   const viewDefaults = useMemo<ProjOptions>(() => savedView ? { ...DEFAULT_PROJ, ...(savedView.projectOptions as Partial<ProjOptions> | null ?? {}), display: { ...DEFAULT_PROJ.display, ...((savedView.projectOptions as Partial<ProjOptions> | null)?.display ?? {}) } } : DEFAULT_PROJ,
     [savedView?.id, JSON.stringify(savedView?.projectOptions)]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [opts, patch, reset] = useViewPrefs<ProjOptions>(savedView ? `baseline:view:saved:${savedView.id}` : `baseline:projects:${team?.id ?? 'all'}`, viewDefaults);
+  const [stored, patch, reset] = useViewPrefs<ProjOptions>(savedView ? `baseline:view:saved:${savedView.id}` : `baseline:projects:${team?.id ?? 'all'}`, viewDefaults);
+  // views and pages saved with the old Timeline layout open as a list
+  const opts: ProjOptions = stored.layout === 'board' ? stored : { ...stored, layout: 'list' };
   const dirty = !!savedView && JSON.stringify(viewDefaults) !== JSON.stringify({ ...viewDefaults, ...opts });
   const saveAsView = () => void saveProjectView(opts, team?.id ?? null, navigate);
   useEffect(() => {
@@ -558,8 +559,6 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
           </div>
         ) : opts.layout === 'board' ? (
           <ProjectBoard groups={opts.groupBy === 'none' ? groupProjects(visible, 'status', snap) : groups} groupBy={opts.groupBy === 'none' ? 'status' : opts.groupBy} onCreate={st => { setCreateStatus(st); setCreating(true); }} />
-        ) : opts.layout === 'timeline' ? (
-          <ProjectTimeline projects={visible} />
         ) : (
           <ProjectList groups={groups} display={opts.display} grouped={opts.groupBy !== 'none'} />
         )}
@@ -630,9 +629,6 @@ function ProjectList(props: { groups: ProjGroup[]; display: ProjDisplay; grouped
                     {faved && <IconStar size={11} filled style={{ color: 'var(--brand)', flex: 'none' }} />}
                     {snap.updateDrafts?.some(x => x.projectId === p.id) && <span className="pl-ms" data-draft-marker title="An agent drafted a project update for you to review"><IconEdit size={11} /> Draft update</span>}
                     {d.summary && p.summary && <span className="pl-summary">{p.summary}</span>}
-                    {d.dependencies && snap.projectRelations.some(r => r.projectId === p.id || r.relatedProjectId === p.id) && (
-                      <span className="pl-ms" title="Blocked by / blocking">⛓ {snap.projectRelations.filter(r => r.relatedProjectId === p.id).length}/{snap.projectRelations.filter(r => r.projectId === p.id).length}</span>
-                    )}
                     {d.labels && <ProjectLabelChips project={p} />}
                     {d.milestones && ms.length > 0 && <span className="pl-ms"><IconMilestone size={11} /> {ms.filter(m => projectProgress(snap, p.id, m.id).pct === 100 && projectProgress(snap, p.id, m.id).total > 0).length}/{ms.length}</span>}
                   </span>
@@ -757,7 +753,7 @@ export function ProjectBoard(props: { groups: ProjGroup[]; groupBy: ProjOptions[
   );
 }
 
-/* ---------- timeline (roadmap) ----------
+/* ---------- timeline (roadmap), the Projects tab of an initiative ----------
    Months across the top, one row per project, a bar from start to target. Drag a bar to
    move it, drag its ends to change the start or target date. Projects without dates get a
    faint two-week bar from today that you can drag into place. */
@@ -864,26 +860,6 @@ export function ProjectTimeline(props: { projects: Project[] }) {
               </div>
             );
           })}
-          {/* dependency arrows: from the blocker's end to the blocked project's start */}
-          <svg className="tl-deps" width={totalDays * pxPerDay} height={34 + props.projects.length * 40}>
-            <defs><marker id="tl-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 8 4 0 8z" fill="currentColor" /></marker></defs>
-            {snap.projectRelations.map(r => {
-              const ai = props.projects.findIndex(x => x.id === r.projectId);
-              const bi = props.projects.findIndex(x => x.id === r.relatedProjectId);
-              if (ai < 0 || bi < 0) return null;
-              const span = (p2: Project) => {
-                const s0 = p2.startDate ? new Date(p2.startDate.slice(0, 10) + 'T00:00').getTime() : p2.targetDate ? new Date(p2.targetDate.slice(0, 10) + 'T00:00').getTime() - 14 * DAY : today.getTime();
-                const e0 = p2.targetDate ? new Date(p2.targetDate.slice(0, 10) + 'T00:00').getTime() : s0 + 14 * DAY;
-                return [s0, e0];
-              };
-              const [, aEnd] = span(props.projects[ai]);
-              const [bStart] = span(props.projects[bi]);
-              const x1 = x(aEnd + DAY), y1 = 34 + ai * 40 + 20, x2 = x(bStart), y2 = 34 + bi * 40 + 20;
-              const late = aEnd >= bStart;
-              const mid = Math.max(x1 + 10, (x1 + x2) / 2);
-              return <path key={r.id} className={`tl-dep${late ? ' late' : ''}`} d={`M${x1},${y1} C${mid},${y1} ${Math.min(mid, x2 - 10)},${y2} ${x2},${y2}`} markerEnd="url(#tl-arrow)" />;
-            })}
-          </svg>
           <div style={{ height: 34 + props.projects.length * 40 + 20 }} />
         </div>
       </div>
@@ -1111,10 +1087,10 @@ function UpdateDue({ project: p }: { project: Project }) {
   return <div className={`update-due${overdue ? ' overdue' : ''}`}>{overdue ? `Update overdue since ${shortDate(due.toISOString())}` : `Next update due ${shortDate(due.toISOString())}`} · {UPDATE_CADENCE_LABELS[cadence].toLowerCase()}</div>;
 }
 
-/* Linear's "…" at the end of the properties row: Start date, Dependencies, Labels */
+/* Linear's "…" at the end of the properties row: Start date, Labels */
 function ProjectMoreProps(props: { project: Project }) {
   const menu = useMenu();
-  const [sub, setSub] = useState<null | { kind: 'start' | 'labels' | 'deps'; anchor: DOMRect }>(null);
+  const [sub, setSub] = useState<null | { kind: 'start' | 'labels'; anchor: DOMRect }>(null);
   const p = props.project;
   useEffect(() => {
     // P then L on the project page opens labels, as in Linear
@@ -1139,12 +1115,10 @@ function ProjectMoreProps(props: { project: Project }) {
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={230}>
           <MenuItem icon={<IconCalendar size={14} />} label="Start date…" onClick={() => setSub({ kind: 'start', anchor: menu.anchor! })} />
-          <MenuItem icon={<IconLink size={14} />} label="Dependencies…" onClick={() => setSub({ kind: 'deps', anchor: menu.anchor! })} />
           <MenuItem icon={<IconTag size={14} />} label="Labels…" right={<span className="mi-hint">P then L</span>} onClick={() => setSub({ kind: 'labels', anchor: menu.anchor! })} />
         </Menu>
       )}
-      {sub?.kind === 'deps' && <DependencyMenu project={p} anchor={sub.anchor} onClose={() => setSub(null)} />}
-      {sub && sub.kind !== 'deps' && <Menu anchor={sub.anchor} onClose={() => setSub(null)} width={250}><ProjectMenuBody kind={sub.kind} project={p} onClose={() => setSub(null)} /></Menu>}
+      {sub && <Menu anchor={sub.anchor} onClose={() => setSub(null)} width={250}><ProjectMenuBody kind={sub.kind} project={p} onClose={() => setSub(null)} /></Menu>}
     </>
   );
 }
@@ -1379,7 +1353,6 @@ function ProjectDetails(props: { project: Project }) {
         {row('Updates', 'cadence', <span className={p.updateCadence ? '' : 'dim'}>{UPDATE_CADENCE_LABELS[p.updateCadence ?? snap.workspace.features.updateCadence]}</span>)}
         <ProjectLocationsRow project={p} />
       </div>
-      <ProjectDependencies project={p} />
       {ms.length > 0 && (
         <div className="rail-section">
           <div className="rail-header">Milestones</div>
@@ -1406,58 +1379,6 @@ function ProjectDetails(props: { project: Project }) {
         {rows.length === 0 && <div className="bd-empty">No issues yet.</div>}
       </div>
     </aside>
-  );
-}
-
-/* dependencies: "blocked by" projects must land first; "blocking" ones wait on this */
-function ProjectDependencies(props: { project: Project }) {
-  const snap = useApp(s => s.snap)!;
-  const navigate = useNavigate();
-  const menu = useMenu();
-  const p = props.project;
-  const blockedBy = snap.projectRelations.filter(r => r.relatedProjectId === p.id);
-  const blocking = snap.projectRelations.filter(r => r.projectId === p.id);
-  const row = (relId: string, otherId: string) => {
-    const o = snap.projects.find(x => x.id === otherId);
-    if (!o) return null;
-    return (
-      <div key={relId} className="prop-line rel-line" onClick={() => navigate(`/projects/${o.id}`)}>
-        <ProjectStatusIcon status={o.status} size={13} /><span className="prop-line-label">{o.icon} {o.name}</span>
-        {o.targetDate && <span className="prop-line-meta">{shortDate(o.targetDate.slice(0, 10) + 'T12:00')}</span>}
-        <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Remove dependency" onClick={async e => { e.stopPropagation(); await api.removeProjectDependency(relId); await useApp.getState().bootstrap(); }}><IconClose size={12} /></button>
-      </div>
-    );
-  };
-  return (
-    <div className="rail-section">
-      <div className="rail-header">Dependencies</div>
-      {blockedBy.length > 0 && <div className="rel-kind">Blocked by</div>}
-      {blockedBy.map(r => row(r.id, r.projectId))}
-      {blocking.length > 0 && <div className="rel-kind">Blocking</div>}
-      {blocking.map(r => row(r.id, r.relatedProjectId))}
-      <button className="prop-line dim" onClick={menu.open}><IconPlus size={13} /><span className="prop-line-label">Add dependency…</span></button>
-      {menu.anchor && <DependencyMenu project={p} anchor={menu.anchor} onClose={menu.close} />}
-    </div>
-  );
-}
-
-function DependencyMenu(props: { project: Project; anchor: DOMRect; onClose: () => void }) {
-  const snap = useApp(s => s.snap)!;
-  const [mode, setMode] = useState<'blocks' | 'blockedBy'>('blockedBy');
-  const [q, setQ] = useState('');
-  const p = props.project;
-  const linked = new Set([...snap.projectRelations.filter(r => r.relatedProjectId === p.id).map(r => r.projectId), ...snap.projectRelations.filter(r => r.projectId === p.id).map(r => r.relatedProjectId), p.id]);
-  return (
-    <Menu anchor={props.anchor} onClose={props.onClose} width={280}>
-      <div className="seg-pair" style={{ padding: '4px 6px 6px' }}>
-        <button className={`seg${mode === 'blockedBy' ? ' selected' : ''}`} onClick={e => { e.stopPropagation(); setMode('blockedBy'); }}>Blocked by</button>
-        <button className={`seg${mode === 'blocks' ? ' selected' : ''}`} onClick={e => { e.stopPropagation(); setMode('blocks'); }}>Blocking</button>
-      </div>
-      <div className="menu-input menu-filter" onClick={e => e.stopPropagation()}><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search projects…" /></div>
-      {snap.projects.filter(o => !linked.has(o.id) && o.name.toLowerCase().includes(q.toLowerCase())).map(o => (
-        <MenuItem key={o.id} icon={<span>{o.icon}</span>} label={o.name} onClick={async () => { await api.addProjectDependency(p.id, mode === 'blocks' ? { blocks: o.id } : { blockedBy: o.id }); await useApp.getState().bootstrap(); }} />
-      ))}
-    </Menu>
   );
 }
 

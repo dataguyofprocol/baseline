@@ -81,10 +81,9 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Overview: editable name/summary (click to edit), property chips (Status, Health, Priority, Lead, Target), project updates (health-tagged composer + feed), milestones (add/advance-status/delete, target dates), editable description (markdown)
 - ✅ Right rail: Status, Lead, Members (multi-pick), Dates, Progress, Activity feed
 - ✅ Issues tab: full grouped list with filters/display options, "New issue" and "Add existing issue" pickers
-- ✅ Projects list: filters (status, priority, lead, members, health, team, target, text), grouping, ordering, closed-projects window, display properties; Board and draggable Timeline layouts
+- ✅ Projects list: filters (status, priority, lead, members, health, team, target, text), grouping, ordering, closed-projects window, display properties; List and Board layouts
 - ✅ Project statuses Backlog / Planned / In Progress / Paused / Completed / Canceled; summary; resources (links); Overview · Activity · Issues tabs; details panel (⌘I) with milestones and progress breakdown
 - ✅ Issues belong to milestones (rail, filter, grouping, CLI `--milestone`), milestone progress
-- ✅ Project dependencies (blocked by / blocking, arrows on the timeline)
 - ✅ Documents: "Add document or link…" in project and team resources; document page with the rich editor; `baseline doc`
 - ✅ Project labels (Settings › Projects › Labels) with groups whose labels are exclusive; Labels in the properties "…" menu (P then L), list chips, filter and display property
 - ✅ Named project statuses (Settings › Projects › Statuses): add, rename, recolour or delete statuses inside each category

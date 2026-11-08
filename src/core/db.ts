@@ -390,12 +390,6 @@ function migrate(db: DatabaseSync): void {
       title TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS project_relations (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      related_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      type TEXT NOT NULL DEFAULT 'blocks'
-    );
     CREATE TABLE IF NOT EXISTS recurring_issues (
       id TEXT PRIMARY KEY,
       team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,

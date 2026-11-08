@@ -149,8 +149,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/projects/:id/update-draft/publish': { scope: 'write', team: 'keyless' },
   'POST /api/projects/:id/links': { scope: 'write', team: 'unchecked' },
   'DELETE /api/project-links/:id': { scope: 'write', team: 'unchecked' },
-  'POST /api/projects/:id/dependencies': { scope: 'write', team: 'unchecked' },
-  'DELETE /api/project-dependencies/:id': { scope: 'write', team: 'unchecked' },
   'PUT /api/projects/:id/subscription': { scope: 'write', team: 'unchecked' },
   'POST /api/milestones': { scope: 'write', team: 'unchecked' },
   'PATCH /api/milestones/:id': { scope: 'write', team: 'unchecked' },

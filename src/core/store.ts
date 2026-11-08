@@ -112,7 +112,6 @@ export class Store {
       projectStatuses: rows<{ id: string; type: Project['status']; name: string; color: string; description: string; position: number }>('SELECT * FROM project_statuses ORDER BY position').map(x => ({ id: x.id, type: x.type, name: x.name, color: x.color, description: x.description, position: x.position })),
       projectSubscriptions: rows<{ project_id: string; user_id: string; issue_added: number; issue_closed: number; comments: number; updates: number }>('SELECT * FROM project_subscriptions').map(x => ({ projectId: x.project_id, userId: x.user_id, issueAdded: !!x.issue_added, issueClosed: !!x.issue_closed, comments: !!x.comments, updates: !!x.updates })),
       recurring: rows<{ id: string; team_id: string; title: string; description: string; priority: number; assignee_id: string | null; labels: string; project_id: string | null; cadence: string; next_at: string; created_at: string }>('SELECT * FROM recurring_issues ORDER BY created_at').map(r => ({ id: r.id, teamId: r.team_id, title: r.title, description: r.description, priority: r.priority as Priority, assigneeId: r.assignee_id, labelIds: JSON.parse(r.labels), projectId: r.project_id, cadence: r.cadence as RecurringIssue['cadence'], nextAt: r.next_at, createdAt: r.created_at })),
-      projectRelations: rows<{ id: string; project_id: string; related_id: string; type: string }>('SELECT * FROM project_relations').map(r => ({ id: r.id, projectId: r.project_id, relatedProjectId: r.related_id, type: 'blocks' as const })),
       docs: rows<{ id: string; title: string; icon: string; content: string; project_id: string | null; team_id: string | null; initiative_id: string | null; creator_id: string | null; created_at: string; updated_at: string }>('SELECT * FROM documents ORDER BY updated_at DESC').map(d => ({ id: d.id, title: d.title, icon: d.icon, content: d.content, projectId: d.project_id, teamId: d.team_id, initiativeId: d.initiative_id ?? null, creatorId: d.creator_id, createdAt: d.created_at, updatedAt: d.updated_at })),
       teamLinks: rows<{ id: string; team_id: string; url: string; title: string; created_at: string }>('SELECT * FROM team_links ORDER BY created_at').map(l => ({ id: l.id, teamId: l.team_id, url: l.url, title: l.title, createdAt: l.created_at })),
       projectLinks: rows<{ id: string; project_id: string; url: string; title: string; created_at: string }>('SELECT * FROM project_links ORDER BY created_at').map(l => ({ id: l.id, projectId: l.project_id, url: l.url, title: l.title, createdAt: l.created_at })),
@@ -782,13 +781,6 @@ export class Store {
   }
   deleteTeamLink(linkId: string): void { this.db.prepare('DELETE FROM team_links WHERE id = ?').run(linkId); }
 
-  // ---------- project dependencies ----------
-  addProjectDependency(projectId: string, blocksProjectId: string): void {
-    if (projectId === blocksProjectId) return;
-    if (this.db.prepare('SELECT 1 FROM project_relations WHERE project_id = ? AND related_id = ?').get(projectId, blocksProjectId)) return;
-    this.db.prepare("INSERT INTO project_relations (id, project_id, related_id, type) VALUES (?, ?, ?, 'blocks')").run(id('prel'), projectId, blocksProjectId);
-  }
-  removeProjectDependency(relId: string): void { this.db.prepare('DELETE FROM project_relations WHERE id = ?').run(relId); }
 
   addProjectLink(projectId: string, url: string, title?: string): void {
     this.db.prepare('INSERT INTO project_links (id, project_id, url, title, created_at) VALUES (?, ?, ?, ?, ?)').run(id('pl'), projectId, url, title?.trim() || url, ts());
@@ -1314,7 +1306,6 @@ export class Store {
     for (const p of arr<{ id: string; locationIds?: string[] }>(data.projects)) (p.locationIds ?? []).forEach((lid, n) => insert('project_locations', ['project_id', 'location_id', 'position'], { project_id: p.id, location_id: lid, position: n }));
     for (const d of arr<Record<string, unknown>>(data.docs)) insert('documents', ['id', 'title', 'icon', 'content', 'project_id', 'team_id', 'initiative_id', 'creator_id', 'created_at', 'updated_at'], { ...d, project_id: d.projectId ?? null, team_id: d.teamId ?? null, initiative_id: d.initiativeId ?? null, creator_id: d.creatorId ?? null, created_at: d.createdAt ?? ts(), updated_at: d.updatedAt ?? ts() });
     for (const l of arr<Record<string, unknown>>(data.teamLinks)) insert('team_links', ['id', 'team_id', 'url', 'title', 'created_at'], { ...l, team_id: l.teamId, created_at: l.createdAt ?? ts() });
-    for (const r of arr<Record<string, unknown>>(data.projectRelations)) insert('project_relations', ['id', 'project_id', 'related_id', 'type'], { ...r, project_id: r.projectId, related_id: r.relatedProjectId, type: 'blocks' });
     for (const r of arr<Record<string, unknown>>(data.recurring)) insert('recurring_issues', ['id', 'team_id', 'title', 'description', 'priority', 'assignee_id', 'labels', 'project_id', 'cadence', 'next_at', 'created_at'], { ...r, team_id: r.teamId, assignee_id: r.assigneeId ?? null, labels: JSON.stringify(r.labelIds ?? []), project_id: r.projectId ?? null, next_at: r.nextAt, created_at: r.createdAt ?? ts() });
     for (const l of arr<Record<string, unknown>>(data.projectLinks)) insert('project_links', ['id', 'project_id', 'url', 'title', 'created_at'], { ...l, project_id: l.projectId, created_at: l.createdAt ?? ts() });
     for (const u of arr<Record<string, unknown>>(data.projectUpdates)) insert('project_updates', ['id', 'project_id', 'user_id', 'via_user_id', 'body', 'health', 'created_at'], { ...u, project_id: u.projectId, user_id: u.userId, via_user_id: u.viaUserId ?? null, created_at: u.createdAt });
@@ -1349,7 +1340,7 @@ export class Store {
   }
   wipe(): void {
     for (const t of this.ext.tables) this.db.exec(`DELETE FROM ${t};`);
-    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'documents', 'team_links', 'project_relations', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'documents', 'team_links', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
     ensureDefaults(this.db);

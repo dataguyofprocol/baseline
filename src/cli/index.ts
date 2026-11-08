@@ -992,23 +992,6 @@ withDb(project.command('link <name> <url>')).description('Add a resource link to
     process.exit(0);
   });
 
-withDb(project.command('depend <name> <blockedBy>')).description('Mark a project as blocked by another (--remove to drop it)')
-  .option('--remove', 'remove the dependency', false)
-  .action((name: string, blocker: string, opts: { db?: string; remove?: boolean }) => {
-    const store = legacyStore(opts.db);
-    const snap = store.snapshot();
-    const p = resolveProject(snap, name)!;
-    const b = resolveProject(snap, blocker)!;
-    if (opts.remove) {
-      const r = snap.projectRelations.find(x => x.projectId === b.id && x.relatedProjectId === p.id);
-      if (r) store.removeProjectDependency(r.id);
-      console.log(`${p.name} no longer waits on ${b.name}`);
-    } else {
-      store.addProjectDependency(b.id, p.id);
-      console.log(`${p.name} is blocked by ${b.name}`);
-    }
-    process.exit(0);
-  });
 withDb(project.command('labels')).description('List project labels (groups show their labels)').action((opts: { db?: string }) => {
   const snap = legacyStore(opts.db).snapshot();
   for (const l of snap.projectLabels.filter(x => !x.parentId)) {
@@ -1135,11 +1118,8 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof lega
     .map(u => ({ body: u.body, health: u.health, author: snap.users.find(x => x.id === u.userId)?.name ?? null, createdAt: u.createdAt }));
   const milestones = snap.milestones.filter(m => m.projectId === p.id)
     .map(m => ({ name: m.name, targetDate: m.targetDate, status: m.status }));
-  const name = (id: string) => snap.projects.find(x => x.id === id)?.name ?? id;
-  const blockedBy = snap.projectRelations.filter(r => r.relatedProjectId === p.id).map(r => name(r.projectId));
-  const blocking = snap.projectRelations.filter(r => r.projectId === p.id).map(r => name(r.relatedProjectId));
   const links = snap.projectLinks.filter(l => l.projectId === p.id).map(l => ({ title: l.title, url: l.url }));
-  return { ...projectJson(p, snap, store), issues, updates, milestones, blockedBy, blocking, links };
+  return { ...projectJson(p, snap, store), issues, updates, milestones, links };
 }
 
 // ---------- initiatives ----------

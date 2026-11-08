@@ -487,14 +487,6 @@ export interface TeamLink {
   createdAt: string;
 }
 
-/** project → project dependency ("this project blocks that one") */
-export interface ProjectRelation {
-  id: string;
-  projectId: string;
-  relatedProjectId: string;
-  type: 'blocks';
-}
-
 /** an issue that files itself again on a cadence (Linear's recurring issues) */
 export interface RecurringIssue {
   id: string;
@@ -827,7 +819,6 @@ export interface Snapshot {
   projectLinks: ProjectLink[];
   docs: Doc[];
   teamLinks: TeamLink[];
-  projectRelations: ProjectRelation[];
   projectLabels: ProjectLabel[];
   projectStatuses: ProjectStatusDef[];
   projectSubscriptions: ProjectSubscription[];
@@ -867,7 +858,7 @@ export type SnapshotSection = keyof Snapshot;
 const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   workspace: true, users: true, teams: true, states: true, labels: true, templates: true, issues: true, comments: true,
   attachments: true, subscriptions: true, relations: true, projects: true, projectLinks: true, docs: true, teamLinks: true,
-  projectRelations: true, projectLabels: true, projectStatuses: true, projectSubscriptions: true,
+  projectLabels: true, projectStatuses: true, projectSubscriptions: true,
 
   initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, slaRules: true,
   loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,

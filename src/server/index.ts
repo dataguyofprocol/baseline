@@ -633,15 +633,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/team-links/:id', (c) => { store.deleteTeamLink(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- project dependencies ----------
-  app.post('/api/projects/:id/dependencies', async (c) => {
-    const b = await c.req.json();
-    if (b.blocks) store.addProjectDependency(c.req.param('id'), b.blocks);
-    if (b.blockedBy) store.addProjectDependency(b.blockedBy, c.req.param('id'));
-    return c.json({ ok: true }, 201);
-  });
-  app.delete('/api/project-dependencies/:id', (c) => { store.removeProjectDependency(c.req.param('id')); return c.json({ ok: true }); });
-
   // ---------- recurring issues ----------
   app.post('/api/recurring', async (c) => {
     const b = await c.req.json();
