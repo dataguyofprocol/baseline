@@ -553,6 +553,11 @@ function migrate(db: DatabaseSync): void {
     db.exec('DROP TABLE IF EXISTS initiatives');
   }
 
+  // the person an agent user wrote a row for ("Claude Code via Parth"); null when a person wrote it
+  for (const t of ['activity', 'comments', 'project_updates']) {
+    if (!columns(t).includes('via_user_id')) db.exec(`ALTER TABLE ${t} ADD COLUMN via_user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  }
+
   // every workspace gets at least one agent identity for hand-offs
   const hasAgent = db.prepare("SELECT 1 FROM users WHERE kind = 'agent' LIMIT 1").get();
   if (!hasAgent) {

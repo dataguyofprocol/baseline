@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { getMeta, migrateDirectoriesToLocations, setMeta, ensureDefaults } from './db.js';
 import { id, nowIso, midSort, normalizeDir } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
-import { actingUser } from './actor.js';
+import { actingUser, viaFor } from './actor.js';
 import { mentionedIds, plainMentions } from './mentions.js';
 import type {
   ActivityItem, ActivityType, Attachment, RecurringIssue, ProjectTemplate, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, PreferencesPatch, EstimateScale,
@@ -15,7 +15,7 @@ import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES, DEFAULT_SECURITY,
 import { createExtensions, type Extensions } from './extensions.js';
 
 interface TeamRow { id: string; key: string; name: string; icon: string; color: string; description: string; position: number; triage_enabled: number; auto_cycles: number; cycle_duration: number; cycle_cooldown: number; cycle_upcoming: number; cycle_rollover: number; estimate_scale: string; estimate_zero?: number; estimate_extended?: number; estimate_count_unestimated?: number }
-interface CommentRow { id: string; issue_id: string; user_id: string; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null; parent_id: string | null }
+interface CommentRow { id: string; issue_id: string; user_id: string; via_user_id: string | null; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null; parent_id: string | null }
 interface AttachmentRow { id: string; issue_id: string; user_id: string; kind: string; url: string; title: string; mime: string; size: number; created_at: string }
 const DAY = 86400000;
 
@@ -64,7 +64,7 @@ export class Store {
     estimateZero: !!t.estimate_zero, estimateExtended: !!t.estimate_extended, estimateCountUnestimated: !!t.estimate_count_unestimated,
   });
   private mapComment = (c: CommentRow): Comment => ({
-    id: c.id, issueId: c.issue_id, userId: c.user_id, body: c.body, createdAt: c.created_at, editedAt: c.edited_at,
+    id: c.id, issueId: c.issue_id, userId: c.user_id, viaUserId: c.via_user_id ?? null, body: c.body, createdAt: c.created_at, editedAt: c.edited_at,
     reactions: JSON.parse(c.reactions), resolvedAt: c.resolved_at, parentId: c.parent_id ?? null,
   });
   private mapAttachment = (a: AttachmentRow): Attachment => ({
@@ -123,17 +123,20 @@ export class Store {
       projectLinks: rows<{ id: string; project_id: string; url: string; title: string; created_at: string }>('SELECT * FROM project_links ORDER BY created_at').map(l => ({ id: l.id, projectId: l.project_id, url: l.url, title: l.title, createdAt: l.created_at })),
       locations: this.listLocations(),
       milestones: rows<{ id: string; project_id: string; name: string; target_date: string | null; status: Milestone['status']; position: number; created_at: string }>('SELECT * FROM milestones ORDER BY position, created_at').map(m => ({ id: m.id, projectId: m.project_id, name: m.name, targetDate: m.target_date, status: m.status, position: m.position, createdAt: m.created_at })),
-      projectUpdates: rows<{ id: string; project_id: string; user_id: string; body: string; health: ProjectUpdate['health']; created_at: string }>('SELECT * FROM project_updates ORDER BY created_at DESC').map(u => ({ id: u.id, projectId: u.project_id, userId: u.user_id, body: u.body, health: u.health, createdAt: u.created_at })),
+      projectUpdates: rows<{ id: string; project_id: string; user_id: string; via_user_id: string | null; body: string; health: ProjectUpdate['health']; created_at: string }>('SELECT * FROM project_updates ORDER BY created_at DESC').map(u => ({ id: u.id, projectId: u.project_id, userId: u.user_id, viaUserId: u.via_user_id ?? null, body: u.body, health: u.health, createdAt: u.created_at })),
       cycles: rows<{ id: string; team_id: string; number: number; name: string; starts_at: string; ends_at: string; completed_at: string | null }>('SELECT * FROM cycles ORDER BY number').map(c => ({ id: c.id, teamId: c.team_id, number: c.number, name: c.name, startsAt: c.starts_at, endsAt: c.ends_at, completedAt: c.completed_at })),
       views: rows<{ id: string; team_id: string | null; name: string; icon: string; filters: string; group_by: string; order_by: string; layout: string; position: number; kind: string; project_options: string | null; owner_id: string | null; shared: number }>('SELECT * FROM views WHERE shared = 1 OR owner_id = ? ORDER BY position', me).map(v => ({ ownerId: v.owner_id, shared: !!v.shared, id: v.id, teamId: v.team_id, name: v.name, icon: v.icon, filters: JSON.parse(v.filters), groupBy: v.group_by as GroupBy, orderBy: v.order_by as OrderBy, layout: v.layout as 'list' | 'board', position: v.position, kind: (v.kind === 'projects' ? 'projects' : 'issues') as SavedView['kind'], projectOptions: v.project_options ? JSON.parse(v.project_options) : null })),
       favorites: rows<{ id: string; type: Favorite['type']; ref_id: string; position: number }>('SELECT * FROM favorites WHERE user_id = ? ORDER BY position', me).map(f => ({ id: f.id, type: f.type, refId: f.ref_id, position: f.position })),
       notifications: rows<{ id: string; type: Notification['type']; actor_id: string | null; issue_id: string | null; project_id: string | null; body: string; read_at: string | null; snoozed_until: string | null; created_at: string }>('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 500', me).map(n => ({ id: n.id, type: n.type, actorId: n.actor_id, issueId: n.issue_id, projectId: n.project_id, body: n.body, readAt: n.read_at, snoozedUntil: n.snoozed_until ?? null, createdAt: n.created_at })),
-      activity: rows<{ id: string; issue_id: string | null; project_id: string | null; user_id: string; type: ActivityType; data: string; created_at: string }>('SELECT * FROM activity ORDER BY created_at DESC LIMIT 2000').map(a => ({ id: a.id, issueId: a.issue_id, projectId: a.project_id, userId: a.user_id, type: a.type, data: JSON.parse(a.data), createdAt: a.created_at })),
+      activity: rows<{ id: string; issue_id: string | null; project_id: string | null; user_id: string; via_user_id: string | null; type: ActivityType; data: string; created_at: string }>('SELECT * FROM activity ORDER BY created_at DESC LIMIT 2000').map(a => ({ id: a.id, issueId: a.issue_id, projectId: a.project_id, userId: a.user_id, viaUserId: a.via_user_id ?? null, type: a.type, data: JSON.parse(a.data), createdAt: a.created_at })),
       ...this.ext.snapshot(),
     };
   }
 
   // ---------- users ----------
+  userKind(userId: string): User['kind'] | undefined {
+    return (this.db.prepare('SELECT kind FROM users WHERE id = ?').get(userId) as { kind: User['kind'] } | undefined)?.kind;
+  }
   createUser(name: string, email = '', admin = false, kind: User['kind'] = 'human'): User {
     const initials = name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
     const colors = ['#5e6ad2', '#c770f4', '#f2994a', '#4cb782', '#eb5757', '#307ec6'];
@@ -642,8 +645,8 @@ export class Store {
     // replies hang off the thread's root, never off another reply
     const root = parentId ? this.db.prepare('SELECT id, parent_id, user_id FROM comments WHERE id = ?').get(parentId) as { id: string; parent_id: string | null; user_id: string } | undefined : undefined;
     const threadId = root ? root.parent_id ?? root.id : null;
-    const c: Comment = { id: id('c'), issueId, userId, body, createdAt: now, editedAt: null, reactions: {}, resolvedAt: null, parentId: threadId };
-    this.db.prepare('INSERT INTO comments (id, issue_id, user_id, body, created_at, reactions, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(c.id, issueId, userId, body, now, '{}', threadId);
+    const c: Comment = { id: id('c'), issueId, userId, viaUserId: viaFor(userId), body, createdAt: now, editedAt: null, reactions: {}, resolvedAt: null, parentId: threadId };
+    this.db.prepare('INSERT INTO comments (id, issue_id, user_id, via_user_id, body, created_at, reactions, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(c.id, issueId, userId, c.viaUserId, body, now, '{}', threadId);
     this.logActivity({ issueId, type: 'commented', data: { commentId: c.id } }, userId);
     this.subscribe(issueId, userId);
     const mentioned = this.mentions(body);
@@ -769,8 +772,8 @@ export class Store {
     if (patch.description !== undefined && patch.description !== cur.description) this.notifyProject(projectId, 'comments', 'projectChanged', actorId, 'Project description changed');
     sets.push('updated_at = ?'); vals.push(ts(), projectId);
     this.db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-    this.logActivity({ projectId, type: 'projectUpdated', data: { fields: Object.keys(patch) } });
-    if (patch.health) this.logActivity({ projectId, type: 'projectHealth', data: { to: patch.health } });
+    this.logActivity({ projectId, type: 'projectUpdated', data: { fields: Object.keys(patch) } }, actorId);
+    if (patch.health) this.logActivity({ projectId, type: 'projectHealth', data: { to: patch.health } }, actorId);
   }
   // ---------- documents & team links ----------
   createDoc(input: { title?: string; content?: string; icon?: string; projectId?: string | null; teamId?: string | null; initiativeId?: string | null }, actorId?: string): Doc {
@@ -843,8 +846,8 @@ export class Store {
   }
   addProjectUpdate(projectId: string, userId: string, body: string, health?: Project['health']): ProjectUpdate {
     const now = ts();
-    const u: ProjectUpdate = { id: id('pu'), projectId, userId, body, health: health ?? null, createdAt: now };
-    this.db.prepare('INSERT INTO project_updates (id, project_id, user_id, body, health, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(u.id, projectId, userId, body, u.health, now);
+    const u: ProjectUpdate = { id: id('pu'), projectId, userId, viaUserId: viaFor(userId), body, health: health ?? null, createdAt: now };
+    this.db.prepare('INSERT INTO project_updates (id, project_id, user_id, via_user_id, body, health, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(u.id, projectId, userId, u.viaUserId, body, u.health, now);
     if (health) this.updateProject(projectId, { health }, userId);
     const pname = (this.db.prepare('SELECT name FROM projects WHERE id = ?').get(projectId) as { name: string } | undefined)?.name ?? '';
     this.notifyProject(projectId, 'updates', 'projectUpdate', userId, `New update on ${pname}: ${body.replace(/\s+/g, ' ').slice(0, 120)}`);
@@ -1315,8 +1318,8 @@ export class Store {
   // ---------- activity ----------
   logActivity(e: { issueId?: string; projectId?: string; type: ActivityType; data?: Record<string, unknown> }, actorId?: string): void {
     const uid = actorId ?? this.actor();
-    this.db.prepare('INSERT INTO activity (id, issue_id, project_id, user_id, type, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id('a'), e.issueId ?? null, e.projectId ?? null, uid, e.type, JSON.stringify(e.data ?? {}), ts());
+    this.db.prepare('INSERT INTO activity (id, issue_id, project_id, user_id, via_user_id, type, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id('a'), e.issueId ?? null, e.projectId ?? null, uid, viaFor(uid), e.type, JSON.stringify(e.data ?? {}), ts());
   }
   issueActivity(issueId: string): ActivityItem[] { return this.snapshot().activity.filter(a => a.issueId === issueId).reverse(); }
 
@@ -1412,7 +1415,7 @@ export class Store {
     for (const i of arr<Record<string, unknown>>(data.issues)) insert('issues',
       ['id', 'team_id', 'number', 'title', 'description', 'state_id', 'priority', 'assignee_id', 'project_id', 'cycle_id', 'parent_id', 'location_id', 'milestone_id', 'creator_id', 'snoozed_until', 'estimate', 'due_date', 'sort_order', 'labels', 'created_at', 'updated_at', 'archived_at', 'completed_at', 'canceled_at', 'deleted_at'],
       { ...i, team_id: i.teamId, state_id: i.stateId, assignee_id: i.assigneeId, project_id: i.projectId, cycle_id: i.cycleId, parent_id: i.parentId, location_id: i.locationId ?? null, milestone_id: i.milestoneId ?? null, creator_id: i.creatorId ?? null, snoozed_until: i.snoozedUntil ?? null, due_date: i.dueDate, sort_order: i.sortOrder, labels: JSON.stringify(i.labelIds ?? []), created_at: i.createdAt, updated_at: i.updatedAt, archived_at: i.archivedAt, completed_at: i.completedAt, canceled_at: i.canceledAt, deleted_at: i.deletedAt });
-    for (const c of arr<Record<string, unknown>>(data.comments)) insert('comments', ['id', 'issue_id', 'user_id', 'body', 'created_at', 'edited_at', 'reactions', 'resolved_at', 'parent_id'], { ...c, issue_id: c.issueId, user_id: c.userId, created_at: c.createdAt, edited_at: c.editedAt, reactions: JSON.stringify(c.reactions ?? {}), resolved_at: c.resolvedAt, parent_id: c.parentId ?? null });
+    for (const c of arr<Record<string, unknown>>(data.comments)) insert('comments', ['id', 'issue_id', 'user_id', 'via_user_id', 'body', 'created_at', 'edited_at', 'reactions', 'resolved_at', 'parent_id'], { ...c, issue_id: c.issueId, user_id: c.userId, via_user_id: c.viaUserId ?? null, created_at: c.createdAt, edited_at: c.editedAt, reactions: JSON.stringify(c.reactions ?? {}), resolved_at: c.resolvedAt, parent_id: c.parentId ?? null });
     for (const a of arr<Record<string, unknown>>(data.attachments)) insert('attachments', ['id', 'issue_id', 'user_id', 'kind', 'url', 'title', 'mime', 'size', 'created_at'], { ...a, issue_id: a.issueId, user_id: a.userId, mime: a.mime ?? '', size: a.size ?? 0, created_at: a.createdAt ?? ts() });
     for (const sub of arr<Record<string, unknown>>(data.subscriptions)) this.db.prepare('INSERT OR IGNORE INTO subscriptions (issue_id, user_id) VALUES (?, ?)').run(sub.issueId as string, sub.userId as string);
     for (const r of arr<Record<string, unknown>>(data.relations)) insert('relations', ['id', 'issue_id', 'related_id', 'type'], { ...r, issue_id: r.issueId, related_id: r.relatedIssueId });
@@ -1427,7 +1430,7 @@ export class Store {
     for (const r of arr<Record<string, unknown>>(data.projectRelations)) insert('project_relations', ['id', 'project_id', 'related_id', 'type'], { ...r, project_id: r.projectId, related_id: r.relatedProjectId, type: 'blocks' });
     for (const r of arr<Record<string, unknown>>(data.recurring)) insert('recurring_issues', ['id', 'team_id', 'title', 'description', 'priority', 'assignee_id', 'labels', 'project_id', 'cadence', 'next_at', 'created_at'], { ...r, team_id: r.teamId, assignee_id: r.assigneeId ?? null, labels: JSON.stringify(r.labelIds ?? []), project_id: r.projectId ?? null, next_at: r.nextAt, created_at: r.createdAt ?? ts() });
     for (const l of arr<Record<string, unknown>>(data.projectLinks)) insert('project_links', ['id', 'project_id', 'url', 'title', 'created_at'], { ...l, project_id: l.projectId, created_at: l.createdAt ?? ts() });
-    for (const u of arr<Record<string, unknown>>(data.projectUpdates)) insert('project_updates', ['id', 'project_id', 'user_id', 'body', 'health', 'created_at'], { ...u, project_id: u.projectId, user_id: u.userId, created_at: u.createdAt });
+    for (const u of arr<Record<string, unknown>>(data.projectUpdates)) insert('project_updates', ['id', 'project_id', 'user_id', 'via_user_id', 'body', 'health', 'created_at'], { ...u, project_id: u.projectId, user_id: u.userId, via_user_id: u.viaUserId ?? null, created_at: u.createdAt });
     for (const m of arr<Record<string, unknown>>(data.milestones)) insert('milestones', ['id', 'project_id', 'name', 'target_date', 'status', 'position', 'created_at'], { ...m, project_id: m.projectId, target_date: m.targetDate, position: m.position ?? 0, created_at: m.createdAt ?? ts() });
     for (const cy of arr<Record<string, unknown>>(data.cycles)) insert('cycles', ['id', 'team_id', 'number', 'name', 'starts_at', 'ends_at', 'completed_at'], { ...cy, team_id: cy.teamId, starts_at: cy.startsAt, ends_at: cy.endsAt, completed_at: cy.completedAt });
     const ownId = cu?.id ?? null;
@@ -1435,7 +1438,7 @@ export class Store {
     for (const f of arr<Record<string, unknown>>(data.favorites)) insert('favorites', ['id', 'type', 'ref_id', 'position', 'user_id'], { ...f, ref_id: f.refId, position: f.position ?? 0, user_id: ownId });
     for (const n of arr<Record<string, unknown>>(data.notifications)) insert('notifications', ['id', 'type', 'actor_id', 'issue_id', 'project_id', 'body', 'read_at', 'snoozed_until', 'created_at', 'user_id'], { ...n, user_id: ownId, actor_id: n.actorId, issue_id: n.issueId, project_id: n.projectId, read_at: n.readAt, snoozed_until: n.snoozedUntil ?? null, created_at: n.createdAt });
     if (ownId && ws && (ws as { preferences?: Preferences }).preferences) this.setPreferences((ws as { preferences?: Preferences }).preferences!, ownId);
-    for (const a of arr<Record<string, unknown>>(data.activity)) insert('activity', ['id', 'issue_id', 'project_id', 'user_id', 'type', 'data', 'created_at'], { ...a, issue_id: a.issueId, project_id: a.projectId, user_id: a.userId, data: JSON.stringify(a.data ?? {}), created_at: a.createdAt });
+    for (const a of arr<Record<string, unknown>>(data.activity)) insert('activity', ['id', 'issue_id', 'project_id', 'user_id', 'via_user_id', 'type', 'data', 'created_at'], { ...a, issue_id: a.issueId, project_id: a.projectId, user_id: a.userId, via_user_id: a.viaUserId ?? null, data: JSON.stringify(a.data ?? {}), created_at: a.createdAt });
     for (const l of arr<Record<string, unknown>>(data.projectLabels)) insert('project_labels', ['id', 'name', 'color', 'description', 'parent_id', 'is_group', 'created_at'], { ...l, description: l.description ?? '', parent_id: l.parentId ?? null, is_group: l.isGroup ? 1 : 0, created_at: l.createdAt ?? ts() });
     // the export's statuses replace the defaults wipe() put back
     if (arr(data.projectStatuses).length) this.db.exec('DELETE FROM project_statuses');

@@ -151,6 +151,8 @@ export interface Comment {
   id: string;
   issueId: string;
   userId: string;
+  /** the person an agent user wrote this for ("Claude Code via Parth"); null when a person wrote it */
+  viaUserId: string | null;
   body: string;
   createdAt: string;
   editedAt: string | null;
@@ -561,6 +563,8 @@ export interface ProjectUpdate {
   id: string;
   projectId: string;
   userId: string;
+  /** the person an agent user wrote this for ("Claude Code via Parth"); null when a person wrote it */
+  viaUserId: string | null;
   body: string;
   health: ProjectHealth | null;
   createdAt: string;
@@ -709,6 +713,8 @@ export interface ActivityItem {
   issueId: string | null;
   projectId: string | null;
   userId: string;
+  /** the person an agent user wrote this for ("Claude Code via Parth"); null when a person wrote it */
+  viaUserId: string | null;
   type: ActivityType;
   data: Record<string, unknown>;
   createdAt: string;
