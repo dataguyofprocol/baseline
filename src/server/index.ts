@@ -191,6 +191,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     // the home directory only means something when the server is this machine
     if (!hosted) snap.workspace.homeDir = homedir();
     if (LAN_OPEN) snap.workspace.lanHost = LISTEN_HOST;
+    snap.updateDrafts = work.draftsFor(actor(c));
     if (!requested) return c.json(snap);
     // scope before picking: a team-limited key's response scoping drops comments and activity by
     // their issue, which it can only do while the issues are in the same response
@@ -516,7 +517,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/projects/:id/update-draft', (c) => c.json({ ok: work.discardDraft(c.req.param('id'), actor(c)) }));
   // a person's call, made in the web app: authenticate refuses any key here (principal.ts PUBLISH)
-  app.post('/api/projects/:id/update-draft/publish', (c) => c.json({ published: work.publishDraft(c.req.param('id'), actor(c)) }, 201));
+  app.post('/api/projects/:id/update-draft/publish', async (c) => {
+    const edits = c.req.header('content-type')?.includes('application/json')
+      ? await body(c, z.object({ body: z.string().optional(), health: z.enum(['onTrack', 'atRisk', 'offTrack']).optional() }))
+      : {};
+    return c.json({ published: work.publishDraft(c.req.param('id'), actor(c), edits) }, 201);
+  });
   app.post('/api/ops/:id/undo', async (c) => {
     const b = await body(c, z.object({ actorId: z.string().optional() }));
     const owner = work.opOwner(c.req.param('id'));
