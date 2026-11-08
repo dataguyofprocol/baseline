@@ -8,6 +8,9 @@ services:
     env_file:
       - path: .env
         required: false
+    # the published port below maps to 7770, so a BASELINE_PORT in .env must not move the server off it
+    environment:
+      BASELINE_PORT: "7770"
     ports:
       - "${BASELINE_PUBLISH:-7770}:7770"
     volumes:
