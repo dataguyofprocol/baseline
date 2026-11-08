@@ -30,26 +30,33 @@ The server only listens on this machine (127.0.0.1 and ::1) and rejects requests
 
 **Live updates.** Open tabs keep a server-sent-events connection to `/api/events`. When the database changes, the server announces a new version and each tab refetches its own snapshot. That covers changes from the app, from teammates, and from agents writing through the CLI: the server watches SQLite's `data_version`. Cycles, recurring issues and update reminders run on a one-minute server timer, and only while the server is running.
 
-**Hosted mode (a team server).** Setting `GOOGLE_CLIENT_ID` switches the server to Google sign-in. That mode
-also needs `GOOGLE_CLIENT_SECRET` and `BASELINE_PUBLIC_URL`; the server refuses to start with only some of them.
+**Hosted mode (a team server).** Setting `BASELINE_PUBLIC_URL` makes the server hosted: people sign in with an
+email and password. Setting `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` as well adds "Continue with Google"; the
+server refuses to start with only one of the two.
+
+**First run.** A new hosted server has no accounts. It prints a one-time setup token in its log (`baseline
+setup-token --db <path>` prints it again, on the server). Open `BASELINE_PUBLIC_URL`, enter the token, and create the
+owner account and the workspace name. The token stops working once the owner exists.
 
 | Variable | Meaning |
 |---|---|
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | An OAuth client of type "Web application" in Google Cloud. Its authorised redirect URI is `<BASELINE_PUBLIC_URL>/auth/google/callback`. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional. An OAuth client of type "Web application" in Google Cloud. Its authorised redirect URI is `<BASELINE_PUBLIC_URL>/auth/google/callback`. |
 | `BASELINE_PUBLIC_URL` | The address people open, e.g. `https://baseline.example.com`. Requests addressed to any other host, and writes from any other origin, are refused. |
-| `BASELINE_OWNER_EMAIL` | The first admin. Signing in with this Google account creates them, and always keeps them an admin. |
+| `BASELINE_OWNER_EMAIL` | With Google sign-in: signing in with this Google account creates the first admin, and always keeps them an admin. |
 | `BASELINE_WORKSPACE_NAME` | Name of a new hosted workspace (default "Baseline"). |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Optional email for invites. `SMTP_PORT` defaults to 587, and `SMTP_FROM` (e.g. `Baseline <baseline@acme.dev>`) is required once `SMTP_HOST` is set. GCP blocks outbound port 25, so use 587 or 465. Without SMTP, invites still work: copy the link from Settings › Members. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Optional email for invites. `SMTP_PORT` defaults to 587, and `SMTP_FROM` (e.g. `Baseline <baseline@acme.dev>`) is required once `SMTP_HOST` is set. GCP blocks outbound port 25, so use 587 or 465. Without SMTP, invites still work: copy the link from Settings › Members. With SMTP, the sign-in screen also offers "Forgot your password?". |
 
 How hosted mode differs:
 - **A new hosted workspace starts empty**, with no sample data.
 - **Who can sign in:**
-  - the owner;
-  - someone whose email matches an existing member who hasn't signed in yet, which covers imported data;
-  - someone with an open invite, which lasts 7 days and is emailed or shared as a link;
-  - a Google Workspace account at an approved domain (Settings › Security).
+  - the owner, created on the setup screen (or, with Google, `BASELINE_OWNER_EMAIL`);
+  - anyone who has set a password: through an invite or a reset link;
+  - with Google: someone whose email matches an existing member who hasn't signed in yet, which covers imported data;
+  - someone with an open invite, which lasts 7 days and is emailed or shared as a link. Opening it, they type the invited address and choose a password (or continue with that Google account);
+  - with Google: a Google Workspace account at an approved domain (Settings › Security).
 
-  Opening an invite with a different Google account says so instead of letting them in.
+  Opening an invite with a different address or Google account says so instead of letting them in.
+- **Passwords:** at least 10 characters, stored as scrypt hashes with a per-user salt. A wrong email and a wrong password get the same answer. An admin can make a one-use reset link for a member (Settings › Members, the member's menu; it lasts 24 hours). Everyone can change their own password in Settings › Security & access. Setting a new password signs out that person's other sessions.
 - **Settings › Members:** invite people as Members or Admins onto chosen teams; resend, copy or revoke invites; change roles and teams; suspend or reactivate people. The workspace always keeps at least one admin, and nobody can suspend themselves.
 - **Settings › Security:** approved domains and the teams those people start on, and whether members may invite (only admins invite admins).
 - **Sessions** last 30 days, renewed as long as you keep using them.
@@ -60,10 +67,10 @@ How hosted mode differs:
 - **Hardening:**
   - Comments and descriptions are sanitized before display.
   - Uploads other than images, video, audio and PDF download instead of rendering.
-  - Sign-in, invite links and invite sending are rate-limited per address or person. The limits read the client address from `X-Forwarded-For` only when the connection comes from a proxy on the same machine (Caddy).
+  - Sign-in, setup, invite links, reset links and invite sending are rate-limited per address, and password sign-in per account too. The limits read the client address from `X-Forwarded-For` only when the connection comes from a proxy on the same machine (Caddy).
 - **Not available on a hosted server:** opening Claude Code and adding locations, which act on the machine they run on.
 
-`npm run test:auth` covers sign-in, invites, domains and roles.
+`npm run test:auth` covers setup, password and Google sign-in, invites, reset links, domains and roles.
 
 **Production data:** the work DB was wiped of all seed/demo data on 2026-08-29 — the workspace
 starts empty (create your team in Settings) and only real work lives there now. A database whose
