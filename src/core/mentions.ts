@@ -1,7 +1,7 @@
 // Mentions in markdown. The editor stores `@[Ada Osei](user:u_123)`: the id makes it
 // unambiguous when two people share a name, and the text still reads as "@Ada Osei" to an agent
 // reading the raw markdown. Plain `@Ada Osei` (typed through the CLI, or written before ids)
-// still counts — but only when exactly one person has that name.
+// still counts, but only when exactly one person has that name.
 
 export const MENTION_RE = /@\[([^\]\n]{1,80})\]\(user:([A-Za-z0-9_]{1,64})\)/g;
 
@@ -16,7 +16,7 @@ export function plainMentions(text: string): string {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** people with exactly one holder of their name (case-insensitive) — the only names plain "@Name" can mean */
+/** people with exactly one holder of their name (case-insensitive), the only names a plain "@Name" can mean */
 export function uniquelyNamed<U extends { name: string }>(users: U[]): U[] {
   const count = new Map<string, number>();
   for (const u of users) count.set(u.name.toLowerCase(), (count.get(u.name.toLowerCase()) ?? 0) + 1);

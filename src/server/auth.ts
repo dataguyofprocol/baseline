@@ -88,7 +88,7 @@ export function cookieSessions(cfg: HostedAuth, accounts: Accounts): Sessions {
 
 /** The sign-in routes. The /api/* guard is `authenticate` (principal.ts), registered before these. */
 export function mountAuth(app: Hono, cfg: HostedAuth, d: { accounts: Accounts; store: Store; sessions: Sessions; mailer: Mailer; setup: SetupToken }, hooks: {
-  /** someone joined through an invite — tell whoever sent it */
+  /** someone joined through an invite, so tell whoever sent it */
   onInviteAccepted?: (userId: string, invitedBy: string) => void;
 } = {}): void {
   const { accounts, store } = d;
@@ -98,7 +98,7 @@ export function mountAuth(app: Hono, cfg: HostedAuth, d: { accounts: Accounts; s
   app.get('/auth/config', (c) => c.json({ methods: signInMethods(cfg), setup: accounts.needsSetup(), mail: d.mailer.configured }));
 
   // what an invite link shows before sign-in: whose workspace, who sent it, and to which address
-  // (masked — the code is in an email, but links get forwarded)
+  // (masked, because the code is in an email but links get forwarded)
   app.get('/auth/invite/:code', (c) => {
     if (!inviteLookupLimit.take(clientIp(c))) return c.json({ state: 'unknown', error: 'Too many requests — try again in a few minutes' }, 429);
     const inv = accounts.inviteByCode(c.req.param('code'));
@@ -170,7 +170,7 @@ function mountGoogle(app: Hono, cfg: HostedAuth, google: GoogleClient, d: { acco
     if (!res?.ok) return fail('google');
     const { id_token } = await res.json() as { id_token?: string };
     // the token came straight from Google's token endpoint over TLS, so its claims can be read
-    // without checking the signature (OpenID Connect Core §3.1.3.7) — the rest still needs checking
+    // without checking the signature (OpenID Connect Core §3.1.3.7). The rest still needs checking
     let claims: { iss?: string; aud?: string; exp?: number; nonce?: string; sub?: string; email?: string; email_verified?: boolean; name?: string; picture?: string; hd?: string };
     try { claims = JSON.parse(Buffer.from(id_token!.split('.')[1]!, 'base64url').toString()); } catch { return fail('google'); }
     const valid = (claims.iss === 'https://accounts.google.com' || claims.iss === 'accounts.google.com')

@@ -46,12 +46,12 @@ export function Menu(props: {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); return; }
       const els = itemEls();
-      // handled keys stop here — the list behind an open menu must not also
+      // handled keys stop here, because the list behind an open menu must not also
       // move its J/K cursor or open the row under it
       if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setIndex(i => (i + 1) % Math.max(els.length, 1)); }
       if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setIndex(i => (i - 1 + els.length) % Math.max(els.length, 1)); }
-      // a digit cap in an item's right slot (priority 0–4, status 1–n) is a real shortcut —
-      // also from an empty filter field (a filter with text in it takes the digit as text)
+      // a digit cap in an item's right slot (priority 0-4, status 1-n) is a real shortcut,
+      // even from an empty filter field (a filter with text in it takes the digit as text)
       const target = e.target as HTMLElement | null;
       const inFilter = !!target?.closest?.('.menu-filter');
       const emptyFilter = inFilter && !(target as HTMLInputElement).value;
@@ -247,7 +247,7 @@ export function RegisterMark({ group }: { group: string }) {
    Enter: opacity + 8px rise + 0.982 scale over 220ms on the global ease.
    Exit: 140ms, no scale (motion spec: "Design polish and refinement").
    The exit only plays when the caller renders the modal inside <AnimatePresence>
-   (`<AnimatePresence>{open && <Modal …/>}</AnimatePresence>`) — an unmounted
+   (`<AnimatePresence>{open && <Modal …/>}</AnimatePresence>`), because an unmounted
    component can't animate itself out. */
 export function Modal(props: { onClose: () => void; children: React.ReactNode; className?: string; dismissOnBackdrop?: boolean }) {
   useEffect(() => {
@@ -281,7 +281,7 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
 /* ---------------- toasts ----------------
    Enter 260ms rise on the global ease; exit 220ms. The auto-close window is
    drawn as a depleting register line on the bottom edge (5200ms linear, square
-   ends — same clock as the store's undo timer). Three at most; the older two
+   ends, on the same clock as the store's undo timer). Three at most; the older two
    recede to 72% and drop their line. Undo is the surface's paper button. */
 export function Toasts() {
   const toasts = useApp(s => s.toasts);
@@ -320,7 +320,7 @@ export function Toasts() {
 /* ---------------- tooltips ----------------
    One layer for the whole app. Any element's `title` is adopted on first hover
    (moved to data-tip so the slow native tooltip never shows), and a trailing
-   "(⌘K)"-style hint renders as key caps — every tooltip teaches its shortcut.
+   "(⌘K)"-style hint renders as key caps, so every tooltip shows its shortcut.
    First show waits 450ms; while one was just visible the next shows at once.
    A tip that only repeats fully visible text (a nav label) is skipped. */
 type Tip = { text: string; keys: string[]; rect: DOMRect };
@@ -429,7 +429,7 @@ export function Tooltips() {
 /* ---------------- confirm button ----------------
    Destructive actions take two presses: the first arms it (the label turns
    into the consequence, in danger red), the second within 3s runs it. Leaving
-   it alone disarms it — no modal for a one-line decision. */
+   it alone disarms it. A one-line decision does not need a modal. */
 /** One submit at a time. `guard(fn)` wraps a create/save handler so a second call
  *  while the first is still in flight (double-click, Enter then click, ⌘↵ firing from
  *  both the editor and the modal) is dropped instead of creating a duplicate. The ref

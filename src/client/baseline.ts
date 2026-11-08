@@ -42,11 +42,11 @@ export interface Me {
  */
 export interface Baseline {
   readonly target: Target;
-  /** GET /api/bootstrap?sections= — only the parts a command reads */
+  /** GET /api/bootstrap?sections=, only the parts a command reads */
   snapshot<K extends SnapshotSection>(sections: readonly K[]): Promise<Pick<Snapshot, K>>;
   /** GET /api/me */
   me(): Promise<Me>;
-  /** GET /api/issues/by-key/:key — archived and deleted included; undefined when there's none */
+  /** GET /api/issues/by-key/:key, archived and deleted included; undefined when there's none */
   getByKey(key: string): Promise<Issue | undefined>;
   /** GET /api/issues/:id */
   getIssue(id: string): Promise<Issue | undefined>;
@@ -60,13 +60,13 @@ export interface Baseline {
   createIssue(input: NewIssue, actorId?: string): Promise<Issue>;
   /** PATCH /api/issues/:id */
   updateIssue(id: string, patch: IssuePatch, actorId?: string): Promise<Issue>;
-  /** POST /api/issues/:id/comments — no actorId: the request's own person */
+  /** POST /api/issues/:id/comments; with no actorId, the request's own person writes it */
   addComment(issueId: string, actorId: string | undefined, body: string, parentId: string | null): Promise<Comment>;
-  /** POST /api/projects/:id/updates — no actorId: the request's own person */
+  /** POST /api/projects/:id/updates; with no actorId, the request's own person writes it */
   addProjectUpdate(projectId: string, actorId: string | undefined, body: string, health?: Project['health']): Promise<ProjectUpdate>;
-  /** POST /api/locations — a path on the server's disk; a hosted server refuses */
+  /** POST /api/locations with a path on the server's disk; a hosted server refuses */
   createLocation(path: string): Promise<Location>;
-  /** DELETE /api/me/key — the key this client authenticates with */
+  /** DELETE /api/me/key revokes the key this client authenticates with */
   revokeOwnKey(): Promise<void>;
 
   // Agent work (core/work.ts). Each is one route and one server transaction; a repeat that changes
@@ -81,7 +81,7 @@ export interface Baseline {
   fileFollowup(sourceIssueId: string, input: { session: string | null; title: string; description?: string; teamId?: string }, actorId?: string): Promise<FollowupResult>;
   /** GET /api/issues/:id/work */
   workThreads(issueId: string): Promise<WorkThread[]>;
-  /** PUT /api/projects/:id/update-draft — never publishes */
+  /** PUT /api/projects/:id/update-draft, which never publishes */
   draftProjectUpdate(projectId: string, input: { body?: string; health?: Health }, actorId?: string): Promise<DraftResult>;
   /** POST /api/ops/:id/undo */
   undoOp(opId: string, actorId?: string): Promise<UndoResult>;

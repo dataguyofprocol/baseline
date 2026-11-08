@@ -27,7 +27,7 @@ function teamFromKey(teamKey: string) {
 /* ================= triage =================
    Issues filed into the team from outside (agents, the CLI, other people) wait here.
    Left: the queue, oldest first. Right: the issue. 1 accepts, 2 marks a duplicate,
-   3 declines — the decision moves the cursor to the next one. */
+   3 declines. Each decision moves the cursor to the next one. */
 export function TriagePage() {
   const { teamKey = '' } = useParams();
   const snap = useApp(s => s.snap)!;
@@ -62,7 +62,7 @@ export function TriagePage() {
   const accept = (i: Issue) => { const s = stateOf('unstarted') ?? stateOf('backlog'); if (s) void setIssueProps([i.id], { stateId: s.id }); };
   const decline = (i: Issue) => { const s = stateOf('canceled'); if (s) void setIssueProps([i.id], { stateId: s.id }); };
 
-  // the triage keys win over the global 1–9 status shortcuts while this page is up
+  // the triage keys win over the global 1-9 status shortcuts while this page is up
   const currentRef = useRef(current);
   currentRef.current = current;
   useEffect(() => {

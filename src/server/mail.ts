@@ -5,7 +5,7 @@ import type { SignInMethod } from '../core/types.js';
 
 export interface MailMessage { to: string; subject: string; text: string; html: string }
 export interface Mailer {
-  /** false: no SMTP configured — nothing is sent */
+  /** false: no SMTP configured, so nothing is sent */
   configured: boolean;
   send(msg: MailMessage): Promise<void>;
 }
@@ -27,7 +27,7 @@ export function mailerFromEnv(env: NodeJS.ProcessEnv = process.env): Mailer {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!);
 
-/** plain text plus a small HTML version with one button — names are escaped, they're user-chosen */
+/** plain text plus a small HTML version with one button; names are escaped because they're user-chosen */
 function render(paragraphs: string[], action?: { label: string; url: string }): { text: string; html: string } {
   const text = [...paragraphs, ...(action ? [`${action.label}: ${action.url}`] : [])].join('\n\n');
   const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#1f2023;max-width:520px">`

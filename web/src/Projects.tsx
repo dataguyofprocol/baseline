@@ -793,7 +793,7 @@ export function ProjectTimeline(props: { projects: Project[] }) {
   useEffect(() => { if (scroller.current) scroller.current.scrollLeft = Math.max(0, x(today.getTime()) - 200); }, [zoom]); // eslint-disable-line react-hooks/exhaustive-deps
   const [drag, setDrag] = useState<{ id: string; mode: 'move' | 'start' | 'end'; originX: number; s: number; e: number; dx: number } | null>(null);
   // the listeners below are bound once per drag, so they read the live drag (with its
-  // current dx) through this ref — the `drag` they close over is the dx: 0 start value
+  // current dx) through this ref. The `drag` they close over is the dx: 0 start value
   const dragRef = useRef(drag);
   dragRef.current = drag;
   useEffect(() => {
@@ -1263,7 +1263,7 @@ function UpdateComposerBody(props: { project: Project; latest?: Snap['projectUpd
   const [open, setOpen] = useState(false);
   const [health, setHealth] = useState<ProjectHealth>(props.project.health);
   const [body, setBody] = useState('');
-  // the editor's onChange is debounced — Post reads the editor itself so nothing typed is lost
+  // the editor's onChange is debounced, so Post reads the editor itself and nothing typed is lost
   const editorRef = useRef<Editor | null>(null);
   const post = async (md: string) => {
     if (isBlank(md)) return;

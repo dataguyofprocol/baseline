@@ -1,7 +1,7 @@
 // Hand an issue to a coding agent: the issue toolbar (copy link / ID / branch / prompt, plus the
 // "Open in Claude Code" flyout), the shortcuts behind it, and the location pickers. Every task works
-// in exactly one location — a registered directory, usually a git repo — and nothing is guessed:
-// an issue with no location asks for one. Launching goes through the local server — so on a hosted
+// in exactly one location, a registered directory that is usually a git repo, and nothing is
+// guessed: an issue with no location asks for one. Launching goes through the local server, so on a hosted
 // workspace, where that server isn't your computer, only the copy actions are offered for now.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -12,7 +12,7 @@ import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
 import { IconLink, IconCopyId, IconBranch, IconHandoff, IconChevronDown, IconSpark, IconFolder, IconTools, IconPlus, IconCheck, IconClose } from './icons.js';
 import type { Issue, Location } from '../../src/core/types.js';
 
-/** hosted: the server can't open programs or folders on your computer — that waits for the companion */
+/** hosted: the server can't open programs or folders on your computer until the companion ships */
 export const hostedWorkspace = () => useApp.getState().snap?.workspace.auth === 'hosted';
 export const COMPANION_NOTE = 'Opening Claude Code and adding folders need the Baseline companion on your computer — coming in Phase 2.';
 
@@ -112,7 +112,7 @@ export function handoffActions(issue: Issue) {
     const loc = await pickLocation(`Choose where ${key} happens`);
     if (loc) await openInClaude(loc.id);
   };
-  /** the issue's own location, or the one given (which then becomes the issue's) — never a guess */
+  /** the issue's own location, or the one given (which then becomes the issue's), never a guess */
   const openInClaude = async (locationId?: string): Promise<void> => {
     if (hostedWorkspace()) { toast({ title: 'Copy the prompt instead', line: COMPANION_NOTE }); return; }
     const r = await api.openClaude(issue.id, { locationId });
@@ -169,7 +169,7 @@ function LocationItem(props: { loc: Location; selected?: boolean; onPick: () => 
   );
 }
 
-/** the "Open in Claude Code" flyout body — shared by the toolbar menu and row context menus */
+/** the "Open in Claude Code" flyout body, shared by the toolbar menu and row context menus */
 export function OpenInClaudeItems(props: { issue: Issue; actions: HandoffActions }) {
   const c = locationChoices(props.issue);
   if (hostedWorkspace()) return (
@@ -264,10 +264,10 @@ export function IssueLocationRow(props: { issue: Issue }) {
   const navigate = useNavigate();
   const actions = useHandoffActions(props.issue);
   const loc = snap.locations.find(l => l.id === props.issue.locationId);
-  // every open task should say where it happens — not just the ones handed to Claude Code
+  // every open task should say where it happens, not just the ones handed to Claude Code
   const stateType = snap.states.find(s => s.id === props.issue.stateId)?.type;
   const hosted = snap.workspace.auth === 'hosted';
-  // hosted: nothing launches from a location yet, so don't ask for one — existing ones can still be set
+  // hosted: nothing launches from a location yet, so don't ask for one, but existing ones can still be set
   const needs = !hosted && !loc && stateType !== 'completed' && stateType !== 'canceled';
   const c = locationChoices(props.issue);
   if (hosted && !snap.locations.length) return null;
@@ -305,7 +305,7 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
   const { project } = props;
   const linked = project.locationIds.map(id => snap.locations.find(l => l.id === id)).filter((l): l is Location => !!l);
   const hosted = snap.workspace.auth === 'hosted';
-  // the menu stays open for several toggles, so each one builds on the last — not on props a refresh hasn't caught up with
+  // the menu stays open for several toggles, so each one builds on the last toggle, not on props a refresh hasn't caught up with
   const ids = useRef(project.locationIds);
   useEffect(() => { ids.current = project.locationIds; }, [project.locationIds]);
   const save = async (next: string[]) => { ids.current = next; await api.setProjectLocations(project.id, next); await useApp.getState().bootstrap(); };
@@ -349,7 +349,7 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
   );
 }
 
-/** Settings: every registered location — rename, see where it's used, remove */
+/** Settings: every registered location, with rename, where it's used, and remove */
 export function LocationsSettings() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);

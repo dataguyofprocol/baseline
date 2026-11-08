@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 /* Linear's faces (OFL, self-hosted so the app keeps working offline):
-   Inter Variable with the optical-size axis = everything (text cut at UI sizes, display cut on titles),
-   with Linear's cv01 + ss03 features. Code is Berkeley Mono on Linear (commercial) — used when installed,
+   Inter Variable with the optical-size axis on everything (text cut at UI sizes, display cut on titles),
+   with Linear's cv01 + ss03 features. Code is Berkeley Mono on Linear (commercial), used when installed,
    otherwise JetBrains Mono. */
 @import '@fontsource-variable/inter/opsz.css';
 @import '@fontsource-variable/jetbrains-mono';
@@ -22,7 +22,7 @@
   --font-mono: inherit;
   --font-code: 'Berkeley Mono', 'JetBrains Mono Variable', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
 
-  /* ---------- brand grounds (constant across themes — these ARE the brand) ---------- */
+  /* ---------- brand grounds (constant across themes, because these ARE the brand) ---------- */
   --brand-ink: #14151a;
   --brand-paper: #f3f1ec;
   --brand-register: #5e6ad2;   /* same value as --brand */
@@ -30,7 +30,7 @@
   --register-w: 2px;
 }
 
-/* ---------- theme tokens (dark default — values sampled from reference) ---------- */
+/* ---------- theme tokens (dark is the default; values sampled from reference) ---------- */
 :root, :root[data-theme='dark'] {
   --bg-main: #121213;
   --bg-sidebar: #09090a;
@@ -315,7 +315,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .nav-item > svg { flex: none; color: var(--text-secondary); }
 .nav-item.active > svg { color: var(--text-primary); }
 .nav-item:hover { background: var(--bg-hover); }
-/* Active state is a register line UNDER the label — never a filled pill or an
+/* Active state is a register line UNDER the label, never a filled pill or an
    inset rail. The line is the width of the label, not the row. */
 .nav-item.active { background: none; color: var(--text-primary); font-weight: 590; letter-spacing: -0.015em; }
 .nav-item .nav-label { flex: 1; min-width: 0; }
@@ -420,8 +420,8 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .label-dot { width: 7px; height: 7px; border-radius: 999px; }
 
 /* ---------- issue list ---------- */
-/* The label and count CUT a rule that runs to the right edge — no band, no
-   extra surface colour — the group-header band token is gone entirely. */
+/* The label and count CUT a rule that runs to the right edge. There is no band
+   and no extra surface colour; the group-header band token is gone entirely. */
 .group-header {
   display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px;
   background: var(--bg-main);
@@ -448,14 +448,14 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   cursor: default; position: relative;
 }
 .issue-row:hover { background: var(--bg-hover); }
-/* Bulk selection INVERTS to paper — unmistakable, and it costs no new colour. */
+/* Bulk selection INVERTS to paper. It is easy to see and needs no new colour. */
 .issue-row.selected { background: var(--brand-paper); color: var(--brand-ink); }
 .issue-row.selected .row-title { color: var(--brand-ink); font-weight: 590; letter-spacing: -0.015em; }
 .issue-row.selected .issue-key, .issue-row.selected .row-date { color: var(--brand-graphite); }
 .issue-row.selected .label-pill { color: var(--brand-ink); }
 .issue-row.selected .due-chip { background: rgba(20, 21, 26, 0.07); color: var(--brand-graphite); }
-/* keyboard cursor + focus render as a 2px brand rail, not a full inset ring —
-   much quieter during fast J/K travel */
+/* keyboard cursor + focus render as a 2px brand rail, not a full inset ring,
+   because the rail is much quieter during fast J/K travel */
 .issue-row.focused, .issue-row.cursor { box-shadow: inset 2px 0 0 var(--brand); }
 /* optimistic reflow landing: row expands into its new group, one brand flash
    so the eye can follow where it landed */
@@ -463,8 +463,8 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   overflow: hidden;
   animation: bl-enter 340ms var(--ease) both, bl-flash 900ms ease 220ms both;
 }
-/* fresh create lands the same way — the row is new, not moved, so it enters
-   from the same 340ms and takes the same single flash */
+/* a fresh create lands the same way. The row is new, not moved, so it enters
+   over the same 340ms and gets the same single flash */
 .issue-row.leaving {
   overflow: hidden;
   pointer-events: none;
@@ -524,7 +524,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   font-size: 8.5px; font-weight: 590; color: #fff;
 }
 .avatar.placeholder { color: var(--text-dim); }
-/* agent identity: neutral tinted square, brand-tinted glyph — no colour-coded disc */
+/* agent identity is a neutral tinted square with a brand-tinted glyph, not a colour-coded disc */
 .avatar.agent {
   background: var(--bg-pill); color: var(--text-secondary);
   box-shadow: inset 0 0 0 1px var(--border);
@@ -541,8 +541,8 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .btn:disabled { opacity: 0.4; cursor: default; }
 .btn:disabled:hover { background: var(--bg-pill); }
 .btn.primary:disabled:hover { background: var(--action-bg); }
-/* Paper is the primary action — one per surface. Indigo stops being a button
-   colour and stays a signal. */
+/* Paper marks the primary action, one per surface. Indigo is not a button
+   colour; it stays a signal. */
 .btn.primary {
   background: var(--action-bg); border-color: transparent; color: var(--action-fg);
   font-weight: 590; letter-spacing: -0.01em; border-radius: 7px;
@@ -552,12 +552,12 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .btn.secondary { background: transparent; border-color: var(--border-strong); color: var(--text-secondary); border-radius: 7px; }
 .btn.secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
 .btn .btn-kbd { margin-left: 2px; opacity: 0.7; }
-/* a chord as separate caps (⌘ ↵), same as tooltips and the palette footer —
-   one cap holding two glyphs reads as a smudge */
+/* a chord as separate caps (⌘ ↵), same as tooltips and the palette footer.
+   One cap holding two glyphs is hard to read */
 .btn .btn-keys { display: inline-flex; gap: 3px; margin-left: 4px; }
 .btn .btn-keys .kbd { min-width: 18px; height: 18px; padding: 0 3px; font-size: 11.5px; font-family: -apple-system, system-ui, sans-serif; }
-/* keyboard hint on the paper button: graphite on paper — the ground already
-   carries enough contrast, so the chip loses its fill */
+/* keyboard hint on the paper button: graphite on paper. The ground already
+   gives enough contrast, so the chip has no fill */
 .btn.primary .kbd {
   color: var(--action-key-fg);
   background: transparent;
@@ -638,7 +638,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .cm-root { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .cm-header { display: flex; align-items: center; gap: 6px; padding: 14px 16px 0; color: var(--text-secondary); font-size: 13px; }
 .cm-title { padding: 12px 18px 0; }
-/* the title is the loudest thing in the modal — well clear of the description */
+/* the title is the most prominent text in the modal and sits well clear of the description */
 .cm-title input { width: 100%; font-size: 19px; font-weight: 590; letter-spacing: -0.022em; line-height: 26px; }
 .cm-title input::placeholder { color: var(--text-dim); }
 /* description is content-height (JS auto-grow) so the modal stays compact like
@@ -649,7 +649,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .modal-create.expanded .cm-desc { flex: 1 1 0%; }
 .modal-create.expanded .cm-desc textarea { height: 100%; max-height: none; }
 .cm-pills { display: flex; align-items: center; gap: 6px; padding: 8px 18px 14px; flex-wrap: wrap; }
-/* borderless filled chips (Linear create-modal style) — scoped here, other views keep .boxed */
+/* borderless filled chips (Linear create-modal style), scoped here so other views keep .boxed */
 .cm-pills .prop-chip {
   height: 28px; padding: 0 10px; border-radius: 7px;
   background: var(--bg-pill); border: 1px solid transparent;
@@ -887,8 +887,8 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 
 /* ---------- board ----------
    Fixed-width lanes on the canvas, no divider rules: the lane surface itself is
-   the column (and the drop zone). Cards are flat — a hairline, no resting shadow;
-   lift and shadow are kept for the one card in your hand. */
+   the column (and the drop zone). Cards are flat, with a hairline and no resting shadow;
+   lift and shadow are kept for the one card being dragged. */
 .board {
   --lane-w: 304px;
   --lane-bg: color-mix(in srgb, var(--text-primary) 2.6%, var(--bg-main));
@@ -1021,13 +1021,13 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .board-card .bc-avatar.unassigned { opacity: 0; }
 .board-card:hover .bc-avatar.unassigned, .board-card.cursor .bc-avatar.unassigned { opacity: 1; }
 
-/* finished work recedes — it stays readable, it just stops asking for attention */
+/* finished work is dimmed, so it stays readable but draws less attention */
 .board-card.is-done .bc-title, .board-card.is-canceled .bc-title { color: var(--text-secondary); }
 .board-card.is-canceled .bc-title { text-decoration: line-through; text-decoration-color: var(--text-dim); }
 .board-card.is-done .bc-avatar, .board-card.is-canceled .bc-avatar { opacity: 0.6; }
 
 /* while a card is dragged the sortable strategy closes its source slot and opens
-   one at the drop index — that slot is drawn as a dashed outline */
+   one at the drop index, and that slot is drawn as a dashed outline */
 .board-card.source-hidden {
   background: transparent; border: 1px dashed var(--border-strong);
 }
@@ -1066,7 +1066,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .proj-grid .dim { color: var(--text-dim); }
 .proj-grid .overdue { color: #eb5757; }
 .health-dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
-/* progress: a register-width bar that fills — the same 2px line as the tabs */
+/* progress: a register-width bar that fills, using the same 2px line as the tabs */
 .proj-bar { width: 56px; height: 3px; background: var(--border-strong); overflow: hidden; flex: none; }
 .proj-bar > span { display: block; height: 100%; background: var(--brand-register); transition: width 900ms var(--ease); }
 /* views index: same table language as projects */
@@ -1227,7 +1227,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .inbox-row:hover { background: var(--bg-hover); }
 .inbox-row.selected { background: var(--bg-active); box-shadow: inset 2px 0 0 var(--brand); }
 .inbox-row.static { cursor: default; }
-/* unread: a paper node in the left gutter — no wash, no rail */
+/* unread: a paper node in the left gutter, with no wash and no rail */
 .inbox-row::before {
   content: ''; position: absolute; left: 9px; top: 17px;
   width: 5px; height: 5px; border-radius: 999px; background: transparent;
@@ -1307,7 +1307,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 }
 .swatch { width: 16px; height: 16px; border-radius: 4px; }
 
-/* empty states — fade up with staggered icon tiles */
+/* empty states fade up with staggered icon tiles */
 .empty-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; animation: bl-fade-up 320ms var(--ease) both; }
 .empty-icons { display: grid; grid-template-columns: repeat(2, 34px); gap: 8px 10px; margin-bottom: 18px; }
 .empty-icons span { display: flex; align-items: center; justify-content: center; animation: bl-fade-up 340ms var(--ease) both; }
@@ -1324,7 +1324,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .empty-desc { color: var(--text-secondary); max-width: 340px; margin-bottom: 16px; animation: bl-fade-up 340ms var(--ease) 165ms both; }
 .empty-actions { display: flex; gap: 8px; animation: bl-fade-up 340ms var(--ease) 210ms both; }
 
-/* loading shimmer — bars at real row height so the list never jumps when data lands */
+/* loading shimmer: bars at real row height so the list never jumps when data arrives */
 .skeleton-bar {
   height: 9px; border-radius: 0;
   background-image: linear-gradient(90deg, var(--skel) 0%, var(--skel-hi) 50%, var(--skel) 100%);
@@ -1337,7 +1337,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .group:hover .hover-only, .issue-row:hover .hover-only,
 .inbox-row:hover .hover-only, .prop-row:hover .hover-only { opacity: 1; pointer-events: auto; }
 
-/* cursor (J/K) — quiet 2px brand rail (see .issue-row.cursor above) */
+/* the J/K cursor is a quiet 2px brand rail (see .issue-row.cursor above) */
 
 /* nested sub-issue rows */
 .issue-row.nested { padding-left: 44px; }
@@ -1376,13 +1376,13 @@ button.rail-kv:hover { background: var(--bg-hover); }
 }
 .due-chip.overdue { color: #eb5757; }
 
-/* selection pill (Linear-style) — mutates live in the command palette's bulk section */
+/* selection pill (Linear-style), which updates live in the command palette's bulk section */
 .bulk-bar {
   position: fixed; bottom: 20px; left: 0; right: 0; margin: 0 auto; width: fit-content; z-index: 80;
   display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 18px;
   background: var(--bg-menu); border-radius: 8px;
   box-shadow: var(--shadow-menu), 0 10px 32px rgba(0, 0, 0, 0.22);
-  /* centered without a static `transform` — a transformed ancestor would become
+  /* centered without a static `transform`, because a transformed ancestor would become
      the containing block for fixed-position overlays. Framer's enter/exit
      transform is transient and resolves to none. */
 }
@@ -1417,7 +1417,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .reaction-chip:hover { border-color: var(--border-strong); }
 .reaction-chip.mine { background: var(--brand-dim); border-color: var(--brand); color: var(--text-primary); }
 
-/* progress tracks (sub-issue summary, cycles) — 900ms ease so progress reads as movement */
+/* progress tracks (sub-issue summary, cycles) use a 900ms ease so progress shows as movement */
 /* Butt terminals: 3px square bars, no pill radius. */
 .progress-track { flex: 1; height: 3px; border-radius: 0; background: var(--bg-active); overflow: hidden; display: block; }
 .progress-fill { display: block; height: 100%; border-radius: 0; background: var(--brand-register); transition: width 900ms var(--ease); }
@@ -1510,7 +1510,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .menu-item:focus-visible, .issue-row:focus-visible { outline: none; }
 
 /* ---------- press feedback ----------
-   A 1–4% dip on press: enough to feel the click land, too small to read as motion. */
+   A 1-4% dip on press. It is enough to register the click but too small to read as motion. */
 .btn, .icon-btn, .seg, .pill, .prop-chip, .filter-pill, .bulk-actions-btn, .reaction-chip, .cm-team, .ws-switch, .nav-item, .tab {
   transition-property: background, color, border-color, box-shadow, transform;
 }

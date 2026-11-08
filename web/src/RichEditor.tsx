@@ -47,7 +47,7 @@ export function markdownToHtml(md: string): string {
     span.textContent = `@${label}`;
     return span;
   };
-  // @[Name](user:id) parses as "@" + a link to user:id → mention chip (with the person's current name)
+  // @[Name](user:id) parses as "@" plus a link to user:id, which becomes a mention chip (with the person's current name)
   doc.querySelectorAll('a[href^="user:"]').forEach(a => {
     const prev = a.previousSibling;
     if (!(prev instanceof Text) || !prev.data.endsWith('@')) return;
@@ -55,7 +55,7 @@ export function markdownToHtml(md: string): string {
     const id = a.getAttribute('href')!.slice(5);
     a.replaceWith(chip(id, snap?.users.find(u => u.id === id)?.name ?? a.textContent ?? id));
   });
-  // a plain @Full Name (CLI-written, or from before ids) → chip, if only one member has that name
+  // a plain @Full Name (CLI-written, or from before ids) becomes a chip if only one member has that name
   if (snap) {
     const people = uniquelyNamed(snap.users).sort((a, b) => b.name.length - a.name.length);
     const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
@@ -76,7 +76,7 @@ export function markdownToHtml(md: string): string {
     }
   }
   html = doc.body.innerHTML;
-  // the editor's schema drops what it doesn't know, but loaded HTML is someone else's input — clean it first
+  // the editor's schema drops what it doesn't know, but loaded HTML is someone else's input, so clean it first
   return sanitize(html);
 }
 
@@ -208,7 +208,7 @@ export function RichEditor(props: {
   autoFocus?: boolean;
   /** pasted / dropped images belong to this issue */
   issueId?: string;
-  /** elsewhere, pasted / dropped images belong to this owner — "doc:<id>", "project:<id>", "initiative:<id>", "team:<id>" */
+  /** elsewhere, pasted / dropped images belong to this owner: "doc:<id>", "project:<id>", "initiative:<id>", "team:<id>" */
   uploadTo?: string;
   className?: string;
   /** fires (debounced) as you type */
@@ -321,7 +321,7 @@ export function RichEditor(props: {
   if (props.editorRef) props.editorRef.current = editor;
 
   // a value that changes underneath (another tab, an agent via the CLI) replaces the
-  // content — unless you're mid-edit, which wins
+  // content, unless you're mid-edit, in which case your edit stays
   useEffect(() => {
     if (!editor || editor.isFocused) return;
     if (props.value === lastValue.current) return;

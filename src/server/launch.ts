@@ -26,7 +26,7 @@ export class LaunchError extends Error {
 const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const SESSION_TTL_MS = 7 * 86_400_000;
 
-/** launchers and briefs are only needed until the terminal has read them — keep a week, then drop */
+/** launchers and briefs are only needed until the terminal has read them, so keep a week, then delete */
 function pruneSessions(): void {
   try {
     const cutoff = Date.now() - SESSION_TTL_MS;
@@ -38,7 +38,7 @@ function pruneSessions(): void {
   } catch { /* best effort */ }
 }
 
-/** absolute path of `claude` as the server sees it — Terminal's non-login sh may not have the same PATH */
+/** absolute path of `claude` as the server sees it, since Terminal's non-login sh may not have the same PATH */
 function claudeBin(): string {
   try { return execFileSync('sh', ['-c', 'command -v claude'], { encoding: 'utf8' }).trim() || 'claude'; } catch { return 'claude'; }
 }
@@ -60,7 +60,7 @@ function openArgs(app: TerminalApp, script: string): string[] {
 
 const APP_DIRS = ['/Applications', '/Applications/Utilities', '/System/Applications/Utilities', join(homedir(), 'Applications')];
 
-/** the supported terminals present on this Mac — none off macOS */
+/** the supported terminals present on this Mac; empty off macOS */
 export function installedTerminals(): TerminalApp[] {
   if (process.platform !== 'darwin') return [];
   return TERMINAL_APPS.filter(app => APP_DIRS.some(dir => existsSync(join(dir, `${app}.app`))));
@@ -68,7 +68,7 @@ export function installedTerminals(): TerminalApp[] {
 
 export interface LaunchResult { key: string; directory: string; location: { id: string; name: string }; pinned: boolean; scriptPath: string }
 
-/** Opens the issue's location — or pins the one given (an existing location, or a new folder,
+/** Opens the issue's location, or pins the one given (an existing location, or a new folder,
  *  which is registered as a location) and opens that. Nothing is guessed: no location, no launch. */
 export function openInClaudeCode(store: Store, dbPath: string, issueId: string, opts: { locationId?: string; directory?: string } = {}): LaunchResult {
   if (process.platform !== 'darwin' && !process.env.BASELINE_OPEN_CMD) throw new LaunchError('unsupported', 'Opening a terminal session is only supported on macOS — use `baseline issue handoff` instead');
@@ -90,7 +90,7 @@ export function openInClaudeCode(store: Store, dbPath: string, issueId: string, 
   mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
   pruneSessions();
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  // team keys are free text — never let one steer the file outside the sessions folder
+  // team keys are free text, so never let one put the file outside the sessions folder
   const base = `${key.replace(/[^A-Za-z0-9_-]/g, '_')}-${stamp}`;
   const promptPath = join(SESSIONS_DIR, `${base}.md`);
   const scriptPath = join(SESSIONS_DIR, `${base}.command`);

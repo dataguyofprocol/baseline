@@ -61,7 +61,7 @@ export class GitHubWebhooks {
       events: WEBHOOK_EVENTS, lastDelivery: this.deliveries(1)[0] ?? null, received: n('processed') + n('ignored'), rejected: n('rejected'), imports: this.imports(),
     };
   }
-  /** a new secret, shown once (like an API key) — the old one stops working immediately */
+  /** a new secret, shown once (like an API key); the old one stops working immediately */
   rotateSecret(): string {
     const s = randomBytes(32).toString('hex');
     setMeta(this.db, 'githubWebhookSecret', s);

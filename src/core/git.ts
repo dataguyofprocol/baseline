@@ -13,7 +13,7 @@ import type { Commit, IssueCommit, IssuePr, PrAutomation, PrEvent, PrState, Pull
      `skip KEY` opt out;
    - `KEY-NEW` in a PR's title or description files a new issue in team KEY, started, assigned
      to the PR's author and linked to the PR;
-   - people: a PR author whose GitHub login matches a user's GitHub username is that user —
+   - people: a PR author whose GitHub login matches a user's GitHub username is that user, so
      the PR's activity is theirs and an unassigned issue it closes is assigned to them;
    - status automation per team: draft / opened / review / ready / merged map to a state;
      status only moves forward, canceled issues are never touched, every move is logged;
@@ -29,7 +29,7 @@ const KEY = '[A-Za-z][A-Za-z0-9]{0,9}-\\d+';
 
 export type LinkKind = IssuePr['kind'];
 
-/** every issue key a PR links, with how — pure, so it can be tested and reused by webhooks */
+/** every issue key a PR links, and how it links; pure, so tests and webhooks can reuse it */
 export function parseLinks(pr: { branch: string; title: string; body: string }): Map<string, LinkKind> {
   const out = new Map<string, LinkKind>();
   const rank: Record<LinkKind, number> = { related: 0, ref: 1, closing: 2 };
@@ -50,7 +50,7 @@ export function parseLinks(pr: { branch: string; title: string; body: string }):
 }
 
 const NEW_KEY = /\[?\(?\b([A-Z][A-Z0-9]{0,9})-NEW\b\)?\]?:?/g;
-/** team keys a PR asks a new issue for, with `KEY-NEW` in its title or description — pure.
+/** team keys a PR asks a new issue for, with `KEY-NEW` in its title or description. Pure.
  *  Upper case only, so prose like "brand-new" never files anything. */
 export function parseNewIssueKeys(pr: { title: string; body: string }): string[] {
   return [...new Set([...`${pr.title}\n${pr.body}`.matchAll(NEW_KEY)].map(m => m[1]))];
@@ -72,7 +72,7 @@ export function prEvent(pr: Pick<PullRequest, 'state' | 'reviewDecision' | 'chec
 const EVENT_RANK: Record<PrEvent, number> = { draft: 1, opened: 2, review: 3, ready: 4, merged: 5 };
 const TYPE_RANK: Record<WorkflowStateType, number> = { triage: 0, backlog: 1, unstarted: 2, started: 3, completed: 4, canceled: 5 };
 
-/* Read-only by design: Baseline never writes to GitHub — no comments, statuses, labels, branches
+/* Read-only by design: Baseline never writes to GitHub. It adds no comments, statuses, labels, branches
    or pushes. Every `gh` / `git` call goes through `run`, which only lets these read commands
    through, so a future change can't start writing by accident. Webhooks need no credentials. */
 const GH_READ = [['--version'], ['auth', 'status'], ['pr', 'list'], ['pr', 'view'], ['issue', 'list'], ['issue', 'view'], ['repo', 'view'], ['api']];
@@ -189,8 +189,8 @@ export class GitSync {
       const changed = !prev || prev.state !== pr.state || (prev.review_decision ?? null) !== pr.reviewDecision;
       if (changed) {
         const what = pr.state === 'merged' ? 'merged' : pr.state === 'closed' ? 'closed' : pr.reviewDecision === 'approved' ? 'approved' : pr.reviewDecision === 'changes_requested' ? 'changes requested' : prev ? 'updated' : 'opened';
-        // the assignee and everyone following the issue — the PR's author too: the "actor" is the
-        // PR, and a review or merge by someone else is news to them
+        // the assignee and everyone following the issue, including the PR's author, because the "actor"
+        // is the PR, and a review or merge by someone else is news to them
         this.store.notifyEach([issue.assigneeId, ...this.store.subscribers(issue.id)], 'prActivity', { actorId: actor, issueId: issue.id, body: `PR #${pr.number} ${what}: ${pr.title}`, selfToo: true });
       }
       this.applyAutomation(issue.id);

@@ -13,8 +13,8 @@ import { CustomerRequests } from './Workspace.js';
 import { IconDoc, IconLink, IconPlus, IconClose, IconTrash, IconSettings, IconTriage, IconIssues, IconCycle, IconBox, IconViews } from './icons.js';
 import type { Doc } from '../../src/core/types.js';
 
-/* Documents: markdown pages (edited as rich text) that live on a project or a team —
-   specs, briefs, runbooks. They show up as resources next to links. */
+/* Documents: markdown pages (edited as rich text) that belong to a project or a team, such as
+   specs, briefs and runbooks. They show up as resources next to links. */
 
 export async function newDoc(owner: { projectId?: string; teamId?: string; initiativeId?: string }, navigate: (to: string) => void, template?: { title: string; content: string }) {
   const { doc } = await api.createDoc({ ...owner, title: template?.title ?? '', content: template?.content ?? '' });

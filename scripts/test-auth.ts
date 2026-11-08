@@ -1,6 +1,6 @@
 // End-to-end tests for hosted mode: Google sign-in (with Google's token endpoint stubbed),
 // sessions, the CSRF and host guards, admin-only routes, and who writes are attributed to.
-// Runs against a throwaway database — never touches ~/.baseline.
+// Runs against a throwaway database and never touches ~/.baseline.
 //
 //   npx tsx scripts/test-auth.ts
 import { mkdtempSync, rmSync } from 'node:fs';

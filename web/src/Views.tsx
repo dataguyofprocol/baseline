@@ -298,7 +298,7 @@ export function MyIssuesPage() {
   );
 }
 
-/** everything you did, newest first, grouped by day — Linear's My issues › Activity */
+/** everything you did, newest first, grouped by day, like Linear's My issues › Activity */
 function MyActivity() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -378,7 +378,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const renameRef = useRef<HTMLInputElement | null>(null);
-  // select after mount — a focus-event select() loses to the caret's default placement
+  // select after mount, because the caret's default placement undoes a focus-event select()
   useEffect(() => { if (renaming) renameRef.current?.select(); }, [renaming]);
 
   // each active filter becomes one chip: what it filters on, and the values
@@ -403,7 +403,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
       ? { name: 'New view', kind: 'projects', projectOptions: {}, filters: {}, icon: '📁', teamId: team?.id ?? null }
       : { name: 'New view', filters: {}, icon: '🗂', teamId: team?.id ?? null });
     await useApp.getState().bootstrap();
-    // land inside the fresh view with its name selected — naming it is the next natural step
+    // open the new view with its name selected, since naming it is the likely next step
     navigate(`/views/${view.id}`, { state: { rename: true } });
   };
 
@@ -503,13 +503,13 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
   );
 }
 
-/** the view's name rendered as the subnav tab — click it (or arrive from "New view") to rename in place */
+/** the view's name rendered as the subnav tab. Click it (or arrive from "New view") to rename in place */
 export function ViewNameSeg(props: { view: SavedView; startEditing?: boolean }) {
   const [editing, setEditing] = useState(props.startEditing ?? false);
   const [name, setName] = useState(props.view.name);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { setName(props.view.name); }, [props.view.name]);
-  // select after mount — a focus-event select() loses to the caret's default placement
+  // select after mount, because the caret's default placement undoes a focus-event select()
   useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
   const save = async () => {
     setEditing(false);

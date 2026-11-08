@@ -203,7 +203,7 @@ export async function convertToTemplate(issueId: string) {
 
 export const CADENCE_LABELS = { daily: 'Every day', weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month' } as const;
 
-/** file a copy of this issue again on a cadence — this issue counts as the first one */
+/** file a copy of this issue again on a cadence; this issue counts as the first one */
 export async function makeRecurring(issueId: string, cadence: keyof typeof CADENCE_LABELS) {
   const s = useApp.getState();
   const issue = s.snap?.issues.find(i => i.id === issueId);

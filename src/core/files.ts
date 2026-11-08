@@ -7,7 +7,7 @@ import { FILE_OWNER_TYPES } from './types.js';
 import { id as newId, nowIso } from './util.js';
 
 /* Images: profile pictures, custom emoji, and pictures pasted into descriptions, comments and
-   docs. They are small by design (Baseline doesn't host file attachments — link to them), so
+   docs. They are small by design (Baseline doesn't host file attachments; link to them instead), so
    the bytes live in SQLite next to everything else: one database file is the whole backup.
    A file lives as long as its owner; gc() deletes those whose owner is gone. */
 
@@ -27,7 +27,7 @@ const OWNER_TABLE: Record<Exclude<FileOwnerType, 'workspace'>, string> = {
   issue: 'issues', doc: 'documents', project: 'projects', initiative: 'initiatives', team: 'teams', avatar: 'users', emoji: 'emojis',
 };
 
-/** what image the bytes are — null when they aren't one we take */
+/** what image the bytes are, or null when they aren't one we take */
 export function sniffImage(b: Buffer): string | null {
   const at = (o: number, sig: number[]) => b.length >= o + sig.length && sig.every((x, i) => b[o + i] === x);
   const ascii = (o: number, s: string) => b.length >= o + s.length && b.toString('latin1', o, o + s.length) === s;

@@ -7,7 +7,7 @@ import { ApiKeys } from './apikeys.js';
 import { GitHubWebhooks, migrateWebhooks } from './webhooks.js';
 import { migrateWork, Work, WORK_TABLES } from './work.js';
 
-/* Areas added after the core tracker — initiatives, releases, SLAs, asks, loops and the git
+/* Areas added after the core tracker: initiatives, releases, SLAs, asks, loops and the git
    integration. Each lives in its own module with its own tables, and plugs into the store
    through issueHooks / tickHooks, so the core store stays small and merges stay mechanical. */
 

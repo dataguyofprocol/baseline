@@ -8,8 +8,8 @@ import { uniquelyNamed } from '../../src/core/mentions.js';
 marked.setOptions({ gfm: true, breaks: true });
 
 /* Rendered markdown: links open in a new tab, issue keys (CORE-12) become links to the
-   issue, and mentions — `@[Name](user:id)` from the editor, or a plain @Full Name that only
-   one member has — become chips. Everything is sanitized last: comments and descriptions are
+   issue, and mentions become chips. A mention is `@[Name](user:id)` from the editor, or a plain
+   @Full Name that only one member has. Everything is sanitized last: comments and descriptions are
    other people's input. */
 
 /** what rendered markdown may contain (DOMPurify's safe HTML, plus link targets) */
@@ -23,7 +23,7 @@ export function Markdown({ text }: { text: string }) {
     if (!text?.trim()) return null;
     const raw = marked.parse(text) as string;
     const doc = new DOMParser().parseFromString(`<body>${raw}</body>`, 'text/html');
-    // @[Name](user:id) parses as "@" + a link to user:id — turn it into a chip with the person's current name
+    // @[Name](user:id) parses as "@" followed by a link to user:id; turn it into a chip with the person's current name
     doc.querySelectorAll('a[href^="user:"]').forEach(a => {
       const prev = a.previousSibling;
       if (!(prev instanceof Text) || !prev.data.endsWith('@')) return;

@@ -1,5 +1,5 @@
-/* Empty-state illustrations in Linear's style: thin ink line art where every object is a "slab" —
-   the outline drawn twice, the copy below in a lighter ink, so flat shapes read as thick tiles.
+/* Empty-state illustrations in Linear's style: thin ink line art where every object is a "slab".
+   The outline is drawn twice, the copy below in a lighter ink, so flat shapes look like thick tiles.
    Colors come from --illo-ink / --illo-shade / --illo-fill, so both themes work. */
 
 export type IllustrationName =

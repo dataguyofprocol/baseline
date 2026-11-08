@@ -7,7 +7,7 @@ import { PropertyMenu, type PropKind } from './propertyMenus.js';
 import { StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled, StatusTriage, PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconAgent, IconBlocks, IconBlocked, IconRelated, IconDuplicate } from './icons.js';
 
 export function StateIcon({ type, color, size = 14, morph }: { type: string; color?: string; size?: number; morph?: boolean }) {
-  // the seeded Todo grey is near-white — tuned for dark; theme it so it
+  // the seeded Todo grey is near-white because it was tuned for dark. Theme it so it
   // doesn't vanish on a light ground
   const style = color ? { color: color.toLowerCase() === '#e2e2e2' ? 'var(--status-todo-ink)' : color } : undefined;
   if (type === 'triage') return <StatusTriage size={size} style={style ?? { color: '#fc7840' }} />;
@@ -50,7 +50,7 @@ export function Avatar({ user, size = 20 }: { user?: { name: string; initials: s
 
 type MenuChildren = (p: { isOpen: boolean; open: (e: React.MouseEvent) => void }) => React.ReactNode;
 
-/* property menus over one issue, opened from any trigger (the rail, chips) — the
+/* property menus over one issue, opened from any trigger (the rail, chips). The
    menus themselves live in propertyMenus.tsx so keyboard, palette and rail share them */
 function propMenu(kind: PropKind) {
   return function IssuePropMenu(props: { issue: Issue; children: MenuChildren }) {
@@ -124,7 +124,7 @@ export function CalendarGrid(props: { selected?: string; onPick: (iso: string) =
   );
 }
 
-/** searchable issue picker — used for parents, relations, sub-issue attach */
+/** searchable issue picker, used for parents, relations and attaching sub-issues */
 export function IssuePickerMenu(props: {
   title: string;
   teamId?: string;

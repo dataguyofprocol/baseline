@@ -5,7 +5,7 @@
 // comment, that errors are tool errors listing valid values, and that stdout carries only protocol.
 // Then the hosted endpoint, /mcp over Streamable HTTP: keys only, the same tools, a key's scopes and
 // teams holding through every tool, and the whole work loop re-read from the database.
-// Throwaway database — never touches ~/.baseline.
+// Runs against a throwaway database and never touches ~/.baseline.
 //
 //   npx tsx scripts/test-mcp.ts
 import { mkdtempSync, rmSync } from 'node:fs';

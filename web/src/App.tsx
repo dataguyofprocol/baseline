@@ -79,7 +79,7 @@ function KeyboardManager() {
         const c = chord; chord = null; clearTimeout(chordTimer);
         if (c === 'g') {
           const to: Record<string, string> = {
-            // Linear's map: A active, E all (“everything”), W upcoming cycle, U views, D drafts
+            // Linear's map: A active, E all ("everything"), W upcoming cycle, U views, D drafts
             i: '/inbox', m: '/my-issues', p: '/projects', s: '/settings/workspace', n: '/initiatives', d: '/drafts',
             a: `/team/${teamKey}/active`, e: `/team/${teamKey}/all`, b: `/team/${teamKey}/backlog`,
             t: `/team/${teamKey}/triage`, c: `/team/${teamKey}/cycles`, v: `/team/${teamKey}/cycles/current`, w: `/team/${teamKey}/cycles/upcoming`, u: '/views', x: `/team/${teamKey}/archive`, f: '/search',
@@ -143,7 +143,7 @@ function KeyboardManager() {
       }
 
       const onPage = !!pageIssue();
-      // J/K: the list cursor — or, on an issue page, the next issue of the list it came from
+      // J/K move the list cursor, or on an issue page open the next issue of the list it came from
       if (plain && (k === 'j' || k === 'k' || e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
         const down = k === 'j' || e.key === 'ArrowDown';
         if (onPage && !s.peekIssueId) {
@@ -212,7 +212,7 @@ function KeyboardManager() {
         if (!e.altKey && e.shiftKey && e.code === 'Comma') { e.preventDefault(); void h.copyUrl(); return; }
         if (!e.altKey && e.shiftKey && e.code === 'Quote') { e.preventDefault(); void h.copyTitle(); return; }
       }
-      // 1–9: jump straight to the nth status (the status menu's numbers)
+      // 1-9: jump straight to the nth status (the status menu's numbers)
       if (plain && /^[1-9]$/.test(e.key) && one) {
         const st = sortedStatesOf(one.teamId).filter(x => x.type !== 'triage')[Number(e.key) - 1];
         if (st) { e.preventDefault(); void setIssueProps(ids, { stateId: st.id }); }
@@ -223,7 +223,7 @@ function KeyboardManager() {
   }, [navigate, location]);
 
   // ⌘K / ⌘B, capture phase: they must survive focus inside an input, a TipTap
-  // editor, or a modal — anywhere a bubbling listener would never see them.
+  // editor, or a modal, where a bubbling listener would never see them.
   useEffect(() => {
     const onChord = (e: KeyboardEvent) => {
       if (!e.key || e.isComposing || e.altKey || !(e.metaKey || e.ctrlKey)) return;
@@ -257,8 +257,8 @@ function KeyboardManager() {
 
 /* Navigation settles instead of hard-cutting: the incoming page rises from 40%
    opacity (never from zero, so it can't flash the canvas or feel like a wait).
-   Switching tabs inside one page is quieter still — the sliding register mark
-   already carries that change. */
+   Switching tabs inside one page is quieter still, because the sliding register mark
+   already shows that change. */
 function RouteSettle() {
   const { pathname } = useLocation();
   const prev = useRef(pathname);
@@ -382,8 +382,8 @@ export function App() {
   if (signedOut) return <SignIn />;
 
   if (!loaded) {
-    // Boot: the app appears as an object here, so it is the tile — large cut at 28
-    // over a 2px paper rule that carries the wait. The tile's own register line,
+    // Boot: the app appears as an object here, so it shows the tile in the large cut at 28,
+    // above a 2px paper rule that animates during the wait. The tile's own register line,
     // hairline and node never animate; only the rule beneath it does.
     return (
       <div className="boot">

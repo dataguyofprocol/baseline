@@ -63,7 +63,7 @@ export function SettingsLayout() {
         <Link to="/" className="back"><IconBack size={14} /> Back to app</Link>
         <div className="settings-search"><IconSearch size={13} /><input placeholder="Search…" value={q} onChange={e => setQ(e.target.value)} /></div>
         {SETTINGS_NAV.map(g => {
-          // workspace Security is who may sign in — only a hosted workspace has sign-in
+          // workspace Security sets who may sign in, and only a hosted workspace has sign-in
           const items = g.items.filter(([label, key]) => match(label, g.sec) && (key !== 'workspace-security' || snap.workspace.auth === 'hosted'));
           if (!items.length) return null;
           return (
@@ -835,7 +835,7 @@ export function NewCycleModal(props: { teamId: string; number: number; onClose: 
   });
 
   // ⌘/Ctrl+Enter creates from anywhere in the modal (menus portal outside this
-  // wrapper, but their React events still bubble here — so exclude them)
+  // wrapper, but their React events still bubble here, so exclude them)
   const onKeyDown = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest?.('.menu')) return;
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -1158,7 +1158,7 @@ function HandoffSettings() {
         an interactive session in a terminal window, in the issue's location. Every issue works in exactly one location; nothing runs without one.
       </div>
       <LocationsSettings />
-      {/* the terminal Claude Code opens in is this machine's — hosted, that's the companion's to know */}
+      {/* the terminal Claude Code opens in belongs to this machine; a hosted workspace leaves that to the companion */}
       {snap.workspace.auth !== 'hosted' && <ClaudeCodeSettings />}
       <h2 className="settings-h2">Prompt template</h2>
       <div className="field-help" style={{ marginBottom: 10 }}>

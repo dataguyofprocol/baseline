@@ -18,7 +18,7 @@ export interface Toast {
 interface AppState {
   snap: Snapshot | null;
   loaded: boolean;
-  /** hosted mode: the server answered 401 — show the sign-in screen instead of the app */
+  /** hosted mode: the server answered 401, so show the sign-in screen instead of the app */
   signedOut: boolean;
   theme: ThemePref;
   /** theme with 'system' resolved to the dark/light actually applied */
@@ -258,9 +258,9 @@ export async function refresh() {
   await useApp.getState().bootstrap();
 }
 
-// Live updates. The server announces a new version whenever anything changes — a teammate, an
-// agent writing through the CLI, the workspace's own clock — and the tab refetches its snapshot,
-// swapping it in only when something it shows actually moved. A hidden tab waits until it's seen
+// Live updates. The server announces a new version whenever anything changes, whether from a
+// teammate, an agent writing through the CLI or the workspace's own clock. The tab refetches its
+// snapshot and swaps it in only when something it shows has changed. A hidden tab waits until it's seen
 // (unless browser notifications are on).
 let lastSnapJson = '';
 /* Settings › Notifications › Browser: new inbox notifications become browser notifications
@@ -298,7 +298,7 @@ async function refreshSnapshot() {
     const json = JSON.stringify(snap);
     if (json !== lastSnapJson) useApp.setState({ snap });
     lastSnapJson = json;
-  } catch { /* server restarting — the next announcement retries */ }
+  } catch { /* the server is restarting; the next announcement retries */ }
   finally {
     fetching = false;
     if (fetchAgain) { fetchAgain = false; void refreshSnapshot(); }
@@ -317,7 +317,7 @@ function connectLive() {
   live = new EventSource('/api/events');
   live.addEventListener('version', e => { announced = (JSON.parse((e as MessageEvent).data) as { v: number }).v; catchUp(); });
   live.onerror = () => {
-    // a dropped connection reconnects by itself; a refused one (CLOSED — e.g. the session ended)
+    // a dropped connection reconnects by itself; a refused one (CLOSED, e.g. the session ended)
     // doesn't: ask the API, which shows the sign-in screen on 401, and try again in a while
     if (live?.readyState !== EventSource.CLOSED) return;
     live = null;

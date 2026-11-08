@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end test suite for the baseline CLI.
-# Runs every project/task command against throwaway scratch databases — never
+# Runs every project/task command against throwaway scratch databases and never
 # touches the live workspace at ~/.baseline/baseline.db.
 #
 #   scripts/test-cli.sh            # build + test via node dist
@@ -500,7 +500,7 @@ else
   echo "FAIL  store createProject fields"; cat "$WORK/store-out.txt"; FAILED_NAMES+=("store createProject fields"); FAIL=$((FAIL+1))
 fi
 
-nodecheck() { # nodecheck <name> <module-script> [args…] — passes when the script exits 0
+nodecheck() { # nodecheck <name> <module-script> [args…]: passes when the script exits 0
   local name="$1" script="$2"; shift 2
   if node --input-type=module -e "$script" "$@" > "$WORK/nodecheck.txt" 2>&1; then PASS=$((PASS+1)); else echo "FAIL  $name"; sed 's/^/      /' "$WORK/nodecheck.txt"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
 }
@@ -762,7 +762,7 @@ if [[ $NOPATH_RC -ne 0 && "$NOPATH_OUT" == *"not on your PATH"* && "$NOPATH_OUT"
 mkdir -p "$WORK/shim"; printf '#!/bin/sh\nexit 0\n' > "$WORK/shim/baseline"; chmod +x "$WORK/shim/baseline"
 SHIMPATH="$WORK/shim:$PATH"
 cs() { PATH="$SHIMPATH" $BIN "$@"; }
-ccheck() { # ccheck <name> <expected-substring> <args…> — connect with `baseline` on PATH
+ccheck() { # ccheck <name> <expected-substring> <args…>: connect with `baseline` on PATH
   local name="$1" expect="$2"; shift 2
   local out; out=$(cs "$@" 2>&1); local rc=$?
   if [[ $rc -eq 0 && "$out" == *"$expect"* ]]; then PASS=$((PASS+1)); else echo "FAIL  $name (exit $rc)"; echo "      got: $(echo "$out" | head -3 | tr '\n' '|')"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi

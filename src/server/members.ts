@@ -48,7 +48,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     if (!accounts.canInvite(me())) return forbid(c, 'You can\'t invite people to this workspace');
     const b = await c.req.json() as { emails?: string | string[]; admin?: boolean; teamIds?: string[] };
     if (b.admin && !accounts.isAdmin(me())) return forbid(c, 'Only admins can invite admins');
-    // "a@x.com, b@x.com" or one per line — whatever was pasted
+    // "a@x.com, b@x.com" or one per line, whatever was pasted
     const raw = (Array.isArray(b.emails) ? b.emails.join(' ') : b.emails ?? '').split(/[\s,;]+/).map(normalizeEmail).filter(Boolean);
     const emails = [...new Set(raw)];
     if (!emails.length) return c.json({ error: 'Add at least one email address' }, 400);
@@ -96,7 +96,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     return c.json({ ok: true });
   });
 
-  // a one-use link that sets this person's password — shared by the admin, so no email is needed
+  // a one-use link that sets this person's password. The admin shares it, so no email is needed
   // (a key can't ask for one, see principal.ts)
   app.post('/api/members/:id/reset-link', (c) => {
     if (!hosted) return c.json({ error: 'Passwords are for hosted workspaces (BASELINE_PUBLIC_URL)', code: 'not-hosted' }, 400);

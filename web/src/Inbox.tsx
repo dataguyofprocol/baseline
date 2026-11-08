@@ -155,7 +155,7 @@ export function InboxPage() {
     useApp.getState().toast({ title: 'Snoozed', line: <>Back in your inbox {fmt(d)}</> });
   };
 
-  // viewing a notification reads it — after a beat, so skimming past doesn't clear it
+  // viewing a notification marks it read after a short delay, so skimming past doesn't clear it
   useEffect(() => {
     if (!selected?.unread) return;
     const t = setTimeout(() => void markRead(selected, true), 900);
@@ -163,7 +163,7 @@ export function InboxPage() {
   }, [selected?.lead.id, selected?.unread]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { document.querySelector('.inbox-row.selected')?.scrollIntoView({ block: 'nearest' }); }, [cursor]);
 
-  // inbox keys (U, ⌫, H, ⇧⌫) — capture phase so they beat the list shortcuts
+  // inbox keys (U, ⌫, H, ⇧⌫) listen in the capture phase so they run before the list shortcuts
   const selRef = useRef(selected);
   selRef.current = selected;
   useEffect(() => {

@@ -29,7 +29,7 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
-/** a location by name or id — or a path, which is registered on the fly (it must exist) */
+/** a location by name or id, or a path, which is registered on the fly (it must exist) */
 function resolveLocationRef(store: ReturnType<typeof legacyStore>, ref: string): Location {
   if (resolve.isPathRef(ref)) {
     const path = localPath(ref);

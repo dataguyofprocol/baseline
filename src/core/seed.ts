@@ -12,7 +12,7 @@ function localUserName(): string {
   try { const n = userInfo().username; return n.charAt(0).toUpperCase() + n.slice(1); } catch { return 'You'; }
 }
 
-/** A workspace with nothing in it but you and the agent — the web app's first run, where
+/** A workspace with nothing in it but you and the agent, for the web app's first run, where
  *  onboarding names the first team and offers the sample data. */
 export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string } = {}): void {
   const store = new Store(db);
@@ -26,8 +26,8 @@ export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string;
   store.setPreferences({ gettingStarted: { onboarding: 'pending', step: 0, since: null, usedPalette: false } });
 }
 
-/** The sample workspace. `into` adds it to the workspace as it stands — your teams, locations
- *  and settings stay, and you are the sample's "me" — instead of wiping first. */
+/** The sample workspace. `into` adds it to the workspace as it stands instead of wiping first.
+ *  Your teams, locations and settings stay, and you are the sample's "me". */
 export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string; into?: boolean } = {}): void {
   const store = new Store(db);
   if (!opts.into) store.wipe();
@@ -236,7 +236,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
     store.addComment(first.id, me.id, 'Agreed. Menu surfaces sample `#212122`, modals `#1a1a1b`.');
   }
 
-  // inbox: every notification shape the design calls for — a mention, an assignment
+  // inbox: every notification shape the design calls for: a mention, an assignment
   // with its actor, two actors on one issue (the punched-gap stack), a plain comment,
   // and a system row with no human actor (that one signs with the app's tile).
   const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString();

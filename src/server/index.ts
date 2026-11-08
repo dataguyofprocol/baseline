@@ -55,15 +55,15 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const moved = files.migrateLegacy();
   if (moved) console.error(`[baseline] moved ${moved} upload(s) into the database`);
   // Loops' "Open in Claude Code" action opens the same interactive session as the manual hand-off.
-  // Hosted, that would open it on the server's machine — it waits for a companion on each person's laptop
+  // Hosted, that would open it on the server's machine, so it waits for a companion on each person's laptop
   if (hosted) automation.launcherMissing = 'needs a connected companion';
   else automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
-  // the git integration polls gh / git log in each location every two minutes while it's on —
-  // those are this machine's folders, so a hosted server leaves GitHub to its webhooks
+  // the git integration polls gh / git log in each location every two minutes while it's on.
+  // Those are this machine's folders, so a hosted server leaves GitHub to its webhooks
   if (!hosted) setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
 
-  // first run: a laptop gets the sample workspace to play with; a hosted one starts empty —
-  // its owner is created on the setup screen (or by Google sign-in), and onboarding asks for the first team
+  // first run: a laptop gets the sample workspace to play with; a hosted one starts empty.
+  // Its owner is created on the setup screen (or by Google sign-in), and onboarding asks for the first team
   const hasWorkspace = db.prepare('SELECT COUNT(*) AS n FROM meta').get() as { n: number };
   if (Number(hasWorkspace.n) === 0 && hosted) {
     setMeta(db, 'workspaceId', id('w'));
@@ -96,7 +96,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json(r.body, r.status as 200);
   });
 
-  // who every /api request is (key, session or this machine) — before any /api route, see principal.ts
+  // who every /api request is (key, session or this machine). It runs before any /api route; see principal.ts
   const sessions = hosted ? cookieSessions(auth, accounts) : null;
   const guard = authenticate({ auth, sessions, apiKeys, store, lanOpen: LAN_OPEN });
   app.use('/api/*', guard);
@@ -241,7 +241,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- live updates ----------
   // Server-sent events: the current version on connect, every new one after, and a comment every
-  // 25s so proxies keep the connection open. Only a number travels — each tab then fetches its own
+  // 25s so proxies keep the connection open. Only a number travels, and each tab then fetches its own
   // snapshot, so nobody learns anything here they couldn't already see.
   app.get('/api/events', (c) => streamSSE(c, async (stream) => {
     let open = true;
@@ -413,8 +413,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const handoff = store.handoffFor(c.req.param('id'), hosted ? auth.publicUrl.origin : undefined);
     return handoff ? c.json({ handoff }) : c.json({ error: 'not found' }, 404);
   });
-  // these routes start local processes (a terminal, a folder picker): only this machine's own
-  // pages may call them — a Host other than localhost means LAN or DNS rebinding, a foreign
+  // these routes start local processes (a terminal, a folder picker), so only this machine's own
+  // pages may call them. A Host other than localhost means LAN or DNS rebinding, a foreign
   // Origin means another site, and a non-JSON body means a CORS-free "simple" form post
   // (these stay loopback-only even when BASELINE_HOST opens the rest to the LAN)
   const localOnly = async (c: Context, next: Next) => {
@@ -459,7 +459,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- locations (directories agents work in) ----------
   app.post('/api/locations', async (c) => {
-    // a location is checked against this server's disk — meaningless (and a probe) on a hosted server
+    // a location is checked against this server's disk, which is meaningless (and a probe) on a hosted server
     if (hosted) return c.json({ error: 'Locations can\'t be added on the hosted app yet', code: 'companion-required' }, 403);
     const b = await c.req.json() as { path?: string; name?: string };
     const path = normalizeDir(b.path);
@@ -998,7 +998,7 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
   const server = nodeServe({ fetch: app.fetch, port, hostname: LISTEN_HOST || '127.0.0.1' });
   if (!LISTEN_HOST) {
     const v6 = nodeServe({ fetch: app.fetch, port, hostname: '::1' });
-    v6.on('error', () => { /* no IPv6 loopback on this machine — IPv4 alone is fine */ });
+    v6.on('error', () => { /* no IPv6 loopback on this machine; IPv4 alone is fine */ });
   }
   server.once('listening', () => {
     const url = `http://localhost:${port}`;

@@ -14,12 +14,12 @@ const keyFromName = (name: string) => name.replace(/[^a-zA-Z0-9]/g, '').slice(0,
    first issue. Every step can be skipped (Esc) and continued (Enter); where you are is saved
    in preferences, so a reload picks the flow back up. */
 const ALL_STEPS = ['welcome', 'theme', 'team', 'github', 'sample', 'palette'] as const;
-// the GitHub step links folders on this machine and reads them with its gh — a hosted server has neither
+// the GitHub step links folders on this machine and reads them with its gh, and a hosted server has neither
 const HOSTED_STEPS = ALL_STEPS.filter(s => s !== 'github');
 const TEAM_STEP = ALL_STEPS.indexOf('team'); // the same in both: team comes before github
 
-/** Enter continues and Esc skips, wherever focus is — except Enter on an ordinary button,
- *  which presses that button. Choice buttons (theme pills, option cards) carry data-choice. */
+/** Enter continues and Esc skips, wherever focus is. The exception is Enter on an ordinary
+ *  button, which presses that button. Choice buttons (theme pills, option cards) carry data-choice. */
 function useStepKeys(onEnter: (() => void) | null, onEsc: (() => void) | null) {
   const ref = useRef({ onEnter, onEsc });
   ref.current = { onEnter, onEsc };
@@ -264,7 +264,7 @@ function TeamStep({ next, back }: StepProps) {
     }
   };
   const submit = () => void save(name, key);
-  // skipping still leaves a team behind — issues always live in one
+  // skipping still leaves a team behind, because issues always live in one
   const skip = () => (existing ? next() : void save('General', keyFromName('General')));
   useStepKeys(submit, skip);
 
