@@ -503,6 +503,17 @@
       await t.openMenu('[title="Display options"]'); await t.click(t.rowSwitch('Enable priority inbox'), 400); await t.click(t.menuItem('No grouping'), 400); await t.closeAll();
       if (!h.length || !f.length) t.fail(`priority ${h} focus ${f}`); return 'priority: ' + [...new Set(h)].join(', ') + ' · focus: ' + [...new Set(f)].join(', ');
     });
+    await t.run('8.6 Project updates summary: schedule in Settings › Notifications; the preview lists the updates', async () => {
+      await t.nav('/settings/notifications', 800); const sel = t.q('select[aria-label="Project updates summary"]'); if (!sel) t.fail('no schedule select');
+      const pick = async v => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, v); sel.dispatchEvent(new Event('change', { bubbles: true })); await sleep(700); };
+      await pick('daily'); const daily = (await t.snap()).workspace.preferences.updatesSummary; await pick('weekly');
+      if (daily !== 'daily' || (await t.snap()).workspace.preferences.updatesSummary !== 'weekly') t.fail(`schedule not saved (${daily})`);
+      await t.nav('/inbox', 900); const row = t.qa('.inbox-row').find(r => /Project updates summary/.test(r.innerText)); if (!row) t.fail('no summary row');
+      await t.click(row, 700); const cards = t.qa('[data-summary-update]'); const prev = t.q('.proj-notice')?.innerText ?? '';
+      const n = Number((prev.match(/(\d+) project updates? since/) ?? [])[1]);
+      if (!cards.length || cards.length !== n || !cards.every(c => /Open project/.test(c.innerText)) || /Pulse/.test(prev)) t.fail(`cards ${cards.length} of ${n}: ${prev.slice(0, 120)}`);
+      return `${cards.length} update(s) listed: ` + cards.map(c => c.querySelector('.summary-proj').innerText.trim()).join(', ');
+    });
   });
 
   /* ================= 9. settings & workspace pages ================= */
@@ -528,9 +539,8 @@
       await t.nav('/settings/documents', 800); if (!t.text().includes('Spec')) t.fail('no template'); return 'template listed (used in 6.7)';
     });
     await t.run('9.7 Pulse settings and Pulse feed', async () => {
-      await t.nav('/settings/pulse', 800); await t.type(t.q('select[aria-label="Pulse summary schedule"]'), 'daily', 700); const f = (await t.snap()).workspace.features;
-      await t.nav('/pulse', 900); const cards = t.qa('.pulse-card').length; if (!f.pulseEnabled || f.pulseSchedule !== 'daily' || !cards) t.fail(`${f.pulseEnabled} ${f.pulseSchedule} cards ${cards}`);
-      await fetch('/api/bootstrap'); const dig = (await t.snap()).notifications.some(x => x.type === 'pulseDigest'); return `${cards} updates in the feed; daily summary ${dig ? 'delivered to inbox' : 'scheduled'}`;
+      await t.nav('/settings/pulse', 800); const f = (await t.snap()).workspace.features;
+      await t.nav('/pulse', 900); const cards = t.qa('.pulse-card').length; if (!f.pulseEnabled || !cards) t.fail(`${f.pulseEnabled} cards ${cards}`); return `${cards} updates in the feed`;
     });
     await t.run('9.8 Custom emojis: upload, react with it, :name: renders', async () => {
       await t.nav('/settings/emojis', 800); const svg = new File([`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#5e6ad2"/></svg>`], 'shipit.svg', { type: 'image/svg+xml' });

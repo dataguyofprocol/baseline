@@ -95,7 +95,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Project labels with groups (P then L) | ✅ | 6.12 | Settings › Projects › Labels |
 | Project bell: per-project inbox notifications + update schedule | ✅ | 6.13 | |
 | Update schedule: due hint, lead reminders | ✅ | 6.14, 9.4 | reminder timing also checked against the store on a scratch database |
-| Pulse: feed of project updates, daily / weekly summary | ✅ | 9.7 | |
+| Pulse: feed of project updates | ✅ | 9.7 | |
 
 ## 7. Run iterations (cycles)
 | Journey | Status | Check | How it works |
@@ -109,9 +109,10 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 |---|---|---|---|
 | Inbox: U, ⌫, H, row menu | ✅ | 8.1 | |
 | Inbox filters (incl. project kinds) and display | ✅ | 8.2 | |
-| Project and Pulse notifications with a preview | ✅ | 8.3 | |
+| Project notifications with a preview | ✅ | 8.3 | |
 | My issues: Assigned / Created / Subscribed / Activity | ✅ | 8.4 | |
 | Priority inbox, Focus grouping | ✅ | 8.5 | |
+| Project updates summary: daily / weekly / off per person (Settings › Notifications); counts updates on projects you lead, are a member of, or follow; the preview lists each update with an Open project button | ✅ | 8.6 | `npm run test:summaries` checks the scoping and schedule on a scratch database |
 
 ## 9. Configure (settings)
 | Journey | Status | Check | How it works |

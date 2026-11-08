@@ -267,16 +267,10 @@ export function PulseSettings() {
   return (
     <div className="settings-card">
       <h1>Pulse</h1>
-      <div className="field-help" style={{ marginBottom: 16 }}>Pulse puts every project update into one feed. You can also get a summary in your inbox each morning or week.</div>
+      <div className="field-help" style={{ marginBottom: 16 }}>Pulse puts every project update into one feed. Your own summary of updates is in Settings › Notifications.</div>
       <div className="field-row">
         <div><div className="field-label">Enable Pulse</div><div className="field-help">Workspace-wide feed of updates, in the sidebar under Workspace.</div></div>
         <Switch on={f.pulseEnabled} label="Enable Pulse" onChange={v => void setFeatures({ pulseEnabled: v })} />
-      </div>
-      <div className="field-row">
-        <div><div className="field-label">Summary notifications</div><div className="field-help">A summary of new updates lands in your inbox on this schedule.</div></div>
-        <select className="text-input" aria-label="Pulse summary schedule" disabled={!f.pulseEnabled} value={f.pulseSchedule} onChange={e => void setFeatures({ pulseSchedule: e.target.value as WorkspaceFeatures['pulseSchedule'] })}>
-          <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="never">Never</option>
-        </select>
       </div>
     </div>
   );

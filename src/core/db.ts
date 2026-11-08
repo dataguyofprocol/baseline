@@ -423,6 +423,8 @@ function migrate(db: DatabaseSync): void {
     );
   `);
   if (!columns('notifications').includes('snoozed_until')) db.exec('ALTER TABLE notifications ADD COLUMN snoozed_until TEXT');
+  // the Pulse summary became the project updates summary
+  db.exec("UPDATE notifications SET type = 'updatesDigest' WHERE type = 'pulseDigest'");
   db.exec(`
     CREATE TABLE IF NOT EXISTS project_labels (
       id TEXT PRIMARY KEY,

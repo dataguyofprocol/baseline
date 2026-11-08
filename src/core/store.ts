@@ -916,7 +916,7 @@ export class Store {
     this.completeEndedCycles(now);
     this.fileRecurring(now);
     this.remindUpdates(now);
-    this.pulseDigest(now);
+    this.updatesDigest(now);
     for (const h of this.tickHooks) h(now);
   }
 
@@ -1190,7 +1190,7 @@ export class Store {
     this.notifyEach(subs.map(r => r.user_id), type, { actorId: actorId ?? this.actor(), projectId, issueId: issueId ?? null, body });
   }
 
-  // ---------- update schedule & pulse ----------
+  // ---------- update schedule & summaries ----------
   private cadenceDays(c: UpdateCadence): number | null { return c === 'weekly' ? 7 : c === 'biweekly' ? 14 : c === 'monthly' ? 30 : null; }
   /** when the next update is due on a project (null: no expectation) */
   updateDueAt(project: Pick<Project, 'id' | 'updateCadence' | 'createdAt'>): string | null {
@@ -1209,18 +1209,26 @@ export class Store {
       if (!already) this.notifyEach([p.leadId], 'projectUpdateReminder', { actorId: null, projectId: p.id, body: `An update on ${p.name} is due`, createdAt: now.toISOString() });
     }
   }
-  /** every active person gets their own summary on the workspace's schedule */
-  private pulseDigest(now: Date): void {
-    const f = this.getFeatures();
-    if (!f.pulseEnabled || f.pulseSchedule === 'never') return;
-    const days = f.pulseSchedule === 'daily' ? 1 : 7;
+  /** each active person gets a summary of new updates on projects they lead, are a member of, or
+   *  follow, on their own schedule (Settings › Notifications); nothing new, no summary */
+  private updatesDigest(now: Date): void {
     for (const { id: userId } of this.db.prepare("SELECT id FROM users WHERE kind != 'agent' AND status = 'active'").all() as Array<{ id: string }>) {
-      const last = (this.db.prepare("SELECT MAX(created_at) t FROM notifications WHERE type = 'pulseDigest' AND user_id = ?").get(userId) as { t: string | null }).t;
+      const schedule = this.getPreferences(userId).updatesSummary;
+      if (schedule === 'off') continue;
+      const days = schedule === 'daily' ? 1 : 7;
+      const last = (this.db.prepare("SELECT MAX(created_at) t FROM notifications WHERE type = 'updatesDigest' AND user_id = ?").get(userId) as { t: string | null }).t;
       if (last && now.getTime() - new Date(last).getTime() < days * 86400000) continue;
       const since = last ?? new Date(now.getTime() - days * 86400000).toISOString();
-      const n = (this.db.prepare('SELECT COUNT(*) n FROM project_updates WHERE created_at > ?').get(since) as { n: number }).n;
-      if (n) this.notify('pulseDigest', { userId, body: `${n} project update${n === 1 ? '' : 's'} since your last summary`, createdAt: now.toISOString() });
+      const n = this.summaryUpdates(userId, since, now.toISOString()).length;
+      if (n) this.notify('updatesDigest', { userId, body: `${n} project update${n === 1 ? '' : 's'} since your last summary`, createdAt: now.toISOString() });
     }
+  }
+  /** the updates a person's summary covers: posted in (since, until] on projects they're on or follow */
+  private summaryUpdates(userId: string, since: string, until: string): Array<{ id: string }> {
+    return this.db.prepare(`SELECT u.id FROM project_updates u JOIN projects p ON p.id = u.project_id
+      WHERE u.created_at > ? AND u.created_at <= ? AND (p.lead_id = ? OR EXISTS (SELECT 1 FROM json_each(p.members) WHERE value = ?)
+        OR EXISTS (SELECT 1 FROM project_subscriptions s WHERE s.project_id = p.id AND s.user_id = ? AND s.updates = 1))
+      ORDER BY u.created_at DESC`).all(since, until, userId, userId, userId) as Array<{ id: string }>;
   }
 
   // ---------- document templates ----------

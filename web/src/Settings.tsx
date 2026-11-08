@@ -646,6 +646,14 @@ function NotificationSettings() {
           <span className="set-meta">{priorityCats.length} types</span><IconChevronRight size={12} />
         </button>
       </div>
+      <div className="card set-list" style={{ marginTop: 8 }}>
+        <div className="set-row notif-row">
+          <div style={{ flex: 1 }}><div className="field-label">Project updates summary</div><div className="field-help">New updates on projects you lead, are a member of, or follow, collected in one inbox notification</div></div>
+          <select className="text-input" aria-label="Project updates summary" style={{ width: 'auto' }} value={snap.workspace.preferences.updatesSummary} onChange={async e => { await api.updatePreferences({ updatesSummary: e.target.value as 'daily' | 'weekly' | 'off' }); await useApp.getState().bootstrap(); }}>
+            <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="off">Off</option>
+          </select>
+        </div>
+      </div>
       <div className="settings-h2">Push notifications</div>
       <div className="field-help" style={{ marginBottom: 8 }}>Choose which notifications are pushed to your devices. All notifications will still appear in your inbox.</div>
       <div className="card set-list">

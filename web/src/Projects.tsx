@@ -54,8 +54,8 @@ export function ProjectLabelChips({ project, max = 3 }: { project: Pick<Project,
   return <span className="plabel-chips">{labels.slice(0, max).map(l => <span key={l.id} className="plabel-chip"><span className="label-dot" style={{ background: l.color }} />{l.name}</span>)}{labels.length > max && <span className="plabel-chip">+{labels.length - max}</span>}</span>;
 }
 const HEALTH: Array<[ProjectHealth, string, string]> = [['onTrack', 'On track', '#4cb782'], ['atRisk', 'At risk', '#f2994a'], ['offTrack', 'Off track', '#eb5757']];
-const healthLabel = (h: ProjectHealth) => HEALTH.find(x => x[0] === h)?.[1] ?? h;
-const healthColor = (h: ProjectHealth) => HEALTH.find(x => x[0] === h)?.[2] ?? '#8a8f98';
+export const healthLabel = (h: ProjectHealth) => HEALTH.find(x => x[0] === h)?.[1] ?? h;
+export const healthColor = (h: ProjectHealth) => HEALTH.find(x => x[0] === h)?.[2] ?? '#8a8f98';
 const PRIORITY_LABEL = ['No priority', 'Urgent', 'High', 'Medium', 'Low'];
 const ICONS = ['🧊', '🤖', '📱', '🎨', '🚀', '⚡', '🔧', '📦', '🌐', '💡', '🧪', '📊', '🔒', '🛠️', '📝', '🎯', '🧭', '🔥', '🌱', '🧩', '📣', '💬', '🏗️', '🛰️'];
 

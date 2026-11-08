@@ -90,7 +90,8 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Named project statuses (Settings › Projects › Statuses): add, rename, recolour or delete statuses inside each category
 - ✅ Project bell: choose which project events reach your inbox (issue added, issue completed/canceled, description changes, new update) and the project's update schedule
 - ✅ Update schedule (Settings › Projects › Updates, or per project): next-due hint under the update card; leads get an inbox reminder when an update is due
-- ✅ Pulse: one feed of every project update (All / Following / My projects) and an optional daily or weekly summary in the inbox
+- ✅ Pulse: one feed of every project update (All / Following / My projects)
+- ✅ Project updates summary in the inbox: daily / weekly (default) / off per person in Settings › Notifications; counts new updates on projects you lead, are a member of, or follow; the preview lists each update
 - ✅ Document templates (Settings › Documents) offered in "Add document or link…"
 - ✅ Custom emojis (Settings › Emojis): reactions and :name: in Markdown
 - ✅ Initiatives (sidebar, G then N): Active / Planned / All, owner, target, health from updates, projects and sub-initiatives, progress across their projects; a project's properties show its initiatives

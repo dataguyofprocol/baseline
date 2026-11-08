@@ -11,12 +11,13 @@ import { parseReminder } from './propertyMenus.js';
 import { Markdown } from './Markdown.js';
 import { PrIcon, prStateOfNotice } from './GitHubUI.js';
 import { InitiativeIcon } from './Initiatives.js';
+import { healthColor, healthLabel } from './Projects.js';
 import {
   IconAssignArrow, IconComment, IconMention, IconCycle, IconFilter, IconDisplay, IconCheck, IconTrash,
   IconClock, IconSettings, IconReply, IconBell, IconClose, IconPulse, IconPlus, IconEdit,
   IconEmoji, IconDoc,
 } from './icons.js';
-import { notifyCategory, type Notification, type NotificationType, type NotifyCategory } from '../../src/core/types.js';
+import { notifyCategory, type Notification, type NotificationType, type NotifyCategory, type Snapshot } from '../../src/core/types.js';
 import { Illustration } from './illustrations.js';
 
 /* Linear's inbox: notifications on the left (newest first, merged per issue and kind),
@@ -34,7 +35,7 @@ export function writeInboxPrefs(p: Partial<InboxPrefs>) { try { localStorage.set
 const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
   issueAssignedToYou: 'Assignments', issueCommented: 'Comments', issueReplied: 'Replies', issueMentioned: 'Mentions', commentReacted: 'Reactions',
   issueStatusChanged: 'Status changes', issueReminder: 'Reminders', systemUpdate: 'Updates',
-  projectUpdate: 'Project updates', projectIssueAdded: 'Project activity', projectUpdateReminder: 'Update reminders', initiativeUpdateReminder: 'Initiative update reminders', pulseDigest: 'Pulse',
+  projectUpdate: 'Project updates', projectIssueAdded: 'Project activity', projectUpdateReminder: 'Update reminders', initiativeUpdateReminder: 'Initiative update reminders', updatesDigest: 'Project updates summary',
   slaBreached: 'SLA breaches', prActivity: 'Pull requests', loopFailed: 'Loops', teamActivity: 'Team activity', teamMemberAdded: 'Added to a team',
 };
 /* one filter value covers several kinds */
@@ -144,7 +145,7 @@ export function InboxPage() {
 
   const selected = cursor >= 0 ? navigable[cursor] : undefined;
   const selectedIssue = selected ? issueOf(selected.lead) : undefined;
-  // project and Pulse notifications have no issue: clicking one previews it here
+  // project notifications and summaries have no issue: clicking one previews it here
   const [openRow, setOpenRow] = useState<Row | null>(null);
   const refresh = () => useApp.getState().bootstrap();
   const markRead = async (row: Row, value: boolean) => { for (const id of row.ids) await api.markNotificationRead(id, value); await refresh(); };
@@ -203,7 +204,7 @@ export function InboxPage() {
       case 'projectChanged': return { icon: <IconEdit size={12} />, what: 'changed the project description' };
       case 'projectUpdateReminder': return { icon: <IconClock size={12} />, what: 'Project update due' };
       case 'initiativeUpdateReminder': return { icon: <IconClock size={12} />, what: 'Initiative update due' };
-      case 'pulseDigest': return { icon: <IconPulse size={12} />, what: 'Pulse summary' };
+      case 'updatesDigest': return { icon: <IconPulse size={12} />, what: 'Project updates summary' };
       case 'slaBreached': return { icon: <IconClock size={12} />, what: 'SLA breached' };
       case 'prActivity': return { icon: <PrIcon state={prStateOfNotice(n.body)} size={14} title="Pull request" />, what: n.body };
       case 'loopFailed': return { icon: <IconClose size={12} />, what: `loop failed — ${n.body}` };
@@ -256,7 +257,7 @@ export function InboxPage() {
             const doc = n.type === 'docChanged' ? { id: n.body.split('|')[0], title: n.body.split('|').slice(1).join('|') } : null;
             const ini = n.type === 'initiativeUpdateReminder' ? snap.initiatives.find(i => i.id === n.body.split('|')[0]) : undefined;
             const addedTo = n.type === 'teamMemberAdded' ? teamOf(n) : null;
-            const projTitle = doc ? `📄 ${doc.title}` : addedTo ? addedTo.name : ini ? ini.name : project ? `${project.icon} ${project.name}` : n.type === 'pulseDigest' ? 'Pulse' : '';
+            const projTitle = doc ? `📄 ${doc.title}` : addedTo ? addedTo.name : ini ? ini.name : project ? `${project.icon} ${project.name}` : n.type === 'updatesDigest' ? 'Project updates summary' : '';
             const snoozed = n.snoozedUntil && n.snoozedUntil > now;
             return (
               <div key={n.id}>
@@ -264,10 +265,10 @@ export function InboxPage() {
               <div
                 className={`inbox-row${row.unread ? ' unread' : ''}${isSel || openRow?.lead.id === n.id ? ' selected' : ''}${idx < 0 ? ' static' : ''}${snoozed ? ' snoozed' : ''}`}
                 onClick={() => { if (idx >= 0) { useCursor.setState({ index: idx }); setOpenRow(null); } else { setOpenRow(row); if (row.unread) void markRead(row, true); } }}
-                onDoubleClick={() => { const k = keyOf(n); if (doc) navigate(`/docs/${doc.id}`); else if (addedTo?.key) navigate(`/team/${addedTo.key}/overview`); else if (ini) navigate(`/initiatives/${ini.id}`); else if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); else if (n.type === 'pulseDigest') navigate('/pulse'); }}
+                onDoubleClick={() => { const k = keyOf(n); if (doc) navigate(`/docs/${doc.id}`); else if (addedTo?.key) navigate(`/team/${addedTo.key}/overview`); else if (ini) navigate(`/initiatives/${ini.id}`); else if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); }}
                 onContextMenu={e => { setMenuRow(row); rowMenu.open(e); }}>
                 <span className="inbox-lead">
-                  {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'initiativeUpdateReminder' || n.type === 'pulseDigest' || n.type === 'prActivity' ? <span className="inbox-sys">{d.icon}</span>
+                  {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'initiativeUpdateReminder' || n.type === 'updatesDigest' || n.type === 'prActivity' ? <span className="inbox-sys">{d.icon}</span>
                     : actors.length > 1 ? <AvatarStack size={20} people={actors.map(a => ({ name: a.name, initials: a.initials, color: a.color }))} />
                     : actors.length === 1 ? <Avatar user={actors[0]} size={20} />
                     : <span className="inbox-sys">{d.icon}</span>}
@@ -281,7 +282,7 @@ export function InboxPage() {
                   <div className="inbox-line2">
                     {keyOf(n) && <span className="inbox-key">{keyOf(n)}</span>}
                     <span className="inbox-what">
-                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'pulseDigest' ? n.body : n.type === 'initiativeUpdateReminder' ? n.body.split('|').slice(1).join('|') : <>{actors[0] ? <>{nameOf(actors[0])}{actors.length > 1 ? ` +${actors.length - 1}` : ''} </> : null}{d.what}</>}
+                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'updatesDigest' ? n.body : n.type === 'initiativeUpdateReminder' ? n.body.split('|').slice(1).join('|') : <>{actors[0] ? <>{nameOf(actors[0])}{actors.length > 1 ? ` +${actors.length - 1}` : ''} </> : null}{d.what}</>}
                       {(n.type === 'projectIssueAdded' || n.type === 'projectIssueClosed' || n.type === 'projectUpdate') && n.body && <>: <span className="inbox-excerpt">{n.body.replace(/^(Completed|Canceled): /, '')}</span></>}
                       {excerpt && <>: <span className="inbox-excerpt">{excerpt}</span></>}
                     </span>
@@ -367,7 +368,23 @@ export function InboxPage() {
   );
 }
 
-/** preview for a notification about a project (or a Pulse summary) */
+/** the updates a summary covers, as the server counted them: posted since the person's previous
+ *  summary (or one schedule period back) on projects they lead, are a member of, or follow */
+function summaryUpdates(snap: Snapshot, n: Notification) {
+  const me = snap.currentUser.id;
+  const prev = snap.notifications.filter(x => x.type === 'updatesDigest' && x.createdAt < n.createdAt).map(x => x.createdAt).sort().pop();
+  const days = snap.workspace.preferences.updatesSummary === 'daily' ? 1 : 7;
+  const since = prev ?? new Date(new Date(n.createdAt).getTime() - days * 86400000).toISOString();
+  return snap.projectUpdates
+    .filter(u => u.createdAt > since && u.createdAt <= n.createdAt)
+    .filter(u => {
+      const p = snap.projects.find(x => x.id === u.projectId);
+      return !!p && (p.leadId === me || p.memberIds.includes(me) || snap.projectSubscriptions.some(s => s.projectId === p.id && s.userId === me && s.updates));
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** preview for a notification about a project (or a project updates summary) */
 function ProjectNotice({ n }: { n: Notification }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -395,6 +412,31 @@ function ProjectNotice({ n }: { n: Notification }) {
       </div>
     );
   }
+  if (n.type === 'updatesDigest') {
+    const updates = summaryUpdates(snap, n);
+    return (
+      <div className="proj-notice">
+        <div className="pn-title"><IconPulse size={16} />Project updates summary</div>
+        <div className="pn-body">{n.body}</div>
+        {updates.map(u => {
+          const up = snap.projects.find(x => x.id === u.projectId)!;
+          const author = snap.users.find(x => x.id === u.userId);
+          return (
+            <article key={u.id} className="summary-update" data-summary-update>
+              <header>
+                <span className="summary-proj"><span>{up.icon}</span>{up.name}</span>
+                {u.health && <span className="summary-health"><span className="health-dot" style={{ background: healthColor(u.health) }} />{healthLabel(u.health)}</span>}
+                <span style={{ flex: 1 }} />
+                <Avatar user={author} size={18} /><span className="summary-meta">{author?.name} · {relTime(u.createdAt)}</span>
+              </header>
+              <Markdown text={u.body} />
+              <div><button className="btn secondary sm" onClick={() => navigate(`/projects/${up.id}`)}>Open project</button></div>
+            </article>
+          );
+        })}
+      </div>
+    );
+  }
   if (n.type === 'initiativeUpdateReminder') {
     const [iniId, ...rest] = n.body.split('|');
     const ini = snap.initiatives.find(i => i.id === iniId);
@@ -411,14 +453,13 @@ function ProjectNotice({ n }: { n: Notification }) {
   }
   return (
     <div className="proj-notice">
-      <div className="pn-title">{p ? <><span>{p.icon}</span>{p.name}</> : 'Pulse'}</div>
+      <div className="pn-title">{p ? <><span>{p.icon}</span>{p.name}</> : 'Project'}</div>
       <div className="pn-body">{n.body}</div>
-      {update && <div className="pulse-card"><Markdown text={update.body} /></div>}
+      {update && <div className="summary-update"><Markdown text={update.body} /></div>}
       <div style={{ display: 'flex', gap: 8 }}>
         {p && <button className="btn primary sm" onClick={() => navigate(`/projects/${p.id}`)}>Open project</button>}
         {issue && <button className="btn secondary sm" onClick={() => navigate(`/issue/${snap.teams.find(t => t.id === issue.teamId)?.key}-${issue.number}`)}>Open issue</button>}
         {n.type === 'projectUpdateReminder' && p && <button className="btn secondary sm" onClick={() => navigate(`/projects/${p.id}`)}>Write update</button>}
-        {n.type === 'pulseDigest' && <button className="btn primary sm" onClick={() => navigate('/pulse')}>Open Pulse</button>}
       </div>
     </div>
   );

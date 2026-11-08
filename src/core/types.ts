@@ -399,8 +399,6 @@ export interface WorkspaceFeatures {
   /** default initiative update schedule (Settings › Initiatives) */
   initiativeUpdateCadence: UpdateCadence;
   pulseEnabled: boolean;
-  /** Pulse summary notifications */
-  pulseSchedule: 'daily' | 'weekly' | 'never';
   initiativesEnabled: boolean;
   /** git / GitHub: poll `gh` for pull requests in your locations' repos */
   githubEnabled: boolean;
@@ -450,7 +448,7 @@ export interface InviteResult {
   error?: string;
 }
 
-export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', initiativesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
+export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', pulseEnabled: true, initiativesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
 
 /** a directory on this machine that coding agents can work in — usually a git repo */
 export interface Location {
@@ -651,8 +649,8 @@ export type NotificationType =
   /** you own an initiative whose update is due; body is `<initiativeId>|<text>` */
   | 'initiativeUpdateReminder'
   | 'projectUpdateReminder'
-  /** Pulse summary of recent project updates */
-  | 'pulseDigest'
+  /** the person's summary of new updates on projects they lead, are a member of, or follow */
+  | 'updatesDigest'
   /** an issue assigned to you breached (or is about to breach) its SLA */
   | 'slaBreached'
   /** a pull request linked to an issue you follow opened, got reviewed or merged */
@@ -761,6 +759,8 @@ export interface Preferences {
   startOnBranchCopy: boolean;
   /** the same for Copy as prompt and Open in Claude Code */
   startOnHandoff: boolean;
+  /** Settings › Notifications: how often the project updates summary lands in your inbox */
+  updatesSummary: 'daily' | 'weekly' | 'off';
   /** Settings › Notifications › Desktop: browser notifications, and which kinds */
   push: { desktop: boolean; types: Record<NotifyCategory, boolean> };
   /** Customize sidebar: badge style, and when each item shows (hidden ones move to More) */
@@ -807,7 +807,7 @@ export function notifyCategory(type: NotificationType, body = ''): NotifyCategor
     case 'projectIssueAdded': case 'projectIssueClosed': case 'projectChanged': case 'prActivity': return 'subscriptions';
     case 'teamActivity': return /triage/i.test(body) ? 'triage' : 'subscriptions';
     case 'teamMemberAdded': return 'subscriptions';
-    case 'projectUpdate': case 'projectUpdateReminder': case 'initiativeUpdateReminder': case 'pulseDigest': return 'updates';
+    case 'projectUpdate': case 'projectUpdateReminder': case 'initiativeUpdateReminder': case 'updatesDigest': return 'updates';
     case 'issueReminder': case 'slaBreached': return 'reminders';
     case 'loopFailed': return 'loops';
     default: return null;
@@ -820,7 +820,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   notify: { assigned: true, statusChanged: true, comments: true, mentions: true },
   sidebar: { badgeStyle: 'count', items: {} },
   gettingStarted: { onboarding: 'done', step: 0, since: null, usedPalette: false },
-  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false, startOnBranchCopy: true, startOnHandoff: true,
+  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false, startOnBranchCopy: true, startOnHandoff: true, updatesSummary: 'weekly',
   push: { desktop: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
 };
 
