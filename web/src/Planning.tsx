@@ -28,7 +28,7 @@ export function ReleasesPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={[{ label: 'Releases' }]} />
-      <div className="subnav"><div className="rel-new"><IconRelease size={14} /><input placeholder="New release, e.g. v1.5.0 — Enter to create" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create(); }} /></div></div>
+      <div className="subnav"><div className="rel-new"><IconRelease size={14} /><input placeholder="New release, e.g. v1.5.0, then Enter to create" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create(); }} /></div></div>
       <div className="content">
         {!snap.releases.length ? (
           <div className="empty-state"><Illustration name="releases" /><div className="empty-title">Releases</div><div className="empty-desc">Track which issues ship in each release. Create one above, then add issues from the issue's Release property.</div></div>

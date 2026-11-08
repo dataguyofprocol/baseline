@@ -250,7 +250,7 @@ export function ArchivePage() {
       </div>
       <div className="content">
         {tab === 'issues' && (issues === null ? null : issues.length === 0 ? (
-          <div className="empty-state"><Illustration name="archive" /><div className="empty-title">No archived issues</div><div className="empty-desc">Issues you archive in {team.name} (E) — and closed issues the team’s auto-archive picks up — are kept here and can be brought back at any time.</div></div>
+          <div className="empty-state"><Illustration name="archive" /><div className="empty-title">No archived issues</div><div className="empty-desc">Issues you archive in {team.name} (E) and closed issues the team’s auto-archive picks up are kept here. You can bring them back at any time.</div></div>
         ) : (
           <div className="static-list">
             {issues.map(i => (

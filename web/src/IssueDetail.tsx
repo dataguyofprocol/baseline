@@ -91,10 +91,10 @@ function useActivityText() {
       case 'releaseChanged': return a.data.to
         ? <>{who} added the issue to release <b>{snap.releases.find(r => r.id === a.data.to)?.name ?? 'a removed release'}</b> {when}</>
         : <>{who} removed the issue from its release {when}</>;
-      case 'slaApplied': return <>{who} applied SLA <b>{String(a.data.rule)}</b> — due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
+      case 'slaApplied': return <>{who} applied SLA <b>{String(a.data.rule)}</b>, due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
       case 'slaBreached': return <>{who} marked the SLA as breached {when}</>;
       case 'prLinked': return <>{who} linked {a.data.kind === 'closing' ? 'pull request' : 'a reference from'} <a href={String(a.data.url)} target="_blank" rel="noreferrer"><b>{String(a.data.pr)}</b></a> {String(a.data.title ?? '')} {when}</>;
-      case 'prStateMoved': return <>{who} moved the issue — {String(a.data.why)} {when}</>;
+      case 'prStateMoved': return <>{who} moved the issue: {String(a.data.why)} {when}</>;
       case 'commitLinked': return <>{who} linked commit <b className="mono">{String(a.data.sha)}</b> {String(a.data.message ?? '')} {when}</>;
       case 'loopRan': return <>{who} ran loop <b>{String(a.data.loop)}</b> — {String(a.data.detail)} {when}</>;
       case 'askSubmitted': return <>{who} filed this through the <b>{String(a.data.form)}</b> Ask {when}</>;
@@ -542,7 +542,7 @@ function ReleaseRow({ issue }: { issue: Issue }) {
         <Menu anchor={menu.anchor} onClose={menu.close} width={220}>
           <div className="menu-header"><span>Release</span></div>
           {(open.length ? open : snap.releases).map(r => <MenuItem key={r.id} icon={<IconRelease size={14} />} label={r.name} selected={issue.releaseId === r.id} onClick={() => void setIssueProps([issue.id], { releaseId: r.id })} />)}
-          {!snap.releases.length && <div className="menu-empty">No releases yet — create one on the Releases page.</div>}
+          {!snap.releases.length && <div className="menu-empty">No releases yet. Create one on the Releases page.</div>}
           {issue.releaseId && <><MenuSep /><MenuItem label="Remove from release" onClick={() => void setIssueProps([issue.id], { releaseId: null })} /></>}
         </Menu>
       )}

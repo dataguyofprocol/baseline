@@ -88,9 +88,9 @@ for (const route of registered.filter(r => r in ROUTE_POLICY)) {
   const { scope, team } = ROUTE_POLICY[route]!;
   counts[team] = (counts[team] ?? 0) + 1;
   check(scopeOf(method, pathFor(pattern, 'x')) === scope, `${route}: the row says a key needs "${scope}", the middleware asks for "${scopeOf(method, pathFor(pattern, 'x'))}"`);
-  if (team !== 'issue') check(!NAMES_ISSUE.test(pattern) || pattern.startsWith('/api/issues/by-key'), `${route}: an issue id in the path is checked by the middleware — classify it as "issue"`);
-  if (team !== 'team') check(!NAMES_TEAM.test(pattern), `${route}: a team id in the path is checked by the middleware — classify it as "team"`);
-  if (team !== 'file') check(!NAMES_FILE.test(pattern), `${route}: a file id in the path is checked by the middleware — classify it as "file"`);
+  if (team !== 'issue') check(!NAMES_ISSUE.test(pattern) || pattern.startsWith('/api/issues/by-key'), `${route}: an issue id in the path is checked by the middleware, so classify it as "issue"`);
+  if (team !== 'team') check(!NAMES_TEAM.test(pattern), `${route}: a team id in the path is checked by the middleware, so classify it as "team"`);
+  if (team !== 'file') check(!NAMES_FILE.test(pattern), `${route}: a file id in the path is checked by the middleware, so classify it as "file"`);
 
   const body = method === 'GET' ? undefined : { teamId: other.id, ids: [foreign.id], title: 'x', name: 'x', key: 'ZZ' };
   switch (team) {
@@ -113,7 +113,7 @@ for (const route of registered.filter(r => r in ROUTE_POLICY)) {
 }
 
 console.log(`${registered.length} /api routes: ${Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(', ')}`);
-console.log(`unchecked (team data a team-limited key can still reach — known gaps): ${unchecked.length}\n  ${unchecked.join('\n  ')}`);
+console.log(`unchecked known gaps (team data a team-limited key can still reach): ${unchecked.length}\n  ${unchecked.join('\n  ')}`);
 for (const p of problems) console.log(`✗ ${p}`);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

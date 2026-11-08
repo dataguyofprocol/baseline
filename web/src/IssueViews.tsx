@@ -514,7 +514,7 @@ export function IssueRow(props: {
         {display.prs !== false && (() => { const pr = issuePrState(snap, issue.id); return pr ? <PrIcon state={pr} size={13} title={prSummary(issuePrList(snap, issue.id))} /> : null; })()}
         {issue.slaBreachesAt && !closed && <SlaBadge issue={issue} />}
         {display.due && due && (
-          <span className={`due-chip ${overdue ? 'overdue' : ''}`} title={overdue ? `Overdue — due ${shortDate(due)}` : `Due ${shortDate(due)}`}>
+          <span className={`due-chip ${overdue ? 'overdue' : ''}`} title={overdue ? `Overdue, due ${shortDate(due)}` : `Due ${shortDate(due)}`}>
             <IconCalendar size={11} /> {shortDate(due + 'T12:00')}
           </span>
         )}

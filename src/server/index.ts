@@ -74,7 +74,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (opts.blank) blankWorkspace(db);
     else {
       seedWorkspace(db);
-      console.error('[baseline] seeded a sample workspace — run `baseline seed --reset` to reseed');
+      console.error('[baseline] seeded a sample workspace; run `baseline seed --reset` to reseed');
     }
   }
 
@@ -336,7 +336,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // ---------- images ----------
   /** the request body is the image; a Content-Length over the limit is refused before reading */
   const readUpload = async (c: Context, max: number): Promise<Buffer> => {
-    if (Number(c.req.header('content-length')) > max) throw new FileError(`Images are limited to ${formatBytes(max)} — link to bigger files instead`, 413);
+    if (Number(c.req.header('content-length')) > max) throw new FileError(`Images are limited to ${formatBytes(max)}. Link to bigger files instead.`, 413);
     return Buffer.from(await c.req.arrayBuffer());
   };
   const uploadFailed = (c: Context, err: unknown) => err instanceof FileError
@@ -418,7 +418,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // Origin means another site, and a non-JSON body means a CORS-free "simple" form post
   // (these stay loopback-only even when BASELINE_HOST opens the rest to the LAN)
   const localOnly = async (c: Context, next: Next) => {
-    if (hosted) return c.json({ error: 'The hosted app can\'t open programs on your computer yet — copy the prompt instead', code: 'companion-required' }, 403);
+    if (hosted) return c.json({ error: 'The hosted app can\'t open programs on your computer yet. Copy the prompt instead.', code: 'companion-required' }, 403);
     const originHost = originHostOf(c);
     if (!isLoopback(hostOf(c)) || (originHost !== null && !isLoopback(originHost)) || !(c.req.header('content-type') ?? '').includes('application/json')) {
       return c.json({ error: 'Only this machine can do that', code: 'forbidden' }, 403);

@@ -273,7 +273,7 @@ export function MyIssuesPage() {
   const empty: Record<Exclude<MyTab, 'activity'>, { title: string; desc: string }> = {
     assigned: { title: 'No issues assigned to you', desc: 'Issues assigned to you will show up here.' },
     created: { title: 'No issues created by you', desc: 'Issues you create will show up here.' },
-    subscribed: { title: 'No subscriptions', desc: 'Issues you subscribe to — and the ones you create, are assigned or comment on — show up here.' },
+    subscribed: { title: 'No subscriptions', desc: 'Issues you subscribe to show up here, along with the ones you create, are assigned or comment on.' },
   };
 
   return (
@@ -422,7 +422,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
           <div className="empty-state">
             <Illustration name="views" />
             <div className="empty-title">Views</div>
-            <div className="empty-desc">{kind === 'projects' ? 'Save project filters, groupings and layouts — a roadmap, a team’s portfolio, at-risk work — and come back to them.' : 'Create views to save filters and groupings you return to.'}</div>
+            <div className="empty-desc">{kind === 'projects' ? 'Save project filters, groupings and layouts, like a roadmap, a team’s portfolio or at-risk work, and come back to them.' : 'Create views to save filters and groupings you return to.'}</div>
             <div className="empty-actions">
               <button className="btn primary" onClick={createView}>New view</button>
             </div>

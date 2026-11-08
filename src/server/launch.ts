@@ -47,7 +47,7 @@ export function interactivePrompt(store: Store, issueId: string): string {
   return `${store.handoffFor(issueId)!.prompt}
 
 ---
-The baseline CLI in this session is \`node ${CLI_BIN}\` — run the commands above with it. BASELINE_DB and BASELINE_AS are set, so it writes to this workspace and posts as Agent.`;
+The baseline CLI in this session is \`node ${CLI_BIN}\`. Run the commands above with it. BASELINE_DB and BASELINE_AS are set, so it writes to this workspace and posts as Agent.`;
 }
 
 /** Terminal, iTerm, Ghostty and Warp open a .command like a document; these take it as the program to run */
@@ -71,7 +71,7 @@ export interface LaunchResult { key: string; directory: string; location: { id: 
 /** Opens the issue's location, or pins the one given (an existing location, or a new folder,
  *  which is registered as a location) and opens that. Nothing is guessed: no location, no launch. */
 export function openInClaudeCode(store: Store, dbPath: string, issueId: string, opts: { locationId?: string; directory?: string } = {}): LaunchResult {
-  if (process.platform !== 'darwin' && !process.env.BASELINE_OPEN_CMD) throw new LaunchError('unsupported', 'Opening a terminal session is only supported on macOS — use `baseline issue handoff` instead');
+  if (process.platform !== 'darwin' && !process.env.BASELINE_OPEN_CMD) throw new LaunchError('unsupported', 'Opening a terminal session is only supported on macOS. Use `baseline issue handoff` instead.');
   const issue = store.getIssue(issueId);
   if (!issue) throw new LaunchError('not-found', 'Issue not found');
   const key = issueKey(issue, store.snapshot().teams);
@@ -80,7 +80,7 @@ export function openInClaudeCode(store: Store, dbPath: string, issueId: string, 
   const location = picked ? store.createLocation(picked)
     : opts.locationId ? store.getLocation(opts.locationId)
     : store.locationFor(issue);
-  if (!location) throw new LaunchError('no-location', `${key} has no location — pick one`);
+  if (!location) throw new LaunchError('no-location', `${key} has no location. Pick one.`);
   const directory = location.path;
   if (!isDirectory(directory)) throw new LaunchError('bad-directory', `The location ${location.name} points at ${directory}, which doesn't exist`);
   // choosing where to open it is choosing where the task lives
@@ -119,7 +119,7 @@ export function openInClaudeCode(store: Store, dbPath: string, issueId: string, 
 
 /** native folder picker (⌘-click picks several when `multiple`); resolves [] when the user cancels */
 export function pickDirectories(prompt = 'Choose a folder', multiple = false): Promise<string[]> {
-  if (process.platform !== 'darwin') return Promise.reject(new LaunchError('unsupported', 'The folder picker is only available on macOS — type the path instead'));
+  if (process.platform !== 'darwin') return Promise.reject(new LaunchError('unsupported', 'The folder picker is only available on macOS. Type the path instead.'));
   const script = [
     'activate',
     `set picked to (choose folder with prompt ${JSON.stringify(prompt)}${multiple ? ' with multiple selections allowed' : ''})`,

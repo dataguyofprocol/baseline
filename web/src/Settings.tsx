@@ -151,7 +151,7 @@ function WorkspaceSettings() {
         <span style={{ color: 'var(--text-secondary)' }}>{snap.users.map(u => u.name).join(', ')}</span>
       </div>
       <div className="field-row">
-        <div><div className="field-label">Agents</div><div className="field-help">Coding agents drive this workspace through the baseline CLI — the repo ships a skill (<code>skills/baseline/SKILL.md</code>) that teaches them the commands.</div></div>
+        <div><div className="field-label">Agents</div><div className="field-help">Coding agents drive this workspace through the baseline CLI. The repo ships a skill (<code>skills/baseline/SKILL.md</code>) that teaches them the commands.</div></div>
         <code className="cli-chip">node bin/baseline.js --help</code>
       </div>
     </div>
@@ -227,7 +227,7 @@ function NewTeamSettings() {
           <input className="text-input" autoFocus placeholder="e.g. Engineering" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create(); }} />
         </div>
         <div className="field-row">
-          <div><div className="field-label">Identifier</div><div className="field-help">Used in issue IDs — {ident || 'KEY'}-123.{taken && <span style={{ color: 'var(--danger, #e5484d)' }}> Already in use.</span>}</div></div>
+          <div><div className="field-label">Identifier</div><div className="field-help">Used in issue IDs, like {ident || 'KEY'}-123.{taken && <span style={{ color: 'var(--danger, #e5484d)' }}> Already in use.</span>}</div></div>
           <input className="text-input" style={{ width: 100 }} placeholder="KEY" value={ident} onChange={e => { setKeyTouched(true); setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7)); }} onKeyDown={e => { if (e.key === 'Enter') void create(); }} />
         </div>
       </div>
@@ -423,7 +423,7 @@ function RecurringIssues(props: { teamId: string }) {
   };
   return (
     <div className="card" style={{ padding: '6px 10px' }}>
-      <div className="field-help" style={{ padding: '4px 0 8px' }}>Issues that file themselves on a schedule — a weekly dependency bump, a monthly review. Any issue can become one from its menu (Convert to ▸ Recurring issue).</div>
+      <div className="field-help" style={{ padding: '4px 0 8px' }}>Issues that file themselves on a schedule, like a weekly dependency bump or a monthly review. Any issue can become one from its menu (Convert to ▸ Recurring issue).</div>
       {list.map(r => (
         <div key={r.id} className="recurring-row group">
           <span className="rr-title">{r.title}</span>
@@ -638,7 +638,7 @@ function NotificationSettings() {
       <div className="field-help" style={{ marginBottom: 16 }}>Notifications from this browser while Baseline is open in a tab, even in the background</div>
       <div className="card set-list">
         <div className="set-row notif-row">
-          <div style={{ flex: 1 }}><div className="field-label">Enable browser notifications</div><div className="field-help">{perm === 'unsupported' ? 'This browser doesn’t support notifications.' : perm === 'denied' ? 'Notifications are blocked for this site — allow them in your browser’s site settings.' : perm === 'granted' ? 'Allowed in this browser.' : 'Your browser will ask for permission.'}</div></div>
+          <div style={{ flex: 1 }}><div className="field-label">Enable browser notifications</div><div className="field-help">{perm === 'unsupported' ? 'This browser doesn’t support notifications.' : perm === 'denied' ? 'Notifications are blocked for this site. Allow them in your browser’s site settings.' : perm === 'granted' ? 'Allowed in this browser.' : 'Your browser will ask for permission.'}</div></div>
           <SettingSwitch on={push.browser && perm === 'granted'} onChange={async v => {
             if (v && perm !== 'granted' && typeof Notification !== 'undefined') { const r = await Notification.requestPermission(); setPerm(r); if (r !== 'granted') return; }
             await savePush({ browser: v });
@@ -1030,7 +1030,7 @@ function GithubLoginInput(props: { userId: string; value: string }) {
   const [draft, setDraft] = useState(props.value);
   useEffect(() => { setDraft(props.value); }, [props.value]);
   return (
-    <input className="text-input" style={{ width: 130, height: 24, fontSize: 12 }} aria-label="GitHub username" title="GitHub username — links their pull requests to them" placeholder="GitHub username" spellCheck={false}
+    <input className="text-input" style={{ width: 130, height: 24, fontSize: 12 }} aria-label="GitHub username" title="GitHub username, which links their pull requests to them" placeholder="GitHub username" spellCheck={false}
       value={draft} onChange={e => setDraft(e.target.value.replace(/\s+/g, ''))}
       onBlur={async () => { if (draft !== props.value) { await api.updateUser(props.userId, { githubUsername: draft.replace(/^@/, '') }); await useApp.getState().bootstrap(); } }}
       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
@@ -1186,7 +1186,7 @@ function HandoffSettings() {
       </div>
       {preview && (
         <div className="field-row" style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 14, display: 'block' }}>
-          <div className="field-label" style={{ marginBottom: 8 }}>Preview — {preview.key}</div>
+          <div className="field-label" style={{ marginBottom: 8 }}>Preview: {preview.key}</div>
           <pre style={{ margin: 0, padding: '10px 12px', background: 'var(--bg-secondary, #141414)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--font-mono, monospace)', fontSize: 12, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{preview.prompt}</pre>
           <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 6 }}>branch: <code>{preview.branchName}</code></div>
         </div>
@@ -1347,8 +1347,8 @@ function ProjectTemplatesSection() {
             <input className="text-input" placeholder="Summary" value={draft.summary} onChange={e => setDraft(d => ({ ...d, summary: e.target.value }))} />
             <textarea className="text-input" placeholder="Description (markdown)" value={draft.description} onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} />
             <div style={{ display: 'flex', gap: 6 }}>
-              <textarea className="text-input" style={{ flex: 1 }} placeholder="Milestones — one per line" value={draft.milestones} onChange={e => setDraft(d => ({ ...d, milestones: e.target.value }))} />
-              <textarea className="text-input" style={{ flex: 1 }} placeholder="Starter issues — one title per line" value={draft.issues} onChange={e => setDraft(d => ({ ...d, issues: e.target.value }))} />
+              <textarea className="text-input" style={{ flex: 1 }} placeholder="Milestones, one per line" value={draft.milestones} onChange={e => setDraft(d => ({ ...d, milestones: e.target.value }))} />
+              <textarea className="text-input" style={{ flex: 1 }} placeholder="Starter issues, one title per line" value={draft.issues} onChange={e => setDraft(d => ({ ...d, issues: e.target.value }))} />
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button className="btn primary" style={{ height: 26, fontSize: 12 }} onClick={() => save(t.id)}>Save</button>

@@ -257,7 +257,7 @@ export const authApi = {
   },
   post: async (path: string, body: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string; code?: string }> => {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
-    if (!res) return { ok: false, error: 'Can’t reach the server — check your connection and try again.' };
+    if (!res) return { ok: false, error: 'Can’t reach the server. Check your connection and try again.' };
     if (res.ok) return { ok: true };
     const j = await res.json().catch(() => ({})) as { error?: string; code?: string };
     return { ok: false, error: j.error ?? `Something went wrong (${res.status})`, code: j.code };

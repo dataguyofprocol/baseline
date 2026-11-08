@@ -74,7 +74,7 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
     d.estimate && est != null && <span key="e" className={`bc-chip${editable}`} {...edit('estimate')} title={`${issue.estimate} points`}><IconEstimate size={12} />{est}</span>,
     d.links && links > 0 && <span key="lk" className="bc-chip" title={`${links} links`}><IconAttach size={12} />{links}</span>,
     d.due && due && (
-      <span key="d" className={`bc-chip${editable}${overdue ? ' overdue' : ''}`} {...edit('due')} title={overdue ? `Overdue — was due ${shortDate(due + 'T12:00')}` : `Due ${shortDate(due + 'T12:00')}`}><IconCalendar size={12} />{shortDate(due + 'T12:00')}</span>
+      <span key="d" className={`bc-chip${editable}${overdue ? ' overdue' : ''}`} {...edit('due')} title={overdue ? `Overdue, was due ${shortDate(due + 'T12:00')}` : `Due ${shortDate(due + 'T12:00')}`}><IconCalendar size={12} />{shortDate(due + 'T12:00')}</span>
     ),
   ].filter(Boolean);
   return (

@@ -48,7 +48,7 @@ function PasswordSection() {
     try {
       await api.changePassword({ current, next });
       setCurrent(''); setNext(''); setErr('');
-      toast({ title: 'Password changed — other devices were signed out' });
+      toast({ title: 'Password changed. Other devices were signed out' });
     } catch (e) { setErr((e as Error).message); }
   });
   return (
@@ -133,7 +133,7 @@ export function NewApiKey() {
     <div className="settings-card">
       {back}
       <h1>API key created</h1>
-      <div className="field-help" style={{ marginBottom: 16 }}>Copy your key now — you won’t be able to see it again.</div>
+      <div className="field-help" style={{ marginBottom: 16 }}>Copy your key now. You won’t be able to see it again.</div>
       <div className="card api-key-reveal">
         <div className="field-label" style={{ marginBottom: 8 }}>{created.key.name}</div>
         <div className="api-key-token">
@@ -204,7 +204,7 @@ export function ApiAdminSettings() {
           </select>
         </div>
         <div className="set-row">
-          <div style={{ flex: 1 }}><div className="field-label">Require a key from other devices</div><div className="field-help">{snap.workspace.lanHost ? `Baseline is open to your network at ${snap.workspace.lanHost}. When on, requests from other devices need an API key — including the web app opened on them.` : 'Baseline only answers this machine right now. If you set BASELINE_HOST to open it to your network, this makes other devices send an API key.'}</div></div>
+          <div style={{ flex: 1 }}><div className="field-label">Require a key from other devices</div><div className="field-help">{snap.workspace.lanHost ? `Baseline is open to your network at ${snap.workspace.lanHost}. When on, requests from other devices need an API key, including the web app opened on them.` : 'Baseline only answers this machine right now. If you set BASELINE_HOST to open it to your network, this makes other devices send an API key.'}</div></div>
           <button className={`switch${f.apiKeyRequiredRemote ? ' on' : ''}`} role="switch" aria-checked={f.apiKeyRequiredRemote} aria-label="Require a key from other devices" onClick={async () => { await api.setFeatures({ apiKeyRequiredRemote: !f.apiKeyRequiredRemote }); await refresh(); }}><span /></button>
         </div>
       </div>

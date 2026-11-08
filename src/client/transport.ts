@@ -19,7 +19,7 @@ const init = (method: string, opts?: WireRequest, headers: Record<string, string
 
 async function parse(res: Response, where: string): Promise<WireResponse> {
   if (!(res.headers.get('content-type') ?? '').includes('application/json')) {
-    throw new BaselineError(res.status, 'server', `${where} answered with something other than Baseline's API (HTTP ${res.status}) — check the server address, and that it runs a Baseline as new as this CLI`);
+    throw new BaselineError(res.status, 'server', `${where} answered with something other than Baseline's API (HTTP ${res.status}). Check the server address, and that it runs a Baseline as new as this CLI.`);
   }
   return { status: res.status, body: await res.json() };
 }

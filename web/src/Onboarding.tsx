@@ -123,15 +123,15 @@ function WelcomeStep({ next }: StepProps) {
       lead={<div className="onb-lockup"><Lockup size={30} tone="var(--text-primary)" /></div>}
       title={<>Welcome to {ws}</>}
       sub={hosted
-        ? 'A shared tracker for your team and its coding agents. A minute of setup and you\'re in — every step can be skipped.'
-        : 'A local-first tracker for you and your coding agents. A minute of setup and you\'re in — every step can be skipped.'}
+        ? 'A shared tracker for your team and its coding agents. A minute of setup and you\'re in, and every step can be skipped.'
+        : 'A local-first tracker for you and your coding agents. A minute of setup and you\'re in, and every step can be skipped.'}
       primary={{ label: 'Get started', onClick: next }}
       onSkip={next}
     >
       <div className="onb-points">
-        <div><IconIssues size={15} /><span><b>Issues, projects and cycles</b> — {hosted ? 'shared with everyone you invite.' : 'stored in SQLite on this machine.'}</span></div>
-        <div><IconPr size={15} /><span><b>GitHub-aware</b> — pull requests move their issues along.</span></div>
-        <div><IconSearch size={15} /><span><b>Keyboard-first</b> — <span className="kbd">⌘</span><span className="kbd">K</span> reaches everything.</span></div>
+        <div><IconIssues size={15} /><span><b>Issues, projects and cycles.</b> {hosted ? 'Shared with everyone you invite.' : 'Stored in SQLite on this machine.'}</span></div>
+        <div><IconPr size={15} /><span><b>GitHub-aware.</b> Pull requests move their issues along.</span></div>
+        <div><IconSearch size={15} /><span><b>Keyboard-first.</b> <span className="kbd">⌘</span><span className="kbd">K</span> reaches everything.</span></div>
       </div>
     </Frame>
   );
@@ -231,7 +231,7 @@ function ThemeMock({ pref }: { pref: ThemePref }) {
           ? <><MockApp mode="dark" /><g clipPath="url(#onb-half)"><MockApp mode="light" /></g></>
           : <MockApp mode={pref} />}
       </svg>
-      {pref === 'system' && <div className="onb-preview-note">Following your system — {resolved} right now</div>}
+      {pref === 'system' && <div className="onb-preview-note">Following your system, {resolved} right now</div>}
     </div>
   );
 }
@@ -251,7 +251,7 @@ function TeamStep({ next, back }: StepProps) {
     if (busy) return;
     k = k.trim().toUpperCase(); n = n.trim();
     if (!n || !k) { setError('A team needs a name and a key.'); return; }
-    if (snap.teams.some(t => t.key === k && t.id !== existing?.id)) { setError(`The key ${k} is taken — pick another.`); return; }
+    if (snap.teams.some(t => t.key === k && t.id !== existing?.id)) { setError(`The key ${k} is taken. Pick another.`); return; }
     setBusy(true); setError('');
     try {
       if (!existing) await api.createTeam({ key: k, name: n });
@@ -272,7 +272,7 @@ function TeamStep({ next, back }: StepProps) {
     <Frame
       illo="customers"
       title="Create your team"
-      sub={<>Issues always live inside a team. Its key prefixes every issue — <b>{key || 'GEN'}-1</b>, <b>{key || 'GEN'}-2</b>…</>}
+      sub={<>Issues always live inside a team. Its key prefixes every issue: <b>{key || 'GEN'}-1</b>, <b>{key || 'GEN'}-2</b>…</>}
       primary={{ label: busy ? 'Saving…' : existing ? 'Continue' : 'Create team', onClick: submit, disabled: busy || !name.trim() || !key.trim() }}
       onSkip={skip}
       skipLabel={existing ? 'Skip' : 'Use “General”'}
@@ -347,8 +347,8 @@ function GitHubStep({ next, back }: StepProps) {
   useStepKeys(() => { if (document.activeElement?.getAttribute('data-path') && path.trim()) void addPath(); else void connect(); }, next);
 
   const gh = !status ? { tone: 'wait', text: 'Checking the GitHub CLI…' }
-    : !status.ghInstalled ? { tone: 'off', text: <>GitHub CLI not found — install it with <code>brew install gh</code>, then run <code>gh auth login</code>.</> }
-    : !status.ghUser ? { tone: 'off', text: <>GitHub CLI installed, not signed in — run <code>gh auth login</code>.</> }
+    : !status.ghInstalled ? { tone: 'off', text: <>GitHub CLI not found. Install it with <code>brew install gh</code>, then run <code>gh auth login</code>.</> }
+    : !status.ghUser ? { tone: 'off', text: <>GitHub CLI installed, not signed in. Run <code>gh auth login</code>.</> }
     : { tone: 'on', text: <>Signed in to GitHub as <b>{status.ghUser}</b></> };
 
   return (
@@ -370,7 +370,7 @@ function GitHubStep({ next, back }: StepProps) {
       </div>
       <div className="onb-section">
         <span className="field-label">Repositories</span>
-        <span className="field-help">The folders on this machine Baseline syncs — any whose <code>origin</code> is on GitHub.</span>
+        <span className="field-help">The folders on this machine Baseline syncs: any whose <code>origin</code> is on GitHub.</span>
       </div>
       <div className="onb-repos">
         {snap.locations.map(l => (

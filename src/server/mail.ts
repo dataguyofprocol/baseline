@@ -63,7 +63,7 @@ export function passwordResetEmail(o: { to: string; workspace: string; link: str
     subject: `Reset your ${o.workspace} password on Baseline`,
     ...render([
       `Someone asked to reset the password for ${o.to} on ${o.workspace}. The link works once, for ${o.minutes} minutes.`,
-      'If that wasn’t you, ignore this email — your password stays as it is.',
+      'If that wasn’t you, ignore this email. Your password stays as it is.',
     ], { label: 'Choose a new password', url: o.link }),
   };
 }

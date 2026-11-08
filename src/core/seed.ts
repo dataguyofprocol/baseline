@@ -80,7 +80,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   });
   const mobile = store.createProject({
     name: 'Mobile Companion', teamId: core.id, summary: 'Triage on the go: inbox, my issues and search on a phone.',
-    description: 'Read-only mobile web app for triaging issues on the go — inbox, my issues and search.',
+    description: 'Read-only mobile web app for triaging issues on the go: inbox, my issues and search.',
     icon: '📱', leadId: ada.id, startDate: iso(3), targetDate: iso(45), priority: 3,
   });
   const design = store.createProject({
@@ -174,7 +174,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.setFeatures({ customerRequestsEnabled: true });
   const acme = store.createCustomer({ name: 'Acme Robotics', domains: ['acme.dev'], revenue: 240000, size: 120, ownerId: ada.id });
   const north = store.createCustomer({ name: 'Northwind', domains: ['northwind.io'], revenue: 60000, size: 30 });
-  store.addCustomerRequest({ customerId: acme.id, projectId: mobile.id, body: 'Our on-call team triages from phones — need the inbox on mobile.', important: true }, ada.id);
+  store.addCustomerRequest({ customerId: acme.id, projectId: mobile.id, body: 'Our on-call team triages from phones, so we need the inbox on mobile.', important: true }, ada.id);
   const reqIssue = store.listIssues({ teamId: core.id }).find(i => /search/i.test(i.title));
   if (reqIssue) store.addCustomerRequest({ customerId: north.id, issueId: reqIssue.id, body: 'Search should match comment text too.' }, jun.id);
   // initiatives, releases, SLAs, asks, loops and a few pull requests
@@ -214,7 +214,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   automation.createSlaRule({ name: 'High-priority bugs', priorities: [2], labelIds: [coreBug.id], hours: 7 * 24 });
   automation.createAskForm({ name: 'Bug report', teamId: agents.id, description: 'Something broken? Tell us what you saw.', priority: 2,
     fields: [{ id: 'f_title', label: 'What went wrong?', type: 'text', options: [], required: true }, { id: 'f_steps', label: 'Steps to reproduce', type: 'textarea', options: [], required: false }, { id: 'f_sev', label: 'How bad is it?', type: 'select', options: ['Blocking', 'Annoying', 'Cosmetic'], required: true }] });
-  automation.createLoop({ name: 'Bug acknowledgement', teamId: core.id, trigger: { kind: 'labelAdded', labelId: coreBug.id }, actions: [{ kind: 'comment', body: 'Thanks — {issue.key} is queued for the bug rotation.' }] });
+  automation.createLoop({ name: 'Bug acknowledgement', teamId: core.id, trigger: { kind: 'labelAdded', labelId: coreBug.id }, actions: [{ kind: 'comment', body: 'Thanks for the report. {issue.key} is queued for the bug rotation.' }] });
   if (open[0]) git.ingestPullRequest({ repo: 'example/baseline', number: 41, title: `${store.keyOf(open[0])} ${open[0].title}`, body: '', url: 'https://github.com/example/baseline/pull/41', state: 'open', branch: `parth/${store.keyOf(open[0]).toLowerCase()}`, base: 'main', author: 'parth', reviewDecision: 'review_required', checks: 'success', updatedAt: iso(-0.1), mergedAt: null });
   store.createDocTemplate({ name: 'Spec', title: 'Spec: ', content: '## Problem\n\n## Proposal\n\n## Open questions\n' });
   store.createProjectTemplate({
@@ -226,13 +226,13 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
 
   // triage on the agent team: two issues an agent filed through the CLI wait for review
   store.updateTeam(agents.id, { triageEnabled: true });
-  store.createIssue({ teamId: agents.id, title: 'Flaky: `issue list --json` drops archived children', description: 'Seen twice while closing out CORE-24 — the JSON output omits sub-issues whose parent was archived.' }, agentId);
+  store.createIssue({ teamId: agents.id, title: 'Flaky: `issue list --json` drops archived children', description: 'Seen twice while closing out CORE-24. The JSON output omits sub-issues whose parent was archived.' }, agentId);
   store.createIssue({ teamId: agents.id, title: 'Expose cycle automation in the CLI', description: '`baseline team update --auto-cycles` would let agents set up a team end to end.' }, agentId);
 
   // comments
   const first = store.listIssues({ teamId: core.id })[0];
   if (first) {
-    store.addComment(first.id, ada.id, 'Token sheet is drafted — light theme needs a second pass before we ship the toggle.');
+    store.addComment(first.id, ada.id, 'Token sheet is drafted, but the light theme needs a second pass before we ship the toggle.');
     store.addComment(first.id, me.id, 'Agreed. Menu surfaces sample `#212122`, modals `#1a1a1b`.');
   }
 
@@ -243,10 +243,10 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   const themeKey = theme.id;
   const cmdk = store.listIssues({ teamId: core.id }).find(i => i.title.startsWith('Cmd+K'));
   const wal = store.listIssues({ teamId: agents.id }).find(i => i.title.startsWith('Concurrent writer'));
-  store.notify('issueMentioned', { userId: me.id, actorId: ada.id, issueId: cmdk?.id ?? themeKey, body: `@${me.name} scroll jumps a row when the list re-scores — can you take it?`, createdAt: hoursAgo(2) });
+  store.notify('issueMentioned', { userId: me.id, actorId: ada.id, issueId: cmdk?.id ?? themeKey, body: `@${me.name} scroll jumps a row when the list re-scores. Can you take it?`, createdAt: hoursAgo(2) });
   store.notify('issueCommented', { userId: me.id, actorId: jun.id, issueId: cmdk?.id ?? themeKey, body: 'Repro is the fuzzy re-rank, not the scroll container.', createdAt: hoursAgo(2.4) });
   store.notify('issueAssignedToYou', { userId: me.id, actorId: jun.id, issueId: wal?.id ?? themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(5) });
-  store.notify('systemUpdate', { userId: me.id, issueId: null, body: `Cycle ${prevCycle.number} closed — 3 issues rolled over into Cycle ${currentCycle.number}`, createdAt: hoursAgo(9) });
+  store.notify('systemUpdate', { userId: me.id, issueId: null, body: `Cycle ${prevCycle.number} closed. 3 issues rolled over into Cycle ${currentCycle.number}.`, createdAt: hoursAgo(9) });
   store.notify('issueCommented', { userId: me.id, actorId: ada.id, issueId: themeKey, body: 'Light theme needs a second pass before the toggle ships.', createdAt: hoursAgo(27) });
   store.notify('issueAssignedToYou', { userId: me.id, actorId: ada.id, issueId: themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(74) });
 

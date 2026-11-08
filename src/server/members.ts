@@ -14,7 +14,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
   const { store, accounts, mailer, hosted } = o;
   // invites send email in the workspace's name: at most 100 addresses (or resends) per person per hour
   const inviteLimit = limiter(100, 60 * 60_000);
-  const tooMany = (c: Context) => c.json({ error: 'You\'ve sent a lot of invites — try again in an hour', code: 'rate-limited' }, 429);
+  const tooMany = (c: Context) => c.json({ error: 'You\'ve sent a lot of invites. Try again in an hour.', code: 'rate-limited' }, 429);
   const forbid = (c: Context, error: string) => c.json({ error, code: 'forbidden' }, 403);
   const me = () => store.actor();
   const knownTeams = (ids: unknown): string[] =>
@@ -103,7 +103,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     if (!accounts.isAdmin(me())) return forbid(c, 'Only admins can make password reset links');
     const target = store.snapshot().users.find(u => u.id === c.req.param('id') && u.kind === 'human');
     if (!target) return c.json({ error: 'No such person', code: 'not-found' }, 404);
-    if (target.status === 'suspended') return c.json({ error: `${target.name} is suspended — reactivate them first`, code: 'invalid' }, 400);
+    if (target.status === 'suspended') return c.json({ error: `${target.name} is suspended. Reactivate them first.`, code: 'invalid' }, 400);
     const { token, expiresAt } = accounts.createPasswordReset(target.id, me(), RESET_LINK_TTL);
     return c.json({ link: resetLink(hosted.publicUrl, token), expiresAt });
   });
@@ -121,7 +121,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     if (!ids.length) return c.json({ error: 'Pick at least one person', code: 'invalid' }, 400);
     // agents work in every team, so they're never on one; nor is someone who can't sign in
     const refused = ids.filter(id => !accounts.isActivePerson(id));
-    if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team — agents work in every team', code: 'invalid', userIds: refused }, 400);
+    if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team. Agents work in every team.', code: 'invalid', userIds: refused }, 400);
     const added = ids.filter(id => !team.memberIds.includes(id));
     for (const id of added) store.addTeamMember(team.id, id);
     store.notifyEach(added, 'teamMemberAdded', { actorId: me(), body: `${team.id}|${team.name}` });

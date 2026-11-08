@@ -250,7 +250,7 @@ function LabelMenuBody({ ini, onChange }: { ini: Pick<Initiative, 'labelIds'>; o
         await api.createInitiativeLabel({ name: q.trim(), color: INITIATIVE_COLORS[1 + (snap.initiativeLabels.length % (INITIATIVE_COLORS.length - 1))] });
         await refresh(); const made = useApp.getState().snap?.initiativeLabels.find(l => l.name === q.trim()); if (made) onChange([...ini.labelIds, made.id]);
       }} />}
-      {!snap.initiativeLabels.length && !q && <div className="menu-empty">No initiative labels yet — type to create one.</div>}
+      {!snap.initiativeLabels.length && !q && <div className="menu-empty">No initiative labels yet. Type to create one.</div>}
       <MenuSep />
       <MenuItem icon={<IconSettings size={13} />} label="Manage labels" onClick={() => navigate('/settings/initiatives')} />
     </>
@@ -662,7 +662,7 @@ function InitiativeOverview({ ini }: { ini: Initiative }) {
       <InitiativeUpdateDue ini={ini} />
 
       <div className="proj-section-label">Description</div>
-      <div className="proj-desc"><RichEditor key={ini.id} value={ini.description} uploadTo={`initiative:${ini.id}`} placeholder="Add a description — the goal, why it matters, how you'll know it worked…" onBlur={md => md !== ini.description && void patch({ description: md })} /></div>
+      <div className="proj-desc"><RichEditor key={ini.id} value={ini.description} uploadTo={`initiative:${ini.id}`} placeholder="Add a description: the goal, why it matters, how you'll know it worked…" onBlur={md => md !== ini.description && void patch({ description: md })} /></div>
 
       <InitiativeGraph ini={ini} />
       <InitiativeProjects ini={ini} />

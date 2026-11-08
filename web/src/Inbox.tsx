@@ -206,7 +206,7 @@ export function InboxPage() {
       case 'pulseDigest': return { icon: <IconPulse size={12} />, what: 'Pulse summary' };
       case 'slaBreached': return { icon: <IconClock size={12} />, what: 'SLA breached' };
       case 'prActivity': return { icon: <PrIcon state={prStateOfNotice(n.body)} size={14} title="Pull request" />, what: n.body };
-      case 'loopFailed': return { icon: <IconClose size={12} />, what: `loop failed — ${n.body}` };
+      case 'loopFailed': return { icon: <IconClose size={12} />, what: `loop failed: ${n.body}` };
       case 'teamActivity': return { icon: <IconBell size={12} />, what: n.body };
       case 'teamMemberAdded': return { icon: <IconPlus size={12} />, what: 'added you to the team' };
       default: return { icon: <IconComment size={12} />, what: 'updated the issue' };

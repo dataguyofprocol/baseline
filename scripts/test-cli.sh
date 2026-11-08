@@ -34,7 +34,7 @@ check() { # check <name> <expected-substring> <cli-args…>
   if [[ "$out" == *"$expect"* ]]; then
     PASS=$((PASS+1))
   else
-    echo "FAIL  $name — output missing \"$expect\""; echo "      got: $(echo "$out" | head -3 | tr '\n' '|')"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1))
+    echo "FAIL  $name: output missing \"$expect\""; echo "      got: $(echo "$out" | head -3 | tr '\n' '|')"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1))
   fi
 }
 
@@ -48,7 +48,7 @@ checkon() { # checkon <db> <name> <expected-substring> <cli-args…>
   if [[ "$out" == *"$expect"* ]]; then
     PASS=$((PASS+1))
   else
-    echo "FAIL  $name — output missing \"$expect\""; echo "      got: $(echo "$out" | head -3 | tr '\n' '|')"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1))
+    echo "FAIL  $name: output missing \"$expect\""; echo "      got: $(echo "$out" | head -3 | tr '\n' '|')"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1))
   fi
 }
 
@@ -60,7 +60,7 @@ check_absent() { # check_absent <name> <unwanted-substring> <args…>
     echo "FAIL  $name (exit $rc)"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); return 1
   fi
   if [[ "$out" == *"$unwanted"* ]]; then
-    echo "FAIL  $name — output should not contain \"$unwanted\""; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1))
+    echo "FAIL  $name: output should not contain \"$unwanted\""; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1))
   else
     PASS=$((PASS+1))
   fi
@@ -69,7 +69,7 @@ check_absent() { # check_absent <name> <unwanted-substring> <args…>
 check_rc() { # check_rc <name> <expected-exit-code> <cli-args…>
   local name="$1" want="$2"; shift 2
   b "$@" >/dev/null 2>&1; local rc=$?
-  if [[ $rc -eq $want ]]; then PASS=$((PASS+1)); else echo "FAIL  $name — exit $rc, expected $want"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
+  if [[ $rc -eq $want ]]; then PASS=$((PASS+1)); else echo "FAIL  $name: exit $rc, expected $want"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
 }
 
 jsonq() { # jsonq <file|-> <node-expr using d>
@@ -78,7 +78,7 @@ jsonq() { # jsonq <file|-> <node-expr using d>
 
 check_json() { # check_json <name> <json-file> <node-expr using d>
   local name="$1" file="$2" expr="$3"
-  if jsonq "$file" "$expr"; then PASS=$((PASS+1)); else echo "FAIL  $name — json assertion: $expr"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
+  if jsonq "$file" "$expr"; then PASS=$((PASS+1)); else echo "FAIL  $name: json assertion failed: $expr"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
 }
 
 echo "=== discovery: team / user / label list ==="
@@ -475,7 +475,7 @@ if (await r("http://localhost/api/workspace", { method: "PATCH", headers: { "Con
 if (await r("http://localhost/api/directories/pick", { method: "POST", headers: { "Content-Type": "text/plain" }, body: "{}" }) !== 403) bad.push("text/plain launch");
 if (bad.length) { console.error("wrong status: " + bad.join(", ")); process.exit(1); }
 ' "$WORK/guard.db" > "$WORK/guard-out.txt" 2>&1
-if [[ $? -eq 0 ]]; then PASS=$((PASS+1)); else echo "FAIL  host/origin guard — $(cat "$WORK/guard-out.txt" | tail -2)"; FAILED_NAMES+=("host/origin guard"); FAIL=$((FAIL+1)); fi
+if [[ $? -eq 0 ]]; then PASS=$((PASS+1)); else echo "FAIL  host/origin guard: $(cat "$WORK/guard-out.txt" | tail -2)"; FAILED_NAMES+=("host/origin guard"); FAIL=$((FAIL+1)); fi
 
 echo "=== store createProject status/memberIds (web API fields) ==="
 node -e '
@@ -564,7 +564,7 @@ eq("only the marker",    titleFromPr("CORE-NEW"), "");
 if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
 '
 
-echo "=== git: ingest — PR author, attribution, KEY-NEW, branch-copy start ==="
+echo "=== git: ingest covers PR author, attribution, KEY-NEW and branch-copy start ==="
 nodecheck "PR ingest assigns the author, files KEY-NEW issues, branch copy starts issues" '
 const { createApp } = await import("./dist/server/index.js");
 const { store } = createApp(process.argv[1]);
@@ -608,7 +608,7 @@ const bot = snap().users.find(u => u.kind === "agent" && u.name === "GitHub");
 ok("unknown author: no assignee", issue(d.id).assigneeId === null);
 ok("unknown author: GitHub agent acts", store.issueActivity(d.id).some(x => x.type === "prLinked" && x.userId === bot?.id));
 
-// KEY-NEW: one new issue, started, assigned to the author, titled from the PR, linked — never twice
+// KEY-NEW: one new issue, started, assigned to the author, titled from the PR and linked, and never twice
 const before = snap().issues.length;
 const p = pr({ title: "CORE-NEW Add CSV export", body: "" });
 const made = snap().issues.filter(i => i.title === "Add CSV export");
@@ -640,7 +640,7 @@ ok("completed: no move", !store.startIssue(g.id, me.id).moved);
 if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
 ' "$WORK/git-flow.db"
 
-echo "=== git: read-only — only read commands reach gh / git ==="
+echo "=== git: read-only, so only read commands reach gh / git ==="
 nodecheck "assertReadOnly allows reads and refuses every write" '
 const { assertReadOnly } = await import("./dist/core/git.js");
 const ok = (c, a) => { try { assertReadOnly(c, a); return true; } catch { return false; } };
@@ -653,7 +653,7 @@ const bad = [...reads.filter(([c, a]) => !ok(c, a)).map(x => "refused read " + x
 if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
 '
 
-echo "=== git: webhooks — signed, deduped, inbound only ==="
+echo "=== git: webhooks are signed, deduped and inbound only ==="
 nodecheck "webhooks verify signatures, dedupe, and feed PRs, reviews, checks, pushes and issues" '
 const { createHmac } = await import("node:crypto");
 const { createApp } = await import("./dist/server/index.js");
@@ -711,7 +711,7 @@ if (!imported || !imported.description.includes("acme/app#99")) fail("a followed
 await send("issues", { action: "closed", issue: { number: 99, title: "From GitHub" }, repository });
 if (snap().states.find(s => s.id === store.getIssue(imported.id).stateId)?.type !== "completed") fail("closing it on GitHub should complete it here");
 
-// the exemption is the webhook POST only — everything else from a foreign host is still refused
+// the exemption is the webhook POST only. Everything else from a foreign host is still refused
 if ((await app.request("https://abc.trycloudflare.com/api/bootstrap")).status !== 403) fail("foreign host GET bootstrap must stay 403");
 if ((await app.request("https://abc.trycloudflare.com/api/github/webhook/config")).status !== 403) fail("foreign host webhook config must stay 403");
 if ((await app.request(TUNNEL)).status !== 403) fail("foreign host GET on the webhook path must stay 403");

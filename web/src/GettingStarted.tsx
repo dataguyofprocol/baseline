@@ -44,7 +44,7 @@ export function GettingStartedMenu() {
   return (
     <>
       <MenuSub icon={<ProgressRing done={done} total={items.length} />} label="Getting started" right={<span className="mi-kbd">{done}/{items.length}</span>} width={250}>
-        <div className="menu-header"><span>{done === items.length ? 'All done — nice work' : `${done} of ${items.length} done`}</span></div>
+        <div className="menu-header"><span>{done === items.length ? 'All done, nice work' : `${done} of ${items.length} done`}</span></div>
         {items.map(i => (
           <MenuItem key={i.id} icon={<CheckCircle done={i.done} />} label={<span className={i.done ? 'gs-done' : undefined}>{i.label}</span>}
             right={i.hint && <span className="mi-kbd">{i.hint}</span>} onClick={i.run} />

@@ -208,7 +208,7 @@ export function ProjectMenuBody(props: { kind: ProjKind; project: Project; onClo
             const kids = snap.projectLabels.filter(l => l.parentId === g.id && (m(l.name) || m(g.name)));
             return kids.length ? <div key={g.id}><div className="menu-header"><span>{g.name}</span></div>{kids.map(item)}</div> : null;
           })}
-          {!snap.projectLabels.length && <div className="menu-empty">No project labels yet — add them in Settings › Projects › Labels.</div>}
+          {!snap.projectLabels.length && <div className="menu-empty">No project labels yet. Add them in Settings › Projects › Labels.</div>}
           {q.trim() && !snap.projectLabels.some(l => l.name.toLowerCase() === q.trim().toLowerCase()) && (
             <MenuItem icon={<IconPlus size={13} />} label={`Create label “${q.trim()}”`} onClick={async () => {
               const { label } = await api.createProjectLabel({ name: q.trim(), color: '#5e6ad2' });
@@ -934,7 +934,7 @@ export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: (
     onClose();
     navigate(`/projects/${project.id}`);
     useApp.getState().toast(templateFailed
-      ? { title: 'Project created without its template', line: <>{icon} {project.name} — apply the template again from the project</> }
+      ? { title: 'Project created without its template', line: <>{icon} {project.name}. Apply the template again from the project</> }
       : { title: 'Project created', line: <>{icon} {project.name}</> });
   });
   const lead = snap.users.find(u => u.id === leadId);

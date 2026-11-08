@@ -94,10 +94,10 @@ export class FileService {
   upload(i: { data: Buffer; name?: string; ownerType: FileOwnerType; ownerId: string; uploadedBy?: string | null; maxBytes?: number }): StoredFile {
     const max = i.maxBytes ?? MAX_IMAGE_BYTES;
     if (!i.data.length) throw new FileError('The image is empty', 400);
-    if (i.data.length > max) throw new FileError(`Images are limited to ${formatBytes(max)} — link to bigger files instead`, 413);
+    if (i.data.length > max) throw new FileError(`Images are limited to ${formatBytes(max)}. Link to bigger files instead.`, 413);
     if (!this.ownerExists(i.ownerType, i.ownerId)) throw new FileError(`That ${i.ownerType} doesn't exist`, 404);
     const mime = sniffImage(i.data);
-    if (!mime) throw new FileError('Only images can be uploaded (PNG, JPEG, GIF, WebP, AVIF or SVG) — link to other files instead', 415);
+    if (!mime) throw new FileError('Only images can be uploaded (PNG, JPEG, GIF, WebP, AVIF or SVG). Link to other files instead.', 415);
     const fallback = `image.${mime.split('/')[1].replace('svg+xml', 'svg').replace('jpeg', 'jpg')}`;
     return this.insert(newId('file'), i.data, cleanFileName(i.name, fallback), mime, i.ownerType, i.ownerId, i.uploadedBy ?? null, nowIso());
   }

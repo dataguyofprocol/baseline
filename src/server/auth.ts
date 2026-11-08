@@ -100,7 +100,7 @@ export function mountAuth(app: Hono, cfg: HostedAuth, d: { accounts: Accounts; s
   // what an invite link shows before sign-in: whose workspace, who sent it, and to which address
   // (masked, because the code is in an email but links get forwarded)
   app.get('/auth/invite/:code', (c) => {
-    if (!inviteLookupLimit.take(clientIp(c))) return c.json({ state: 'unknown', error: 'Too many requests — try again in a few minutes' }, 429);
+    if (!inviteLookupLimit.take(clientIp(c))) return c.json({ state: 'unknown', error: 'Too many requests. Try again in a few minutes.' }, 429);
     const inv = accounts.inviteByCode(c.req.param('code'));
     if (!inv) return c.json({ state: 'unknown' }, 404);
     const inviter = inv.invited_by ? store.snapshot().users.find(u => u.id === inv.invited_by) : undefined;

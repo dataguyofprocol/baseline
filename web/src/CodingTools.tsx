@@ -14,7 +14,7 @@ import type { Issue, Location } from '../../src/core/types.js';
 
 /** hosted: the server can't open programs or folders on your computer until the companion ships */
 export const hostedWorkspace = () => useApp.getState().snap?.workspace.auth === 'hosted';
-export const COMPANION_NOTE = 'Opening Claude Code and adding folders need the Baseline companion on your computer — coming in Phase 2.';
+export const COMPANION_NOTE = 'Opening Claude Code and adding folders need the Baseline companion on your computer. It’s coming in Phase 2.';
 
 /** /Users/me/code/app → ~/code/app */
 export function tildify(path: string, home?: string): string {
@@ -204,9 +204,9 @@ export function IssueToolbar(props: { issue: Issue }) {
     <div className="issue-toolbar">
       <button className="tb-btn" title="Copy issue URL (⌘⇧,)" onClick={() => void actions.copyUrl()}><IconLink size={15} /></button>
       <button className="tb-btn" title="Copy issue ID (⌘.)" onClick={() => void actions.copyId()}><IconCopyId size={15} /></button>
-      <button className="tb-btn" title="Copy git branch name (⌘⇧.) — hold ⌥ to leave the status alone" onClick={e => void actions.copyBranch({ skipStart: e.altKey })}><IconBranch size={15} /></button>
+      <button className="tb-btn" title="Copy git branch name (⌘⇧.). Hold ⌥ to leave the status alone" onClick={e => void actions.copyBranch({ skipStart: e.altKey })}><IconBranch size={15} /></button>
       <div className={`tb-split${menu.isOpen ? ' open' : ''}`}>
-        <button className="tb-btn" title="Copy as prompt (⌘⌥P) — ⌥-click to leave the status alone" onClick={e => void actions.copyPrompt({ skipStart: e.altKey })}><IconHandoff size={15} /></button>
+        <button className="tb-btn" title="Copy as prompt (⌘⌥P). ⌥-click to leave the status alone" onClick={e => void actions.copyPrompt({ skipStart: e.altKey })}><IconHandoff size={15} /></button>
         <button className="tb-btn tb-caret" title="Hand off to a coding agent" onClick={menu.open}><IconChevronDown size={12} /></button>
       </div>
       {menu.anchor && (
@@ -274,7 +274,7 @@ export function IssueLocationRow(props: { issue: Issue }) {
   return (
     <>
       <button className={`prop-line ${loc ? '' : needs ? 'warn' : 'dim'}`} onClick={menu.open}
-        title={loc ? tildify(loc.path, snap.workspace.homeDir) : 'The local folder this task happens in — Open in Claude Code starts there'}>
+        title={loc ? tildify(loc.path, snap.workspace.homeDir) : 'The local folder this task happens in. Open in Claude Code starts there'}>
         <IconFolder size={14} />
         <span className="prop-line-label">{loc ? loc.name : needs ? 'Needs a location' : 'No location'}</span>
       </button>
@@ -378,7 +378,7 @@ export function LocationsSettings() {
       <div className="loc-head">
         <div>
           <div className="field-label">Locations</div>
-          <div className="field-help">Folders coding agents work in — usually git repos. Link them to projects on the project page; each issue picks one.</div>
+          <div className="field-help">Folders coding agents work in, usually git repos. Link them to projects on the project page; each issue picks one.</div>
         </div>
         {!hosted && <button className="btn" onClick={() => void add()}><IconPlus size={12} /> Add folders…</button>}
       </div>
@@ -399,7 +399,7 @@ export function LocationsSettings() {
               {projects.map(p => <span key={p.id} className="loc-chip"><span className="fav-emoji">{p.icon}</span>{p.name}</span>)}
               {issues > 0 && <span className="loc-count">{issues} issue{issues === 1 ? '' : 's'}</span>}
             </div>
-            {canEdit && <button className="icon-btn" title={issues ? `Remove — ${issues} issue${issues === 1 ? '' : 's'} will need a new location` : 'Remove location'}
+            {canEdit && <button className="icon-btn" title={issues ? `Remove. ${issues} issue${issues === 1 ? '' : 's'} will need a new location` : 'Remove location'}
               onClick={async () => { await api.deleteLocation(l.id); await useApp.getState().bootstrap(); toast({ title: `Removed ${l.name}` }); }}>
               <IconClose size={12} />
             </button>}
