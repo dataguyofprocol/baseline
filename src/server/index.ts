@@ -8,6 +8,7 @@ import { authConfigFromEnv, cookieSessions, mountAuth, type AuthConfig } from '.
 import { attributedActor, authenticate, hostOf, isLoopback, originHostOf, principalOf, principalUser, Refusal } from './principal.js';
 import { mountMembers } from './members.js';
 import { mountCliAuth } from './cli-auth.js';
+import { MCP_PATH, mountMcpHttp } from '../mcp/http.js';
 import { ChangeFeed, startScheduler } from './live.js';
 import { streamSSE } from 'hono/streaming';
 import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
@@ -89,7 +90,11 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // who every /api request is (key, session or this machine) — before any /api route, see principal.ts
   const sessions = hosted ? cookieSessions(auth, accounts) : null;
-  app.use('/api/*', authenticate({ auth, sessions, apiKeys, store, lanOpen: LAN_OPEN }));
+  const guard = authenticate({ auth, sessions, apiKeys, store, lanOpen: LAN_OPEN });
+  app.use('/api/*', guard);
+  // the agent operations as MCP tools over HTTP, for an API key (src/mcp/http.ts)
+  app.use(MCP_PATH, guard);
+  mountMcpHttp(app);
   app.onError((err, c) => {
     if (err instanceof Refusal || err instanceof WorkError) return c.json({ error: err.message, code: err.code }, err.status);
     console.error(err);

@@ -25,9 +25,9 @@ export async function connect(flags: { db?: string }): Promise<Baseline> {
   return new HttpBaseline(target, await transportFor(target));
 }
 
-/** one server and key, whatever the environment or config file says (login and logout) */
-export function connectTo(url: URL, token: string): Baseline {
-  return new HttpBaseline({ kind: 'remote', url, token, source: 'config' }, httpTransport(url, token));
+/** one server and key, whatever the environment or config file says (login and logout; the hosted /mcp endpoint passes its own app's fetch as `send`) */
+export function connectTo(url: URL, token: string, send?: (req: Request) => Promise<Response>): Baseline {
+  return new HttpBaseline({ kind: 'remote', url, token, source: 'config' }, httpTransport(url, token, send));
 }
 
 /** `issues` by id, plus any parent of `of` that isn't among them (archived or deleted), fetched by id */

@@ -1,4 +1,4 @@
-// Every /api route, with what an API key needs to call it and how a team-limited key is kept to its
+// Every /api route (and /mcp), with what an API key needs to call it and how a team-limited key is kept to its
 // teams. scripts/test-route-policy.ts fails when a registered route is missing here (or a row names
 // a route that no longer exists), and checks each row against what the middleware actually does:
 // the scope against ApiKeys.missingScope, the team rule by calling the route with a key limited to
@@ -22,6 +22,9 @@ export type TeamRule =
   | 'workspace'
   /** a key is refused outright (keys can't manage keys or approve CLI sign-ins) */
   | 'keyless'
+  /** the MCP endpoint: keys only, and each tool call is an /api request made with the same key,
+   *  so that route's own row keeps a team-limited key to its teams */
+  | 'mcp'
   /** outside authenticate: signed some other way (GitHub's HMAC) */
   | 'public'
   /** team data addressed by an id the middleware can't map to a team (a comment, a project, a cycle…).
@@ -39,6 +42,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'DELETE /api/api-keys/:id': { scope: 'write', team: 'keyless' },
   'POST /api/cli-auth/approve': { scope: 'write', team: 'keyless' },
   'GET /api/me': { scope: 'read', team: 'workspace' },
+  // Streamable HTTP MCP (src/mcp/http.ts): POST carries the JSON-RPC, GET a stream, DELETE ends the session
+  'POST /mcp': { scope: 'read', team: 'mcp' },
+  'GET /mcp': { scope: 'read', team: 'mcp' },
+  'DELETE /mcp': { scope: 'read', team: 'mcp' },
   'DELETE /api/me/key': { scope: 'write', team: 'workspace' },
   'GET /api/events': { scope: 'read', team: 'workspace' },
   'GET /api/bootstrap': { scope: 'read', team: 'response' },

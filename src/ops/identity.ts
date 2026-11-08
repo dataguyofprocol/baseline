@@ -19,8 +19,7 @@ export function sessionFrom(raw: string | undefined): SessionKey | null {
 export const KNOWN_AGENTS = [
   { agent: 'Claude Code', clientNames: ['claude-code'], verified: 'claude-code 2.1.319' },
   { agent: 'Codex', clientNames: ['codex-mcp-client'], verified: 'codex-cli 0.166.0' },
-  // pi has no MCP client; it reaches Baseline through `baseline agent <verb> --as pi`
-  { agent: 'pi', clientNames: [], verified: null },
+  { agent: 'pi', clientNames: ['pi'], verified: 'pi 1.5.0' },
 ] as const satisfies ReadonlyArray<{ agent: string; clientNames: readonly string[]; verified: string | null }>;
 
 export type KnownAgent = (typeof KNOWN_AGENTS)[number]['agent'];
@@ -67,7 +66,7 @@ export async function actorForClient(bl: Baseline, as: string | undefined, clien
   const snap = await bl.snapshot(['users']);
   throw new OpError('needs-human',
     `Baseline doesn't know which agent the MCP client "${clientName ?? '(unnamed)'}" is, so it can't say who made a change. ` +
-    `Set BASELINE_AS to an agent user (${agentNames(snap.users)}) in this MCP server's environment, or add one with \`baseline user add "<name>" --agent\``);
+    `Set BASELINE_AS to an agent user (${agentNames(snap.users)}) in this MCP server's environment (for Baseline's /mcp URL, send a Baseline-As header), or add one with \`baseline user add "<name>" --agent\``);
 }
 
 /** the agent user named `name`, added when missing and the workspace allows this person to add users */

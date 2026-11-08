@@ -750,14 +750,47 @@ check "user list shows the GitHub username" "github:ada-gh" user list
 echo "=== connect ==="
 CREPO="$WORK/connect-repo"; mkdir -p "$CREPO"
 printf '{ "mcpServers": { "other": { "command": "x" } } }\n' > "$CREPO/.mcp.json"
-check "connect --dry-run lists the files" "would create CLAUDE.md" connect claude --dir "$CREPO" --dry-run
+# a PATH with node and nothing else of this machine's, so no installed `baseline` is found
+mkdir -p "$WORK/nodeonly"; ln -sf "$(command -v node)" "$WORK/nodeonly/node"
+NOPATH="$WORK/nodeonly:/usr/bin:/bin"
+# `baseline` is not on that PATH: connect refuses and writes nothing
+NOPATH_OUT=$(PATH="$NOPATH" $BIN connect claude --dir "$CREPO" 2>&1); NOPATH_RC=$?
+if [[ $NOPATH_RC -ne 0 && "$NOPATH_OUT" == *"not on your PATH"* && "$NOPATH_OUT" == *"npm install -g"* && "$NOPATH_OUT" == *"claude mcp add --scope local"* && ! -e "$CREPO/CLAUDE.md" ]] && ! grep -q baseline "$CREPO/.mcp.json"; then PASS=$((PASS+1)); else echo "FAIL  connect without baseline on PATH refuses, says how to install, writes nothing"; echo "      got: $NOPATH_OUT"; FAILED_NAMES+=("connect not on PATH"); FAIL=$((FAIL+1)); fi
+# a stand-in `baseline` on PATH, as after npm install -g
+mkdir -p "$WORK/shim"; printf '#!/bin/sh\nexit 0\n' > "$WORK/shim/baseline"; chmod +x "$WORK/shim/baseline"
+SHIMPATH="$WORK/shim:$PATH"
+cs() { PATH="$SHIMPATH" $BIN "$@"; }
+ccheck() { # ccheck <name> <expected-substring> <args…> — connect with `baseline` on PATH
+  local name="$1" expect="$2"; shift 2
+  local out; out=$(cs "$@" 2>&1); local rc=$?
+  if [[ $rc -eq 0 && "$out" == *"$expect"* ]]; then PASS=$((PASS+1)); else echo "FAIL  $name (exit $rc)"; echo "      got: $(echo "$out" | head -3 | tr '\n' '|')"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
+}
+ccheck "connect --dry-run lists the files" "would create CLAUDE.md" connect claude --dir "$CREPO" --dry-run
 if [[ ! -e "$CREPO/CLAUDE.md" ]]; then PASS=$((PASS+1)); else echo "FAIL  connect --dry-run writes nothing"; FAILED_NAMES+=("connect dry run"); FAIL=$((FAIL+1)); fi
-check "connect claude says what it changed" "updated .mcp.json" connect claude --dir "$CREPO"
-check_json "connect keeps other MCP servers and adds baseline mcp" "$CREPO/.mcp.json" "d.mcpServers.other.command==='x'&&d.mcpServers.baseline.args.includes('mcp')"
-check "connect claude again changes nothing" "nothing changed" connect claude --dir "$CREPO"
-check "connect codex writes the project config" "created .codex/config.toml" connect codex --dir "$CREPO"
-if grep -q 'default_tools_approval_mode = "writes"' "$CREPO/.codex/config.toml" && grep -q 'baseline:agent-tracking:end' "$CREPO/AGENTS.md"; then PASS=$((PASS+1)); else echo "FAIL  connect codex: approval mode and AGENTS.md block"; FAILED_NAMES+=("connect codex"); FAIL=$((FAIL+1)); fi
-check "connect pi after codex: the AGENTS.md block is the same one" "nothing changed" connect pi --dir "$CREPO"
+ccheck "connect claude says what it changed" "updated .mcp.json" connect claude --dir "$CREPO"
+check_json "connect keeps other MCP servers and writes the portable \`baseline mcp\`" "$CREPO/.mcp.json" "d.mcpServers.other.command==='x'&&d.mcpServers.baseline.command==='baseline'&&d.mcpServers.baseline.args.join(' ')==='mcp'"
+ccheck "connect claude again changes nothing" "nothing changed" connect claude --dir "$CREPO"
+ccheck "connect codex writes the project config" "created .codex/config.toml" connect codex --dir "$CREPO"
+if grep -q 'command = "baseline"' "$CREPO/.codex/config.toml" && grep -q 'default_tools_approval_mode = "writes"' "$CREPO/.codex/config.toml" && grep -q 'baseline:agent-tracking:end' "$CREPO/AGENTS.md"; then PASS=$((PASS+1)); else echo "FAIL  connect codex: command, approval mode and AGENTS.md block"; FAILED_NAMES+=("connect codex"); FAIL=$((FAIL+1)); fi
+ccheck "connect pi writes .pi/mcp.json (the AGENTS.md block is already there)" "created .pi/mcp.json" connect pi --dir "$CREPO"
+check_json "connect pi: \`baseline mcp\`, tools shown directly" "$CREPO/.pi/mcp.json" "d.mcpServers.baseline.command==='baseline'&&d.mcpServers.baseline.args.join(' ')==='mcp'&&d.mcpServers.baseline.exposure==='direct'"
+ccheck "connect pi again changes nothing" "nothing changed" connect pi --dir "$CREPO"
+DB_OUT=$(cs connect pi --dir "$CREPO" --db "$WORK/x.db" 2>&1); DB_RC=$?
+if [[ $DB_RC -ne 0 && "$DB_OUT" == *"BASELINE_DB"* ]] && ! grep -rq -- '--db\|x\.db' "$CREPO"; then PASS=$((PASS+1)); else echo "FAIL  connect --db is refused, and no database path lands in the repo"; FAILED_NAMES+=("connect --db"); FAIL=$((FAIL+1)); fi
+if ! grep -rqE "$WORK|/Users/|node_modules" "$CREPO/.mcp.json" "$CREPO/.codex/config.toml" "$CREPO/.pi/mcp.json"; then PASS=$((PASS+1)); else echo "FAIL  shared MCP configs hold a machine path"; FAILED_NAMES+=("connect machine paths"); FAIL=$((FAIL+1)); fi
+# --remote: the server's /mcp URL, the key read from $BASELINE_TOKEN, never written
+RREPO="$WORK/remote-repo"; mkdir -p "$RREPO"
+RTOKEN="bl_secret_never_in_files"
+for agent in claude codex pi; do
+  out=$(env -u BASELINE_DB BASELINE_URL=http://127.0.0.1:7999 BASELINE_TOKEN="$RTOKEN" PATH="$NOPATH" $BIN connect $agent --dir "$RREPO" --remote 2>&1); rc=$?
+  if [[ $rc -eq 0 && "$out" == *"BASELINE_TOKEN"* ]]; then PASS=$((PASS+1)); else echo "FAIL  connect $agent --remote (exit $rc)"; echo "      got: $out"; FAILED_NAMES+=("connect $agent --remote"); FAIL=$((FAIL+1)); fi
+done
+check_json "connect claude --remote: http entry with \${BASELINE_TOKEN}" "$RREPO/.mcp.json" "d.mcpServers.baseline.type==='http'&&d.mcpServers.baseline.url==='http://127.0.0.1:7999/mcp'&&d.mcpServers.baseline.headers.Authorization==='Bearer \${BASELINE_TOKEN}'"
+if grep -q 'url = "http://127.0.0.1:7999/mcp"' "$RREPO/.codex/config.toml" && grep -q 'bearer_token_env_var = "BASELINE_TOKEN"' "$RREPO/.codex/config.toml"; then PASS=$((PASS+1)); else echo "FAIL  connect codex --remote: url + bearer_token_env_var"; FAILED_NAMES+=("connect codex --remote file"); FAIL=$((FAIL+1)); fi
+check_json "connect pi --remote: url + Authorization from \${BASELINE_TOKEN}" "$RREPO/.pi/mcp.json" "d.mcpServers.baseline.url==='http://127.0.0.1:7999/mcp'&&d.mcpServers.baseline.headers.Authorization==='Bearer \${BASELINE_TOKEN}'"
+if ! grep -rq "$RTOKEN" "$RREPO"; then PASS=$((PASS+1)); else echo "FAIL  the API key was written into the repo"; FAILED_NAMES+=("connect --remote token"); FAIL=$((FAIL+1)); fi
+LOCAL_OUT=$(BASELINE_DB="$WORK/l.db" $BIN connect claude --dir "$RREPO" --remote 2>&1); LOCAL_RC=$?
+if [[ $LOCAL_RC -ne 0 && "$LOCAL_OUT" == *"baseline login"* ]]; then PASS=$((PASS+1)); else echo "FAIL  connect --remote against a local database says to log in"; FAILED_NAMES+=("connect --remote local"); FAIL=$((FAIL+1)); fi
 
 echo
 echo "================================"

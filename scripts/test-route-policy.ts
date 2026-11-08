@@ -32,7 +32,7 @@ const problems: string[] = [];
 const check = (ok: boolean, what: string) => { if (ok) pass++; else { fail++; problems.push(what); } };
 
 // the routes Hono has, as "METHOD /path" (app.use middleware shows up as ALL)
-const registered = [...new Set(app.routes.filter(r => r.method !== 'ALL' && r.path.startsWith('/api')).map(r => `${r.method} ${r.path}`))];
+const registered = [...new Set(app.routes.filter(r => r.method !== 'ALL' && (r.path.startsWith('/api') || r.path === '/mcp')).map(r => `${r.method} ${r.path}`))];
 for (const r of registered) check(r in ROUTE_POLICY, `${r} is registered but has no row in src/server/route-policy.ts`);
 for (const r of Object.keys(ROUTE_POLICY)) check(registered.includes(r), `${r} has a policy row but no route`);
 
@@ -55,6 +55,26 @@ const call = (method: string, path: string, body?: unknown) => app.fetch(new Req
   body: body ? JSON.stringify(body) : undefined,
 }));
 const teamRefusal = async (res: Response) => res.status === 403 && /team/.test(((await res.json().catch(() => ({}))) as { error?: string }).error ?? '');
+
+/** start_issue on the other team's issue, over raw Streamable HTTP with the team-limited key: the issue is invisible to it, and unchanged */
+let mcpResult: boolean | undefined;
+async function mcpRefusesOtherTeam(): Promise<boolean> {
+  if (mcpResult !== undefined) return mcpResult;
+  const rpc = (body: unknown, session?: string) => app.fetch(new Request(new URL('/mcp', ORIGIN), {
+    method: 'POST', body: JSON.stringify(body),
+    headers: { authorization: `Bearer ${limited.token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(session ? { 'mcp-session-id': session } : {}) },
+  }));
+  const init = await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'claude-code', version: '0' } } });
+  const session = init.headers.get('mcp-session-id') ?? undefined;
+  await rpc({ jsonrpc: '2.0', method: 'notifications/initialized' }, session);
+  const res = await (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'start_issue', arguments: { issue: store.keyOf(foreign) } } }, session)).json() as { result?: { isError?: boolean; content?: Array<{ text: string }> } };
+  const noKey = await app.fetch(new Request(new URL('/mcp', ORIGIN), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }));
+  mcpResult = !!session && !!res.result?.isError && /No issue OTH-1/.test(res.result.content?.[0]?.text ?? '') && noKey.status === 401
+    && store.getIssue(foreign.id)!.stateId === stateBefore;
+  if (!mcpResult) console.log('mcp refusal detail:', init.status, session, JSON.stringify(res), noKey.status);
+  return mcpResult;
+}
+const stateBefore = store.getIssue(foreign.id)!.stateId;
 
 // which path shapes the middleware maps to a team (mirrors ApiKeys.teamAllowed)
 const NAMES_ISSUE = /^\/api\/issues\/:/;
@@ -86,6 +106,7 @@ for (const route of registered.filter(r => r in ROUTE_POLICY)) {
       break;
     }
     case 'keyless': check((await call(method, pathFor(pattern, 'x'), body && {})).status === 403, `${route}: a key was not refused`); break;
+    case 'mcp': check(await mcpRefusesOtherTeam(), `${route}: a key limited to another team reached its issue through an MCP tool`); break;
     case 'unchecked': unchecked.push(route); break;
     case 'workspace': case 'public': break;
   }

@@ -33,6 +33,10 @@ const isRead = (method: string) => method === 'GET' || method === 'HEAD';
 const KEYLESS = /^\/api\/(api-keys|cli-auth)(\/|$)/;
 /** an agent drafts project updates with a key; only a person (cookie or this machine) publishes one */
 const PUBLISH = /^\/api\/projects\/[^/]+\/update-draft\/publish$/;
+/** the hosted MCP endpoint: keys only. Its tool calls are /api requests made with the same key,
+ *  so scopes, teams and response scoping are applied there, per call, not to the MCP envelope */
+const MCP = '/mcp';
+const needsKey = (c: Context) => c.json({ error: 'Baseline\'s MCP endpoint needs an API key: send Authorization: Bearer <key> (create one in Settings › Security & access)', code: 'unauthorized' }, 401);
 
 const principals = new WeakMap<Request, Principal>();
 
@@ -79,7 +83,7 @@ export interface AuthenticateDeps {
 }
 
 /**
- * The /api/* guard. Register it before any /api route: Hono runs handlers in registration order.
+ * The /api/* and /mcp guard. Register it before any /api route: Hono runs handlers in registration order.
  * 1. Host: hosted, the public name (DNS rebinding); local, loopback unless opened to the LAN.
  * 2. A bearer key: verified, then scopes, teams and response scoping. No Origin check: a browser
  *    can't attach this header cross-site without a CORS preflight, which this server never grants.
@@ -98,6 +102,10 @@ export function authenticate(d: AuthenticateDeps): MiddlewareHandler {
     if (PUBLISH.test(path)) return forbid(c, 'A person publishes project updates from the project page in Baseline; an API key can only draft them');
     const missing = apiKeys.missingScope(key, c.req.method, path);
     if (missing) return forbid(c, `This API key doesn't have the “${API_KEY_SCOPES.find(([k]) => k === missing)?.[1]}” permission`);
+    if (path === MCP) {
+      principals.set(c.req.raw, { via: 'key', key, userId: key.userId });
+      return actingUser.run(key.userId, next);
+    }
     const body = !isRead(c.req.method) && (c.req.header('content-type') ?? '').includes('application/json')
       ? await c.req.json().catch(() => null) as Record<string, unknown> | null : null;
     if (!apiKeys.teamAllowed(key, path, body)) return forbid(c, 'This API key can’t access that team');
@@ -116,6 +124,7 @@ export function authenticate(d: AuthenticateDeps): MiddlewareHandler {
     if (auth.mode === 'google') {
       if (host !== auth.publicUrl.hostname) return forbid(c, 'Unknown host');
       if (header) return withKey(c, next, header);
+      if (c.req.path === MCP) return needsKey(c);
       // CSRF: browsers send Origin on every non-GET fetch; a write without ours is cross-site (or not a browser)
       if (!isRead(c.req.method) && c.req.header('origin') !== auth.publicUrl.origin) return forbid(c, 'Cross-site requests are not allowed');
       const session = d.sessions!.resolve(c);
@@ -126,6 +135,7 @@ export function authenticate(d: AuthenticateDeps): MiddlewareHandler {
     // A Host that isn't loopback means a LAN client or a DNS-rebinding page
     if (!d.lanOpen && !isLoopback(host)) return forbid(c, 'Baseline only accepts requests from this machine (set BASELINE_HOST to change that)');
     if (header) return withKey(c, next, header);
+    if (c.req.path === MCP) return needsKey(c);
     const originHost = originHostOf(c);
     if (!isRead(c.req.method) && originHost !== null && !isLoopback(originHost) && originHost !== host.replace(/^\[|\]$/g, '')) {
       return forbid(c, 'Cross-site requests are not allowed');

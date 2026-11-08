@@ -1,7 +1,9 @@
 // `baseline connect claude|codex|pi`: what to change in a repo so its coding agent keeps Baseline
 // current. Pure: it gets the files' current text and returns their new text; src/cli/connect.ts
 // reads and writes them. Every edit merges into what is there, and planning over its own result
-// changes nothing, so running connect again is a no-op.
+// changes nothing, so running connect again is a no-op. The MCP configs it writes are often
+// committed, so they hold no machine paths, databases or tokens: `baseline mcp` found on PATH, or
+// the server's /mcp URL with the key read from an environment variable.
 import { agentBlock, BLOCK_END, BLOCK_START } from '../ops/guide.js';
 import { OPERATIONS } from '../ops/index.js';
 
@@ -10,11 +12,12 @@ export type Harness = (typeof HARNESSES)[number];
 
 export const HARNESS_NAME: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex', pi: 'pi' };
 
-/** how a harness starts `baseline mcp` */
-export interface ServerCommand {
-  command: string;
-  args: readonly string[];
-}
+/** the MCP server connect writes: `baseline mcp` on PATH (local), or a Baseline server's /mcp endpoint (remote) */
+export type McpServerEntry = { transport: 'stdio' } | { transport: 'http'; url: string };
+
+export const STDIO_COMMAND = { command: 'baseline', args: ['mcp'] } as const;
+/** the environment variable a remote entry reads the API key from; never the key itself */
+export const TOKEN_ENV = 'BASELINE_TOKEN';
 
 /** one file connect would write; `before` null means it doesn't exist yet */
 export interface FileEdit {
@@ -34,29 +37,41 @@ export const SERVER_NAME = 'baseline';
 const READ_TOOLS = OPERATIONS.filter(o => o.effect.kind === 'read').map(o => `mcp__${SERVER_NAME}__${o.name}`);
 
 /** Every edit for one harness, including those that change nothing (the caller filters). */
-export function planConnect(harness: Harness, server: ServerCommand, read: (path: string) => string | null): FileEdit[] {
+export function planConnect(harness: Harness, server: McpServerEntry, read: (path: string) => string | null): FileEdit[] {
   const edit = (path: string, what: string, change: (before: string | null) => string): FileEdit => {
     const before = read(path);
     return { path, before, after: change(before), what };
   };
   const block = (path: string) => edit(path, 'the Baseline tracking block, generated from the agent operations', b => upsertBlock(b, path));
-  const mcp = { command: server.command, args: [...server.args] };
+  const stdio = { command: STDIO_COMMAND.command, args: [...STDIO_COMMAND.args] };
+  const bearer = { Authorization: `Bearer \${${TOKEN_ENV}}` };
+  const about = server.transport === 'stdio' ? `\`${[stdio.command, ...stdio.args].join(' ')}\`` : `${server.url}, with the API key from $${TOKEN_ENV}`;
   switch (harness) {
     case 'claude': return [
-      edit('.mcp.json', `the ${SERVER_NAME} MCP server (${[server.command, ...server.args].join(' ')})`, b => mergeJson(b, '.mcp.json', o => setKey(o, ['mcpServers', SERVER_NAME], { type: 'stdio', ...mcp }))),
+      edit('.mcp.json', `the ${SERVER_NAME} MCP server (${about})`, b => mergeJson(b, '.mcp.json', o => setKey(o, ['mcpServers', SERVER_NAME],
+        server.transport === 'stdio' ? { type: 'stdio', ...stdio } : { type: 'http', url: server.url, headers: bearer }))),
       edit('.claude/settings.local.json', `enables the ${SERVER_NAME} server for you; its read tools (${READ_TOOLS.map(t => t.split('__')[2]).join(', ')}) run without asking, writes ask`,
         b => mergeJson(b, '.claude/settings.local.json', o => addToList(addToList(o, ['enabledMcpjsonServers'], [SERVER_NAME]), ['permissions', 'allow'], READ_TOOLS))),
       block('CLAUDE.md'),
     ];
     case 'codex': return [
-      edit('.codex/config.toml', `the ${SERVER_NAME} MCP server; Codex asks before writes, not reads`, b => upsertTomlTable(b, `mcp_servers.${SERVER_NAME}`, [
-        `command = ${tomlString(server.command)}`,
-        `args = [${server.args.map(tomlString).join(', ')}]`,
+      edit('.codex/config.toml', `the ${SERVER_NAME} MCP server (${about}); Codex asks before writes, not reads`, b => upsertTomlTable(b, `mcp_servers.${SERVER_NAME}`, [
+        ...(server.transport === 'stdio'
+          ? [`command = ${tomlString(stdio.command)}`, `args = [${stdio.args.map(tomlString).join(', ')}]`]
+          : [`url = ${tomlString(server.url)}`, `bearer_token_env_var = ${tomlString(TOKEN_ENV)}`]),
         'default_tools_approval_mode = "writes"',
       ])),
       block('AGENTS.md'),
     ];
-    case 'pi': return [block('AGENTS.md')];
+    case 'pi': return [
+      // direct: eight small tools the model should see, not have to find through codemode or tool search
+      edit('.pi/mcp.json', `the ${SERVER_NAME} MCP server (${about}), its tools shown to the model directly`, b => mergeJson(b, '.pi/mcp.json', o => setKey(o, ['mcpServers', SERVER_NAME], {
+        ...(server.transport === 'stdio' ? stdio : { url: server.url, headers: bearer }),
+        exposure: 'direct',
+        description: 'Baseline issue tracker: start, update and finish the issues you work on',
+      }))),
+      block('AGENTS.md'),
+    ];
   }
 }
 

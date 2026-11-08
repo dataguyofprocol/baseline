@@ -32,7 +32,7 @@ export function agentGuide(): string {
     '',
     'If the person asks for work that matches an open issue, find it with `list_issues` and ask whether to track the work on it. Do not publish project updates: `draft_project_update` writes a draft that the person publishes. Each write returns an `op_id`; call `undo` with it only when the person asks.',
     '',
-    'Use the tools of the `baseline` MCP server. Without MCP (for example in pi), run the same operation as a `baseline agent` command and add `--as "<your agent name>"` (for example `--as pi`), so the change shows as yours on the person\'s behalf:',
+    'Use the tools of the `baseline` MCP server first (named like `mcp__baseline__start_issue`). Only when they are not in this session, run the same operation as a `baseline agent` command and add `--as "<your agent name>"` (`Claude Code`, `Codex` or `pi`), so the change shows as yours on the person\'s behalf:',
     '',
     ...OPERATIONS.map(op => `- \`${op.name}\` (\`${command(op as AnyOperation)}\`): ${firstSentence(op.description)}`),
   ].join('\n');

@@ -41,13 +41,15 @@ export async function localTransport(dbPath: string): Promise<Transport> {
   };
 }
 
-/** fetch with the key as a bearer token. Never retries: a retried write could create an issue twice. */
-export function httpTransport(url: URL, token: string): Transport {
+/** Fetch with the key as a bearer token. Never retries: a retried write could create an issue twice.
+ *  `send` is the server's own app.fetch for the hosted /mcp endpoint, so its tool calls pass the
+ *  same middleware, with the same key, as a CLI's. */
+export function httpTransport(url: URL, token: string, send: (req: Request) => Promise<Response> = req => fetch(req)): Transport {
   return {
     async request(method, path, opts) {
       let res: Response;
       try {
-        res = await fetch(new URL(withQuery(path, opts?.query), url), init(method, opts, { authorization: `Bearer ${token}` }));
+        res = await send(new Request(new URL(withQuery(path, opts?.query), url), init(method, opts, { authorization: `Bearer ${token}` })));
       } catch (e) {
         const cause = (e as { cause?: { code?: string; message?: string } }).cause;
         throw new BaselineError(0, 'unreachable', `Can't reach ${url.origin} (${cause?.code ?? cause?.message ?? (e as Error).message})`);

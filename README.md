@@ -126,6 +126,17 @@ Where a command goes: `--db <path>` (a local database), else `BASELINE_DB`, else
 
 So far `team list`, `user list`, `issue list|show|create|update|comment|handoff` and `search` work against a server; the other commands still need a local database and say so.
 
+## Coding agents over MCP
+
+Claude Code, Codex and pi keep their issues current through Baseline's MCP tools (`start_issue`, `post_progress`, `file_followup`, `finish_issue`, `draft_project_update`, `undo`, `get_issue`, `list_issues`). One command per repo:
+
+```bash
+baseline connect claude|codex|pi            # the agent starts `baseline mcp` (stdio), which uses the CLI's target
+baseline connect claude|codex|pi --remote   # the agent calls https://<your server>/mcp with the key in $BASELINE_TOKEN
+```
+
+It writes the agent's project MCP config (`.mcp.json`, `.codex/config.toml` or `.pi/mcp.json`) and a block in `CLAUDE.md` / `AGENTS.md` that tells the agent to use the tools (and the `baseline agent` commands when MCP isn't available). Those files are usually committed, so connect never writes a machine path, a database path or a key into them: `baseline` must be on your PATH (`npm run build && npm install -g .` in this checkout), and `--remote` entries read the key from `$BASELINE_TOKEN` (set it, with `BASELINE_URL`, in the shell that starts the agent). The hosted `/mcp` endpoint accepts API keys only; each tool call runs with that key's permissions and teams, and publishing a project update stays a person's action in the web app. Writes show as "<agent> via <you>": the agent is recognized by the name its MCP client reports.
+
 ## Skill (AI coding tools)
 
 `skills/baseline/SKILL.md` is an [Agent Skills](https://agentskills.io)-format skill that teaches Claude Code / OpenCode / ZCode to drive the tracker through this CLI. It ships with the repo; to install it user-wide, symlink the directory into your tools' skill folders:

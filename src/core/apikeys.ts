@@ -67,6 +67,8 @@ export class ApiKeys {
     if (!s) return null;
     const read = method === 'GET' || method === 'HEAD';
     if (path === '/api/export') return s.includes('admin') ? null : 'admin';
+    // the MCP endpoint itself only needs a key that reads; each tool call is an /api request checked on its own
+    if (path === '/mcp') return s.includes('read') || s.includes('write') ? null : 'read';
     if (!read && (ADMIN_ROUTES.test(path) || TEAM_ADMIN.test(path))) return s.includes('admin') ? null : 'admin';
     if (read) return s.includes('read') || s.includes('write') ? null : 'read';
     if (s.includes('write')) return null;

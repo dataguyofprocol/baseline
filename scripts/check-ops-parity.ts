@@ -133,8 +133,18 @@ if (trackingNow !== tracking) {
 
 // 7. the block `baseline connect` writes: every op, idempotent, and a stale block is replaced
 for (const harness of HARNESSES) {
+  // the MCP config is usually committed: nothing from this machine, no database, no key
+  for (const entry of [{ transport: 'stdio' }, { transport: 'http', url: 'https://baseline.example.com/mcp' }] as const) {
+    const written = planConnect(harness, entry, () => null).filter(e => !e.path.endsWith('.md') && !e.path.includes('.local.'));
+    if (!written.length) problems.push(`baseline connect ${harness} writes no MCP config`);
+    for (const e of written) {
+      if (/\/Users\/|\/home\/|--db|node_modules|tsx/.test(e.after)) problems.push(`baseline connect ${harness} (${entry.transport}) puts a machine path in ${e.path}`);
+      if (entry.transport === 'stdio' && !/"baseline"[\s\S]*"mcp"/.test(e.after)) problems.push(`baseline connect ${harness} doesn't write \`baseline mcp\` to ${e.path}`);
+      if (entry.transport === 'http' && !(e.after.includes('${BASELINE_TOKEN}') || e.after.includes('bearer_token_env_var = "BASELINE_TOKEN"'))) problems.push(`baseline connect ${harness} --remote doesn't read the key from $BASELINE_TOKEN in ${e.path}`);
+    }
+  }
   const files = new Map<string, string>();
-  const server = { command: 'baseline', args: ['mcp'] };
+  const server = { transport: 'stdio' } as const;
   const apply = (edits: FileEdit[]) => { for (const e of edits) files.set(e.path, e.after); return edits.filter(e => e.after !== e.before); };
   apply(planConnect(harness, server, p => files.get(p) ?? null));
   const again = apply(planConnect(harness, server, p => files.get(p) ?? null));
