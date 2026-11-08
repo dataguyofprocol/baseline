@@ -78,6 +78,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   const app = new Hono();
 
+  // liveness for Docker and load balancers: outside /api, so no Host check, session or key
+  app.get('/healthz', (c) => {
+    db.prepare('SELECT 1').get();
+    return c.json({ ok: true });
+  });
+
   // GitHub webhooks are the one door open to other hosts (GitHub reaches this machine through
   // a tunnel): they carry no cookies or keys and are authenticated by their HMAC signature alone
   app.post(WEBHOOK_PATH, async (c) => {
@@ -969,6 +975,12 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
   const dbPath = resolveDbPath(opts.dbPath);
   const port = opts.port ?? Number(process.env.BASELINE_PORT ?? 7770);
   const auth = authConfigFromEnv();
+  // A container publishes its port, so a request from the network arrives looking like this machine's
+  // own: local mode there would let anyone who can reach the port act as any user. The image sets this.
+  if (auth.mode === 'local' && process.env.BASELINE_REQUIRE_SIGN_IN?.trim() === '1') {
+    throw new Error('BASELINE_REQUIRE_SIGN_IN=1 but no sign-in is configured: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and BASELINE_PUBLIC_URL, '
+      + 'or set BASELINE_REQUIRE_SIGN_IN=0 to run without sign-in (anyone who can reach the port can act as any user)');
+  }
   // the browser is where a new workspace gets set up, so a new database starts blank (--seed: sample data)
   const { app, store, changes } = createApp(dbPath, auth, mailerFromEnv(), { blank: !opts.seedIfEmpty });
   // only the server watches the clock and the file: the CLI uses createApp too, and must exit

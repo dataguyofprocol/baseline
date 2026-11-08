@@ -11,12 +11,19 @@
   "bin": {
     "baseline": "./bin/baseline.js"
   },
+  "files": [
+    "bin/",
+    "dist/",
+    "web/dist/",
+    "skills/"
+  ],
   "scripts": {
     "dev": "concurrently -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" BASELINE_PORT=\"${BASELINE_PORT:-7327}\" tsx watch src/server/index.ts",
     "dev:web": "cd web && vite",
     "build": "npm run build:web && tsc -p tsconfig.node.json",
     "build:web": "cd web && vite build",
+    "prepack": "npm run build",
     "start": "npm run build && BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" BASELINE_PORT=\"${BASELINE_PORT:-7327}\" node dist/server/index.js --open",
     "serve": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" BASELINE_PORT=\"${BASELINE_PORT:-7327}\" node dist/server/index.js --open",
     "cli": "BASELINE_DB=\"${BASELINE_DB:-$HOME/.baseline/baseline-dev.db}\" BASELINE_PORT=\"${BASELINE_PORT:-7327}\" tsx src/cli/index.ts",

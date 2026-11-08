@@ -1,0 +1,4 @@
+# BASELINE_DOMAIN comes from .env, e.g. baseline.example.com
+{$BASELINE_DOMAIN} {
+	reverse_proxy 127.0.0.1:7770
+}

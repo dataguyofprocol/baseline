@@ -1,0 +1,28 @@
+# HTTPS in front of Baseline. Caddy gets a certificate for BASELINE_DOMAIN from Let's Encrypt,
+# so the domain's DNS must point at this machine and ports 80 and 443 must be reachable.
+# Switch it on with COMPOSE_FILE=compose.yaml:compose.https.yaml in .env.
+services:
+  baseline:
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # Caddy shares Baseline's network, so it reaches Baseline over loopback: the one address
+    # Baseline trusts for X-Forwarded-For, so sign-in rate limits see each client's own address
+    network_mode: service:baseline
+    depends_on:
+      - baseline
+    environment:
+      BASELINE_DOMAIN: ${BASELINE_DOMAIN:?set BASELINE_DOMAIN in .env, e.g. baseline.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:
