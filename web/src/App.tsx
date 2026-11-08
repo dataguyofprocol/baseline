@@ -23,7 +23,6 @@ import { InboxPage } from './Inbox.js';
 import { DocumentPage, TeamHomePage } from './Docs.js';
 import { PulsePage, CustomersPage, CustomerPage, TeamsPage, MembersPage, DraftsPage } from './Workspace.js';
 import { InitiativesPage, InitiativePage } from './Initiatives.js';
-import { AsksPage, AskFormPage } from './AutomationUI.js';
 import { ProjectsPage, NewProjectPage, ProjectPage } from './Projects.js';
 import { IssuePage } from './IssueDetail.js';
 import { Onboarding } from './Onboarding.js';
@@ -428,8 +427,6 @@ export function App() {
                 <Route path="/initiatives/view/:tab" element={<InitiativesPage />} />
                 <Route path="/initiatives/:initiativeId" element={<InitiativePage />} />
                 <Route path="/initiatives/:initiativeId/:tab" element={<InitiativePage />} />
-                <Route path="/asks" element={<AsksPage />} />
-                <Route path="/asks/:formId" element={<AskFormPage />} />
                 <Route path="/customers" element={<CustomersPage />} />
                 <Route path="/customers/:customerId" element={<CustomerPage />} />
                 <Route path="/teams" element={<TeamsPage />} />

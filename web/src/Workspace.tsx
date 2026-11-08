@@ -10,7 +10,7 @@ import { AvatarStack } from './AvatarStack.js';
 import { Markdown } from './Markdown.js';
 import {
   IconPlus, IconSearch, IconTrash, IconClose, IconStar, IconCheck, IconEdit, IconPulse, IconCustomers, IconCycle, IconBox,
-  IconInbox, IconMyIssues, IconDrafts, IconInitiative, IconViews, IconAsk, IconTeam, IconMembers, IconChevronDown,
+  IconInbox, IconMyIssues, IconDrafts, IconInitiative, IconViews, IconTeam, IconMembers, IconChevronDown,
 } from './icons.js';
 import { SIDEBAR_DEFAULTS, type SidebarVisibility, type Team } from '../../src/core/types.js';
 import { Illustration } from './illustrations.js';
@@ -481,7 +481,7 @@ export function DraftsPage() {
 export const SIDEBAR_ITEMS: Array<{ key: string; label: string; section: 'Personal' | 'Workspace' }> = [
   { key: 'inbox', label: 'Inbox', section: 'Personal' }, { key: 'my-issues', label: 'My issues', section: 'Personal' }, { key: 'drafts', label: 'Drafts', section: 'Personal' },
   { key: 'initiatives', label: 'Initiatives', section: 'Workspace' }, { key: 'projects', label: 'Projects', section: 'Workspace' }, { key: 'views', label: 'Views', section: 'Workspace' },
-  { key: 'asks', label: 'Asks', section: 'Workspace' }, { key: 'pulse', label: 'Pulse', section: 'Workspace' },
+  { key: 'pulse', label: 'Pulse', section: 'Workspace' },
   { key: 'customers', label: 'Customers', section: 'Workspace' }, { key: 'teams', label: 'Teams', section: 'Workspace' }, { key: 'members', label: 'Members', section: 'Workspace' },
 ];
 export function sidebarVisibility(snap: Snap, key: string): SidebarVisibility {
@@ -490,7 +490,7 @@ export function sidebarVisibility(snap: Snap, key: string): SidebarVisibility {
 
 const SIDEBAR_ICONS: Record<string, React.ReactNode> = {
   inbox: <IconInbox />, 'my-issues': <IconMyIssues />, drafts: <IconDrafts />, initiatives: <IconInitiative />, projects: <IconBox />, views: <IconViews />,
-  asks: <IconAsk />, pulse: <IconPulse />, customers: <IconCustomers />, teams: <IconTeam />, members: <IconMembers />,
+  pulse: <IconPulse />, customers: <IconCustomers />, teams: <IconTeam />, members: <IconMembers />,
 };
 const VISIBILITY_LABEL: Record<SidebarVisibility, string> = { show: 'Always show', badged: 'Show when badged', hide: "Don't show" };
 const BADGE_LABEL = { count: 'Count', dot: 'Dot', none: 'None' } as const;

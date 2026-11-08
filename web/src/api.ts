@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -150,10 +150,6 @@ export const api = {
   createSlaRule: (b: Record<string, unknown>) => req<{ rule: SlaRule }>('POST', '/api/sla-rules', b),
   updateSlaRule: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/sla-rules/${id}`, b),
   deleteSlaRule: (id: string) => req<{ ok: true }>('DELETE', `/api/sla-rules/${id}`),
-  createAskForm: (b: Record<string, unknown>) => req<{ form: AskForm }>('POST', '/api/asks', b),
-  updateAskForm: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/asks/${id}`, b),
-  deleteAskForm: (id: string) => req<{ ok: true }>('DELETE', `/api/asks/${id}`),
-  submitAsk: (id: string, values: Record<string, string>) => req<{ issue: Issue }>('POST', `/api/asks/${id}/submit`, { values }),
   createLoop: (b: Record<string, unknown>) => req<{ loop: Loop }>('POST', '/api/loops', b),
   updateLoop: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/loops/${id}`, b),
   deleteLoop: (id: string) => req<{ ok: true }>('DELETE', `/api/loops/${id}`),

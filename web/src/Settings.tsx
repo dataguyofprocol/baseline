@@ -5,13 +5,13 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, AdminLock, ADMIN_NOTE, useCanConfigure, useInFlight } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconAsk, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
 import { HostedMembersSettings, SecuritySettings as WorkspaceSecuritySettings, TeamMembersSettings } from './Members.js';
 import { ShortcutList } from './Palette.js';
 import { CADENCE_LABELS } from './actions.js';
-import { SlaSettings, AsksSettings, LoopsSettings } from './AutomationUI.js';
+import { SlaSettings, LoopsSettings } from './AutomationUI.js';
 import { GitHubSettings, PrAutomationSettings } from './GitHubUI.js';
 import { CustomizeSidebar, TeamJoinChip } from './Workspace.js';
 import { SecuritySettings, NewApiKey, ApiAdminSettings } from './ApiKeysUI.js';
@@ -24,7 +24,7 @@ export const SETTINGS_NAV: Array<{ sec: string; items: Array<[string, string]> }
   { sec: 'Personal', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Security & access', 'security'], ['Keyboard shortcuts', 'shortcuts']] },
   { sec: 'Issues', items: [['Labels', 'labels'], ['Templates', 'templates'], ['SLAs', 'slas']] },
   { sec: 'Projects', items: [['Labels', 'project-labels'], ['Templates', 'project-templates'], ['Statuses', 'project-statuses'], ['Updates', 'project-updates']] },
-  { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Documents', 'documents'], ['Customer requests', 'customer-requests'], ['Pulse', 'pulse'], ['Asks', 'asks'], ['Loops', 'loops'], ['Emojis', 'emojis']] },
+  { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Documents', 'documents'], ['Customer requests', 'customer-requests'], ['Pulse', 'pulse'], ['Loops', 'loops'], ['Emojis', 'emojis']] },
   { sec: 'Integrations', items: [['GitHub', 'github']] },
   { sec: 'Administration', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Security', 'workspace-security'], ['API', 'api'], ['Coding tools', 'handoff'], ['Import & export', 'data']] },
 ];
@@ -34,13 +34,13 @@ const SETTINGS_ICONS: Record<string, React.ReactNode> = {
   labels: <IconTag size={14} />, templates: <IconDoc size={14} />, slas: <IconSla size={14} />,
   'project-labels': <IconTag size={14} />, 'project-templates': <IconDoc size={14} />, 'project-statuses': <IconStatusRing size={14} />, 'project-updates': <IconPulse size={14} />,
   initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />, 'customer-requests': <IconCustomers size={14} />,
-  pulse: <IconPulse size={14} />, asks: <IconAsk size={14} />, loops: <IconLoop size={14} />, emojis: <IconEmoji size={14} />, github: <IconPr size={14} />,
+  pulse: <IconPulse size={14} />, loops: <IconLoop size={14} />, emojis: <IconEmoji size={14} />, github: <IconPr size={14} />,
   workspace: <IconSettings size={14} />, teams: <IconTeam size={14} />, members: <IconUsers size={14} />, handoff: <IconAgent size={14} />, data: <IconArchive size={14} />,
 };
 
 // hosted, these pages set up the workspace or a team: admins change them, members can read them
 const ADMIN_SECTIONS = new Set(['workspace', 'data', 'labels', 'templates', 'slas', 'project-labels', 'project-templates', 'project-statuses', 'project-updates',
-  'initiatives', 'documents', 'customer-requests', 'pulse', 'asks', 'loops', 'github']);
+  'initiatives', 'documents', 'customer-requests', 'pulse', 'loops', 'github']);
 const ADMIN_TEAM_PAGES = new Set(['general', 'labels', 'templates', 'statuses', 'triage', 'workflow']);
 const LABELS_NOTE = 'Only admins can change labels. Anyone can add one from a label menu.';
 
@@ -126,7 +126,6 @@ function SettingsPage() {
       {section === 'pulse' && <PulseSettings />}
       {section === 'emojis' && <EmojisSettings />}
       {section === 'slas' && <SlaSettings />}
-      {section === 'asks' && <AsksSettings />}
       {section === 'loops' && <LoopsSettings />}
       {section === 'github' && <GitHubSettings />}
       {section === 'initiatives' && <InitiativesSettings />}
@@ -305,7 +304,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
       <h1>Triage</h1>
       <div className="field-help" style={{ marginBottom: 12 }}>Streamline how you handle requests from outside your team</div>
       <div className="card set-list">
-        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Enable triage</div><div className="field-help">Issues that agents, Asks and teammates outside the team file land in a Triage queue for review before they reach the backlog.{triageCount ? ` ${triageCount} issue${triageCount === 1 ? ' is' : 's are'} waiting now.` : ''}</div></div>
+        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Enable triage</div><div className="field-help">Issues that agents and teammates outside the team file land in a Triage queue for review before they reach the backlog.{triageCount ? ` ${triageCount} issue${triageCount === 1 ? ' is' : 's are'} waiting now.` : ''}</div></div>
           <SettingSwitch on={team.triageEnabled} onChange={v => void patch({ triageEnabled: v })} /></div>
       </div>
     </div>

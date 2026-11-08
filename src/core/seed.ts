@@ -177,7 +177,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.addCustomerRequest({ customerId: acme.id, projectId: mobile.id, body: 'Our on-call team triages from phones — need the inbox on mobile.', important: true }, ada.id);
   const reqIssue = store.listIssues({ teamId: core.id }).find(i => /search/i.test(i.title));
   if (reqIssue) store.addCustomerRequest({ customerId: north.id, issueId: reqIssue.id, body: 'Search should match comment text too.' }, jun.id);
-  // initiatives, SLAs, asks, loops and a few pull requests
+  // initiatives, SLAs, loops and a few pull requests
   const { planning, automation, git } = store.ext;
   // finished work gets completion times spread over past weeks (initiative graphs and activity read them)
   const finished = store.listIssues({ teamId: core.id, stateType: 'completed' });
@@ -207,8 +207,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   const open = coreIssues.filter(i => [st(core.id, 'unstarted'), st(core.id, 'started')].includes(i.stateId)).slice(0, 3);
   automation.createSlaRule({ name: 'Urgent issues', priorities: [1], hours: 24 });
   automation.createSlaRule({ name: 'High-priority bugs', priorities: [2], labelIds: [coreBug.id], hours: 7 * 24 });
-  automation.createAskForm({ name: 'Bug report', teamId: agents.id, description: 'Something broken? Tell us what you saw.', priority: 2,
-    fields: [{ id: 'f_title', label: 'What went wrong?', type: 'text', options: [], required: true }, { id: 'f_steps', label: 'Steps to reproduce', type: 'textarea', options: [], required: false }, { id: 'f_sev', label: 'How bad is it?', type: 'select', options: ['Blocking', 'Annoying', 'Cosmetic'], required: true }] });
   automation.createLoop({ name: 'Bug acknowledgement', teamId: core.id, trigger: { kind: 'labelAdded', labelId: coreBug.id }, actions: [{ kind: 'comment', body: 'Thanks — {issue.key} is queued for the bug rotation.' }] });
   if (open[0]) git.ingestPullRequest({ repo: 'example/baseline', number: 41, title: `${store.keyOf(open[0])} ${open[0].title}`, body: '', url: 'https://github.com/example/baseline/pull/41', state: 'open', branch: `parth/${store.keyOf(open[0]).toLowerCase()}`, base: 'main', author: 'parth', reviewDecision: 'review_required', checks: 'success', updatedAt: iso(-0.1), mergedAt: null });
   store.createDocTemplate({ name: 'Spec', title: 'Spec: ', content: '## Problem\n\n## Proposal\n\n## Open questions\n' });

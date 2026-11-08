@@ -600,7 +600,7 @@
     });
   });
 
-  /* ================= 11. initiatives, SLAs, asks, loops, GitHub ================= */
+  /* ================= 11. initiatives, SLAs, loops, GitHub ================= */
   S('more', async t => {
     await t.run('11.1 Initiatives: sidebar, G then N, create, add project, post update, status', async () => {
       await t.nav('/inbox', 500); if (!t.q('.sidebar').innerText.includes('Initiatives')) t.fail('no sidebar item');
@@ -626,13 +626,6 @@
       await t.nav('/issue/' + await t.keyOf(urgent.id), 900); const badge = t.q('.props-rail .sla-badge')?.innerText;
       await t.nav('/team/CORE/all', 800); await t.press('f', {}, 500); await t.click(t.menuItem('SLA status'), 400); await t.click(t.menuItem('Within SLA'), 600); await t.closeAll(); const n = t.rows(); const c = t.byText('Clear'); if (c) await t.click(c, 400);
       if (!badge || !n) t.fail(`badge ${badge} filtered ${n}`); return `rule added; rail: "${badge}"; SLA filter → ${n} rows`;
-    });
-    await t.run('11.5 Asks: open a form, required check, submit → issue in triage', async () => {
-      await t.nav('/asks', 700); await t.click(t.qa('.ask-card')[0], 700); await t.click(t.byText('Submit'), 600); const err = t.q('.ask-error')?.innerText ?? '';
-      const inputs = t.qa('.ask-form .ask-q'); await t.type(inputs[0].querySelector('input'), 'Harness ask: export crashes', 150); const sel = inputs.map(q => q.querySelector('select')).find(Boolean); if (sel) await t.type(sel, sel.options[1].value, 150);
-      await t.click(t.byText('Submit'), 1100); const done = t.q('.ask-done')?.innerText ?? '';
-      const s = await t.snap(); const iss = s.issues.find(i => i.title === 'Harness ask: export crashes'); const st = iss && s.states.find(x => x.id === iss.stateId);
-      if (!err.includes('Required') || !iss || st.type !== 'triage') t.fail(`err "${err}" issue ${!!iss} state ${st?.type}`); return `validation: "${err}"; ${done}`;
     });
     await t.run('11.6 Loops: build one in the editor, it fires on issue create; Run now logs', async () => {
       await t.nav('/settings/loops', 700); await t.click(t.byText('New loop'), 500); await t.type(t.q('.loop-editor input'), 'Harness loop', 150);
@@ -736,9 +729,9 @@
   S('routes', async t => {
     await t.run('10.1 Every route renders without console errors', async () => {
       const s = await t.snap(); const p = s.projects[0].id; const d = s.docs[0].id; const c = s.customers[0].id; const cyc = s.cycles.find(x => x.teamId === s.teams[0].id).id;
-      const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/pulse', '/customers', `/customers/${c}`, '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`), '/asks', ...s.askForms.map(f => `/asks/${f.id}`),
+      const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/pulse', '/customers', `/customers/${c}`, '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`),
         '/team/CORE/all', '/team/CORE/active', '/team/CORE/backlog', '/team/CORE/overview', '/team/CORE/overview/documents', '/team/CORE/overview/members', '/team/CORE/cycles', `/team/CORE/cycles/${cyc}`, '/team/CORE/projects', '/team/CORE/views', '/team/CORE/views/projects', '/team/AGO/triage', '/team/CORE/archive', '/trash', '/search', `/docs/${d}`, '/issue/CORE-1',
-        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'customer-requests', 'pulse', 'emojis', 'slas', 'asks', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
+        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'customer-requests', 'pulse', 'emojis', 'slas', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
       const errs = []; const orig = console.error; console.error = (...a) => { errs.push(location.hash + ' ' + a.map(String).join(' ').slice(0, 120)); orig(...a); };
       for (const r of routes) { location.hash = '#' + r; await sleep(420); }
       console.error = orig; if (errs.length) t.fail(errs.slice(0, 4).join(' | ')); return routes.length + ' routes, no console errors';

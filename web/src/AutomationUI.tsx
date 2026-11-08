@@ -1,13 +1,9 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
 import { useApp, relTime } from './store.js';
 import { api } from './api.js';
-import { TopBar } from './AppShell.js';
 import { PriorityIcon } from './pickers.js';
-import { IconPlus, IconTrash, IconSla, IconAsk, IconLoop, IconClose } from './icons.js';
-import type { AskField, Issue, Loop, LoopAction, LoopTrigger, Priority, WorkflowStateType } from '../../src/core/types.js';
-import { Illustration } from './illustrations.js';
-import { useInFlight } from './ui.js';
+import { IconPlus, IconTrash, IconSla, IconLoop, IconClose } from './icons.js';
+import type { Issue, Loop, LoopAction, LoopTrigger, Priority, WorkflowStateType } from '../../src/core/types.js';
 
 const refresh = () => useApp.getState().bootstrap();
 const PRIORITIES: Array<[Priority, string]> = [[1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low'], [0, 'No priority']];
@@ -65,137 +61,6 @@ export function SlaSettings() {
           <label className="sla-hours">Within <input className="text-input" aria-label="SLA hours" type="number" min={1} value={hours} onChange={e => setHours(e.target.value)} /> hours</label>
           <button className="btn primary sm" disabled={!name.trim()} onClick={create}><IconPlus size={12} /> Add rule</button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-/* ================= Asks ================= */
-export function AsksSettings() {
-  const snap = useApp(s => s.snap)!;
-  const navigate = useNavigate();
-  const [name, setName] = useState('');
-  const [editing, setEditing] = useState<string | null>(null);
-  const create = async () => { if (!name.trim()) return; const { form } = await api.createAskForm({ name: name.trim(), teamId: snap.teams[0].id }); setName(''); await refresh(); setEditing(form.id); };
-  return (
-    <div className="settings-card wide">
-      <h1>Asks</h1>
-      <div className="field-help" style={{ marginBottom: 14 }}>Let anyone file bug reports, feature requests and more through structured forms. Each submission lands in the team's triage.</div>
-      <div className="card set-list">
-        {snap.askForms.map(f => editing === f.id ? <AskEditor key={f.id} formId={f.id} onDone={() => setEditing(null)} /> : (
-          <div key={f.id} className="set-row group">
-            <IconAsk size={14} />
-            <span style={{ flex: 1 }}><b>{f.name}</b><span className="set-meta" style={{ marginLeft: 8 }}>{snap.teams.find(t => t.id === f.teamId)?.name} · {f.fields.length} fields · {snap.issues.filter(i => i.askFormId === f.id).length} submissions</span></span>
-            <button className="btn ghost sm" onClick={() => navigate(`/asks/${f.id}`)}>Open form</button>
-            <button className="icon-btn hover-only" title="Edit form" onClick={() => setEditing(f.id)}><span style={{ fontSize: 11 }}>✎</span></button>
-            <button className="icon-btn hover-only" title="Delete form" onClick={async () => { await api.deleteAskForm(f.id); await refresh(); }}><IconTrash size={13} /></button>
-          </div>
-        ))}
-        {!snap.askForms.length && <div className="set-empty">No Ask forms yet</div>}
-        <div className="set-row"><input className="text-input" placeholder="New form, e.g. Bug report" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create(); }} /><button className="btn primary sm" disabled={!name.trim()} onClick={create}>Create</button></div>
-      </div>
-    </div>
-  );
-}
-
-function AskEditor({ formId, onDone }: { formId: string; onDone: () => void }) {
-  const snap = useApp(s => s.snap)!;
-  const f = snap.askForms.find(x => x.id === formId)!;
-  const [d, setD] = useState({ name: f.name, description: f.description, teamId: f.teamId, priority: f.priority, fields: f.fields });
-  const setField = (i: number, p: Partial<AskField>) => setD(cur => ({ ...cur, fields: cur.fields.map((x, n) => n === i ? { ...x, ...p } : x) }));
-  return (
-    <div className="ptpl-edit">
-      <input className="text-input" placeholder="Form name" value={d.name} onChange={e => setD({ ...d, name: e.target.value })} />
-      <input className="text-input" placeholder="Description shown on the form" value={d.description} onChange={e => setD({ ...d, description: e.target.value })} />
-      <div style={{ display: 'flex', gap: 6 }}>
-        <select className="text-input" aria-label="Ask team" value={d.teamId} onChange={e => setD({ ...d, teamId: e.target.value })}>{snap.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
-        <select className="text-input" aria-label="Ask priority" value={d.priority} onChange={e => setD({ ...d, priority: Number(e.target.value) as Priority })}>{PRIORITIES.map(([p, l]) => <option key={p} value={p}>{l}</option>)}</select>
-      </div>
-      <div className="set-meta" style={{ margin: '4px 0 0' }}>Fields</div>
-      {d.fields.map((x, i) => (
-        <div key={x.id} className="ask-field-row">
-          <input className="text-input" value={x.label} onChange={e => setField(i, { label: e.target.value })} />
-          <select className="text-input" value={x.type} onChange={e => setField(i, { type: e.target.value as AskField['type'] })}><option value="text">Short text</option><option value="textarea">Long text</option><option value="select">Choice</option></select>
-          {x.type === 'select' && <input className="text-input" placeholder="Options, comma separated" value={x.options.join(', ')} onChange={e => setField(i, { options: e.target.value.split(',').map(o => o.trim()).filter(Boolean) })} />}
-          <label className="ask-req"><input type="checkbox" checked={x.required} onChange={e => setField(i, { required: e.target.checked })} /> Required</label>
-          <button className="icon-btn" title="Remove field" onClick={() => setD(cur => ({ ...cur, fields: cur.fields.filter((_, n) => n !== i) }))}><IconClose size={12} /></button>
-        </div>
-      ))}
-      <button className="btn ghost sm" style={{ alignSelf: 'flex-start' }} onClick={() => setD(cur => ({ ...cur, fields: [...cur.fields, { id: `f_${Date.now().toString(36)}`, label: 'New field', type: 'text', options: [], required: false }] }))}><IconPlus size={12} /> Add field</button>
-      <div style={{ display: 'flex', gap: 6 }}><button className="btn primary sm" onClick={async () => { await api.updateAskForm(formId, d); await refresh(); onDone(); }}>Save</button><button className="btn ghost sm" onClick={onDone}>Cancel</button></div>
-    </div>
-  );
-}
-
-/** the Asks page: every form, and what's been filed through them */
-export function AsksPage() {
-  const snap = useApp(s => s.snap)!;
-  const navigate = useNavigate();
-  const filed = snap.issues.filter(i => i.askFormId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const key = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Asks', icon: <IconAsk size={14} /> }]} right={<button className="btn secondary" onClick={() => navigate('/settings/asks')}>Manage forms</button>} />
-      <div className="content">
-        {!snap.askForms.length ? (
-          <div className="empty-state"><Illustration name="asks" /><div className="empty-title">Asks</div><div className="empty-desc">Create intake forms in Settings › Asks; submissions land in the team's triage.</div><div className="empty-actions"><button className="btn primary" onClick={() => navigate('/settings/asks')}>Create a form</button></div></div>
-        ) : (
-          <div className="asks-page">
-            <div className="ask-cards">{snap.askForms.filter(f => f.enabled).map(f => (
-              <button key={f.id} className="ask-card" onClick={() => navigate(`/asks/${f.id}`)}><IconAsk size={16} /><b>{f.name}</b><span className="dim">{f.description || `Files into ${snap.teams.find(t => t.id === f.teamId)?.name}`}</span></button>
-            ))}</div>
-            <div className="proj-section-label">Recent submissions <span className="dim">{filed.length}</span></div>
-            {filed.slice(0, 50).map(i => (
-              <div key={i.id} className="issue-row static-row" onClick={() => navigate(`/issue/${key(i)}`)}>
-                <span className="mono dim">{key(i)}</span><span className="row-title-wrap"><span className="row-title">{i.title}</span><span className="row-parent">{snap.askForms.find(f => f.id === i.askFormId)?.name}</span></span>
-                <span className="row-meta"><span className="row-date">{relTime(i.createdAt)}</span></span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export function AskFormPage() {
-  const { formId = '' } = useParams();
-  const snap = useApp(s => s.snap)!;
-  const navigate = useNavigate();
-  const f = snap.askForms.find(x => x.id === formId);
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [error, setError] = useState('');
-  const [done, setDone] = useState<Issue | null>(null);
-  const { busy, guard } = useInFlight();
-  if (!f) return <div className="empty-state"><div className="empty-title">Form not found</div></div>;
-  // a fresh submit clears the last "Filed as" line, so a failure never shows next to an old success
-  const submit = guard(async () => {
-    setDone(null); setError('');
-    try { const { issue } = await api.submitAsk(f.id, values); setDone(issue); setValues({}); await refresh(); }
-    catch (e) { setError((e as Error).message); }
-  });
-  const key = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Asks', to: '/asks', muted: true }, { label: f.name }]} />
-      <div className="content">
-        <form className="ask-form" onSubmit={e => { e.preventDefault(); void submit(); }}>
-          <h1>{f.name}</h1>
-          {f.description && <p className="field-help">{f.description}</p>}
-          {f.fields.map(x => (
-            <label key={x.id} className="ask-q">
-              <span>{x.label}{x.required && <span className="ask-star"> *</span>}</span>
-              {x.type === 'textarea' ? <textarea className="text-input" value={values[x.id] ?? ''} onChange={e => setValues(v => ({ ...v, [x.id]: e.target.value }))} />
-                : x.type === 'select' ? <select className="text-input" value={values[x.id] ?? ''} onChange={e => setValues(v => ({ ...v, [x.id]: e.target.value }))}><option value="">Choose…</option>{x.options.map(o => <option key={o}>{o}</option>)}</select>
-                : <input className="text-input" value={values[x.id] ?? ''} onChange={e => setValues(v => ({ ...v, [x.id]: e.target.value }))} />}
-            </label>
-          ))}
-          {error && <div className="ask-error">{error}</div>}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="btn primary" type="submit" disabled={busy}>Submit</button>
-            {done && <span className="ask-done">Filed as <a href={`#/issue/${key(done)}`} onClick={e => { e.preventDefault(); navigate(`/issue/${key(done)}`); }}>{key(done)}</a> in {snap.teams.find(t => t.id === done.teamId)?.name} triage</span>}
-          </div>
-        </form>
       </div>
     </div>
   );

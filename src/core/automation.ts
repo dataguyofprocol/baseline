@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Store } from './store.js';
 import { getMeta, setMeta } from './db.js';
 import { id } from './util.js';
-import { DEFAULT_TEAM_WORKFLOW, type AskField, type AskForm, type Issue, type Loop, type LoopAction, type LoopRun, type LoopTrigger, type Priority, type SlaRule, type TeamSubscription, type TeamWorkflow, type WorkflowStateType } from './types.js';
+import { DEFAULT_TEAM_WORKFLOW, type Issue, type Loop, type LoopAction, type LoopRun, type LoopTrigger, type Priority, type SlaRule, type TeamSubscription, type TeamWorkflow, type WorkflowStateType } from './types.js';
 
 const ts = () => new Date().toISOString();
 const HOUR = 3600_000;
@@ -13,8 +13,7 @@ export function agentUser(store: Store, db: DatabaseSync, name: string): string 
   return row?.id ?? store.createUser(name, '', false, 'agent').id;
 }
 
-/* SLAs (deadlines from rules), Asks (intake forms that file into triage) and Loops
-   (workflows that run on a schedule or when issues change). */
+/* SLAs (deadlines from rules) and Loops (workflows that run on a schedule or when issues change). */
 export class Automation {
   /** set by the server: opens an interactive Claude Code session for an issue (the CLI has none) */
   launcher: ((issueId: string) => Promise<void>) | null = null;
@@ -34,13 +33,11 @@ export class Automation {
   snapshot() {
     const slaRules: SlaRule[] = this.rows<{ id: string; name: string; team_id: string | null; priorities: string; labels: string; hours: number; enabled: number; created_at: string }>('SELECT * FROM sla_rules ORDER BY created_at')
       .map(r => ({ id: r.id, name: r.name, teamId: r.team_id, priorities: JSON.parse(r.priorities), labelIds: JSON.parse(r.labels), hours: r.hours, enabled: !!r.enabled, createdAt: r.created_at }));
-    const askForms: AskForm[] = this.rows<{ id: string; name: string; description: string; team_id: string; fields: string; labels: string; priority: number; enabled: number; created_at: string }>('SELECT * FROM ask_forms ORDER BY created_at')
-      .map(f => ({ id: f.id, name: f.name, description: f.description, teamId: f.team_id, fields: JSON.parse(f.fields), labelIds: JSON.parse(f.labels), priority: f.priority as Priority, enabled: !!f.enabled, createdAt: f.created_at }));
     const loops: Loop[] = this.rows<{ id: string; name: string; team_id: string | null; trigger: string; actions: string; enabled: number; last_run_at: string | null; created_at: string }>('SELECT * FROM loops ORDER BY created_at')
       .map(l => ({ id: l.id, name: l.name, teamId: l.team_id, trigger: JSON.parse(l.trigger), actions: JSON.parse(l.actions), enabled: !!l.enabled, lastRunAt: l.last_run_at, createdAt: l.created_at }));
     const loopRuns: LoopRun[] = this.rows<{ id: string; loop_id: string; issue_id: string | null; ok: number; detail: string; created_at: string }>('SELECT * FROM loop_runs ORDER BY created_at DESC LIMIT 200')
       .map(r => ({ id: r.id, loopId: r.loop_id, issueId: r.issue_id, ok: !!r.ok, detail: r.detail, createdAt: r.created_at }));
-    return { slaRules, askForms, loops, loopRuns, teamSubscriptions: this.teamSubscriptions(), teamWorkflows: this.teamWorkflows() };
+    return { slaRules, loops, loopRuns, teamSubscriptions: this.teamSubscriptions(), teamWorkflows: this.teamWorkflows() };
   }
 
   // ================= team workflows & automations =================
@@ -196,46 +193,6 @@ export class Automation {
       this.store.logActivity({ issueId: i.id, type: 'slaBreached', data: {} }, bot);
       this.store.notifyEach([i.assignee_id], 'slaBreached', { actorId: bot, issueId: i.id, body: 'SLA breached' });
     }
-  }
-
-  // ================= Asks =================
-  createAskForm(input: { name: string; teamId: string; description?: string; fields?: AskField[]; labelIds?: string[]; priority?: Priority }): AskForm {
-    const f: AskForm = {
-      id: id('ask'), name: input.name.trim(), description: input.description ?? '', teamId: input.teamId,
-      fields: input.fields ?? [{ id: id('f'), label: 'Summary', type: 'text', options: [], required: true }, { id: id('f'), label: 'Details', type: 'textarea', options: [], required: false }],
-      labelIds: input.labelIds ?? [], priority: input.priority ?? 0, enabled: true, createdAt: ts(),
-    };
-    this.db.prepare('INSERT INTO ask_forms (id, name, description, team_id, fields, labels, priority, enabled, created_at) VALUES (?,?,?,?,?,?,?,1,?)').run(f.id, f.name, f.description, f.teamId, JSON.stringify(f.fields), JSON.stringify(f.labelIds), f.priority, f.createdAt);
-    return f;
-  }
-  updateAskForm(formId: string, patch: Partial<Pick<AskForm, 'name' | 'description' | 'teamId' | 'fields' | 'labelIds' | 'priority' | 'enabled'>>): void {
-    const map: Record<string, [string, (v: unknown) => string | number]> = {
-      name: ['name', v => v as string], description: ['description', v => v as string], teamId: ['team_id', v => v as string],
-      fields: ['fields', v => JSON.stringify(v)], labelIds: ['labels', v => JSON.stringify(v)], priority: ['priority', v => v as number], enabled: ['enabled', v => (v ? 1 : 0)],
-    };
-    const sets: string[] = []; const vals: Array<string | number> = [];
-    for (const [k, v] of Object.entries(patch)) if (v !== undefined && map[k]) { sets.push(`${map[k][0]} = ?`); vals.push(map[k][1](v)); }
-    if (!sets.length) return;
-    vals.push(formId);
-    this.db.prepare(`UPDATE ask_forms SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-  }
-  deleteAskForm(formId: string): void { this.db.prepare('DELETE FROM ask_forms WHERE id = ?').run(formId); }
-  /** a submission becomes an issue in the team's triage (or backlog), titled from the first short answer */
-  submitAsk(formId: string, values: Record<string, string>, requesterId?: string): Issue {
-    const f = this.snapshot().askForms.find(x => x.id === formId);
-    if (!f) throw new Error('Unknown form');
-    if (!f.enabled) throw new Error('This form is closed');
-    const missing = f.fields.filter(x => x.required && !(values[x.id] ?? '').trim()).map(x => x.label);
-    if (missing.length) throw new Error(`Required: ${missing.join(', ')}`);
-    const firstText = f.fields.find(x => x.type === 'text' && (values[x.id] ?? '').trim());
-    const title = firstText ? values[firstText.id].trim().slice(0, 200) : f.name;
-    const body = f.fields.filter(x => x !== firstText && (values[x.id] ?? '').trim()).map(x => `**${x.label}**\n\n${values[x.id].trim()}`).join('\n\n');
-    const team = this.db.prepare('SELECT triage_enabled FROM teams WHERE id = ?').get(f.teamId) as { triage_enabled: number } | undefined;
-    const stateId = (team?.triage_enabled ? this.firstStateOfType(f.teamId, 'triage') : undefined) ?? this.firstStateOfType(f.teamId, 'backlog');
-    const actor = requesterId ?? agentUser(this.store, this.db, 'Asks');
-    const issue = this.store.createIssue({ teamId: f.teamId, title, description: `${body}${body ? '\n\n' : ''}_Filed through the “${f.name}” Ask._`, stateId, priority: f.priority, labelIds: f.labelIds, askFormId: f.id }, actor);
-    this.store.logActivity({ issueId: issue.id, type: 'askSubmitted', data: { form: f.name } }, actor);
-    return issue;
   }
 
   // ================= Loops =================

@@ -150,11 +150,9 @@ baseline initiative update I-3 --priority high --label Growth "Q1 bet" --remove-
 baseline initiative label list | create <name> [--color #hex] | delete <name>
 baseline initiative note "Agent-first tracker" "On track for Q4" --health onTrack
 
-# SLAs, Asks, Loops
+# SLAs, Loops
 baseline sla list                               # rules + breached issues
 baseline sla create "Urgent in 24h" --hours 24 -p urgent [-t CORE]
-baseline ask list                               # forms and their field ids (* = required)
-baseline ask submit "Bug report" f_title="Export crashes" f_sev=Blocking   # files into the team's triage
 baseline loop list
 baseline loop run "Bug acknowledgement" CORE-12  # run a loop now, optionally on an issue
 

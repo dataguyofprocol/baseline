@@ -19,9 +19,9 @@ interface CommentRow { id: string; issue_id: string; user_id: string; via_user_i
 interface AttachmentRow { id: string; issue_id: string; user_id: string; kind: string; url: string; title: string; mime: string; size: number; created_at: string }
 const DAY = 86400000;
 /** activity types of removed features: old databases keep the rows, the timeline no longer shows them */
-const RETIRED_ACTIVITY = ['releaseChanged'].map(t => `'${t}'`).join(', ');
+const RETIRED_ACTIVITY = ['releaseChanged', 'askSubmitted'].map(t => `'${t}'`).join(', ');
 
-interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; milestone_id: string | null; creator_id: string | null; snoozed_until: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; ask_form_id?: string | null; sla_rule_id?: string | null; sla_breaches_at?: string | null; }
+interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; milestone_id: string | null; creator_id: string | null; snoozed_until: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; sla_rule_id?: string | null; sla_breaches_at?: string | null; }
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
@@ -37,7 +37,7 @@ function sqlPairs<T extends object>(patch: T, allowed: Array<keyof T>): Array<[s
 const ISSUE_PATCH_KEYS = new Set<string>(['title', 'description', 'stateId', 'priority', 'assigneeId', 'projectId', 'parentId', 'cycleId', 'locationId', 'milestoneId', 'estimate', 'dueDate', 'labelIds', 'sortOrder', 'archivedAt']);
 
 export class Store {
-  /** extension modules (initiatives, SLAs, asks, loops, git) — see extensions.ts */
+  /** extension modules (initiatives, SLAs, loops, git) — see extensions.ts */
   readonly ext: Extensions;
   /** called after every issue create (before = null) and update */
   readonly issueHooks: Array<(before: Issue | null, after: Issue, actorId?: string) => void> = [];
@@ -54,7 +54,7 @@ export class Store {
     dueDate: r.due_date, sortOrder: r.sort_order, labelIds: JSON.parse(r.labels),
     createdAt: r.created_at, updatedAt: r.updated_at, archivedAt: r.archived_at,
     completedAt: r.completed_at, canceledAt: r.canceled_at, deletedAt: r.deleted_at,
-    askFormId: r.ask_form_id ?? null, slaRuleId: r.sla_rule_id ?? null, slaBreachesAt: r.sla_breaches_at ?? null,
+    slaRuleId: r.sla_rule_id ?? null, slaBreachesAt: r.sla_breaches_at ?? null,
   });
 
   private mapTeam = (t: TeamRow): Team => ({
@@ -401,7 +401,7 @@ export class Store {
     return s.id;
   }
 
-  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null; askFormId?: string | null }, actorId?: string): Issue {
+  createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null }, actorId?: string): Issue {
     const now = ts();
     const creatorId = actorId ?? this.actor();
     // with triage on, work filed by anyone but you (agents, teammates on the CLI) waits for review
@@ -426,10 +426,6 @@ export class Store {
     if (issue.assigneeId) { this.subscribe(issue.id, issue.assigneeId); this.notifyAssign(issue.id, issue.assigneeId, actorId); }
     for (const uid of this.mentions(issue.description)) this.subscribe(issue.id, uid);
     if (issue.projectId) this.notifyProject(issue.projectId, 'issueAdded', 'projectIssueAdded', creatorId, issue.title, issue.id);
-    if (input.askFormId) {
-      this.db.prepare('UPDATE issues SET ask_form_id = ? WHERE id = ?').run(input.askFormId, issue.id);
-      issue.askFormId = input.askFormId;
-    }
     for (const h of this.issueHooks) h(null, issue, actorId);
     return issue;
   }
@@ -1452,7 +1448,7 @@ export class Store {
     for (const p of arr<Record<string, unknown>>(data.projects)) this.db.prepare('UPDATE projects SET labels = ?, status_id = ?, update_cadence = ? WHERE id = ?').run(JSON.stringify(p.labelIds ?? []), (p.statusId as string | null) ?? null, (p.updateCadence as string | null) ?? null, p.id as string);
     if (ws && (ws as { features?: WorkspaceFeatures }).features) setMeta(this.db, 'features', JSON.stringify((ws as { features?: WorkspaceFeatures }).features));
     this.ext.importData(data, insert);
-    for (const i of arr<Record<string, unknown>>(data.issues)) this.db.prepare('UPDATE issues SET ask_form_id = ?, sla_rule_id = ?, sla_breaches_at = ? WHERE id = ?').run((i.askFormId as string | null) ?? null, (i.slaRuleId as string | null) ?? null, (i.slaBreachesAt as string | null) ?? null, i.id as string);
+    for (const i of arr<Record<string, unknown>>(data.issues)) this.db.prepare('UPDATE issues SET sla_rule_id = ?, sla_breaches_at = ? WHERE id = ?').run((i.slaRuleId as string | null) ?? null, (i.slaBreachesAt as string | null) ?? null, i.id as string);
     ensureDefaults(this.db);
     // a pre-locations export: its project directories and default become locations, as on upgrade
     migrateDirectoriesToLocations(this.db);

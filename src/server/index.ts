@@ -184,7 +184,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     ['POST', '/api/project-templates'], ['PATCH', '/api/project-templates/:id'], ['DELETE', '/api/project-templates/:id'],
     ['POST', '/api/doc-templates'], ['PATCH', '/api/doc-templates/:id'], ['DELETE', '/api/doc-templates/:id'],
     ['POST', '/api/sla-rules'], ['PATCH', '/api/sla-rules/:id'], ['DELETE', '/api/sla-rules/:id'],
-    ['POST', '/api/asks'], ['PATCH', '/api/asks/:id'], ['DELETE', '/api/asks/:id'],
     ['POST', '/api/loops'], ['PATCH', '/api/loops/:id'], ['DELETE', '/api/loops/:id'], ['POST', '/api/loops/:id/run'],
     ['PUT', '/api/git/automation/:teamId'],
     ['PUT', '/api/github/webhook/config'], ['POST', '/api/github/webhook/secret'], ['DELETE', '/api/github/webhook/secret'],
@@ -798,18 +797,10 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/initiative-labels/:id', async (c) => { planning.updateLabel(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/initiative-labels/:id', (c) => { planning.deleteLabel(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- SLAs, asks, loops ----------
+  // ---------- SLAs, loops ----------
   app.post('/api/sla-rules', async (c) => { const b = await c.req.json(); if (!b.name || !(b.hours > 0)) return c.json({ error: 'name and hours are required' }, 400); return c.json({ rule: automation.createSlaRule(b) }, 201); });
   app.patch('/api/sla-rules/:id', async (c) => { automation.updateSlaRule(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/sla-rules/:id', (c) => { automation.deleteSlaRule(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/asks', async (c) => { const b = await c.req.json(); if (!b.name || !b.teamId) return c.json({ error: 'name and teamId are required' }, 400); return c.json({ form: automation.createAskForm(b) }, 201); });
-  app.patch('/api/asks/:id', async (c) => { automation.updateAskForm(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/asks/:id', (c) => { automation.deleteAskForm(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/asks/:id/submit', async (c) => {
-    const b = await c.req.json();
-    try { return c.json({ issue: automation.submitAsk(c.req.param('id'), b.values ?? {}, b.requesterId) }, 201); }
-    catch (err) { return c.json({ error: (err as Error).message }, 400); }
-  });
   app.post('/api/loops', async (c) => { const b = await c.req.json(); if (!b.name || !b.trigger) return c.json({ error: 'name and trigger are required' }, 400); return c.json({ loop: automation.createLoop({ ...b, actions: b.actions ?? [] }) }, 201); });
   app.patch('/api/loops/:id', async (c) => { automation.updateLoop(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/loops/:id', (c) => { automation.deleteLoop(c.req.param('id')); return c.json({ ok: true }); });

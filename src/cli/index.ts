@@ -1250,7 +1250,7 @@ withDb(apiKey.command('revoke <id>')).description('Revoke a key by id or name').
   store.ext.apiKeys.revoke(k.id); console.log(`Revoked ${k.name}`); process.exit(0);
 });
 
-// ---------- SLAs, asks, loops, git ----------
+// ---------- SLAs, loops, git ----------
 const sla = program.command('sla').description('SLA rules: deadlines for matching issues');
 withDb(sla.command('list')).description('List SLA rules and breached issues').action((opts: { db?: string }) => {
   const snap = legacyStore(opts.db).snapshot();
@@ -1265,19 +1265,6 @@ withDb(sla.command('create <name>')).description('Add an SLA rule').requiredOpti
     const store = legacyStore(opts.db);
     store.ext.automation.createSlaRule({ name, hours: Number(opts.hours), priorities: (opts.priority ?? []).map(p => priorityNum(p)!), teamId: opts.team ? resolveTeam(store.snapshot(), opts.team, { required: true })!.id : null });
     console.log(`Created SLA rule "${name}"`); process.exit(0);
-  });
-const ask = program.command('ask').description('Asks: intake forms that file into triage');
-withDb(ask.command('list')).description('List Ask forms and their fields').action((opts: { db?: string }) => {
-  for (const f of legacyStore(opts.db).snapshot().askForms) console.log(`${f.id}  ${f.name} — ${f.fields.map(x => `${x.id}:${x.label}${x.required ? '*' : ''}`).join(', ')}`);
-  process.exit(0);
-});
-withAs(withDb(ask.command('submit <form>'))).description('Submit an Ask (field values as id=value)').argument('<values...>')
-  .action((ref: string, values: string[], opts: { db?: string; as?: string }) => {
-    const store = legacyStore(opts.db); const snap = store.snapshot();
-    const f = snap.askForms.find(x => x.id === ref || x.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown form "${ref}"`);
-    try { const issue = store.ext.automation.submitAsk(f.id, Object.fromEntries(values.map(v => [v.split('=')[0], v.split('=').slice(1).join('=')])), actorId(snap, opts.as)); console.log(`Filed ${store.keyOf(issue)}`); }
-    catch (e) { fail((e as Error).message); }
-    process.exit(0);
   });
 const loop = program.command('loop').description('Loops: workflows that run on a schedule or when issues change');
 withDb(loop.command('list')).description('List loops and recent runs').action((opts: { db?: string }) => {

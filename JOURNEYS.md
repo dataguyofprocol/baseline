@@ -133,7 +133,6 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 |---|---|---|---|
 | Initiatives: Active / Planned / All, owner, target, health from updates, projects, sub-initiatives, G then N | ✅ | 11.1, 11.2 | brought back at your request; a project's properties list its initiatives |
 | SLAs: rules by priority / label / team, deadline badges, SLA filter, breach notifications | ✅ | 11.4 | breach timing also checked on a scratch database |
-| Asks: intake forms with fields and validation; submissions land in triage | ✅ | 11.5 | |
 | Loops: issue created / label added / status changed / schedule → comment, assign, label, move, file an issue, Claude Code | ✅ | 11.6 | actions run as the Automation agent |
 | GitHub: Linear's linking rules and magic words, per-team PR automations with branch rules, In Review, PR + commit rows, PR filter, branch format | ✅ | 11.7 | also run for real: `gh` pulled 50 PRs from `cli/cli` (all four states) and `git log` 225 commits |
 | Team bell: notify on issues added, closed, or sent to triage | ✅ | 11.8 | |

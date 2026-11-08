@@ -4,7 +4,7 @@
 
 export type IllustrationName =
   | 'initiatives' | 'views' | 'projects' | 'issues' | 'inbox' | 'cycles' | 'updates' | 'search'
-  | 'archive' | 'trash' | 'customers' | 'drafts' | 'triage' | 'docs' | 'asks' | 'activity';
+  | 'archive' | 'trash' | 'customers' | 'drafts' | 'triage' | 'docs' | 'activity';
 
 const INK = 'var(--illo-ink)';
 const SHADE = 'var(--illo-shade)';
@@ -156,12 +156,6 @@ const ART: Record<IllustrationName, React.ReactNode> = {
       <g opacity="0.6"><Slab x={36} y={6} w={66} h={80} r={6} /></g>
       <Slab x={20} y={12} w={66} h={80} r={6} />
       <Text x={30} y={28} w={30} /><Text x={30} y={42} w={44} o={0.5} /><Text x={30} y={52} w={40} o={0.5} /><Text x={30} y={62} w={46} o={0.5} /><Text x={30} y={72} w={24} o={0.5} />
-    </>
-  ),
-  asks: (
-    <>
-      <Solid d="M14 14a8 8 0 0 1 8-8h80a8 8 0 0 1 8 8v44a8 8 0 0 1-8 8H48L28 82V66h-6a8 8 0 0 1-8-8Z" />
-      <rect x="26" y="20" width="72" height="10" rx="3" {...line} opacity="0.6" /><rect x="26" y="38" width="72" height="16" rx="3" {...line} opacity="0.6" />
     </>
   ),
   activity: (

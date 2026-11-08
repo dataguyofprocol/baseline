@@ -131,7 +131,6 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Notifications follow subscriptions: status changes (e.g. an agent finishing), comments, replies, mentions, assignment, reminders
 - ✅ Priority inbox (assignments, mentions, replies and reminders first) and grouping by Focus
 - ✅ SLAs (Settings › Issues › SLAs): rules by priority, label and team give issues a deadline; badges on rows and the rail, SLA filter, breach notifications
-- ✅ Asks (sidebar › Asks, Settings › Asks): intake forms with fields; submissions land in the team's triage
 - ✅ Loops (Settings › Loops): on issue created / label added / status changed / a schedule → comment, assign, label, move, file an issue, open in Claude Code; run log and Run now
 - ✅ GitHub (Settings › Integrations › GitHub): Linear's linking rules and magic words, per-team PR automations with branch rules, In Review state, PR and commit rows on issues, PR icon and filter, branch-name format. **Read-only by design**: nothing is ever written to GitHub (an allowlist in `git.ts` lets only read commands reach `gh` / `git`). Data comes from `gh` + `git log` (polled every 2 min) and from **signed GitHub webhooks** (real time, no token: HMAC-verified, repeat deliveries dropped, delivery log in settings). One-way **GitHub Issues import** into a team's triage, optionally following new issues
 - ✅ Team bell: inbox notifications when issues are added to a team, closed, or land in its triage

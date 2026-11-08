@@ -94,7 +94,6 @@ function useActivityText() {
       case 'prStateMoved': return <>{who} moved the issue — {String(a.data.why)} {when}</>;
       case 'commitLinked': return <>{who} linked commit <b className="mono">{String(a.data.sha)}</b> {String(a.data.message ?? '')} {when}</>;
       case 'loopRan': return <>{who} ran loop <b>{String(a.data.loop)}</b> — {String(a.data.detail)} {when}</>;
-      case 'askSubmitted': return <>{who} filed this through the <b>{String(a.data.form)}</b> Ask {when}</>;
       default: return <>{who} {a.type} {when}</>;
     }
   };

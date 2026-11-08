@@ -129,8 +129,6 @@ export interface Issue {
   creatorId: string | null;
   /** triage: hidden from the queue until this time */
   snoozedUntil: string | null;
-  /** the Ask form it was filed through */
-  askFormId?: string | null;
   /** SLA: the rule that applies and when it breaches (cleared once the issue closes) */
   slaRuleId?: string | null;
   slaBreachesAt?: string | null;
@@ -304,11 +302,6 @@ export interface InitiativeLink { id: string; initiativeId: string; url: string;
 /* ---------- SLAs ---------- */
 /** an automation rule: issues matching it get a deadline `hours` after they start matching */
 export interface SlaRule { id: string; name: string; teamId: string | null; priorities: Priority[]; labelIds: string[]; hours: number; enabled: boolean; createdAt: string }
-
-/* ---------- asks (intake forms) ---------- */
-export interface AskField { id: string; label: string; type: 'text' | 'textarea' | 'select'; options: string[]; required: boolean }
-/** a structured intake form; each submission becomes an issue in the team's triage */
-export interface AskForm { id: string; name: string; description: string; teamId: string; fields: AskField[]; labelIds: string[]; priority: Priority; enabled: boolean; createdAt: string }
 
 /* ---------- loops (automations) ---------- */
 export type LoopTrigger = { kind: 'schedule'; cadence: 'hourly' | 'daily' | 'weekly' } | { kind: 'issueCreated' } | { kind: 'labelAdded'; labelId: string } | { kind: 'statusChanged'; stateType: WorkflowStateType };
@@ -705,7 +698,7 @@ export type ActivityType =
   | 'estimateChanged' | 'related' | 'unrelated' | 'cycleChanged' | 'locationChanged' | 'milestoneChanged' | 'teamChanged'
   | 'attached' | 'triageAccepted' | 'triageDeclined' | 'deleted'
   | 'projectCreated' | 'projectUpdated' | 'projectHealth'
-  | 'slaApplied' | 'slaBreached' | 'prLinked' | 'prStateMoved' | 'commitLinked' | 'loopRan' | 'askSubmitted';
+  | 'slaApplied' | 'slaBreached' | 'prLinked' | 'prStateMoved' | 'commitLinked' | 'loopRan';
 
 export interface ActivityItem {
   id: string;
@@ -828,7 +821,7 @@ export function notifyCategory(type: NotificationType, body = ''): NotifyCategor
     default: return null;
   }
 }
-export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', asks: 'hide', pulse: 'show', customers: 'show', teams: 'hide', members: 'hide' };
+export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', pulse: 'show', customers: 'show', teams: 'hide', members: 'hide' };
 
 export const DEFAULT_PREFERENCES: Preferences = {
   homeView: 'inbox', firstDayOfWeek: 1,
@@ -879,7 +872,6 @@ export interface Snapshot {
   initiativeLabels: InitiativeLabel[];
   initiativeLinks: InitiativeLink[];
   slaRules: SlaRule[];
-  askForms: AskForm[];
   loops: Loop[];
   loopRuns: LoopRun[];
   pullRequests: PullRequest[];
@@ -914,7 +906,7 @@ const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   projectTemplates: true, projectRelations: true, projectLabels: true, projectStatuses: true, projectSubscriptions: true,
   docTemplates: true, emojis: true, customers: true, customerStatuses: true, customerTiers: true, customerRequests: true,
   initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, slaRules: true,
-  askForms: true, loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
+  loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
   teamSubscriptions: true, teamWorkflows: true, recurring: true, locations: true, projectUpdates: true, milestones: true,
   cycles: true, views: true, favorites: true, notifications: true, activity: true, currentUser: true, updateDrafts: true,
 };
