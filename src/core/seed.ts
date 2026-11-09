@@ -28,7 +28,7 @@ export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string;
 
 /** The sample workspace. `into` adds it to the workspace as it stands instead of wiping first.
  *  Your teams, locations and settings stay, and you are the sample's "me". */
-export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string; into?: boolean } = {}): void {
+export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string; email?: string; into?: boolean } = {}): void {
   const store = new Store(db);
   if (!opts.into) store.wipe();
 
@@ -45,7 +45,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
 
   // members
   const current = opts.into ? store.snapshot().users.find(u => u.id === getMeta(db, 'currentUser')) : undefined;
-  const me = current ?? store.createUser(opts.userName ?? 'Parth Batra', 'parth@local', true);
+  const me = current ?? store.createUser(opts.userName ?? 'Parth Batra', opts.email ?? 'parth@local', true);
   const ada = store.createUser('Ada Osei', 'ada@local');
   const jun = store.createUser('Jun Watanabe', 'jun@local');
   const agentId = store.agentUserId();

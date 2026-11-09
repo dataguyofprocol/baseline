@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { serve } from '../server/index.js';
 import { isDirectory, LaunchError, openInClaudeCode } from '../server/launch.js';
 import { seedWorkspace } from '../core/seed.js';
+import { hashPassword, passwordProblem } from '../core/passwords.js';
 import { issueKey, initiativeKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS, API_KEY_SCOPES } from '../core/types.js';
 import type { RelationType, Snapshot, Team, Label, Project, Issue, Location, ApiKeyScope } from '../core/types.js';
 import { BaselineError, connect, issueIndex, resolve, ResolveError, TargetError, targetFor, views, type Baseline } from '../client/index.js';
@@ -108,9 +109,15 @@ program
   .description('Seed a sample workspace (add --reset to wipe first)')
   .option('-d, --db <path>', 'database path')
   .option('--reset', 'wipe existing data first', false)
+  .option('--email <address>', 'the sample owner\'s email address (default parth@local)')
+  .option('--password <password>', 'a password for the sample owner, so they can sign in to a hosted server')
   .action(async (opts) => {
-    const { db, store, dbPath: path } = legacyApp(opts.db);
-    if (opts.reset) seedWorkspace(db);
+    if (opts.password !== undefined && !opts.reset) fail('--password needs --reset: it belongs to the owner the sample workspace creates');
+    const problem = opts.password !== undefined ? passwordProblem(opts.password) : null;
+    if (problem) fail(`--password: ${problem}`);
+    const { db, store, accounts, dbPath: path } = legacyApp(opts.db);
+    if (opts.reset) seedWorkspace(db, { email: opts.email });
+    if (opts.password !== undefined) accounts.setPassword(accounts.passwordFor(opts.email ?? 'parth@local')!.id, await hashPassword(opts.password));
     const snap = store.snapshot();
     console.log(`Seeded: ${snap.teams.length} teams, ${snap.issues.length} issues, ${snap.projects.length} projects → ${path}`);
     process.exit(0);
