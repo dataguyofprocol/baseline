@@ -39,7 +39,8 @@
     "gen:skill": "tsx scripts/check-ops-parity.ts --write",
     "test:mcp": "tsx scripts/test-mcp.ts",
     "test:summaries": "tsx scripts/test-summaries.ts",
-    "test:notify": "tsx scripts/test-notifications.ts"
+    "test:notify": "tsx scripts/test-notifications.ts",
+    "test:tui": "tsx --tsconfig tsconfig.node.json scripts/test-tui.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
