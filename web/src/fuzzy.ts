@@ -37,8 +37,8 @@ export function fuzzyMatch(term: string, text: string): FuzzyMatch | null {
     return { score, indices: contiguous(sub, q.length) };
   }
 
-  // Try each occurrence of the first character as an anchor — boundary
-  // occurrences first — and keep the best greedy completion. Anchoring on
+  // Try each occurrence of the first character as an anchor, starting with the ones
+  // at word boundaries, and keep the best greedy completion. Anchoring on
   // "scoring" beats anchoring on the "s" of "reset" for the query "sc".
   const anchors: number[] = [];
   for (let i = t.indexOf(q[0]); i !== -1; i = t.indexOf(q[0], i + 1)) {

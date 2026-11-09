@@ -5,17 +5,17 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, AdminLock, ADMIN_NOTE, useCanConfigure, useInFlight } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconPulse, IconInitiative, IconCustomers, IconRelease, IconAsk, IconLoop, IconEmoji, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconUpdates, IconInitiative, IconLoop, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
 import { HostedMembersSettings, SecuritySettings as WorkspaceSecuritySettings, TeamMembersSettings } from './Members.js';
 import { ShortcutList } from './Palette.js';
 import { CADENCE_LABELS } from './actions.js';
-import { SlaSettings, AsksSettings, LoopsSettings } from './AutomationUI.js';
+import { SlaSettings, LoopsSettings } from './AutomationUI.js';
 import { GitHubSettings, PrAutomationSettings } from './GitHubUI.js';
 import { CustomizeSidebar, TeamJoinChip } from './Workspace.js';
 import { SecuritySettings, NewApiKey, ApiAdminSettings } from './ApiKeysUI.js';
-import { InitiativesSettings, ProjectLabelsSettings, ProjectStatusesSettings, ProjectUpdatesSettings, DocumentsSettings, CustomerRequestsSettings, PulseSettings, EmojisSettings } from './SettingsMore.js';
+import { InitiativesSettings, ProjectLabelsSettings, ProjectStatusesSettings, ProjectUpdatesSettings } from './SettingsMore.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
 import { TERMINAL_APPS, NOTIFY_CATEGORIES, type NotifyCategory, type WorkflowStateType, type Priority, type TerminalApp } from '../../src/core/types.js';
 import { readInboxPrefs, writeInboxPrefs, DEFAULT_PRIORITY_CATS } from './Inbox.js';
@@ -23,8 +23,8 @@ import { readInboxPrefs, writeInboxPrefs, DEFAULT_PRIORITY_CATS } from './Inbox.
 export const SETTINGS_NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
   { sec: 'Personal', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Security & access', 'security'], ['Keyboard shortcuts', 'shortcuts']] },
   { sec: 'Issues', items: [['Labels', 'labels'], ['Templates', 'templates'], ['SLAs', 'slas']] },
-  { sec: 'Projects', items: [['Labels', 'project-labels'], ['Templates', 'project-templates'], ['Statuses', 'project-statuses'], ['Updates', 'project-updates']] },
-  { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Documents', 'documents'], ['Customer requests', 'customer-requests'], ['Releases', 'releases'], ['Pulse', 'pulse'], ['Asks', 'asks'], ['Loops', 'loops'], ['Emojis', 'emojis']] },
+  { sec: 'Projects', items: [['Labels', 'project-labels'], ['Statuses', 'project-statuses'], ['Updates', 'project-updates']] },
+  { sec: 'Features', items: [['Initiatives', 'initiatives'], ['Loops', 'loops']] },
   { sec: 'Integrations', items: [['GitHub', 'github']] },
   { sec: 'Administration', items: [['Workspace', 'workspace'], ['Teams', 'teams'], ['Members', 'members'], ['Security', 'workspace-security'], ['API', 'api'], ['Coding tools', 'handoff'], ['Import & export', 'data']] },
 ];
@@ -32,15 +32,15 @@ export const SETTINGS_NAV: Array<{ sec: string; items: Array<[string, string]> }
 const SETTINGS_ICONS: Record<string, React.ReactNode> = {
   preferences: <IconSliders size={14} />, profile: <IconUser size={14} />, notifications: <IconBell size={14} />, security: <IconShieldUser size={14} />, 'workspace-security': <IconShieldUser size={14} />, api: <IconCode size={14} />, shortcuts: <IconKeyboard size={14} />,
   labels: <IconTag size={14} />, templates: <IconDoc size={14} />, slas: <IconSla size={14} />,
-  'project-labels': <IconTag size={14} />, 'project-templates': <IconDoc size={14} />, 'project-statuses': <IconStatusRing size={14} />, 'project-updates': <IconPulse size={14} />,
-  initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />, 'customer-requests': <IconCustomers size={14} />, releases: <IconRelease size={14} />,
-  pulse: <IconPulse size={14} />, asks: <IconAsk size={14} />, loops: <IconLoop size={14} />, emojis: <IconEmoji size={14} />, github: <IconPr size={14} />,
+  'project-labels': <IconTag size={14} />, 'project-statuses': <IconStatusRing size={14} />, 'project-updates': <IconUpdates size={14} />,
+  initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />,
+  loops: <IconLoop size={14} />, github: <IconPr size={14} />,
   workspace: <IconSettings size={14} />, teams: <IconTeam size={14} />, members: <IconUsers size={14} />, handoff: <IconAgent size={14} />, data: <IconArchive size={14} />,
 };
 
 // hosted, these pages set up the workspace or a team: admins change them, members can read them
-const ADMIN_SECTIONS = new Set(['workspace', 'data', 'labels', 'templates', 'slas', 'project-labels', 'project-templates', 'project-statuses', 'project-updates',
-  'initiatives', 'documents', 'customer-requests', 'releases', 'pulse', 'asks', 'loops', 'github']);
+const ADMIN_SECTIONS = new Set(['workspace', 'data', 'labels', 'templates', 'slas', 'project-labels', 'project-statuses', 'project-updates',
+  'initiatives', 'loops', 'github']);
 const ADMIN_TEAM_PAGES = new Set(['general', 'labels', 'templates', 'statuses', 'triage', 'workflow']);
 const LABELS_NOTE = 'Only admins can change labels. Anyone can add one from a label menu.';
 
@@ -63,7 +63,7 @@ export function SettingsLayout() {
         <Link to="/" className="back"><IconBack size={14} /> Back to app</Link>
         <div className="settings-search"><IconSearch size={13} /><input placeholder="Search…" value={q} onChange={e => setQ(e.target.value)} /></div>
         {SETTINGS_NAV.map(g => {
-          // workspace Security is who may sign in — only a hosted workspace has sign-in
+          // workspace Security sets who may sign in, and only a hosted workspace has sign-in
           const items = g.items.filter(([label, key]) => match(label, g.sec) && (key !== 'workspace-security' || snap.workspace.auth === 'hosted'));
           if (!items.length) return null;
           return (
@@ -118,19 +118,12 @@ function SettingsPage() {
       {section === 'data' && <DataSettings />}
       {section === 'shortcuts' && <ShortcutSettings />}
       {section === 'project-labels' && <ProjectLabelsSettings />}
-      {section === 'project-templates' && <div className="settings-card"><h1>Project templates</h1><ProjectTemplatesSection /></div>}
       {section === 'project-statuses' && <ProjectStatusesSettings />}
       {section === 'project-updates' && <ProjectUpdatesSettings />}
-      {section === 'documents' && <DocumentsSettings />}
-      {section === 'customer-requests' && <CustomerRequestsSettings />}
-      {section === 'pulse' && <PulseSettings />}
-      {section === 'emojis' && <EmojisSettings />}
       {section === 'slas' && <SlaSettings />}
-      {section === 'asks' && <AsksSettings />}
       {section === 'loops' && <LoopsSettings />}
       {section === 'github' && <GitHubSettings />}
       {section === 'initiatives' && <InitiativesSettings />}
-      {section === 'releases' && <FeatureToggle title="Releases" flag="releasesEnabled" help="Track which issues ship in each release: give issues a Release, move releases from Planned to In progress to Released." link={['/releases', 'Open releases']} />}
     </>
   );
 }
@@ -151,7 +144,7 @@ function WorkspaceSettings() {
         <span style={{ color: 'var(--text-secondary)' }}>{snap.users.map(u => u.name).join(', ')}</span>
       </div>
       <div className="field-row">
-        <div><div className="field-label">Agents</div><div className="field-help">Coding agents drive this workspace through the baseline CLI — the repo ships a skill (<code>skills/baseline/SKILL.md</code>) that teaches them the commands.</div></div>
+        <div><div className="field-label">Agents</div><div className="field-help">Coding agents drive this workspace through the baseline CLI. The repo ships a skill (<code>skills/baseline/SKILL.md</code>) that teaches them the commands.</div></div>
         <code className="cli-chip">node bin/baseline.js --help</code>
       </div>
     </div>
@@ -227,7 +220,7 @@ function NewTeamSettings() {
           <input className="text-input" autoFocus placeholder="e.g. Engineering" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create(); }} />
         </div>
         <div className="field-row">
-          <div><div className="field-label">Identifier</div><div className="field-help">Used in issue IDs — {ident || 'KEY'}-123.{taken && <span style={{ color: 'var(--danger, #e5484d)' }}> Already in use.</span>}</div></div>
+          <div><div className="field-label">Identifier</div><div className="field-help">Used in issue IDs, like {ident || 'KEY'}-123.{taken && <span style={{ color: 'var(--danger, #e5484d)' }}> Already in use.</span>}</div></div>
           <input className="text-input" style={{ width: 100 }} placeholder="KEY" value={ident} onChange={e => { setKeyTouched(true); setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7)); }} onKeyDown={e => { if (e.key === 'Enter') void create(); }} />
         </div>
       </div>
@@ -306,7 +299,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
       <h1>Triage</h1>
       <div className="field-help" style={{ marginBottom: 12 }}>Streamline how you handle requests from outside your team</div>
       <div className="card set-list">
-        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Enable triage</div><div className="field-help">Issues that agents, Asks and teammates outside the team file land in a Triage queue for review before they reach the backlog.{triageCount ? ` ${triageCount} issue${triageCount === 1 ? ' is' : 's are'} waiting now.` : ''}</div></div>
+        <div className="set-row notif-row"><div style={{ flex: 1 }}><div className="field-label">Enable triage</div><div className="field-help">Issues that agents and teammates outside the team file land in a Triage queue for review before they reach the backlog.{triageCount ? ` ${triageCount} issue${triageCount === 1 ? ' is' : 's are'} waiting now.` : ''}</div></div>
           <SettingSwitch on={team.triageEnabled} onChange={v => void patch({ triageEnabled: v })} /></div>
       </div>
     </div>
@@ -423,7 +416,7 @@ function RecurringIssues(props: { teamId: string }) {
   };
   return (
     <div className="card" style={{ padding: '6px 10px' }}>
-      <div className="field-help" style={{ padding: '4px 0 8px' }}>Issues that file themselves on a schedule — a weekly dependency bump, a monthly review. Any issue can become one from its menu (Convert to ▸ Recurring issue).</div>
+      <div className="field-help" style={{ padding: '4px 0 8px' }}>Issues that file themselves on a schedule, like a weekly dependency bump or a monthly review. Any issue can become one from its menu (Convert to ▸ Recurring issue).</div>
       {list.map(r => (
         <div key={r.id} className="recurring-row group">
           <span className="rr-title">{r.title}</span>
@@ -441,22 +434,6 @@ function RecurringIssues(props: { teamId: string }) {
         </select>
         <button className="btn primary" style={{ height: 28 }} disabled={!title.trim()} onClick={add}>Add</button>
       </div>
-    </div>
-  );
-}
-
-/** a settings page that's mostly one switch (Initiatives, Releases) */
-function FeatureToggle(props: { title: string; flag: 'initiativesEnabled' | 'releasesEnabled'; help: string; link: [string, string] }) {
-  const snap = useApp(s => s.snap)!;
-  const on = snap.workspace.features[props.flag];
-  return (
-    <div className="settings-card">
-      <h1>{props.title}</h1>
-      <div className="field-row">
-        <div><div className="field-label">Enable {props.title.toLowerCase()}</div><div className="field-help">{props.help}</div></div>
-        <SettingSwitch on={on} onChange={async v => { await api.setFeatures({ [props.flag]: v }); await useApp.getState().bootstrap(); }} />
-      </div>
-      {on && <Link className="btn secondary sm" to={props.link[0]}>{props.link[1]}</Link>}
     </div>
   );
 }
@@ -631,22 +608,22 @@ function NotificationSettings() {
       {catRows(c => priorityCats.includes(c), (c, v) => patchInbox({ priorityCats: v ? [...priorityCats, c] : priorityCats.filter(x => x !== c) }))}
     </div>
   );
-  if (sub === 'desktop') return (
+  if (sub === 'browser') return (
     <div className="settings-card">
       {back}
-      <h1>Desktop</h1>
+      <h1>Browser</h1>
       <div className="field-help" style={{ marginBottom: 16 }}>Notifications from this browser while Baseline is open in a tab, even in the background</div>
       <div className="card set-list">
         <div className="set-row notif-row">
-          <div style={{ flex: 1 }}><div className="field-label">Enable desktop notifications</div><div className="field-help">{perm === 'unsupported' ? 'This browser doesn’t support notifications.' : perm === 'denied' ? 'Notifications are blocked for this site — allow them in your browser’s site settings.' : perm === 'granted' ? 'Allowed in this browser.' : 'Your browser will ask for permission.'}</div></div>
-          <SettingSwitch on={push.desktop && perm === 'granted'} onChange={async v => {
+          <div style={{ flex: 1 }}><div className="field-label">Enable browser notifications</div><div className="field-help">{perm === 'unsupported' ? 'This browser doesn’t support notifications.' : perm === 'denied' ? 'Notifications are blocked for this site. Allow them in your browser’s site settings.' : perm === 'granted' ? 'Allowed in this browser.' : 'Your browser will ask for permission.'}</div></div>
+          <SettingSwitch on={push.browser && perm === 'granted'} onChange={async v => {
             if (v && perm !== 'granted' && typeof Notification !== 'undefined') { const r = await Notification.requestPermission(); setPerm(r); if (r !== 'granted') return; }
-            await savePush({ desktop: v });
+            await savePush({ browser: v });
           }} />
         </div>
       </div>
       <div className="settings-h2">General notifications</div>
-      {catRows(c => push.types[c], (c, v) => void savePush({ types: { ...push.types, [c]: v } }), !push.desktop)}
+      {catRows(c => push.types[c], (c, v) => void savePush({ types: { ...push.types, [c]: v } }), !push.browser)}
     </div>
   );
   const enabledCount = Object.values(push.types).filter(Boolean).length;
@@ -665,12 +642,20 @@ function NotificationSettings() {
           <span className="set-meta">{priorityCats.length} types</span><IconChevronRight size={12} />
         </button>
       </div>
+      <div className="card set-list" style={{ marginTop: 8 }}>
+        <div className="set-row notif-row">
+          <div style={{ flex: 1 }}><div className="field-label">Project updates summary</div><div className="field-help">New updates on projects you lead, are a member of, or follow, collected in one inbox notification</div></div>
+          <select className="text-input" aria-label="Project updates summary" style={{ width: 'auto' }} value={snap.workspace.preferences.updatesSummary} onChange={async e => { await api.updatePreferences({ updatesSummary: e.target.value as 'daily' | 'weekly' | 'off' }); await useApp.getState().bootstrap(); }}>
+            <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="off">Off</option>
+          </select>
+        </div>
+      </div>
       <div className="settings-h2">Push notifications</div>
       <div className="field-help" style={{ marginBottom: 8 }}>Choose which notifications are pushed to your devices. All notifications will still appear in your inbox.</div>
       <div className="card set-list">
-        <button className="set-row notif-row notif-link" onClick={() => navigate('/settings/notifications/desktop')}>
+        <button className="set-row notif-row notif-link" onClick={() => navigate('/settings/notifications/browser')}>
           <span className="notif-icon"><IconPanel size={14} /></span>
-          <div style={{ flex: 1, textAlign: 'left' }}><div className="field-label">Desktop</div><div className="field-help"><span className={`notif-dot${push.desktop && perm === 'granted' ? ' on' : ''}`} />{push.desktop && perm === 'granted' ? (enabledCount === NOTIFY_CATEGORIES.length ? 'Enabled for all notifications' : `Enabled for ${enabledCount} types`) : 'Disabled'}</div></div>
+          <div style={{ flex: 1, textAlign: 'left' }}><div className="field-label">Browser</div><div className="field-help"><span className={`notif-dot${push.browser && perm === 'granted' ? ' on' : ''}`} />{push.browser && perm === 'granted' ? (enabledCount === NOTIFY_CATEGORIES.length ? 'Enabled for all notifications' : `Enabled for ${enabledCount} types`) : 'Disabled'}</div></div>
           <IconChevronRight size={12} />
         </button>
       </div>
@@ -835,7 +820,7 @@ export function NewCycleModal(props: { teamId: string; number: number; onClose: 
   });
 
   // ⌘/Ctrl+Enter creates from anywhere in the modal (menus portal outside this
-  // wrapper, but their React events still bubble here — so exclude them)
+  // wrapper, but their React events still bubble here, so exclude them)
   const onKeyDown = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest?.('.menu')) return;
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -1030,7 +1015,7 @@ function GithubLoginInput(props: { userId: string; value: string }) {
   const [draft, setDraft] = useState(props.value);
   useEffect(() => { setDraft(props.value); }, [props.value]);
   return (
-    <input className="text-input" style={{ width: 130, height: 24, fontSize: 12 }} aria-label="GitHub username" title="GitHub username — links their pull requests to them" placeholder="GitHub username" spellCheck={false}
+    <input className="text-input" style={{ width: 130, height: 24, fontSize: 12 }} aria-label="GitHub username" title="GitHub username, which links their pull requests to them" placeholder="GitHub username" spellCheck={false}
       value={draft} onChange={e => setDraft(e.target.value.replace(/\s+/g, ''))}
       onBlur={async () => { if (draft !== props.value) { await api.updateUser(props.userId, { githubUsername: draft.replace(/^@/, '') }); await useApp.getState().bootstrap(); } }}
       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
@@ -1158,7 +1143,7 @@ function HandoffSettings() {
         an interactive session in a terminal window, in the issue's location. Every issue works in exactly one location; nothing runs without one.
       </div>
       <LocationsSettings />
-      {/* the terminal Claude Code opens in is this machine's — hosted, that's the companion's to know */}
+      {/* the terminal Claude Code opens in belongs to this machine; a hosted workspace leaves that to the companion */}
       {snap.workspace.auth !== 'hosted' && <ClaudeCodeSettings />}
       <h2 className="settings-h2">Prompt template</h2>
       <div className="field-help" style={{ marginBottom: 10 }}>
@@ -1186,7 +1171,7 @@ function HandoffSettings() {
       </div>
       {preview && (
         <div className="field-row" style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 14, display: 'block' }}>
-          <div className="field-label" style={{ marginBottom: 8 }}>Preview — {preview.key}</div>
+          <div className="field-label" style={{ marginBottom: 8 }}>Preview: {preview.key}</div>
           <pre style={{ margin: 0, padding: '10px 12px', background: 'var(--bg-secondary, #141414)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--font-mono, monospace)', fontSize: 12, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{preview.prompt}</pre>
           <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 6 }}>branch: <code>{preview.branchName}</code></div>
         </div>
@@ -1309,69 +1294,6 @@ function TemplatesSettings(props: { onlyTeamId?: string } = {}) {
   );
 }
 
-/* project templates: the fields a new project starts with, plus the milestones and issues created with it */
-function ProjectTemplatesSection() {
-  const snap = useApp(s => s.snap)!;
-  const [name, setName] = useState('');
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ name: '', icon: '', summary: '', description: '', milestones: '', issues: '' });
-  const create = async () => {
-    if (!name.trim()) return;
-    const { template } = await api.createProjectTemplate({ name: name.trim() });
-    setName('');
-    await useApp.getState().bootstrap();
-    const t = useApp.getState().snap!.projectTemplates.find(x => x.id === template.id);
-    if (t) edit(t);
-  };
-  const edit = (t: (typeof snap.projectTemplates)[number]) => {
-    setEditing(t.id);
-    setDraft({ name: t.name, icon: t.icon, summary: t.summary, description: t.description, milestones: t.milestones.join('\n'), issues: t.issues.join('\n') });
-  };
-  const save = async (id: string) => {
-    const lines = (v: string) => v.split('\n').map(x => x.trim()).filter(Boolean);
-    await api.updateProjectTemplate(id, { name: draft.name, icon: draft.icon || '🧊', summary: draft.summary, description: draft.description, milestones: lines(draft.milestones), issues: lines(draft.issues) });
-    setEditing(null);
-    await useApp.getState().bootstrap();
-    useApp.getState().toast({ title: 'Project template saved' });
-  };
-  return (
-    <>
-      <div className="field-help" style={{ marginBottom: 8 }}>Offered in New project. A template fills the project's fields and creates its milestones and starter issues.</div>
-      <div className="card" style={{ padding: '6px 10px' }}>
-        {snap.projectTemplates.map(t => editing === t.id ? (
-          <div key={t.id} className="ptpl-edit">
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input className="text-input" style={{ width: 44, textAlign: 'center' }} value={draft.icon} onChange={e => setDraft(d => ({ ...d, icon: e.target.value }))} />
-              <input className="text-input" style={{ flex: 1 }} placeholder="Template name" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} />
-            </div>
-            <input className="text-input" placeholder="Summary" value={draft.summary} onChange={e => setDraft(d => ({ ...d, summary: e.target.value }))} />
-            <textarea className="text-input" placeholder="Description (markdown)" value={draft.description} onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} />
-            <div style={{ display: 'flex', gap: 6 }}>
-              <textarea className="text-input" style={{ flex: 1 }} placeholder="Milestones — one per line" value={draft.milestones} onChange={e => setDraft(d => ({ ...d, milestones: e.target.value }))} />
-              <textarea className="text-input" style={{ flex: 1 }} placeholder="Starter issues — one title per line" value={draft.issues} onChange={e => setDraft(d => ({ ...d, issues: e.target.value }))} />
-            </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn primary" style={{ height: 26, fontSize: 12 }} onClick={() => save(t.id)}>Save</button>
-              <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => setEditing(null)}>Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <div key={t.id} className="prop-row group">
-            <span>{t.icon}</span>
-            <span style={{ flex: 1 }}>{t.name}<span style={{ color: 'var(--text-dim)', fontSize: 12 }}> — {t.milestones.length} milestone{t.milestones.length === 1 ? '' : 's'}, {t.issues.length} issue{t.issues.length === 1 ? '' : 's'}</span></span>
-            <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Edit template" onClick={() => edit(t)}><span style={{ fontSize: 11 }}>✎</span></button>
-            <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Delete template" onClick={async () => { await api.deleteProjectTemplate(t.id); await useApp.getState().bootstrap(); }}><IconTrash size={13} /></button>
-          </div>
-        ))}
-        {snap.projectTemplates.length === 0 && <div style={{ color: 'var(--text-dim)', padding: '4px 0', fontSize: 12 }}>No project templates yet.</div>}
-        <div className="recurring-row">
-          <input className="text-input" placeholder="New project template name…" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create(); }} />
-          <button className="btn primary" style={{ height: 28 }} disabled={!name.trim()} onClick={create}>Create</button>
-        </div>
-      </div>
-    </>
-  );
-}
 
 function DataSettings() {
   const toast = useApp(s => s.toast);

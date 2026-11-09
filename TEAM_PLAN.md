@@ -106,9 +106,9 @@ This follows Linear's split. Admins set up the workspace and its teams. Members 
 ### Deployment (GCP)
 - An e2-small VM running Debian, with a persistent disk at `/var/lib/baseline` for the db and attachments. Node 22 runs under systemd and Caddy terminates TLS.
 - Config is env vars in `/etc/baseline.env`: `BASELINE_PUBLIC_URL`, `BASELINE_DB`, `BASELINE_OWNER_EMAIL`, `GOOGLE_CLIENT_ID`/`SECRET`, `SMTP_*`, `GITHUB_APP_*`, `SESSION_SECRET`.
-- Backups: a nightly `VACUUM INTO` snapshot plus the attachments directory, synced to a GCS bucket, keeping 30 days. A `deploy.sh` does a git pull, `npm ci`, build and restart, mirroring `app.sh update` in OPERATIONS.md.
+- Backups: a nightly `VACUUM INTO` snapshot plus the attachments directory, synced to a GCS bucket, keeping 30 days. A `deploy.sh` does a git pull, `npm ci`, build and restart.
 - Moving your data: export from your laptop instance, import on the server, then sign in with Google. The match-by-email rule links your existing user row.
-- Update SECURITY.md (its bind-address section is stale today), OPERATIONS.md and README.
+- Update SECURITY.md (its bind-address section is stale today) and README.
 
 **Done when:** a teammate you invite gets the email, signs in with Google, and sees their own inbox and favorites. Someone at an approved domain joins without an invite, and a stranger is turned away. Nightly backups land in GCS.
 
@@ -242,7 +242,7 @@ A runner is a `baseline connect` process. It keeps an outbound SSE connection to
   - **GitHub events:** see Phase 4.
 
 ### Settings (copying Linear: Settings → Account → Notifications)
-- **Channels:** Inbox (always on), Email, and Desktop. Desktop means browser push and comes later. The Notifications page lists each channel with its summary, e.g. "Enabled for all notifications".
+- **Channels:** Inbox (always on), Email, and Browser. Browser push comes later. The Notifications page lists each channel with its summary, e.g. "Enabled for all notifications".
 - **Email channel page**, with every option Linear has:
   - Enable email notifications ("Email notifications to you@…").
   - Notification format: **Digest** or **Immediate**.
@@ -329,7 +329,7 @@ A runner is a `baseline connect` process. It keeps an outbound SSE connection to
 ---
 
 ## Later (deliberately out of these phases)
-Guests with team-scoped visibility (this needs a per-person filtered snapshot); private teams; desktop push; replying to notification emails to add a comment; GitHub Issues sync both ways; linkback comments on PRs; auto-closing PRs when an issue is canceled; Slack; GitLab; priority inbox; view subscriptions; SAML/SCIM; outside agents (Codex cloud, Cursor, Devin) through an outgoing webhook for session events plus the activity API, close to Linear's protocol; cloud sandboxes like Linear's coding sessions.
+Guests with team-scoped visibility (this needs a per-person filtered snapshot); private teams; browser push; replying to notification emails to add a comment; GitHub Issues sync both ways; linkback comments on PRs; auto-closing PRs when an issue is canceled; Slack; GitLab; priority inbox; view subscriptions; SAML/SCIM; outside agents (Codex cloud, Cursor, Devin) through an outgoing webhook for session events plus the activity API, close to Linear's protocol; cloud sandboxes like Linear's coding sessions.
 
 ## Order and size
 1. **Phase 1: accounts and hosting.** The largest phase, because it touches most routes and store methods. Split it into PRs: identity and sessions → Google and invites → per-person state and hardening → SSE and scheduler → deploy.

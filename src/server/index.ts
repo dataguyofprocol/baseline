@@ -22,7 +22,7 @@ import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
 import { isSnapshotSection, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
 import { WEBHOOK_MAX_BYTES, WEBHOOK_PATH } from '../core/webhooks.js';
-import { FileError, FileService, MAX_EMOJI_BYTES, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
+import { FileError, FileService, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
@@ -38,7 +38,7 @@ export interface ServeOptions {
 
 const WEB_DIST = resolve(fileURLToPath(import.meta.url), '../../../web/dist');
 
-/** BASELINE_HOST opens the server beyond this machine (e.g. 0.0.0.0); unset = loopback only */
+/** BASELINE_HOST opens the server beyond this machine (e.g. 0.0.0.0); unset: loopback only */
 const LISTEN_HOST = process.env.BASELINE_HOST?.trim() || '';
 const LAN_OPEN = !!LISTEN_HOST && !isLoopback(LISTEN_HOST);
 
@@ -50,20 +50,21 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const changes = new ChangeFeed(db);
   const hosted = auth.mode === 'hosted';
   const { planning, automation, git, apiKeys, webhooks, work } = store.ext;
-  // images (avatars, emoji, pasted pictures) live in the database; pick up any from the old uploads folder
+  // images (avatars, pasted pictures) are stored in the database; pick up any from the old uploads folder
   const files = new FileService(db, join(dirname(dbPath), 'attachments'));
   const moved = files.migrateLegacy();
   if (moved) console.error(`[baseline] moved ${moved} upload(s) into the database`);
   // Loops' "Open in Claude Code" action opens the same interactive session as the manual hand-off.
-  // Hosted, that would open it on the server's machine — it waits for a companion on each person's laptop
+  // Hosted, that would open it on the server's machine, so it waits for a companion on each person's laptop
   if (hosted) automation.launcherMissing = 'needs a connected companion';
   else automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
-  // the git integration polls gh / git log in each location every two minutes while it's on —
-  // those are this machine's folders, so a hosted server leaves GitHub to its webhooks
-  if (!hosted) setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
+  if (hosted) { webhooks.fixedUrl = auth.publicUrl.origin; git.hosted = true; }
+  // the git integration polls the tracked repos every two minutes while it's on (a no-op until a
+  // hosted server has a read-only token)
+  setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
 
-  // first run: a laptop gets the sample workspace to play with; a hosted one starts empty —
-  // its owner is created on the setup screen (or by Google sign-in), and onboarding asks for the first team
+  // first run: a laptop gets the sample workspace to play with; a hosted one starts empty.
+  // Its owner is created on the setup screen (or by Google sign-in), and onboarding asks for the first team
   const hasWorkspace = db.prepare('SELECT COUNT(*) AS n FROM meta').get() as { n: number };
   if (Number(hasWorkspace.n) === 0 && hosted) {
     setMeta(db, 'workspaceId', id('w'));
@@ -74,7 +75,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (opts.blank) blankWorkspace(db);
     else {
       seedWorkspace(db);
-      console.error('[baseline] seeded a sample workspace — run `baseline seed --reset` to reseed');
+      console.error('[baseline] seeded a sample workspace; run `baseline seed --reset` to reseed');
     }
   }
 
@@ -86,7 +87,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // GitHub webhooks are the one door open to other hosts (GitHub reaches this machine through
+  // GitHub webhooks are the one route open to other hosts (GitHub reaches this machine through
   // a tunnel): they carry no cookies or keys and are authenticated by their HMAC signature alone
   app.post(WEBHOOK_PATH, async (c) => {
     if (Number(c.req.header('content-length') ?? 0) > WEBHOOK_MAX_BYTES) return c.json({ error: 'Payload too large' }, 413);
@@ -96,7 +97,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json(r.body, r.status as 200);
   });
 
-  // who every /api request is (key, session or this machine) — before any /api route, see principal.ts
+  // who every /api request is (key, session or this machine). It runs before any /api route; see principal.ts
   const sessions = hosted ? cookieSessions(auth, accounts) : null;
   const guard = authenticate({ auth, sessions, apiKeys, store, lanOpen: LAN_OPEN });
   app.use('/api/*', guard);
@@ -132,7 +133,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     attributed(c, requested, (actorId) => write(actorId ?? actor(c)));
   const isAdmin = (userId: string) => !!(db.prepare('SELECT admin FROM users WHERE id = ?').get(userId) as { admin: number } | undefined)?.admin;
 
-  // a delete may have taken an image's owner with it (an issue purged, a doc, a team, an emoji):
+  // a delete may have taken an image's owner with it (an issue purged, a doc, a team):
   // sweep orphaned images after each delete, and hourly for deletes that happen on their own (trash expiry)
   const sweepFiles = () => { const n = files.gc(); if (n) console.error(`[baseline] deleted ${n} image(s) whose owner is gone`); };
   app.use('/api/*', async (c, next) => {
@@ -158,7 +159,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/api-keys/:id', async (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.rename(c.req.param('id'), String((await c.req.json()).name ?? '')); return c.json({ ok: true }); });
   app.delete('/api/api-keys/:id', (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.revoke(c.req.param('id')); return c.json({ ok: true }); });
 
-  // a write tells open tabs at once, rather than at the feed's next look
+  // after a write, tell open tabs at once instead of waiting for the feed's next check
   app.use('/api/*', async (c, next) => {
     await next();
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') changes.check();
@@ -181,16 +182,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     ['PATCH', '/api/initiative-labels/:id'], ['DELETE', '/api/initiative-labels/:id'],
     ['POST', '/api/project-statuses'], ['PATCH', '/api/project-statuses/:id'], ['DELETE', '/api/project-statuses/:id'],
     ['POST', '/api/issue-templates'], ['PATCH', '/api/issue-templates/:id'], ['DELETE', '/api/issue-templates/:id'],
-    ['POST', '/api/project-templates'], ['PATCH', '/api/project-templates/:id'], ['DELETE', '/api/project-templates/:id'],
-    ['POST', '/api/doc-templates'], ['PATCH', '/api/doc-templates/:id'], ['DELETE', '/api/doc-templates/:id'],
     ['POST', '/api/sla-rules'], ['PATCH', '/api/sla-rules/:id'], ['DELETE', '/api/sla-rules/:id'],
-    ['POST', '/api/asks'], ['PATCH', '/api/asks/:id'], ['DELETE', '/api/asks/:id'],
     ['POST', '/api/loops'], ['PATCH', '/api/loops/:id'], ['DELETE', '/api/loops/:id'], ['POST', '/api/loops/:id/run'],
     ['PUT', '/api/git/automation/:teamId'],
     ['PUT', '/api/github/webhook/config'], ['POST', '/api/github/webhook/secret'], ['DELETE', '/api/github/webhook/secret'],
     ['POST', '/api/github/issues/import'], ['PUT', '/api/github/issues/follow'],
-    ['DELETE', '/api/emojis/:id'],
-    ['POST', '/api/customer-attrs/*'], ['PATCH', '/api/customer-attrs/*'], ['DELETE', '/api/customer-attrs/*'],
+    ['PUT', '/api/github/token'], ['DELETE', '/api/github/token'], ['GET', '/api/github/repos/available'], ['PUT', '/api/github/repos'],
   ];
   for (const [method, path] of configRoutes) app.on(method, path, adminOnly);
   mountMembers(app, { store, accounts, mailer, hosted: hosted ? auth : null });
@@ -241,7 +238,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- live updates ----------
   // Server-sent events: the current version on connect, every new one after, and a comment every
-  // 25s so proxies keep the connection open. Only a number travels — each tab then fetches its own
+  // 25s so proxies keep the connection open. Only the version number is sent, and each tab then fetches its own
   // snapshot, so nobody learns anything here they couldn't already see.
   app.get('/api/events', (c) => streamSSE(c, async (stream) => {
     let open = true;
@@ -263,7 +260,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       priority: b.priority, assigneeId: b.assigneeId ?? null, projectId: b.projectId ?? null,
       parentId: b.parentId ?? null, cycleId: b.cycleId ?? null, labelIds: b.labelIds,
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null, milestoneId: b.milestoneId ?? null,
-      // omitted = a sub-issue inherits its parent's (nothing else is defaulted); null = explicitly none
+      // omitted: a sub-issue inherits its parent's (nothing else is defaulted); null: explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
     }, actorId));
     return c.json({ issue }, 201);
@@ -289,7 +286,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const issue = store.getByKey(c.req.param('key'));
     return issue ? c.json({ issue }) : c.json({ error: 'not found' }, 404);
   });
-  // archive & trash (registered before /api/issues/:id so the words don't read as ids)
+  // archive & trash (registered before /api/issues/:id so the words aren't matched as ids)
   app.get('/api/issues/archived', (c) => c.json({ issues: store.listArchived(c.req.query('teamId') || undefined) }));
   app.get('/api/issues/deleted', (c) => c.json({ issues: store.listDeleted(c.req.query('teamId') || undefined) }));
   app.get('/api/issues/:id', (c) => {
@@ -336,7 +333,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // ---------- images ----------
   /** the request body is the image; a Content-Length over the limit is refused before reading */
   const readUpload = async (c: Context, max: number): Promise<Buffer> => {
-    if (Number(c.req.header('content-length')) > max) throw new FileError(`Images are limited to ${formatBytes(max)} — link to bigger files instead`, 413);
+    if (Number(c.req.header('content-length')) > max) throw new FileError(`Images are limited to ${formatBytes(max)}. Link to bigger files instead.`, 413);
     return Buffer.from(await c.req.arrayBuffer());
   };
   const uploadFailed = (c: Context, err: unknown) => err instanceof FileError
@@ -407,18 +404,19 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     store.moveIssue(c.req.param('id'), b.beforeId ?? null, b.afterId ?? null);
     return c.json({ ok: true });
   });
-  // branch copy / hand-off: backlog or unstarted → first started state, unassigned → you
+  // branch copy / hand-off: a backlog or unstarted issue moves to the first started state, and an
+  // unassigned one is assigned to you
   app.post('/api/issues/:id/start', (c) => c.json(store.startIssue(c.req.param('id'), actor(c))));
   app.get('/api/issues/:id/handoff', (c) => {
     const handoff = store.handoffFor(c.req.param('id'), hosted ? auth.publicUrl.origin : undefined);
     return handoff ? c.json({ handoff }) : c.json({ error: 'not found' }, 404);
   });
-  // these routes start local processes (a terminal, a folder picker): only this machine's own
-  // pages may call them — a Host other than localhost means LAN or DNS rebinding, a foreign
+  // these routes start local processes (a terminal, a folder picker), so only this machine's own
+  // pages may call them. A Host other than localhost means LAN or DNS rebinding, a foreign
   // Origin means another site, and a non-JSON body means a CORS-free "simple" form post
   // (these stay loopback-only even when BASELINE_HOST opens the rest to the LAN)
   const localOnly = async (c: Context, next: Next) => {
-    if (hosted) return c.json({ error: 'The hosted app can\'t open programs on your computer yet — copy the prompt instead', code: 'companion-required' }, 403);
+    if (hosted) return c.json({ error: 'The hosted app can\'t open programs on your computer yet. Copy the prompt instead.', code: 'companion-required' }, 403);
     const originHost = originHostOf(c);
     if (!isLoopback(hostOf(c)) || (originHost !== null && !isLoopback(originHost)) || !(c.req.header('content-type') ?? '').includes('application/json')) {
       return c.json({ error: 'Only this machine can do that', code: 'forbidden' }, 403);
@@ -459,7 +457,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- locations (directories agents work in) ----------
   app.post('/api/locations', async (c) => {
-    // a location is checked against this server's disk — meaningless (and a probe) on a hosted server
+    // a location is checked against this server's disk, which is meaningless (and a probe) on a hosted server
     if (hosted) return c.json({ error: 'Locations can\'t be added on the hosted app yet', code: 'companion-required' }, 403);
     const b = await c.req.json() as { path?: string; name?: string };
     const path = normalizeDir(b.path);
@@ -638,27 +636,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/team-links/:id', (c) => { store.deleteTeamLink(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- project templates & dependencies ----------
-  app.post('/api/project-templates', async (c) => {
-    const b = await c.req.json();
-    if (!b.name) return c.json({ error: 'name is required' }, 400);
-    return c.json({ template: store.createProjectTemplate(b) }, 201);
-  });
-  app.patch('/api/project-templates/:id', async (c) => { store.updateProjectTemplate(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/project-templates/:id', (c) => { store.deleteProjectTemplate(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/projects/:id/apply-template', async (c) => {
-    const b = await c.req.json();
-    store.applyProjectTemplate(c.req.param('id'), b.templateId);
-    return c.json({ ok: true });
-  });
-  app.post('/api/projects/:id/dependencies', async (c) => {
-    const b = await c.req.json();
-    if (b.blocks) store.addProjectDependency(c.req.param('id'), b.blocks);
-    if (b.blockedBy) store.addProjectDependency(b.blockedBy, c.req.param('id'));
-    return c.json({ ok: true }, 201);
-  });
-  app.delete('/api/project-dependencies/:id', (c) => { store.removeProjectDependency(c.req.param('id')); return c.json({ ok: true }); });
-
   // ---------- recurring issues ----------
   app.post('/api/recurring', async (c) => {
     const b = await c.req.json();
@@ -780,7 +757,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const b = await c.req.json();
     store.setFeatures(b);
     // turning GitHub on adds Linear's "In Review" state and syncs straight away
-    if (b.githubEnabled === true) { git.ensureInReview(); if (!hosted) void git.sync().catch(() => {}); }
+    if (b.githubEnabled === true) { git.ensureInReview(); void git.sync().catch(() => {}); }
     return c.json({ ok: true });
   });
 
@@ -798,23 +775,10 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/initiative-labels/:id', async (c) => { planning.updateLabel(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/initiative-labels/:id', (c) => { planning.deleteLabel(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- releases ----------
-  app.post('/api/releases', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ release: planning.createRelease(b) }, 201); });
-  app.patch('/api/releases/:id', async (c) => { planning.updateRelease(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/releases/:id', (c) => { planning.deleteRelease(c.req.param('id')); return c.json({ ok: true }); });
-
-  // ---------- SLAs, asks, loops ----------
+  // ---------- SLAs, loops ----------
   app.post('/api/sla-rules', async (c) => { const b = await c.req.json(); if (!b.name || !(b.hours > 0)) return c.json({ error: 'name and hours are required' }, 400); return c.json({ rule: automation.createSlaRule(b) }, 201); });
   app.patch('/api/sla-rules/:id', async (c) => { automation.updateSlaRule(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/sla-rules/:id', (c) => { automation.deleteSlaRule(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/asks', async (c) => { const b = await c.req.json(); if (!b.name || !b.teamId) return c.json({ error: 'name and teamId are required' }, 400); return c.json({ form: automation.createAskForm(b) }, 201); });
-  app.patch('/api/asks/:id', async (c) => { automation.updateAskForm(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/asks/:id', (c) => { automation.deleteAskForm(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/asks/:id/submit', async (c) => {
-    const b = await c.req.json();
-    try { return c.json({ issue: automation.submitAsk(c.req.param('id'), b.values ?? {}, b.requesterId) }, 201); }
-    catch (err) { return c.json({ error: (err as Error).message }, 400); }
-  });
   app.post('/api/loops', async (c) => { const b = await c.req.json(); if (!b.name || !b.trigger) return c.json({ error: 'name and trigger are required' }, 400); return c.json({ loop: automation.createLoop({ ...b, actions: b.actions ?? [] }) }, 201); });
   app.patch('/api/loops/:id', async (c) => { automation.updateLoop(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/loops/:id', (c) => { automation.deleteLoop(c.req.param('id')); return c.json({ ok: true }); });
@@ -824,7 +788,14 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- git / GitHub ----------
   app.get('/api/git/status', async (c) => c.json(await git.status()));
-  app.post('/api/git/sync', async (c) => c.json(hosted ? { prs: 0, commits: 0, error: 'The hosted app gets GitHub activity from webhooks, not gh' } : await git.sync()));
+  app.post('/api/git/sync', async (c) => c.json(await git.sync()));
+  app.put('/api/github/token', async (c) => { try { return c.json({ token: await git.saveToken(String((await c.req.json()).token ?? '')) }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
+  app.delete('/api/github/token', (c) => { git.removeToken(); return c.json({ ok: true }); });
+  app.get('/api/github/repos/available', async (c) => { try { return c.json({ repos: await git.available() }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
+  app.put('/api/github/repos', async (c) => {
+    const b = await c.req.json();
+    try { git.setPicked(Array.isArray(b.repos) ? b.repos.map(String) : []); return c.json({ repos: await git.repos() }); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  });
   app.get('/api/git/automation/:teamId', (c) => c.json(git.automation(c.req.param('teamId'))));
   app.put('/api/git/automation/:teamId', async (c) => { git.setAutomation(c.req.param('teamId'), await c.req.json()); return c.json({ ok: true }); });
   // webhook setup (the secret is shown once, when it's made) and one-way GitHub Issues import
@@ -863,25 +834,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // ---------- document templates, emojis ----------
-  app.post('/api/doc-templates', async (c) => {
-    const b = await c.req.json();
-    if (!b.name) return c.json({ error: 'name is required' }, 400);
-    return c.json({ template: store.createDocTemplate(b) }, 201);
-  });
-  app.patch('/api/doc-templates/:id', async (c) => { store.updateDocTemplate(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/doc-templates/:id', (c) => { store.deleteDocTemplate(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/emojis', async (c) => {
-    const name = String(c.req.query('name') ?? '');
-    try {
-      const f = files.upload({ data: await readUpload(c, MAX_EMOJI_BYTES), name: c.req.query('file') || 'emoji.png', ownerType: 'workspace', ownerId: '', uploadedBy: actor(c), maxBytes: MAX_EMOJI_BYTES });
-      try {
-        const emoji = store.addEmoji(name, f.url);
-        files.reassign(f.id, 'emoji', emoji.id);
-        return c.json({ emoji }, 201);
-      } catch (err) { files.remove(f.id); return c.json({ error: (err as Error).message }, 400); }
-    } catch (err) { return uploadFailed(c, err); }
-  });
   // Settings › Profile › Profile picture (an empty body removes it)
   app.post('/api/users/:id/avatar', async (c) => {
     const userId = c.req.param('id');
@@ -895,30 +847,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       return c.json({ avatarUrl }, avatarUrl ? 201 : 200);
     } catch (err) { return uploadFailed(c, err); }
   });
-  app.delete('/api/emojis/:id', (c) => { store.deleteEmoji(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- customers ----------
-  app.post('/api/customers', async (c) => {
-    const b = await c.req.json();
-    if (!b.name) return c.json({ error: 'name is required' }, 400);
-    return c.json({ customer: store.createCustomer(b) }, 201);
-  });
-  app.patch('/api/customers/:id', async (c) => { store.updateCustomer(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/customers/:id', (c) => { store.deleteCustomer(c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/customer-attrs/:kind{status|tier}', async (c) => {
-    const b = await c.req.json();
-    if (!b.name) return c.json({ error: 'name is required' }, 400);
-    return c.json(store.createCustomerAttr(c.req.param('kind') as 'status' | 'tier', b.name, b.color), 201);
-  });
-  app.patch('/api/customer-attrs/:kind{status|tier}/:id', async (c) => { store.updateCustomerAttr(c.req.param('kind') as 'status' | 'tier', c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/customer-attrs/:kind{status|tier}/:id', (c) => { store.deleteCustomerAttr(c.req.param('kind') as 'status' | 'tier', c.req.param('id')); return c.json({ ok: true }); });
-  app.post('/api/customer-requests', async (c) => {
-    const b = await c.req.json();
-    if (!b.customerId || (!b.issueId && !b.projectId)) return c.json({ error: 'customerId and an issueId or projectId are required' }, 400);
-    return c.json({ request: store.addCustomerRequest(b) }, 201);
-  });
-  app.patch('/api/customer-requests/:id', async (c) => { store.updateCustomerRequest(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
-  app.delete('/api/customer-requests/:id', (c) => { store.deleteCustomerRequest(c.req.param('id')); return c.json({ ok: true }); });
 
   // ---------- search ----------
   app.get('/api/search', (c) => c.json(store.search(c.req.query('q') ?? '')));
@@ -998,7 +927,7 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
   const server = nodeServe({ fetch: app.fetch, port, hostname: LISTEN_HOST || '127.0.0.1' });
   if (!LISTEN_HOST) {
     const v6 = nodeServe({ fetch: app.fetch, port, hostname: '::1' });
-    v6.on('error', () => { /* no IPv6 loopback on this machine — IPv4 alone is fine */ });
+    v6.on('error', () => { /* no IPv6 loopback on this machine; IPv4 alone is fine */ });
   }
   server.once('listening', () => {
     const url = `http://localhost:${port}`;

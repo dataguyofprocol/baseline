@@ -11,7 +11,7 @@ export const API_KEY_PREFIX = 'bl_api_';
 type Row = { id: string; name: string; user_id: string; token_hash: string; hint: string; scopes: string | null; team_ids: string | null; created_at: string; last_used_at: string | null };
 
 // settings and anything that starts local processes; reads of these stay under `read`
-const ADMIN_ROUTES = /^\/api\/(workspace|features|users|states|import|seed|locations|directories|sla-rules|loops|git\/(automation|sync|pull-requests|commits)|github\/(webhook|issues)\/[^/]+|issues\/[^/]+\/open-claude)(\/|$)/;
+const ADMIN_ROUTES = /^\/api\/(workspace|features|users|states|import|seed|locations|directories|sla-rules|loops|git\/(automation|sync|pull-requests|commits)|github\/(webhook|issues)\/[^/]+|github\/(token|repos)|issues\/[^/]+\/open-claude)(\/|$)/;
 const TEAM_ADMIN = /^\/api\/teams(\/[^/]+)?$/;
 /** snapshot parts keyed by team id rather than listed */
 const TEAM_KEYED = new Set(['teamWorkflows', 'teamSubscriptions']);
@@ -66,7 +66,8 @@ export class ApiKeys {
     const s = key.scopes;
     if (!s) return null;
     const read = method === 'GET' || method === 'HEAD';
-    if (path === '/api/export') return s.includes('admin') ? null : 'admin';
+    // the export, and which repos the server's GitHub token can see, are reads only admins make
+    if (path === '/api/export' || path === '/api/github/repos/available') return s.includes('admin') ? null : 'admin';
     // the MCP endpoint itself only needs a key that reads; each tool call is an /api request checked on its own
     if (path === '/mcp') return s.includes('read') || s.includes('write') ? null : 'read';
     if (!read && (ADMIN_ROUTES.test(path) || TEAM_ADMIN.test(path))) return s.includes('admin') ? null : 'admin';

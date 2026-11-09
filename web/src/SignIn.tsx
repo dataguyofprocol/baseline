@@ -151,7 +151,7 @@ function SignInOrJoin({ ctx, invite, error: initialError }: { ctx: Ctx; invite: 
   if (valid && mode === 'join') return <Join ctx={ctx} code={invite!} info={info!} error={initialError} onSignIn={() => setMode('signin')} />;
   if (mode === 'forgot') return <Forgot onBack={() => setMode('signin')} />;
   const inviteProblem = info && !valid
-    ? info.state === 'accepted' ? 'This invite has already been used — sign in to continue.'
+    ? info.state === 'accepted' ? 'This invite has already been used. Sign in to continue.'
     : info.state === 'unknown' ? 'That invite link isn’t valid. Ask for a new one.'
     : `This invite has ${info.state === 'revoked' ? 'been revoked' : 'expired'}. Ask ${info.inviter ?? 'whoever sent it'} for a new one.`
     : null;

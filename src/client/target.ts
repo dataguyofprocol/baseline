@@ -37,14 +37,14 @@ export function resolveTarget(flags: { db?: string }, env: TargetEnv, config: Co
   const set = (v: string | undefined) => v?.trim() || undefined;
   const db = set(env.BASELINE_DB), url = set(env.BASELINE_URL), token = set(env.BASELINE_TOKEN);
   if (set(flags.db)) return { kind: 'local', dbPath: resolve(flags.db!), source: 'flag' };
-  if (db && url) throw new TargetError('Both BASELINE_DB and BASELINE_URL are set — unset one, or pass --db <path> for a local database');
+  if (db && url) throw new TargetError('Both BASELINE_DB and BASELINE_URL are set. Unset one, or pass --db <path> for a local database.');
   if (db) return { kind: 'local', dbPath: resolve(db), source: 'env' };
   if (url || token) {
-    if (!url) throw new TargetError('BASELINE_TOKEN is set without BASELINE_URL — set both to use a server, or neither');
-    if (!token) throw new TargetError(`BASELINE_URL is set (${url}) without BASELINE_TOKEN — set both to use a server, or neither`);
+    if (!url) throw new TargetError('BASELINE_TOKEN is set without BASELINE_URL. Set both to use a server, or neither.');
+    if (!token) throw new TargetError(`BASELINE_URL is set (${url}) without BASELINE_TOKEN. Set both to use a server, or neither.`);
     return { kind: 'remote', url: serverUrl(url), token, source: 'env' };
   }
-  if (config.kind === 'invalid') throw new TargetError(`~/.baseline/config.json can't be used: ${config.reason} — run \`baseline login --server <url>\` again, or \`baseline logout\``);
+  if (config.kind === 'invalid') throw new TargetError(`~/.baseline/config.json can't be used: ${config.reason}. Run \`baseline login --server <url>\` again, or \`baseline logout\`.`);
   if (config.kind === 'ok') return { kind: 'remote', url: serverUrl(config.config.server), token: config.config.token, source: 'config' };
   return { kind: 'local', dbPath: resolve(defaultDbPath), source: 'default' };
 }
@@ -55,7 +55,7 @@ export function serverUrl(raw: string): URL {
   try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`); } catch { throw new TargetError(`Not a server URL: ${raw}`); }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new TargetError(`Not a server URL: ${raw}`);
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
-  if (u.protocol === 'http:' && !loopback) throw new TargetError(`${raw} isn't https — a key sent over plain http can be read on the way`);
+  if (u.protocol === 'http:' && !loopback) throw new TargetError(`${raw} isn't https. A key sent over plain http can be read on the way.`);
   return new URL(u.origin);
 }
 

@@ -4,11 +4,11 @@ A user tracks a project's issues, health, milestones and written updates on the 
 
 ## Sub-features
 
-- `proj-list` list with health, priority, lead, target date, issue count, status %, labels; filters and display options; board and timeline layouts.
+- `proj-list` list with health, priority, lead, target date, issue count, status %, labels; filters and display options; list and board layouts.
 - `proj-page` Overview, Activity and Issues tabs; ⌘I details panel; resources, description, milestones with progress.
 - `proj-update` post an update with health; it shows on Overview and in Activity.
 - `proj-status` named statuses, including the custom "In Review".
-- `proj-docs` documents from templates, listed under the team.
+- `proj-docs` documents from a project's resources, listed under the team.
 - `proj-cli` `project create|list|show|update|note|milestone-add`.
 
 ## How to get to it (user POV)
@@ -23,7 +23,7 @@ Preconditions:
 
 - A fresh run that passes `vb doctor <run>`. Projects `Agent Handoff`, `Mobile Companion` and `Design System 2.0` exist.
 
-- **All project journeys.** Run `drive.mjs <run> harness projects --name projects-section`. Rows `6.1`–`6.15` print `PASS`.
+- **All project journeys.** Run `drive.mjs <run> harness projects --name projects-section`. Every row in section 6 prints `PASS`.
 - **CLI update, UI read.** Run `vb cli <run> project note "Agent Handoff" "Verify: update from CLI" --health offTrack`, then `vb cli <run> project show "Agent Handoff" --json`. The updates include that body with health `offTrack`. Open the project page with a `drive.mjs <run> eval` journey that navigates to `/projects/<id>` (id from `t.snap().projects`) and returns `t.text().includes('Verify: update from CLI')`.
 - **CLI list.** Run `vb cli <run> project list`. Stdout lists the three seed projects with status, health, % and issue counts.
 

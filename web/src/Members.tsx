@@ -182,7 +182,7 @@ function InviteRow(props: { invite: Invite; canManage: boolean; act: (fn: () => 
           {!i.expired && <MenuItem icon={<IconLink size={14} />} label="Copy invite link" onClick={async () => toast({ title: await copyText(i.link) ? 'Invite link copied' : 'Couldn\'t copy the link' })} />}
           <MenuItem label={i.expired ? 'Renew and resend' : 'Resend invite'} onClick={() => void act(async () => {
             const r = await api.resendInvite(i.id);
-            toast({ title: r.emailed === 'sent' ? `Invite sent to ${i.email}` : r.emailed === 'failed' ? `Couldn't email ${i.email}: ${r.error}` : 'Invite renewed — email isn\'t set up, so copy the link' });
+            toast({ title: r.emailed === 'sent' ? `Invite sent to ${i.email}` : r.emailed === 'failed' ? `Couldn't email ${i.email}: ${r.error}` : 'Invite renewed. Email isn\'t set up, so copy the link' });
           })} />
           <MenuSep />
           <MenuItem icon={<IconTrash size={14} />} label="Revoke invite" danger onClick={() => void act(() => api.revokeInvite(i.id), `Invite to ${i.email} revoked`)} />
@@ -254,8 +254,8 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
     : r.status === 'already-on-teams' ? `Already on ${teamNames(r.teamIds)}`
     : r.status === 'already-in-workspace' ? 'Already in the workspace'
     : r.emailed === 'sent' ? 'Invite emailed'
-    : r.emailed === 'failed' ? `Invited — the email failed (${r.error}), share the link`
-    : 'Invited — email isn\'t set up on this server, share the link';
+    : r.emailed === 'failed' ? `Invited, but the email failed (${r.error}). Share the link`
+    : 'Invited. Email isn\'t set up on this server, so share the link';
   const onlyPeople = pending.length > 0 && pending.every(e => e.kind === 'member');
 
   return (
@@ -272,7 +272,7 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
               <PeopleField people={people} teams={snap.teams.filter(t => teamIds.includes(t.id))} entries={entries} text={text}
                 onText={setText} onEntries={setEntries} onCommit={commit} />
               <div className="field-help">
-                {onlyPeople && !teamIds.length ? 'They\'re already in the workspace — choose a team to add them to.'
+                {onlyPeople && !teamIds.length ? 'They\'re already in the workspace. Choose a team to add them to.'
                   : `People already in the workspace are added to the teams below. New addresses get an invite link${snap.workspace.signInMethods?.includes('google') ? ': they choose a password, or sign in with the Google account for that address.' : ' and choose a password.'}`}
               </div>
             </div>
@@ -305,7 +305,7 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
               );
             })}
             {results.some(r => r.invite && r.emailed !== 'sent') && (
-              <div className="field-help">Send each person their link yourself — anyone with it can join as that address once they type it.</div>
+              <div className="field-help">Send each person their link yourself. Anyone with it can join as that address once they type it.</div>
             )}
             {results.filter(r => r.invite && r.emailed !== 'sent').map(r => <LinkBox key={`link-${r.email}`} label={r.email} link={r.invite!.link} />)}
           </div>
@@ -649,7 +649,7 @@ export function SecuritySettings() {
       {google && <div className="field-row" style={{ alignItems: 'flex-start' }}>
         <div>
           <div className="field-label">Approved email domains</div>
-          <div className="field-help">People whose Google Workspace account is at one of these domains join as members the first time they sign in — no invite needed. Personal Google accounts never qualify.</div>
+          <div className="field-help">People whose Google Workspace account is at one of these domains join as members the first time they sign in, with no invite needed. Personal Google accounts never qualify.</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 240 }}>
           {sec.approvedDomains.map(d => (
@@ -658,7 +658,7 @@ export function SecuritySettings() {
               {isAdmin && <button className="icon-btn" style={{ width: 22, height: 22 }} title={`Remove ${d}`} onClick={() => void save({ approvedDomains: sec.approvedDomains.filter(x => x !== d) }, `${d} removed`)}><IconClose size={12} /></button>}
             </div>
           ))}
-          {!sec.approvedDomains.length && <span className="field-help">No approved domains — only invited people can join.</span>}
+          {!sec.approvedDomains.length && <span className="field-help">No approved domains, so only invited people can join.</span>}
           {isAdmin && (
             <div style={{ display: 'flex', gap: 6 }}>
               <input className="text-input" placeholder="acme.dev" value={domain} onChange={e => setDomain(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDomain()} />
@@ -709,7 +709,7 @@ function LinkBox({ label, link }: { label?: string; link: string }) {
       {label && <div className="field-help" style={{ marginTop: 0 }}>{label}</div>}
       <div style={{ display: 'flex', gap: 6 }}>
         <input className="text-input mono" data-share-link readOnly value={link} style={{ flex: 1, minWidth: 0, fontSize: 12 }} onFocus={e => e.target.select()} />
-        <button className="btn" onClick={async () => toast({ title: await copyText(link) ? 'Link copied' : 'Couldn\'t copy — select the link and copy it' })}><IconCopy size={13} /> Copy</button>
+        <button className="btn" onClick={async () => toast({ title: await copyText(link) ? 'Link copied' : 'Couldn\'t copy. Select the link and copy it' })}><IconCopy size={13} /> Copy</button>
       </div>
     </div>
   );

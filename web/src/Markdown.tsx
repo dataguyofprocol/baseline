@@ -8,8 +8,8 @@ import { uniquelyNamed } from '../../src/core/mentions.js';
 marked.setOptions({ gfm: true, breaks: true });
 
 /* Rendered markdown: links open in a new tab, issue keys (CORE-12) become links to the
-   issue, and mentions — `@[Name](user:id)` from the editor, or a plain @Full Name that only
-   one member has — become chips. Everything is sanitized last: comments and descriptions are
+   issue, and mentions become chips. A mention is `@[Name](user:id)` from the editor, or a plain
+   @Full Name that only one member has. Everything is sanitized last: comments and descriptions are
    other people's input. */
 
 /** what rendered markdown may contain (DOMPurify's safe HTML, plus link targets) */
@@ -23,7 +23,7 @@ export function Markdown({ text }: { text: string }) {
     if (!text?.trim()) return null;
     const raw = marked.parse(text) as string;
     const doc = new DOMParser().parseFromString(`<body>${raw}</body>`, 'text/html');
-    // @[Name](user:id) parses as "@" + a link to user:id — turn it into a chip with the person's current name
+    // @[Name](user:id) parses as "@" followed by a link to user:id; turn it into a chip with the person's current name
     doc.querySelectorAll('a[href^="user:"]').forEach(a => {
       const prev = a.previousSibling;
       if (!(prev instanceof Text) || !prev.data.endsWith('@')) return;
@@ -66,32 +66,6 @@ export function Markdown({ text }: { text: string }) {
           }
           last = m.index + m[0].length;
         }
-        frag.append(value.slice(last));
-        t.replaceWith(frag);
-      }
-    }
-    // :name: of a custom emoji becomes its image
-    if (snap?.emojis.length) {
-      const byName = new Map(snap.emojis.map(e => [e.name, e.url]));
-      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-      const texts: Text[] = [];
-      while (walker.nextNode()) texts.push(walker.currentNode as Text);
-      for (const t of texts) {
-        if (t.parentElement?.closest('code, pre')) continue;
-        const value = t.nodeValue ?? '';
-        if (!/:[a-z0-9_-]+:/.test(value)) continue;
-        const frag = doc.createDocumentFragment();
-        let last = 0;
-        for (const m of value.matchAll(/:([a-z0-9_-]+):/g)) {
-          const url = byName.get(m[1]);
-          if (!url) continue;
-          frag.append(value.slice(last, m.index));
-          const img = doc.createElement('img');
-          img.src = url; img.alt = m[0]; img.title = m[0]; img.className = 'custom-emoji';
-          frag.append(img);
-          last = (m.index ?? 0) + m[0].length;
-        }
-        if (last === 0) continue;
         frag.append(value.slice(last));
         t.replaceWith(frag);
       }

@@ -7,7 +7,6 @@ import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure, Via } from './ui.js';
 import { IssueToolbar, IssueLocationRow, OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
-import { CustomerRequests } from './Workspace.js';
 import { IssuePullRequests } from './GitHubUI.js';
 import { SlaBadge } from './AutomationUI.js';
 import { Markdown } from './Markdown.js';
@@ -30,7 +29,7 @@ import {
   IconEstimate, IconCycle, IconCalendar, IconBox, IconBranch, IconHandoff, IconSpark, IconCopyId,
   IconMilestone, IconLink, IconFile, IconReply, IconResolve, IconChevronDown, IconChevronUp, IconExternal,
   IconBell, IconBellOff, IconTeam, IconClock, IconTriage, IconCheck, IconEmoji, IconMore, IconDoc,
-  IconRelease, IconArrowUp,
+  IconArrowUp,
 } from './icons.js';
 import type { Issue, Comment } from '../../src/core/types.js';
 
@@ -88,30 +87,18 @@ function useActivityText() {
         : <>{who} removed the location {when}</>;
       case 'archived': return <>{who} archived the issue {when}</>;
       case 'restored': return <>{who} restored the issue {when}</>;
-      case 'releaseChanged': return a.data.to
-        ? <>{who} added the issue to release <b>{snap.releases.find(r => r.id === a.data.to)?.name ?? 'a removed release'}</b> {when}</>
-        : <>{who} removed the issue from its release {when}</>;
-      case 'slaApplied': return <>{who} applied SLA <b>{String(a.data.rule)}</b> — due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
+      case 'slaApplied': return <>{who} applied SLA <b>{String(a.data.rule)}</b>, due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
       case 'slaBreached': return <>{who} marked the SLA as breached {when}</>;
       case 'prLinked': return <>{who} linked {a.data.kind === 'closing' ? 'pull request' : 'a reference from'} <a href={String(a.data.url)} target="_blank" rel="noreferrer"><b>{String(a.data.pr)}</b></a> {String(a.data.title ?? '')} {when}</>;
-      case 'prStateMoved': return <>{who} moved the issue — {String(a.data.why)} {when}</>;
+      case 'prStateMoved': return <>{who} moved the issue: {String(a.data.why)} {when}</>;
       case 'commitLinked': return <>{who} linked commit <b className="mono">{String(a.data.sha)}</b> {String(a.data.message ?? '')} {when}</>;
       case 'loopRan': return <>{who} ran loop <b>{String(a.data.loop)}</b> — {String(a.data.detail)} {when}</>;
-      case 'askSubmitted': return <>{who} filed this through the <b>{String(a.data.form)}</b> Ask {when}</>;
       default: return <>{who} {a.type} {when}</>;
     }
   };
 }
 
 export const REACTION_SET = ['👍', '👎', '❤️', '🎉', '🚀', '😄', '👀', '🙏'];
-
-/** a reaction key: a unicode emoji, or :name: for a custom emoji */
-export function EmojiGlyph({ value }: { value: string }) {
-  const emojis = useApp(s => s.snap?.emojis ?? []);
-  const m = /^:([a-z0-9_-]+):$/.exec(value);
-  const custom = m && emojis.find(e => e.name === m[1]);
-  return custom ? <img className="custom-emoji" src={custom.url} alt={value} title={value} /> : <>{value}</>;
-}
 
 /* ---------------- comments & threads ---------------- */
 function Reactions(props: { comment: Comment }) {
@@ -128,7 +115,7 @@ export function ReactionChips(props: { reactions: Record<string, string[]>; onTo
         <button key={emoji} className={`reaction-chip ${userIds.includes(snap.currentUser.id) ? 'mine' : ''}`}
           title={userIds.map(id => snap.users.find(u => u.id === id)?.name ?? '?').join(', ')}
           onClick={() => props.onToggle(emoji)}>
-          <EmojiGlyph value={emoji} /> {userIds.length}
+          {emoji} {userIds.length}
         </button>
       ))}
       {props.children}
@@ -177,9 +164,9 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
       {reactMenu.anchor && (
         <Menu anchor={reactMenu.anchor} onClose={reactMenu.close} width={196}>
           <div className="reaction-grid">
-            {[...REACTION_SET, ...snap.emojis.map(e => `:${e.name}:`)].map(emoji => (
+            {REACTION_SET.map(emoji => (
               <button key={emoji} className="reaction-pick" title={emoji}
-                onClick={async () => { await api.toggleReaction(c.id, emoji); await useApp.getState().bootstrap(); reactMenu.close(); }}><EmojiGlyph value={emoji} /></button>
+                onClick={async () => { await api.toggleReaction(c.id, emoji); await useApp.getState().bootstrap(); reactMenu.close(); }}>{emoji}</button>
             ))}
           </div>
         </Menu>
@@ -264,7 +251,7 @@ function SubIssuesSection(props: { issue: Issue }) {
           </div>
           {open && (
             <div style={{ display: 'flex', gap: 4 }}>
-              {/* the nodes punch the spine they sit on — no opaque dot on a continuous rule */}
+              {/* the nodes cut through the spine they sit on instead of an opaque dot on a continuous rule */}
               <SubIssueSpine rows={children.map(ch => ({ active: snap.states.find(s => s.id === ch.stateId)?.type === 'started' }))} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 {children.map(ch => {
@@ -291,7 +278,7 @@ function SubIssuesSection(props: { issue: Issue }) {
   );
 }
 
-/* "Sub-issue of ◐ KEY title  ◌ 1/3" under the title — the parent, its state, and how far along its siblings are */
+/* "Sub-issue of ◐ KEY title  ◌ 1/3" under the title: the parent, its state, and how far along its siblings are */
 function ParentLine(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -519,34 +506,11 @@ export function PropertiesRail(props: { issue: Issue }) {
             )}
           </MilestoneMenu>
         )}
-        <ReleaseRow issue={issue} />
         {issue.slaBreachesAt && <div className="prop-line" data-prop="sla"><SlaBadge issue={issue} long /></div>}
       </div>
 
       <RelationsCard issue={issue} />
     </aside>
-  );
-}
-
-/** Release in the rail: which version the issue ships in */
-function ReleaseRow({ issue }: { issue: Issue }) {
-  const snap = useApp(s => s.snap)!;
-  const menu = useMenu();
-  if (!snap.workspace.features.releasesEnabled) return null;
-  const rel = snap.releases.find(r => r.id === issue.releaseId);
-  const open = snap.releases.filter(r => r.stage !== 'released' && r.stage !== 'canceled');
-  return (
-    <>
-      <button className={`prop-line ${rel ? '' : 'dim'}`} data-prop="release" onClick={menu.open} title="Set release"><IconRelease size={14} /><span className="prop-line-label">{rel ? rel.name : 'Add to release'}</span></button>
-      {menu.anchor && (
-        <Menu anchor={menu.anchor} onClose={menu.close} width={220}>
-          <div className="menu-header"><span>Release</span></div>
-          {(open.length ? open : snap.releases).map(r => <MenuItem key={r.id} icon={<IconRelease size={14} />} label={r.name} selected={issue.releaseId === r.id} onClick={() => void setIssueProps([issue.id], { releaseId: r.id })} />)}
-          {!snap.releases.length && <div className="menu-empty">No releases yet — create one on the Releases page.</div>}
-          {issue.releaseId && <><MenuSep /><MenuItem label="Remove from release" onClick={() => void setIssueProps([issue.id], { releaseId: null })} /></>}
-        </Menu>
-      )}
-    </>
   );
 }
 
@@ -768,14 +732,12 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                   onChange={md => void saveDesc(md)} onBlur={md => void saveDesc(md)} />
               </div>
               <div className="issue-under-desc">
-                <CustomerRequests issueId={issue.id} asButton />
                 <button className="icon-btn" data-add-link title="Add link (⌃L)" onClick={linkMenu.open}><IconLink size={14} /></button>
                 <button className="icon-btn" title="Add sub-issue (⌘⇧O)" onClick={() => useApp.getState().openCreate({ teamId: issue.teamId, parentId: issue.id, projectId: issue.projectId, cycleId: issue.cycleId })}><IconPlus size={14} /></button>
               </div>
               <Attachments issue={issue} />
               <SubIssuesSection issue={issue} />
               <IssuePullRequests issueId={issue.id} />
-              <CustomerRequests issueId={issue.id} hideWhenEmpty />
 
               <div className="activity">
                 <div className="activity-head">
@@ -829,7 +791,7 @@ export function IssuePage(props: { issueKey: string }) {
   return <IssueDetail issue={issue} full />;
 }
 
-/* an archived or trashed issue still opens — read-only, with a way back */
+/* an archived or trashed issue still opens, read-only and with a way back */
 function MissingIssue(props: { issueKey: string }) {
   const navigate = useNavigate();
   const [found, setFound] = useState<{ issue: Issue; where: 'archive' | 'trash' } | null | undefined>(undefined);

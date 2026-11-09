@@ -114,7 +114,7 @@ export const listIssues = defineOp({
     const stateIds = want === 'all' ? null
       : want === 'open' ? new Set(states.filter(s => s.type !== 'completed' && s.type !== 'canceled').map(s => s.id))
       : new Set(states.filter(s => s.name.toLowerCase() === want).map(s => s.id));
-    if (stateIds && !stateIds.size) throw new ResolveError(`Unknown state "${input.state}" — valid states: open, all, ${[...new Set(states.map(s => s.name))].join(', ')}`);
+    if (stateIds && !stateIds.size) throw new ResolveError(`Unknown state "${input.state}". Use one of the valid states: open, all, ${[...new Set(states.map(s => s.name))].join(', ')}`);
     const found = (await bl.listIssues({ teamId: team?.id, projectId: project?.id, assigneeId, query: input.query?.trim() || undefined }))
       .filter(i => (!stateIds || stateIds.has(i.stateId)) && (who !== 'none' || !i.assigneeId))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

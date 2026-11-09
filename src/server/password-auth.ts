@@ -31,7 +31,7 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
   const changeLimit = limiter(10, 15 * MIN);
   const lookupLimit = limiter(60, 10 * MIN);
 
-  const tooMany = (c: Context) => c.json({ error: 'Too many sign-in attempts — try again in a few minutes', code: 'rate-limited' }, 429);
+  const tooMany = (c: Context) => c.json({ error: 'Too many sign-in attempts. Try again in a few minutes.', code: 'rate-limited' }, 429);
   const refuse = (c: Context, status: 400 | 401 | 403 | 404 | 409, code: string, error: string) => c.json({ error, code }, status);
   const body = async (c: Context) => await c.req.json().catch(() => ({})) as Record<string, unknown>;
   // these set a session cookie: a cross-site form must not sign a visitor into someone else's account
@@ -58,7 +58,7 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
   app.post('/auth/setup', async (c) => {
     if (crossSite(c)) return refuse(c, 403, 'forbidden', 'Cross-site requests are not allowed');
     if (!ipLimit.take(clientIp(c))) return tooMany(c);
-    if (!accounts.needsSetup()) return refuse(c, 409, 'already-set-up', 'This workspace is already set up — sign in instead.');
+    if (!accounts.needsSetup()) return refuse(c, 409, 'already-set-up', 'This workspace is already set up. Sign in instead.');
     const b = await body(c);
     if (!d.setup.matches(b.token)) return refuse(c, 403, 'bad-token', 'That setup token isn’t right. It’s in the server log from when Baseline started, or run `baseline setup-token` on the server.');
     const name = text(b.name, NAME_MAX), email = normalizeEmail(text(b.email, 320)), workspaceName = text(b.workspaceName, NAME_MAX);
@@ -69,7 +69,7 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
     const passwordHash = await hashPassword(b.password as string);
     // re-checked after the await: a second request with the token may have finished meanwhile
     const r = accounts.completeSetup({ name, email, passwordHash, workspaceName });
-    if ('error' in r) return refuse(c, 409, 'already-set-up', 'This workspace is already set up — sign in instead.');
+    if ('error' in r) return refuse(c, 409, 'already-set-up', 'This workspace is already set up. Sign in instead.');
     d.setup.clear();
     console.log(`[baseline] setup done: ${email} is the workspace owner`);
     sessions.start(c, r.userId);
@@ -89,7 +89,7 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
     const r = accounts.acceptInvite(c.req.param('code'), { email, name, passwordHash: await hashPassword(b.password as string) });
     if ('error' in r) {
       return r.error === 'invite-mismatch' ? refuse(c, 400, r.error, 'This invite was sent to a different address.')
-        : r.error === 'already-member' ? refuse(c, 409, r.error, 'There’s already an account for that address — sign in instead.')
+        : r.error === 'already-member' ? refuse(c, 409, r.error, 'There’s already an account for that address. Sign in instead.')
         : refuse(c, 400, r.error, 'This invite has expired or was revoked. Ask for a new one.');
     }
     if (r.invitedBy) hooks.onInviteAccepted?.(r.userId, r.invitedBy);
@@ -118,7 +118,7 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
   // the same answer whether or not the address has an account, so this can't be used to find members
   app.post('/auth/forgot', async (c) => {
     if (crossSite(c)) return refuse(c, 403, 'forbidden', 'Cross-site requests are not allowed');
-    if (!d.mailer.configured) return refuse(c, 400, 'mail-off', 'Email isn’t set up on this server — ask an admin for a password reset link.');
+    if (!d.mailer.configured) return refuse(c, 400, 'mail-off', 'Email isn’t set up on this server. Ask an admin for a password reset link.');
     if (!ipLimit.take(clientIp(c))) return tooMany(c);
     const email = normalizeEmail(text((await body(c)).email, 320));
     const user = isEmail(email) && forgotLimit.take(email) ? accounts.passwordFor(email) : undefined;

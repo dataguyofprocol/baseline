@@ -90,9 +90,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'DELETE /api/comments/:id': { scope: 'write', team: 'unchecked' },
   'DELETE /api/relations/:id': { scope: 'write', team: 'unchecked' },
   'POST /api/git/unlink': { scope: 'write', team: 'unchecked' },
-  'POST /api/customer-requests': { scope: 'write', team: 'unchecked' },
-  'PATCH /api/customer-requests/:id': { scope: 'write', team: 'unchecked' },
-  'DELETE /api/customer-requests/:id': { scope: 'write', team: 'unchecked' },
 
   // images and attachments
   'POST /api/files': { scope: 'write', team: 'unchecked' },
@@ -101,8 +98,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'GET /api/emoji-files/:id/:name': { scope: 'read', team: 'file' },
   'PATCH /api/attachments/:id': { scope: 'write', team: 'file' },
   'DELETE /api/attachments/:id': { scope: 'write', team: 'file' },
-  'POST /api/emojis': { scope: 'write', team: 'workspace' },
-  'DELETE /api/emojis/:id': { scope: 'write', team: 'workspace' },
 
   // teams and their setup
   'POST /api/teams': { scope: 'admin', team: 'workspace' },
@@ -134,10 +129,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/recurring': { scope: 'write', team: 'body' },
   'PATCH /api/recurring/:id': { scope: 'write', team: 'unchecked' },
   'DELETE /api/recurring/:id': { scope: 'write', team: 'unchecked' },
-  'POST /api/asks': { scope: 'write', team: 'body' },
-  'PATCH /api/asks/:id': { scope: 'write', team: 'unchecked' },
-  'DELETE /api/asks/:id': { scope: 'write', team: 'unchecked' },
-  'POST /api/asks/:id/submit': { scope: 'write', team: 'unchecked' },
   'POST /api/sla-rules': { scope: 'admin', team: 'body' },
   'PATCH /api/sla-rules/:id': { scope: 'admin', team: 'unchecked' },
   'DELETE /api/sla-rules/:id': { scope: 'admin', team: 'unchecked' },
@@ -158,9 +149,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/projects/:id/update-draft/publish': { scope: 'write', team: 'keyless' },
   'POST /api/projects/:id/links': { scope: 'write', team: 'unchecked' },
   'DELETE /api/project-links/:id': { scope: 'write', team: 'unchecked' },
-  'POST /api/projects/:id/apply-template': { scope: 'write', team: 'unchecked' },
-  'POST /api/projects/:id/dependencies': { scope: 'write', team: 'unchecked' },
-  'DELETE /api/project-dependencies/:id': { scope: 'write', team: 'unchecked' },
   'PUT /api/projects/:id/subscription': { scope: 'write', team: 'unchecked' },
   'POST /api/milestones': { scope: 'write', team: 'unchecked' },
   'PATCH /api/milestones/:id': { scope: 'write', team: 'unchecked' },
@@ -174,14 +162,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/project-statuses': { scope: 'write', team: 'workspace' },
   'PATCH /api/project-statuses/:id': { scope: 'write', team: 'workspace' },
   'DELETE /api/project-statuses/:id': { scope: 'write', team: 'workspace' },
-  'POST /api/project-templates': { scope: 'write', team: 'workspace' },
-  'PATCH /api/project-templates/:id': { scope: 'write', team: 'workspace' },
-  'DELETE /api/project-templates/:id': { scope: 'write', team: 'workspace' },
-  'POST /api/doc-templates': { scope: 'write', team: 'workspace' },
-  'PATCH /api/doc-templates/:id': { scope: 'write', team: 'workspace' },
-  'DELETE /api/doc-templates/:id': { scope: 'write', team: 'workspace' },
 
-  // initiatives and releases span teams
+  // initiatives span teams
   'POST /api/initiatives': { scope: 'write', team: 'workspace' },
   'PATCH /api/initiatives/:id': { scope: 'write', team: 'workspace' },
   'DELETE /api/initiatives/:id': { scope: 'write', team: 'workspace' },
@@ -194,20 +176,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/initiative-labels': { scope: 'write', team: 'workspace' },
   'PATCH /api/initiative-labels/:id': { scope: 'write', team: 'workspace' },
   'DELETE /api/initiative-labels/:id': { scope: 'write', team: 'workspace' },
-  'POST /api/releases': { scope: 'write', team: 'workspace' },
-  'PATCH /api/releases/:id': { scope: 'write', team: 'workspace' },
-  'DELETE /api/releases/:id': { scope: 'write', team: 'workspace' },
 
-  // customers
-  'POST /api/customers': { scope: 'write', team: 'workspace' },
-  'PATCH /api/customers/:id': { scope: 'write', team: 'workspace' },
-  'DELETE /api/customers/:id': { scope: 'write', team: 'workspace' },
-  'POST /api/customer-attrs/*': { scope: 'write', team: 'workspace' },
-  'PATCH /api/customer-attrs/*': { scope: 'write', team: 'workspace' },
-  'DELETE /api/customer-attrs/*': { scope: 'write', team: 'workspace' },
-  'POST /api/customer-attrs/:kind{status|tier}': { scope: 'write', team: 'workspace' },
-  'PATCH /api/customer-attrs/:kind{status|tier}/:id': { scope: 'write', team: 'workspace' },
-  'DELETE /api/customer-attrs/:kind{status|tier}/:id': { scope: 'write', team: 'workspace' },
 
   // the person's own things
   'POST /api/favorites/toggle': { scope: 'write', team: 'workspace' },
@@ -251,6 +220,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/git/sync': { scope: 'admin', team: 'workspace' },
   'POST /api/git/pull-requests': { scope: 'admin', team: 'unchecked' },
   'POST /api/git/commits': { scope: 'admin', team: 'unchecked' },
+  'PUT /api/github/token': { scope: 'admin', team: 'workspace' },
+  'DELETE /api/github/token': { scope: 'admin', team: 'workspace' },
+  'GET /api/github/repos/available': { scope: 'admin', team: 'workspace' },
+  'PUT /api/github/repos': { scope: 'admin', team: 'workspace' },
   'GET /api/github/webhook/config': { scope: 'read', team: 'workspace' },
   'PUT /api/github/webhook/config': { scope: 'admin', team: 'workspace' },
   'POST /api/github/webhook/secret': { scope: 'admin', team: 'workspace' },

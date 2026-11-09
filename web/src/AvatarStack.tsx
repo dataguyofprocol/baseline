@@ -1,7 +1,7 @@
 /* The punched gap, from the mark: overlapping things CUT each other, they don't
    stack behind a ring in the surface colour. Each avatar is masked by ONLY the
-   next avatar's circle — never by its own, or it erases itself. Gap each side =
-   25% of the crossing element's radius, so the idiom survives a theme change. */
+   next avatar's circle, never by its own, or it erases itself. The gap on each side is
+   25% of the crossing element's radius, so the effect still works after a theme change. */
 
 type Person = { name: string; initials: string; color: string };
 
@@ -50,8 +50,8 @@ export function AvatarStack({
 }
 
 /* Vertical spine for sub-issue nesting: the nodes punch the rule they sit on
-   instead of hiding it behind an opaque dot. Fixed width — never
-   preserveAspectRatio="none" on an SVG carrying <text>; the row labels are
+   instead of hiding it behind an opaque dot. It has a fixed width, since an SVG that
+   contains <text> must never use preserveAspectRatio="none"; the row labels are
    ordinary HTML beside it. */
 export function SubIssueSpine({ rows, rowH = 30, top = 15, width = 20 }: {
   rows: { active?: boolean }[]; rowH?: number; top?: number; width?: number;

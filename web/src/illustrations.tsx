@@ -1,10 +1,10 @@
-/* Empty-state illustrations in Linear's style: thin ink line art where every object is a "slab" —
-   the outline drawn twice, the copy below in a lighter ink, so flat shapes read as thick tiles.
+/* Empty-state illustrations in Linear's style: thin ink line art where every object is a "slab".
+   The outline is drawn twice, the copy below in a lighter ink, so flat shapes look like thick tiles.
    Colors come from --illo-ink / --illo-shade / --illo-fill, so both themes work. */
 
 export type IllustrationName =
-  | 'initiatives' | 'views' | 'projects' | 'issues' | 'inbox' | 'cycles' | 'releases' | 'updates' | 'search'
-  | 'archive' | 'trash' | 'customers' | 'drafts' | 'triage' | 'docs' | 'asks' | 'activity';
+  | 'initiatives' | 'views' | 'projects' | 'issues' | 'inbox' | 'cycles' | 'updates' | 'search'
+  | 'archive' | 'trash' | 'customers' | 'drafts' | 'triage' | 'docs' | 'activity';
 
 const INK = 'var(--illo-ink)';
 const SHADE = 'var(--illo-shade)';
@@ -98,13 +98,6 @@ const ART: Record<IllustrationName, React.ReactNode> = {
       <circle cx="62" cy="48" r="9" {...line} /><path d="M62 43v5l3 2" {...line} />
     </>
   ),
-  releases: (
-    <>
-      <Solid d="M62 10 102 30v38L62 88 22 68V30Z" />
-      <path d="M22 30 62 50l40-20M62 50v38" {...line} />
-      <path d="M42 20 82 40v12" {...line} strokeWidth="2.4" />
-    </>
-  ),
   updates: (
     <>
       <g opacity="0.7"><Slab x={30} y={6} w={84} h={50} r={8} /></g>
@@ -163,12 +156,6 @@ const ART: Record<IllustrationName, React.ReactNode> = {
       <g opacity="0.6"><Slab x={36} y={6} w={66} h={80} r={6} /></g>
       <Slab x={20} y={12} w={66} h={80} r={6} />
       <Text x={30} y={28} w={30} /><Text x={30} y={42} w={44} o={0.5} /><Text x={30} y={52} w={40} o={0.5} /><Text x={30} y={62} w={46} o={0.5} /><Text x={30} y={72} w={24} o={0.5} />
-    </>
-  ),
-  asks: (
-    <>
-      <Solid d="M14 14a8 8 0 0 1 8-8h80a8 8 0 0 1 8 8v44a8 8 0 0 1-8 8H48L28 82V66h-6a8 8 0 0 1-8-8Z" />
-      <rect x="26" y="20" width="72" height="10" rx="3" {...line} opacity="0.6" /><rect x="26" y="38" width="72" height="16" rx="3" {...line} opacity="0.6" />
     </>
   ),
   activity: (

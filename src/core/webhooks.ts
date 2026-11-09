@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Store } from './store.js';
 import { getMeta, setMeta } from './db.js';
-import { run, type GitSync } from './git.js';
+import type { GitSync } from './git.js';
 import { agentUser } from './automation.js';
 import type { PullRequest, WebhookConfig, WebhookDelivery } from './types.js';
 
@@ -46,6 +46,8 @@ export function signatureOk(secret: string, raw: string, header: string | undefi
 }
 
 export class GitHubWebhooks {
+  /** hosted: BASELINE_PUBLIC_URL's origin, the only address GitHub can reach this server at */
+  fixedUrl: string | null = null;
   constructor(private store: Store, private db: DatabaseSync, private git: GitSync) {}
 
   // ---------- configuration ----------
@@ -57,11 +59,11 @@ export class GitHubWebhooks {
     const s = this.secret();
     const n = (status: string) => (this.db.prepare('SELECT COUNT(*) n FROM github_deliveries WHERE status = ?').get(status) as { n: number }).n;
     return {
-      enabled: !!s, secretHint: s ? `…${s.slice(-4)}` : null, publicUrl: getMeta(this.db, 'githubWebhookUrl') ?? '',
+      enabled: !!s, secretHint: s ? `…${s.slice(-4)}` : null, publicUrl: this.fixedUrl ?? getMeta(this.db, 'githubWebhookUrl') ?? '', fixedUrl: !!this.fixedUrl,
       events: WEBHOOK_EVENTS, lastDelivery: this.deliveries(1)[0] ?? null, received: n('processed') + n('ignored'), rejected: n('rejected'), imports: this.imports(),
     };
   }
-  /** a new secret, shown once (like an API key) — the old one stops working immediately */
+  /** a new secret, shown once (like an API key); the old one stops working immediately */
   rotateSecret(): string {
     const s = randomBytes(32).toString('hex');
     setMeta(this.db, 'githubWebhookSecret', s);
@@ -69,6 +71,7 @@ export class GitHubWebhooks {
   }
   turnOff(): void { setMeta(this.db, 'githubWebhookSecret', ''); }
   setPublicUrl(url: string): void {
+    if (this.fixedUrl) throw new Error(`The public address is ${this.fixedUrl}, set by BASELINE_PUBLIC_URL on the server`);
     const u = url.trim().replace(/\/+$/, '');
     if (u && !/^https:\/\/[^\s/]+/i.test(u)) throw new Error('Use the https:// address GitHub can reach (your tunnel or server)');
     setMeta(this.db, 'githubWebhookUrl', u);
@@ -98,7 +101,7 @@ export class GitHubWebhooks {
       return { status: 200, body: { ok: true, duplicate: true } };
     }
     let p: Json;
-    try { p = JSON.parse(raw); } catch { return { status: 400, body: { error: 'Body is not JSON — set the webhook content type to application/json' } }; }
+    try { p = JSON.parse(raw); } catch { return { status: 400, body: { error: 'Body is not JSON. Set the webhook content type to application/json.' } }; }
     const repo: string | null = p.repository?.full_name ?? null;
     const action: string | null = typeof p.action === 'string' ? p.action : null;
     try {
@@ -115,7 +118,7 @@ export class GitHubWebhooks {
   private apply(event: string, p: Json): string | null {
     const repo: string = p.repository?.full_name ?? '';
     switch (event) {
-      case 'ping': return `ping — ${p.zen ?? 'hello'}`;
+      case 'ping': return `ping: ${p.zen ?? 'hello'}`;
       case 'pull_request': {
         const pr = p.pull_request; if (!pr) return null;
         const prev = this.stored(repo, pr.number);
@@ -207,11 +210,11 @@ export class GitHubWebhooks {
     this.store.updateIssue(issue.id, { stateId: done }, agentUser(this.store, this.db, 'GitHub'));
     return `closed #${number}`;
   }
-  /** pull a repo's open issues into a team now (gh, read-only); `follow` keeps importing new ones from webhooks */
+  /** pull a repo's open issues into a team now (gh with the GitHub source, read-only); `follow` keeps importing new ones from webhooks */
   async importIssues(repo: string, teamId: string, follow: boolean): Promise<{ imported: number; skipped: number }> {
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('Repository must look like owner/name');
     if (!this.db.prepare('SELECT 1 FROM teams WHERE id = ?').get(teamId)) throw new Error('Unknown team');
-    const json = await run('gh', ['issue', 'list', '--repo', repo, '--state', 'open', '--limit', '200', '--json', 'number,title,body,url,labels,author']);
+    const json = await this.git.gh(['issue', 'list', '--repo', repo, '--state', 'open', '--limit', '200', '--json', 'number,title,body,url,labels,author']);
     let imported = 0; let skipped = 0;
     for (const gi of JSON.parse(json) as Json[]) { if (this.importOne(repo, teamId, gi)) imported++; else skipped++; }
     this.setFollow(repo, follow ? teamId : null);

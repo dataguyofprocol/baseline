@@ -14,12 +14,12 @@ const keyFromName = (name: string) => name.replace(/[^a-zA-Z0-9]/g, '').slice(0,
    first issue. Every step can be skipped (Esc) and continued (Enter); where you are is saved
    in preferences, so a reload picks the flow back up. */
 const ALL_STEPS = ['welcome', 'theme', 'team', 'github', 'sample', 'palette'] as const;
-// the GitHub step links folders on this machine and reads them with its gh — a hosted server has neither
+// the GitHub step links folders on this machine and reads them with its gh, and a hosted server has neither
 const HOSTED_STEPS = ALL_STEPS.filter(s => s !== 'github');
 const TEAM_STEP = ALL_STEPS.indexOf('team'); // the same in both: team comes before github
 
-/** Enter continues and Esc skips, wherever focus is — except Enter on an ordinary button,
- *  which presses that button. Choice buttons (theme pills, option cards) carry data-choice. */
+/** Enter continues and Esc skips, wherever focus is. The exception is Enter on an ordinary
+ *  button, which presses that button. Choice buttons (theme pills, option cards) carry data-choice. */
 function useStepKeys(onEnter: (() => void) | null, onEsc: (() => void) | null) {
   const ref = useRef({ onEnter, onEsc });
   ref.current = { onEnter, onEsc };
@@ -45,13 +45,13 @@ export function Onboarding() {
   const gs = snap.workspace.preferences.gettingStarted;
   const hasTeam = snap.teams.length > 0;
   const steps = snap.workspace.auth === 'hosted' ? HOSTED_STEPS : ALL_STEPS;
-  // without a team the flow can't get past naming one (a workspace whose teams were all deleted lands there too)
+  // without a team the flow can't get past naming one (a workspace whose teams were all deleted ends up there too)
   const [step, setStep] = useState(() => Math.min(gs.step, hasTeam ? steps.length - 1 : TEAM_STEP));
   const go = (n: number) => { setStep(n); void setGettingStarted({ step: n }); };
   const next = () => (step < steps.length - 1 ? go(step + 1) : void finish());
   const back = step > 0 ? () => go(step - 1) : undefined;
 
-  /** the last step is the product itself: the team's issues with a blank issue open, cursor in the title */
+  /** the last step opens the app itself: the team's issues with a blank issue open, cursor in the title */
   const finish = async () => {
     const s = useApp.getState().snap!;
     const team = s.teams[0];
@@ -123,15 +123,15 @@ function WelcomeStep({ next }: StepProps) {
       lead={<div className="onb-lockup"><Lockup size={30} tone="var(--text-primary)" /></div>}
       title={<>Welcome to {ws}</>}
       sub={hosted
-        ? 'A shared tracker for your team and its coding agents. A minute of setup and you\'re in — every step can be skipped.'
-        : 'A local-first tracker for you and your coding agents. A minute of setup and you\'re in — every step can be skipped.'}
+        ? 'A shared tracker for your team and its coding agents. A minute of setup and you\'re in, and every step can be skipped.'
+        : 'A local-first tracker for you and your coding agents. A minute of setup and you\'re in, and every step can be skipped.'}
       primary={{ label: 'Get started', onClick: next }}
       onSkip={next}
     >
       <div className="onb-points">
-        <div><IconIssues size={15} /><span><b>Issues, projects and cycles</b> — {hosted ? 'shared with everyone you invite.' : 'stored in SQLite on this machine.'}</span></div>
-        <div><IconPr size={15} /><span><b>GitHub-aware</b> — pull requests move their issues along.</span></div>
-        <div><IconSearch size={15} /><span><b>Keyboard-first</b> — <span className="kbd">⌘</span><span className="kbd">K</span> reaches everything.</span></div>
+        <div><IconIssues size={15} /><span><b>Issues, projects and cycles.</b> {hosted ? 'Shared with everyone you invite.' : 'Stored in SQLite on this machine.'}</span></div>
+        <div><IconPr size={15} /><span><b>GitHub-aware.</b> Pull requests move their issues along.</span></div>
+        <div><IconSearch size={15} /><span><b>Keyboard-first.</b> <span className="kbd">⌘</span><span className="kbd">K</span> reaches everything.</span></div>
       </div>
     </Frame>
   );
@@ -181,7 +181,7 @@ function ThemeStep({ next, back }: StepProps) {
 const SunGlyph = () => <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><circle cx="7.5" cy="7.5" r="2.6" /><path d="M7.5 1.5v1.4M7.5 12.1v1.4M1.5 7.5h1.4M12.1 7.5h1.4M3.3 3.3l1 1M10.7 10.7l1 1M3.3 11.7l1-1M10.7 4.3l1-1" /></svg>;
 const SystemGlyph = () => <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><rect x="1.8" y="2.6" width="11.4" height="7.8" rx="1.6" /><path d="M5.5 12.8h4M7.5 10.4v2.4" strokeLinecap="round" /><path d="M7.5 2.6v7.8" /></svg>;
 
-/* the app in miniature, painted with each theme's own tokens (the live page can only wear one) */
+/* the app in miniature, painted with each theme's own tokens (the live page can only show one) */
 const MOCK = {
   dark: { ground: '#09090a', page: '#121213', line: 'rgba(255,255,255,0.08)', text: '#f7f8f8', soft: '#8a8f98', dim: '#3a3b3f', active: '#232325' },
   light: { ground: '#f3f3f4', page: '#ffffff', line: 'rgba(9,9,10,0.10)', text: '#17181a', soft: '#6b6f76', dim: '#d5d6d9', active: '#e4e5e8' },
@@ -231,7 +231,7 @@ function ThemeMock({ pref }: { pref: ThemePref }) {
           ? <><MockApp mode="dark" /><g clipPath="url(#onb-half)"><MockApp mode="light" /></g></>
           : <MockApp mode={pref} />}
       </svg>
-      {pref === 'system' && <div className="onb-preview-note">Following your system — {resolved} right now</div>}
+      {pref === 'system' && <div className="onb-preview-note">Following your system, {resolved} right now</div>}
     </div>
   );
 }
@@ -251,7 +251,7 @@ function TeamStep({ next, back }: StepProps) {
     if (busy) return;
     k = k.trim().toUpperCase(); n = n.trim();
     if (!n || !k) { setError('A team needs a name and a key.'); return; }
-    if (snap.teams.some(t => t.key === k && t.id !== existing?.id)) { setError(`The key ${k} is taken — pick another.`); return; }
+    if (snap.teams.some(t => t.key === k && t.id !== existing?.id)) { setError(`The key ${k} is taken. Pick another.`); return; }
     setBusy(true); setError('');
     try {
       if (!existing) await api.createTeam({ key: k, name: n });
@@ -264,7 +264,7 @@ function TeamStep({ next, back }: StepProps) {
     }
   };
   const submit = () => void save(name, key);
-  // skipping still leaves a team behind — issues always live in one
+  // skipping still leaves a team behind, because every issue needs one
   const skip = () => (existing ? next() : void save('General', keyFromName('General')));
   useStepKeys(submit, skip);
 
@@ -272,7 +272,7 @@ function TeamStep({ next, back }: StepProps) {
     <Frame
       illo="customers"
       title="Create your team"
-      sub={<>Issues always live inside a team. Its key prefixes every issue — <b>{key || 'GEN'}-1</b>, <b>{key || 'GEN'}-2</b>…</>}
+      sub={<>Issues always live inside a team. Its key prefixes every issue: <b>{key || 'GEN'}-1</b>, <b>{key || 'GEN'}-2</b>…</>}
       primary={{ label: busy ? 'Saving…' : existing ? 'Continue' : 'Create team', onClick: submit, disabled: busy || !name.trim() || !key.trim() }}
       onSkip={skip}
       skipLabel={existing ? 'Skip' : 'Use “General”'}
@@ -314,7 +314,7 @@ function GitHubStep({ next, back }: StepProps) {
   const [path, setPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const load = () => api.gitStatus().then(setStatus).catch(() => setStatus({ ghInstalled: false, ghUser: null, repos: [], lastSyncAt: null, lastError: null }));
+  const load = () => api.gitStatus().then(setStatus).catch(() => setStatus({ source: 'login', token: null, ghInstalled: false, ghUser: null, repos: [], lastSyncAt: null, lastError: null }));
   useEffect(() => { void load(); }, []);
 
   const ready = !!status?.ghUser;
@@ -347,8 +347,8 @@ function GitHubStep({ next, back }: StepProps) {
   useStepKeys(() => { if (document.activeElement?.getAttribute('data-path') && path.trim()) void addPath(); else void connect(); }, next);
 
   const gh = !status ? { tone: 'wait', text: 'Checking the GitHub CLI…' }
-    : !status.ghInstalled ? { tone: 'off', text: <>GitHub CLI not found — install it with <code>brew install gh</code>, then run <code>gh auth login</code>.</> }
-    : !status.ghUser ? { tone: 'off', text: <>GitHub CLI installed, not signed in — run <code>gh auth login</code>.</> }
+    : !status.ghInstalled ? { tone: 'off', text: <>GitHub CLI not found. Install it with <code>brew install gh</code>, then run <code>gh auth login</code>.</> }
+    : !status.ghUser ? { tone: 'off', text: <>GitHub CLI installed, not signed in. Run <code>gh auth login</code>.</> }
     : { tone: 'on', text: <>Signed in to GitHub as <b>{status.ghUser}</b></> };
 
   return (
@@ -370,7 +370,7 @@ function GitHubStep({ next, back }: StepProps) {
       </div>
       <div className="onb-section">
         <span className="field-label">Repositories</span>
-        <span className="field-help">The folders on this machine Baseline syncs — any whose <code>origin</code> is on GitHub.</span>
+        <span className="field-help">The folders on this machine Baseline syncs: any whose <code>origin</code> is on GitHub.</span>
       </div>
       <div className="onb-repos">
         {snap.locations.map(l => (
@@ -467,7 +467,7 @@ function PaletteStep({ back, finish }: StepProps) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
-  // with the palette up, Enter and Esc belong to it
+  // with the palette up, Enter and Esc go to the palette
   useStepKeys(open ? null : () => used && void finish(), open ? null : () => void finish());
 
   return (

@@ -16,7 +16,7 @@ import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
 import { Markdown } from './Markdown.js';
 import { ProjectStatusIcon, projectProgress, namedStatus, ProgressRing, ProjectBoard, ProjectTimeline, groupProjects } from './Projects.js';
 import { Resources } from './Docs.js';
-import { ReactionChips, EmojiGlyph, REACTION_SET } from './IssueDetail.js';
+import { ReactionChips, REACTION_SET } from './IssueDetail.js';
 import { Illustration } from './illustrations.js';
 import {
   IconPlus, IconClose, IconTrash, IconCalendar, IconUser, IconInitiative, IconCheck, IconFilter, IconDisplay, IconLink, IconEdit, IconChevronDown,
@@ -250,7 +250,7 @@ function LabelMenuBody({ ini, onChange }: { ini: Pick<Initiative, 'labelIds'>; o
         await api.createInitiativeLabel({ name: q.trim(), color: INITIATIVE_COLORS[1 + (snap.initiativeLabels.length % (INITIATIVE_COLORS.length - 1))] });
         await refresh(); const made = useApp.getState().snap?.initiativeLabels.find(l => l.name === q.trim()); if (made) onChange([...ini.labelIds, made.id]);
       }} />}
-      {!snap.initiativeLabels.length && !q && <div className="menu-empty">No initiative labels yet — type to create one.</div>}
+      {!snap.initiativeLabels.length && !q && <div className="menu-empty">No initiative labels yet. Type to create one.</div>}
       <MenuSep />
       <MenuItem icon={<IconSettings size={13} />} label="Manage labels" onClick={() => navigate('/settings/initiatives')} />
     </>
@@ -662,7 +662,7 @@ function InitiativeOverview({ ini }: { ini: Initiative }) {
       <InitiativeUpdateDue ini={ini} />
 
       <div className="proj-section-label">Description</div>
-      <div className="proj-desc"><RichEditor key={ini.id} value={ini.description} uploadTo={`initiative:${ini.id}`} placeholder="Add a description — the goal, why it matters, how you'll know it worked…" onBlur={md => md !== ini.description && void patch({ description: md })} /></div>
+      <div className="proj-desc"><RichEditor key={ini.id} value={ini.description} uploadTo={`initiative:${ini.id}`} placeholder="Add a description: the goal, why it matters, how you'll know it worked…" onBlur={md => md !== ini.description && void patch({ description: md })} /></div>
 
       <InitiativeGraph ini={ini} />
       <InitiativeProjects ini={ini} />
@@ -712,7 +712,6 @@ function InitiativeUpdateDue({ ini }: { ini: Initiative }) {
 
 /** reactions on an initiative update, with the add-reaction button */
 function UpdateReactions({ update }: { update: InitiativeUpdate }) {
-  const snap = useApp(s => s.snap)!;
   const menu = useMenu();
   const toggle = async (emoji: string) => { await api.toggleInitiativeUpdateReaction(update.id, emoji); await refresh(); };
   return (
@@ -723,8 +722,8 @@ function UpdateReactions({ update }: { update: InitiativeUpdate }) {
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={196}>
           <div className="reaction-grid">
-            {[...REACTION_SET, ...snap.emojis.map(e => `:${e.name}:`)].map(emoji => (
-              <button key={emoji} className="reaction-pick" title={emoji} onClick={async () => { await toggle(emoji); menu.close(); }}><EmojiGlyph value={emoji} /></button>
+            {REACTION_SET.map(emoji => (
+              <button key={emoji} className="reaction-pick" title={emoji} onClick={async () => { await toggle(emoji); menu.close(); }}>{emoji}</button>
             ))}
           </div>
         </Menu>

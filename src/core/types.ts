@@ -20,7 +20,7 @@ export interface User {
   kind: 'human' | 'agent';
   /** job title or role (Settings › Profile) */
   title?: string;
-  /** one word, like a nickname — used for {username} in branch names */
+  /** one word, like a nickname, used for {username} in branch names */
   username?: string;
   /** GitHub login (Settings › Profile): PRs by this login are attributed to and assign this user */
   githubUsername?: string;
@@ -121,7 +121,7 @@ export interface Issue {
   projectId: string | null;
   cycleId: string | null;
   parentId: string | null;
-  /** where coding agents work on this issue — one location per task (null = not set) */
+  /** where coding agents work on this issue, one location per task (null = not set) */
   locationId: string | null;
   /** project milestone this issue counts toward (only meaningful with a project) */
   milestoneId: string | null;
@@ -129,10 +129,6 @@ export interface Issue {
   creatorId: string | null;
   /** triage: hidden from the queue until this time */
   snoozedUntil: string | null;
-  /** the release it ships in */
-  releaseId?: string | null;
-  /** the Ask form it was filed through */
-  askFormId?: string | null;
   /** SLA: the rule that applies and when it breaches (cleared once the issue closes) */
   slaRuleId?: string | null;
   slaBreachesAt?: string | null;
@@ -179,10 +175,10 @@ export interface Attachment {
 }
 
 /** what an uploaded file belongs to; the file is deleted when its owner is */
-export type FileOwnerType = 'issue' | 'doc' | 'project' | 'initiative' | 'team' | 'avatar' | 'emoji' | 'workspace';
-export const FILE_OWNER_TYPES: FileOwnerType[] = ['issue', 'doc', 'project', 'initiative', 'team', 'avatar', 'emoji', 'workspace'];
+export type FileOwnerType = 'issue' | 'doc' | 'project' | 'initiative' | 'team' | 'avatar' | 'workspace';
+export const FILE_OWNER_TYPES: FileOwnerType[] = ['issue', 'doc', 'project', 'initiative', 'team', 'avatar', 'workspace'];
 
-/** an uploaded image (profile picture, emoji, picture pasted into an editor); its bytes live in SQLite */
+/** an uploaded image (profile picture, picture pasted into an editor); its bytes live in SQLite */
 export interface StoredFile {
   id: string;
   name: string;
@@ -303,19 +299,9 @@ export interface InitiativeLabel { id: string; name: string; color: string; desc
 /** a resource link on an initiative */
 export interface InitiativeLink { id: string; initiativeId: string; url: string; title: string; createdAt: string }
 
-/* ---------- releases ---------- */
-export type ReleaseStage = 'planned' | 'started' | 'released' | 'canceled';
-/** which issues ship in a version */
-export interface Release { id: string; name: string; description: string; stage: ReleaseStage; teamId: string | null; targetDate: string | null; releasedAt: string | null; createdAt: string }
-
 /* ---------- SLAs ---------- */
 /** an automation rule: issues matching it get a deadline `hours` after they start matching */
 export interface SlaRule { id: string; name: string; teamId: string | null; priorities: Priority[]; labelIds: string[]; hours: number; enabled: boolean; createdAt: string }
-
-/* ---------- asks (intake forms) ---------- */
-export interface AskField { id: string; label: string; type: 'text' | 'textarea' | 'select'; options: string[]; required: boolean }
-/** a structured intake form; each submission becomes an issue in the team's triage */
-export interface AskForm { id: string; name: string; description: string; teamId: string; fields: AskField[]; labelIds: string[]; priority: Priority; enabled: boolean; createdAt: string }
 
 /* ---------- loops (automations) ---------- */
 export type LoopTrigger = { kind: 'schedule'; cadence: 'hourly' | 'daily' | 'weekly' } | { kind: 'issueCreated' } | { kind: 'labelAdded'; labelId: string } | { kind: 'statusChanged'; stateType: WorkflowStateType };
@@ -326,14 +312,30 @@ export type LoopAction =
   | { kind: 'status'; stateType: WorkflowStateType }
   | { kind: 'createIssue'; title: string; description: string }
   | { kind: 'claudeCode' };
-/** a workflow that runs on a schedule or when issues change — "Agent workflows" in Linear */
+/** a workflow that runs on a schedule or when issues change; Linear calls these "Agent workflows" */
 export interface Loop { id: string; name: string; teamId: string | null; trigger: LoopTrigger; actions: LoopAction[]; enabled: boolean; lastRunAt: string | null; createdAt: string }
 export interface LoopRun { id: string; loopId: string; issueId: string | null; ok: boolean; detail: string; createdAt: string }
 
 /* ---------- git / GitHub (Linear's GitHub integration rules; TEAM_PLAN.md Phase 4) ---------- */
 /** a GitHub webhook delivery as Baseline handled it (Settings › GitHub shows the recent ones) */
 export interface WebhookDelivery { id: number; delivery: string; event: string; action: string | null; repo: string | null; status: 'processed' | 'ignored' | 'rejected'; detail: string; receivedAt: string }
-export interface WebhookConfig { enabled: boolean; secretHint: string | null; publicUrl: string; events: readonly string[]; lastDelivery: WebhookDelivery | null; received: number; rejected: number; imports: Array<{ repo: string; teamId: string }> }
+export interface WebhookConfig { enabled: boolean; secretHint: string | null; publicUrl: string; /** hosted: publicUrl is BASELINE_PUBLIC_URL's and can't be edited */ fixedUrl: boolean; events: readonly string[]; lastDelivery: WebhookDelivery | null; received: number; rejected: number; imports: Array<{ repo: string; teamId: string }> }
+/** where GitHub reads come from, decided once in GitSync.source() */
+export type GithubSource =
+  /** hosted with no token: webhooks only */
+  | { kind: 'none' }
+  /** laptop: the person's own `gh` sign-in */
+  | { kind: 'login' }
+  /** an admin-pasted read-only token, passed to gh as GH_TOKEN */
+  | { kind: 'token'; token: string };
+/** what the web app sees of a saved token (never the token itself) */
+export interface GithubTokenInfo { hint: string; login: string; expiresAt: string | null }
+/** a repository Baseline syncs: picked in settings, or a location's origin (laptop only) */
+export interface TrackedRepo { repo: string; path: string | null; via: 'picked' | 'location'; location: string | null }
+export interface GitStatus {
+  source: GithubSource['kind']; token: GithubTokenInfo | null; ghInstalled: boolean; ghUser: string | null;
+  repos: TrackedRepo[]; lastSyncAt: string | null; lastError: string | null;
+}
 export type PrState = 'draft' | 'open' | 'merged' | 'closed';
 export interface PullRequest {
   id: string; repo: string; number: number; title: string; body: string; url: string; state: PrState;
@@ -399,17 +401,8 @@ export interface ProjectStatusDef { id: string; type: ProjectStatus; name: strin
 /** the bell on a project page: which project events reach your inbox */
 export interface ProjectSubscription { projectId: string; userId: string; issueAdded: boolean; issueClosed: boolean; comments: boolean; updates: boolean }
 
-/** workspace document templates (Settings › Documents) */
-export interface DocTemplate { id: string; name: string; title: string; content: string; createdAt: string }
 
-/** custom emoji, usable as :name: and in reactions */
-export interface CustomEmoji { id: string; name: string; url: string; createdAt: string }
 
-export interface Customer { id: string; name: string; domains: string[]; statusId: string | null; tierId: string | null; revenue: number | null; size: number | null; ownerId: string | null; createdAt: string }
-export interface CustomerStatus { id: string; name: string; color: string; position: number }
-export interface CustomerTier { id: string; name: string; color: string; position: number }
-/** a customer asking for an issue or a project, with what they said */
-export interface CustomerRequest { id: string; customerId: string; issueId: string | null; projectId: string | null; body: string; important: boolean; creatorId: string | null; createdAt: string }
 
 /** workspace feature settings (Settings › Features and Settings › Projects) */
 export interface WorkspaceFeatures {
@@ -417,14 +410,7 @@ export interface WorkspaceFeatures {
   updateCadence: UpdateCadence;
   /** default initiative update schedule (Settings › Initiatives) */
   initiativeUpdateCadence: UpdateCadence;
-  pulseEnabled: boolean;
-  /** Pulse summary notifications */
-  pulseSchedule: 'daily' | 'weekly' | 'never';
-  customerRequestsEnabled: boolean;
-  /** new issues created from a customer page go to this team's triage or backlog */
-  customerDefaultTeamId: string | null;
   initiativesEnabled: boolean;
-  releasesEnabled: boolean;
   /** git / GitHub: poll `gh` for pull requests in your locations' repos */
   githubEnabled: boolean;
   /** branch name format for "Copy git branch": {issueIdentifier} {issueTitle} {username} */
@@ -478,14 +464,14 @@ export interface InviteResult {
   /** added-to-teams: the teams they were just added to; already-on-teams: the requested teams */
   teamIds?: string[];
   invite?: Invite;
-  /** 'off': no SMTP on this server — share the link instead */
+  /** 'off': no SMTP on this server, so share the link instead */
   emailed?: 'sent' | 'failed' | 'off';
   error?: string;
 }
 
-export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', pulseEnabled: true, pulseSchedule: 'never', customerRequestsEnabled: false, customerDefaultTeamId: null, initiativesEnabled: true, releasesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
+export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', initiativesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
 
-/** a directory on this machine that coding agents can work in — usually a git repo */
+/** a directory on this machine that coding agents can work in, usually a git repo */
 export interface Location {
   id: string;
   name: string;
@@ -525,30 +511,6 @@ export interface TeamLink {
   url: string;
   title: string;
   createdAt: string;
-}
-
-/** starter content for new projects: fields, plus milestones and issues created with it */
-export interface ProjectTemplate {
-  id: string;
-  name: string;
-  icon: string;
-  summary: string;
-  description: string;
-  status: ProjectStatus;
-  priority: Priority;
-  /** milestone names created with the project */
-  milestones: string[];
-  /** issue titles filed into the project when it's created */
-  issues: string[];
-  createdAt: string;
-}
-
-/** project → project dependency ("this project blocks that one") */
-export interface ProjectRelation {
-  id: string;
-  projectId: string;
-  relatedProjectId: string;
-  type: 'blocks';
 }
 
 /** an issue that files itself again on a cadence (Linear's recurring issues) */
@@ -631,8 +593,6 @@ export interface ViewFilters {
   /** cycle ids; 'none' = no cycle, 'current' = the team's running cycle */
   cycleIds?: string[];
   milestoneIds?: string[];
-  /** release ids; 'none' = no release */
-  releaseIds?: string[];
   /** SLA status */
   sla?: Array<'breached' | 'risk' | 'ok' | 'none'>;
   /** linked pull request state */
@@ -675,7 +635,7 @@ export type NotificationType =
   | 'issueMentioned'
   | 'issueStatusChanged'
   | 'issueReplied'
-  /** a reminder you set on an issue ("Remind me", ⇧H) — held back until its time */
+  /** a reminder you set on an issue ("Remind me", ⇧H), held back until its time */
   | 'issueReminder'
   | 'projectUpdate'
   /** project bell: an issue joined the project / was completed or canceled / the description or a comment changed */
@@ -686,8 +646,8 @@ export type NotificationType =
   /** you own an initiative whose update is due; body is `<initiativeId>|<text>` */
   | 'initiativeUpdateReminder'
   | 'projectUpdateReminder'
-  /** Pulse summary of recent project updates */
-  | 'pulseDigest'
+  /** the person's summary of new updates on projects they lead, are a member of, or follow */
+  | 'updatesDigest'
   /** an issue assigned to you breached (or is about to breach) its SLA */
   | 'slaBreached'
   /** a pull request linked to an issue you follow opened, got reviewed or merged */
@@ -702,7 +662,7 @@ export type NotificationType =
   | 'commentReacted'
   /** someone else changed a document you wrote; body is "<docId>|<title>" */
   | 'docChanged'
-  /** raised by the app itself — no human actor, so the inbox row signs with the tile */
+  /** raised by the app itself with no human actor, so the inbox row signs with the tile */
   | 'systemUpdate';
 
 export interface Notification {
@@ -725,7 +685,7 @@ export type ActivityType =
   | 'estimateChanged' | 'related' | 'unrelated' | 'cycleChanged' | 'locationChanged' | 'milestoneChanged' | 'teamChanged'
   | 'attached' | 'triageAccepted' | 'triageDeclined' | 'deleted'
   | 'projectCreated' | 'projectUpdated' | 'projectHealth'
-  | 'releaseChanged' | 'slaApplied' | 'slaBreached' | 'prLinked' | 'prStateMoved' | 'commitLinked' | 'loopRan' | 'askSubmitted';
+  | 'slaApplied' | 'slaBreached' | 'prLinked' | 'prStateMoved' | 'commitLinked' | 'loopRan';
 
 export interface ActivityItem {
   id: string;
@@ -747,7 +707,7 @@ export interface Workspace {
   handoffPromptTemplate: string;
   /** macOS app that interactive Claude Code sessions open in */
   terminalApp: TerminalApp;
-  /** the workspace's agent user — agent sessions write as it, on a person's behalf */
+  /** the workspace's agent user; agent sessions write as it, on a person's behalf */
   agentUserId: string | null;
   /** the server's home directory, so the web app can show paths as ~/… (server memory) */
   homeDir?: string;
@@ -796,8 +756,10 @@ export interface Preferences {
   startOnBranchCopy: boolean;
   /** the same for Copy as prompt and Open in Claude Code */
   startOnHandoff: boolean;
-  /** Settings › Notifications › Desktop: browser notifications, and which kinds */
-  push: { desktop: boolean; types: Record<NotifyCategory, boolean> };
+  /** Settings › Notifications: how often the project updates summary lands in your inbox */
+  updatesSummary: 'daily' | 'weekly' | 'off';
+  /** Settings › Notifications › Browser: browser notifications, and which kinds */
+  push: { browser: boolean; types: Record<NotifyCategory, boolean> };
   /** Customize sidebar: badge style, and when each item shows (hidden ones move to More) */
   sidebar: { badgeStyle: 'count' | 'dot' | 'none'; items: Record<string, SidebarVisibility> };
   /** the first-run flow and the help menu's Getting started checklist */
@@ -842,21 +804,21 @@ export function notifyCategory(type: NotificationType, body = ''): NotifyCategor
     case 'projectIssueAdded': case 'projectIssueClosed': case 'projectChanged': case 'prActivity': return 'subscriptions';
     case 'teamActivity': return /triage/i.test(body) ? 'triage' : 'subscriptions';
     case 'teamMemberAdded': return 'subscriptions';
-    case 'projectUpdate': case 'projectUpdateReminder': case 'initiativeUpdateReminder': case 'pulseDigest': return 'updates';
+    case 'projectUpdate': case 'projectUpdateReminder': case 'initiativeUpdateReminder': case 'updatesDigest': return 'updates';
     case 'issueReminder': case 'slaBreached': return 'reminders';
     case 'loopFailed': return 'loops';
     default: return null;
   }
 }
-export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', releases: 'show', asks: 'hide', pulse: 'show', customers: 'show', teams: 'hide', members: 'hide' };
+export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', teams: 'hide', members: 'hide' };
 
 export const DEFAULT_PREFERENCES: Preferences = {
   homeView: 'inbox', firstDayOfWeek: 1,
   notify: { assigned: true, statusChanged: true, comments: true, mentions: true },
   sidebar: { badgeStyle: 'count', items: {} },
   gettingStarted: { onboarding: 'done', step: 0, since: null, usedPalette: false },
-  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false, startOnBranchCopy: true, startOnHandoff: true,
-  push: { desktop: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
+  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false, startOnBranchCopy: true, startOnHandoff: true, updatesSummary: 'weekly',
+  push: { browser: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
 };
 
 /** macOS terminals interactive sessions can open in, by app name (`open -a <name>`) */
@@ -866,7 +828,7 @@ export function toTerminalApp(v: unknown): TerminalApp {
   return TERMINAL_APPS.includes(v as TerminalApp) ? v as TerminalApp : 'Terminal';
 }
 
-/** Full client snapshot — small scale, so the web app boots from one payload. */
+/** Full client snapshot. Workspaces are small, so the web app boots from one payload. */
 export interface Snapshot {
   workspace: Workspace;
   users: User[];
@@ -883,24 +845,14 @@ export interface Snapshot {
   projectLinks: ProjectLink[];
   docs: Doc[];
   teamLinks: TeamLink[];
-  projectTemplates: ProjectTemplate[];
-  projectRelations: ProjectRelation[];
   projectLabels: ProjectLabel[];
   projectStatuses: ProjectStatusDef[];
   projectSubscriptions: ProjectSubscription[];
-  docTemplates: DocTemplate[];
-  emojis: CustomEmoji[];
-  customers: Customer[];
-  customerStatuses: CustomerStatus[];
-  customerTiers: CustomerTier[];
-  customerRequests: CustomerRequest[];
   initiatives: Initiative[];
   initiativeUpdates: InitiativeUpdate[];
   initiativeLabels: InitiativeLabel[];
   initiativeLinks: InitiativeLink[];
-  releases: Release[];
   slaRules: SlaRule[];
-  askForms: AskForm[];
   loops: Loop[];
   loopRuns: LoopRun[];
   pullRequests: PullRequest[];
@@ -932,10 +884,10 @@ export type SnapshotSection = keyof Snapshot;
 const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   workspace: true, users: true, teams: true, states: true, labels: true, templates: true, issues: true, comments: true,
   attachments: true, subscriptions: true, relations: true, projects: true, projectLinks: true, docs: true, teamLinks: true,
-  projectTemplates: true, projectRelations: true, projectLabels: true, projectStatuses: true, projectSubscriptions: true,
-  docTemplates: true, emojis: true, customers: true, customerStatuses: true, customerTiers: true, customerRequests: true,
-  initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, releases: true, slaRules: true,
-  askForms: true, loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
+  projectLabels: true, projectStatuses: true, projectSubscriptions: true,
+
+  initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, slaRules: true,
+  loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
   teamSubscriptions: true, teamWorkflows: true, recurring: true, locations: true, projectUpdates: true, milestones: true,
   cycles: true, views: true, favorites: true, notifications: true, activity: true, currentUser: true, updateDrafts: true,
 };

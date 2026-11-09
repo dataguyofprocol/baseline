@@ -50,7 +50,7 @@ Do not spawn anything else until setup is written and the model rule exists.
 
 Recon first, yourself, cheaply: `git ls-files`, `git status`, and a `subagent` call to `scout` (agent: `scout`, read-only) to return the tracked-file inventory grouped into slices with line counts and rough test coverage per slice. Brief the scout to report `PASS` / `ISSUES` / `BLOCKED` and the exact SHAs it looked at.
 
-Scope: **whole tracked repo, including root docs** (`src/`, `web/`, `bin/`, `scripts/`, `skills/`, `design-polish/`, `.github/`, and root markdown such as `ROADMAP.md`, `TEAM_PLAN.md`, `FEATURES.md`, `JOURNEYS.md`, `OPERATIONS.md`, `DESIGN.md`). Exclude `node_modules/`, `dist/`, and any vendored or generated directory; list what you excluded.
+Scope: **whole tracked repo, including root docs** (`src/`, `web/`, `bin/`, `scripts/`, `skills/`, `design-polish/`, `.github/`, and root markdown such as `TEAM_PLAN.md`, `FEATURES.md`, `JOURNEYS.md`, `DESIGN.md`). Exclude `node_modules/`, `dist/`, and any vendored or generated directory; list what you excluded.
 
 Then partition into N slices. Choose N so no slice exceeds about 1500 lines of hand-read code; prefer ~6–10 slices. Partition by directory or module, never split a single file across two workers. Record the base SHA once: `git rev-parse HEAD`.
 

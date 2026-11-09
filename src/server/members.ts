@@ -25,7 +25,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
   const { store, accounts, mailer, hosted } = o;
   // invites send email in the workspace's name: at most 100 addresses (or resends) per person per hour
   const inviteLimit = limiter(100, 60 * 60_000);
-  const tooMany = (c: Context) => c.json({ error: 'You\'ve sent a lot of invites — try again in an hour', code: 'rate-limited' }, 429);
+  const tooMany = (c: Context) => c.json({ error: 'You\'ve sent a lot of invites. Try again in an hour.', code: 'rate-limited' }, 429);
   const forbid = (c: Context, error: string) => c.json({ error, code: 'forbidden' }, 403);
   const me = () => store.actor();
   const knownTeams = (ids: unknown): string[] =>
@@ -47,7 +47,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     }
   };
   // as in Linear: anyone on a team, or an admin, adds people to it; only admins remove someone else.
-  // A laptop has one person, who holds everything.
+  // A laptop has one person, who passes every admin and team check.
   const admin = () => !hosted || accounts.isAdmin(me());
   const canAddTo = (team: Team) => admin() || team.memberIds.includes(me());
   const cantAdd = (c: Context, team: Team) => forbid(c, `Only ${team.name}'s members and admins can add people to it`);
@@ -77,7 +77,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     if (entries.length > MAX_INVITES) return c.json({ error: `Invite at most ${MAX_INVITES} people at a time` }, 400);
     // agents work in every team, so they're never on one; nor is someone who can't sign in
     const refused = entries.flatMap(e => e.kind === 'member' && !accounts.isActivePerson(e.userId) ? [e.userId] : []);
-    if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team — agents work in every team', code: 'invalid', userIds: refused }, 400);
+    if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team. Agents work in every team.', code: 'invalid', userIds: refused }, 400);
 
     type Step = { kind: 'member'; userId: string; email: string } | { kind: 'invite'; email: string } | { kind: 'invalid'; email: string; error?: string };
     const steps: Step[] = [];
@@ -95,7 +95,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
       seen.add(existing?.id ?? e.email);
       steps.push(!existing ? { kind: 'invite', email: e.email }
         : existing.status === 'active' ? { kind: 'member', userId: existing.id, email: e.email }
-        : { kind: 'invalid', email: e.email, error: 'Suspended — an admin can reactivate them in Members' });
+        : { kind: 'invalid', email: e.email, error: 'Suspended. An admin can reactivate them in Members' });
     }
 
     const teams = knownTeams(b.teamIds).map(id => store.getTeam(id)!);
@@ -155,14 +155,14 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     return c.json({ ok: true });
   });
 
-  // a one-use link that sets this person's password — shared by the admin, so no email is needed
+  // a one-use link that sets this person's password. The admin shares it, so no email is needed
   // (a key can't ask for one, see principal.ts)
   app.post('/api/members/:id/reset-link', (c) => {
     if (!hosted) return c.json({ error: 'Passwords are for hosted workspaces (BASELINE_PUBLIC_URL)', code: 'not-hosted' }, 400);
     if (!accounts.isAdmin(me())) return forbid(c, 'Only admins can make password reset links');
     const target = store.snapshot().users.find(u => u.id === c.req.param('id') && u.kind === 'human');
     if (!target) return c.json({ error: 'No such person', code: 'not-found' }, 404);
-    if (target.status === 'suspended') return c.json({ error: `${target.name} is suspended — reactivate them first`, code: 'invalid' }, 400);
+    if (target.status === 'suspended') return c.json({ error: `${target.name} is suspended. Reactivate them first.`, code: 'invalid' }, 400);
     const { token, expiresAt } = accounts.createPasswordReset(target.id, me(), RESET_LINK_TTL);
     return c.json({ link: resetLink(hosted.publicUrl, token), expiresAt });
   });
@@ -177,7 +177,7 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     if (!ids.length) return c.json({ error: 'Pick at least one person', code: 'invalid' }, 400);
     // agents work in every team, so they're never on one; nor is someone who can't sign in
     const refused = ids.filter(id => !accounts.isActivePerson(id));
-    if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team — agents work in every team', code: 'invalid', userIds: refused }, 400);
+    if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team. Agents work in every team.', code: 'invalid', userIds: refused }, 400);
     return c.json({ added: addToTeam(team, ids) });
   });
   app.delete('/api/teams/:id/members/:userId', (c) => {

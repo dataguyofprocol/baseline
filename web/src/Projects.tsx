@@ -12,13 +12,12 @@ import type { Editor } from '@tiptap/react';
 import { Markdown } from './Markdown.js';
 import { ProjectLocationsRow } from './CodingTools.js';
 import { Resources } from './Docs.js';
-import { CustomerRequests } from './Workspace.js';
 import { ProjectInitiatives } from './Initiatives.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueViews.js';
 import { IssueListBody, ListToolbar, useListLayoutToggle, openFilterMenu, ViewNameSeg } from './Views.js';
 import {
   IconPlus, IconStar, IconLink, IconTrash, IconClose, IconCalendar, IconUsers, IconUser, IconEdit, IconMilestone,
-  IconChevronDown, IconCheck, IconFilter, IconDisplay, IconList, IconBoard, IconTimeline, IconMore, IconPanel,
+  IconChevronDown, IconCheck, IconFilter, IconDisplay, IconList, IconBoard, IconMore, IconPanel,
   IconBox, IconTag, IconCycle, IconTeam, IconBell, IconViews,
 } from './icons.js';
 import { UPDATE_CADENCE_LABELS, type Project, type ProjectStatus, type ProjectHealth, type Priority, type Issue, type SavedView, type UpdateCadence } from '../../src/core/types.js';
@@ -55,8 +54,8 @@ export function ProjectLabelChips({ project, max = 3 }: { project: Pick<Project,
   return <span className="plabel-chips">{labels.slice(0, max).map(l => <span key={l.id} className="plabel-chip"><span className="label-dot" style={{ background: l.color }} />{l.name}</span>)}{labels.length > max && <span className="plabel-chip">+{labels.length - max}</span>}</span>;
 }
 const HEALTH: Array<[ProjectHealth, string, string]> = [['onTrack', 'On track', '#4cb782'], ['atRisk', 'At risk', '#f2994a'], ['offTrack', 'Off track', '#eb5757']];
-const healthLabel = (h: ProjectHealth) => HEALTH.find(x => x[0] === h)?.[1] ?? h;
-const healthColor = (h: ProjectHealth) => HEALTH.find(x => x[0] === h)?.[2] ?? '#8a8f98';
+export const healthLabel = (h: ProjectHealth) => HEALTH.find(x => x[0] === h)?.[1] ?? h;
+export const healthColor = (h: ProjectHealth) => HEALTH.find(x => x[0] === h)?.[2] ?? '#8a8f98';
 const PRIORITY_LABEL = ['No priority', 'Urgent', 'High', 'Medium', 'Low'];
 const ICONS = ['🧊', '🤖', '📱', '🎨', '🚀', '⚡', '🔧', '📦', '🌐', '💡', '🧪', '📊', '🔒', '🛠️', '📝', '🎯', '🧭', '🔥', '🌱', '🧩', '📣', '💬', '🏗️', '🛰️'];
 
@@ -208,7 +207,7 @@ export function ProjectMenuBody(props: { kind: ProjKind; project: Project; onClo
             const kids = snap.projectLabels.filter(l => l.parentId === g.id && (m(l.name) || m(g.name)));
             return kids.length ? <div key={g.id}><div className="menu-header"><span>{g.name}</span></div>{kids.map(item)}</div> : null;
           })}
-          {!snap.projectLabels.length && <div className="menu-empty">No project labels yet — add them in Settings › Projects › Labels.</div>}
+          {!snap.projectLabels.length && <div className="menu-empty">No project labels yet. Add them in Settings › Projects › Labels.</div>}
           {q.trim() && !snap.projectLabels.some(l => l.name.toLowerCase() === q.trim().toLowerCase()) && (
             <MenuItem icon={<IconPlus size={13} />} label={`Create label “${q.trim()}”`} onClick={async () => {
               const { label } = await api.createProjectLabel({ name: q.trim(), color: '#5e6ad2' });
@@ -251,9 +250,9 @@ interface ProjectFilters {
   statuses?: string[]; priorities?: number[]; leads?: string[]; members?: string[]; health?: string[]; teams?: string[]; labels?: string[];
   target?: Array<'overdue' | 'month' | 'quarter' | 'none'>; query?: string;
 }
-type ProjDisplay = Record<'summary' | 'priority' | 'status' | 'health' | 'team' | 'lead' | 'members' | 'start' | 'target' | 'issues' | 'created' | 'updated' | 'milestones' | 'dependencies' | 'labels', boolean>;
+type ProjDisplay = Record<'summary' | 'priority' | 'status' | 'health' | 'team' | 'lead' | 'members' | 'start' | 'target' | 'issues' | 'created' | 'updated' | 'milestones' | 'labels', boolean>;
 interface ProjOptions {
-  layout: 'list' | 'board' | 'timeline';
+  layout: 'list' | 'board';
   groupBy: 'none' | 'status' | 'priority' | 'lead' | 'health' | 'team';
   orderBy: 'manual' | 'name' | 'priority' | 'target' | 'start' | 'created' | 'updated' | 'progress';
   closed: 'all' | 'month' | 'week' | 'none';
@@ -262,7 +261,7 @@ interface ProjOptions {
 }
 const DEFAULT_PROJ: ProjOptions = {
   layout: 'list', groupBy: 'none', orderBy: 'manual', closed: 'all', filters: {},
-  display: { summary: false, priority: true, status: true, health: true, team: false, lead: true, members: false, start: false, target: true, issues: true, created: false, updated: false, milestones: false, dependencies: false, labels: true },
+  display: { summary: false, priority: true, status: true, health: true, team: false, lead: true, members: false, start: false, target: true, issues: true, created: false, updated: false, milestones: false, labels: true },
 };
 
 function applyProjectFilters(list: Project[], f: ProjectFilters, snap: Snap): Project[] {
@@ -412,14 +411,13 @@ function Seg<T extends string>(props: { value: T; options: Array<[T, string]>; o
 
 function ProjectDisplayMenu(props: { anchor: DOMRect; onClose: () => void; opts: ProjOptions; patch: (p: Partial<ProjOptions>) => void }) {
   const { opts, patch } = props;
-  const rows: Array<[keyof ProjDisplay, string]> = [['milestones', 'Milestones'], ['dependencies', 'Dependencies'], ['labels', 'Labels'], ['summary', 'Summary'], ['priority', 'Priority'], ['status', 'Status'], ['health', 'Health'], ['team', 'Team'], ['lead', 'Lead'], ['members', 'Members'], ['start', 'Start date'], ['target', 'Target date'], ['issues', 'Issues'], ['created', 'Created'], ['updated', 'Updated']];
+  const rows: Array<[keyof ProjDisplay, string]> = [['milestones', 'Milestones'], ['labels', 'Labels'], ['summary', 'Summary'], ['priority', 'Priority'], ['status', 'Status'], ['health', 'Health'], ['team', 'Team'], ['lead', 'Lead'], ['members', 'Members'], ['start', 'Start date'], ['target', 'Target date'], ['issues', 'Issues'], ['created', 'Created'], ['updated', 'Updated']];
   return (
     <Menu anchor={props.anchor} onClose={props.onClose} width={320}>
       <div className="dopts">
-        <div className="dopts-layout three">
+        <div className="dopts-layout">
           <button className={`dopts-lay${opts.layout === 'list' ? ' on' : ''}`} onClick={() => patch({ layout: 'list' })}><IconList size={14} /> List</button>
           <button className={`dopts-lay${opts.layout === 'board' ? ' on' : ''}`} onClick={() => patch({ layout: 'board' })}><IconBoard size={14} /> Board</button>
-          <button className={`dopts-lay${opts.layout === 'timeline' ? ' on' : ''}`} onClick={() => patch({ layout: 'timeline' })}><IconTimeline size={14} /> Timeline</button>
         </div>
         <div className="dopts-row"><span>{opts.layout === 'board' ? 'Columns' : 'Grouping'}</span>
           <Seg value={opts.groupBy} onChange={v => patch({ groupBy: v })} options={[['none', 'No grouping'], ['status', 'Status'], ['priority', 'Priority'], ['lead', 'Lead'], ['health', 'Health'], ['team', 'Team']]} /></div>
@@ -470,7 +468,7 @@ export function describeProjectView(v: SavedView, snap: Snap): Array<[string, st
     if (x.key === 'query') return ['Text', `“${String(val)}”`];
     return [x.label, (val as unknown[]).map(id => pfValues(x.key, snap).find(o2 => o2.id === String(id))?.label ?? String(id)).join(', ')];
   });
-  if (o.layout !== 'list') chips.push(['Layout', o.layout === 'timeline' ? 'Timeline' : 'Board']);
+  if (o.layout === 'board') chips.push(['Layout', 'Board']);
   return chips;
 }
 
@@ -489,7 +487,9 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
   const team = savedView ? snap.teams.find(t => t.id === savedView.teamId) : teamKey ? snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase()) : undefined;
   const viewDefaults = useMemo<ProjOptions>(() => savedView ? { ...DEFAULT_PROJ, ...(savedView.projectOptions as Partial<ProjOptions> | null ?? {}), display: { ...DEFAULT_PROJ.display, ...((savedView.projectOptions as Partial<ProjOptions> | null)?.display ?? {}) } } : DEFAULT_PROJ,
     [savedView?.id, JSON.stringify(savedView?.projectOptions)]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [opts, patch, reset] = useViewPrefs<ProjOptions>(savedView ? `baseline:view:saved:${savedView.id}` : `baseline:projects:${team?.id ?? 'all'}`, viewDefaults);
+  const [stored, patch, reset] = useViewPrefs<ProjOptions>(savedView ? `baseline:view:saved:${savedView.id}` : `baseline:projects:${team?.id ?? 'all'}`, viewDefaults);
+  // views and pages saved with the old Timeline layout open as a list
+  const opts: ProjOptions = stored.layout === 'board' ? stored : { ...stored, layout: 'list' };
   const dirty = !!savedView && JSON.stringify(viewDefaults) !== JSON.stringify({ ...viewDefaults, ...opts });
   const saveAsView = () => void saveProjectView(opts, team?.id ?? null, navigate);
   useEffect(() => {
@@ -559,8 +559,6 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
           </div>
         ) : opts.layout === 'board' ? (
           <ProjectBoard groups={opts.groupBy === 'none' ? groupProjects(visible, 'status', snap) : groups} groupBy={opts.groupBy === 'none' ? 'status' : opts.groupBy} onCreate={st => { setCreateStatus(st); setCreating(true); }} />
-        ) : opts.layout === 'timeline' ? (
-          <ProjectTimeline projects={visible} />
         ) : (
           <ProjectList groups={groups} display={opts.display} grouped={opts.groupBy !== 'none'} />
         )}
@@ -631,9 +629,6 @@ function ProjectList(props: { groups: ProjGroup[]; display: ProjDisplay; grouped
                     {faved && <IconStar size={11} filled style={{ color: 'var(--brand)', flex: 'none' }} />}
                     {snap.updateDrafts?.some(x => x.projectId === p.id) && <span className="pl-ms" data-draft-marker title="An agent drafted a project update for you to review"><IconEdit size={11} /> Draft update</span>}
                     {d.summary && p.summary && <span className="pl-summary">{p.summary}</span>}
-                    {d.dependencies && snap.projectRelations.some(r => r.projectId === p.id || r.relatedProjectId === p.id) && (
-                      <span className="pl-ms" title="Blocked by / blocking">⛓ {snap.projectRelations.filter(r => r.relatedProjectId === p.id).length}/{snap.projectRelations.filter(r => r.projectId === p.id).length}</span>
-                    )}
                     {d.labels && <ProjectLabelChips project={p} />}
                     {d.milestones && ms.length > 0 && <span className="pl-ms"><IconMilestone size={11} /> {ms.filter(m => projectProgress(snap, p.id, m.id).pct === 100 && projectProgress(snap, p.id, m.id).total > 0).length}/{ms.length}</span>}
                   </span>
@@ -758,7 +753,7 @@ export function ProjectBoard(props: { groups: ProjGroup[]; groupBy: ProjOptions[
   );
 }
 
-/* ---------- timeline (roadmap) ----------
+/* ---------- timeline (roadmap), the Projects tab of an initiative ----------
    Months across the top, one row per project, a bar from start to target. Drag a bar to
    move it, drag its ends to change the start or target date. Projects without dates get a
    faint two-week bar from today that you can drag into place. */
@@ -793,7 +788,7 @@ export function ProjectTimeline(props: { projects: Project[] }) {
   useEffect(() => { if (scroller.current) scroller.current.scrollLeft = Math.max(0, x(today.getTime()) - 200); }, [zoom]); // eslint-disable-line react-hooks/exhaustive-deps
   const [drag, setDrag] = useState<{ id: string; mode: 'move' | 'start' | 'end'; originX: number; s: number; e: number; dx: number } | null>(null);
   // the listeners below are bound once per drag, so they read the live drag (with its
-  // current dx) through this ref — the `drag` they close over is the dx: 0 start value
+  // current dx) through this ref. The `drag` they close over is the dx: 0 start value
   const dragRef = useRef(drag);
   dragRef.current = drag;
   useEffect(() => {
@@ -865,26 +860,6 @@ export function ProjectTimeline(props: { projects: Project[] }) {
               </div>
             );
           })}
-          {/* dependency arrows: from the blocker's end to the blocked project's start */}
-          <svg className="tl-deps" width={totalDays * pxPerDay} height={34 + props.projects.length * 40}>
-            <defs><marker id="tl-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 8 4 0 8z" fill="currentColor" /></marker></defs>
-            {snap.projectRelations.map(r => {
-              const ai = props.projects.findIndex(x => x.id === r.projectId);
-              const bi = props.projects.findIndex(x => x.id === r.relatedProjectId);
-              if (ai < 0 || bi < 0) return null;
-              const span = (p2: Project) => {
-                const s0 = p2.startDate ? new Date(p2.startDate.slice(0, 10) + 'T00:00').getTime() : p2.targetDate ? new Date(p2.targetDate.slice(0, 10) + 'T00:00').getTime() - 14 * DAY : today.getTime();
-                const e0 = p2.targetDate ? new Date(p2.targetDate.slice(0, 10) + 'T00:00').getTime() : s0 + 14 * DAY;
-                return [s0, e0];
-              };
-              const [, aEnd] = span(props.projects[ai]);
-              const [bStart] = span(props.projects[bi]);
-              const x1 = x(aEnd + DAY), y1 = 34 + ai * 40 + 20, x2 = x(bStart), y2 = 34 + bi * 40 + 20;
-              const late = aEnd >= bStart;
-              const mid = Math.max(x1 + 10, (x1 + x2) / 2);
-              return <path key={r.id} className={`tl-dep${late ? ' late' : ''}`} d={`M${x1},${y1} C${mid},${y1} ${Math.min(mid, x2 - 10)},${y2} ${x2},${y2}`} markerEnd="url(#tl-arrow)" />;
-            })}
-          </svg>
           <div style={{ height: 34 + props.projects.length * 40 + 20 }} />
         </div>
       </div>
@@ -910,32 +885,16 @@ export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: (
   const [startDate, setStartDate] = useState('');
   const [targetDate, setTargetDate] = useState('');
   const nameRef = useRef<HTMLInputElement>(null);
-  const [templateId, setTemplateId] = useState<string | null>(null);
-  const [descKey, setDescKey] = useState(0);
-  const tpl = snap.projectTemplates.find(t => t.id === templateId);
-  const applyTemplate = (id: string | null) => {
-    setTemplateId(id);
-    const t = snap.projectTemplates.find(x => x.id === id);
-    if (!t) return;
-    setIcon(t.icon); setSummary(t.summary); setDescription(t.description); setStatus(t.status); setStatusId(null); setPriority(t.priority);
-    if (!name.trim()) setName(t.name);
-    setDescKey(k => k + 1);
-  };
-  const menus = { labels: useMenu(), template: useMenu(), icon: useMenu(), status: useMenu(), priority: useMenu(), lead: useMenu(), members: useMenu(), team: useMenu(), start: useMenu(), target: useMenu() };
+  const menus = { labels: useMenu(), icon: useMenu(), status: useMenu(), priority: useMenu(), lead: useMenu(), members: useMenu(), team: useMenu(), start: useMenu(), target: useMenu() };
   useEffect(() => { const t = setTimeout(() => nameRef.current?.focus(), 30); return () => clearTimeout(t); }, []);
   const { busy, guard } = useInFlight();
   const create = guard(async () => {
     if (!name.trim()) return;
     const { project } = await api.createProject({ name: name.trim(), summary: summary.trim(), description, icon, status, statusId, labelIds, startDate: startDate || null, targetDate: targetDate || null, leadId, priority, memberIds, teamId: team });
-    // the project exists now: a failed template must not leave the modal open, where Create would make a second one
-    let templateFailed = false;
-    if (templateId) { try { await api.applyProjectTemplate(project.id, templateId); } catch { templateFailed = true; } }
     await useApp.getState().bootstrap();
     onClose();
     navigate(`/projects/${project.id}`);
-    useApp.getState().toast(templateFailed
-      ? { title: 'Project created without its template', line: <>{icon} {project.name} — apply the template again from the project</> }
-      : { title: 'Project created', line: <>{icon} {project.name}</> });
+    useApp.getState().toast({ title: 'Project created', line: <>{icon} {project.name}</> });
   });
   const lead = snap.users.find(u => u.id === leadId);
   const teamObj = snap.teams.find(t => t.id === team);
@@ -951,7 +910,6 @@ export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: (
           <span className="crumb-sep">›</span>
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>New project</span>
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-            {snap.projectTemplates.length > 0 && <button className={`cm-template${tpl ? ' on' : ''}`} onClick={menus.template.open}>{tpl ? `${tpl.icon} ${tpl.name}` : 'Template'} <IconChevronDown size={10} /></button>}
             <button className="icon-btn" onClick={onClose}><IconClose size={14} /></button>
           </span>
         </div>
@@ -970,21 +928,15 @@ export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: (
           <button className="prop-chip" onClick={menus.labels.open}><IconTag size={13} />{labelIds.length ? snap.projectLabels.filter(l => labelIds.includes(l.id)).map(l => l.name).join(', ') : 'Labels'}</button>
         </div>
         <div className="np-desc">
-          <RichEditor key={descKey} value={description} placeholder="Write a description, a project brief, or collect ideas…" onChange={setDescription} onBlur={setDescription} />
+          <RichEditor value={description} placeholder="Write a description, a project brief, or collect ideas…" onChange={setDescription} onBlur={setDescription} />
         </div>
         <div className="cm-footer">
-          {tpl && (tpl.milestones.length > 0 || tpl.issues.length > 0) && <span className="cbox-hint">Also creates {[tpl.milestones.length && `${tpl.milestones.length} milestone${tpl.milestones.length === 1 ? '' : 's'}`, tpl.issues.length && `${tpl.issues.length} issue${tpl.issues.length === 1 ? '' : 's'}`].filter(Boolean).join(' and ')}</span>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
             <button className="btn" onClick={onClose}>Cancel</button>
             <button className="btn primary" onClick={() => void create()} disabled={!name.trim() || busy}>Create project <span className="btn-kbd kbd">⌘↵</span></button>
           </div>
         </div>
       </div>
-      {menus.template.anchor && <Menu anchor={menus.template.anchor} onClose={menus.template.close} width={240}>
-        <div className="menu-header"><span>Project templates</span></div>
-        {snap.projectTemplates.map(t => <MenuItem key={t.id} icon={<span>{t.icon}</span>} label={t.name} selected={templateId === t.id} onClick={() => applyTemplate(t.id)} />)}
-        <MenuSep /><MenuItem label="No template" selected={!templateId} onClick={() => setTemplateId(null)} />
-      </Menu>}
       {menus.icon.anchor && <Menu anchor={menus.icon.anchor} onClose={menus.icon.close} width={252}><div className="icon-grid">{ICONS.map(ic => <button key={ic} className={`icon-pick${icon === ic ? ' on' : ''}`} onClick={() => { setIcon(ic); menus.icon.close(); }}>{ic}</button>)}</div></Menu>}
       {menus.status.anchor && <Menu anchor={menus.status.anchor} onClose={menus.status.close} width={210}>{orderedStatuses(snap).map(st => <MenuItem key={st.id} icon={<ProjectStatusIcon status={st.type} color={st.color} />} label={st.name} selected={statusId ? statusId === st.id : status === st.type} onClick={() => { setStatus(st.type); setStatusId(st.id); }} />)}</Menu>}
       {menus.labels.anchor && (
@@ -1109,7 +1061,6 @@ function ProjectOverview(props: { project: Project }) {
         <ProjectMoreProps project={p} />
       </div>
       <Resources projectId={p.id} />
-      <CustomerRequests projectId={p.id} hideWhenEmpty />
 
       <UpdateComposer project={p} latest={latest} />
       <UpdateDue project={p} />
@@ -1136,10 +1087,10 @@ function UpdateDue({ project: p }: { project: Project }) {
   return <div className={`update-due${overdue ? ' overdue' : ''}`}>{overdue ? `Update overdue since ${shortDate(due.toISOString())}` : `Next update due ${shortDate(due.toISOString())}`} · {UPDATE_CADENCE_LABELS[cadence].toLowerCase()}</div>;
 }
 
-/* Linear's "…" at the end of the properties row: Start date, Dependencies, Labels */
+/* Linear's "…" at the end of the properties row: Start date, Labels */
 function ProjectMoreProps(props: { project: Project }) {
   const menu = useMenu();
-  const [sub, setSub] = useState<null | { kind: 'start' | 'labels' | 'deps'; anchor: DOMRect }>(null);
+  const [sub, setSub] = useState<null | { kind: 'start' | 'labels'; anchor: DOMRect }>(null);
   const p = props.project;
   useEffect(() => {
     // P then L on the project page opens labels, as in Linear
@@ -1164,12 +1115,10 @@ function ProjectMoreProps(props: { project: Project }) {
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={230}>
           <MenuItem icon={<IconCalendar size={14} />} label="Start date…" onClick={() => setSub({ kind: 'start', anchor: menu.anchor! })} />
-          <MenuItem icon={<IconLink size={14} />} label="Dependencies…" onClick={() => setSub({ kind: 'deps', anchor: menu.anchor! })} />
           <MenuItem icon={<IconTag size={14} />} label="Labels…" right={<span className="mi-hint">P then L</span>} onClick={() => setSub({ kind: 'labels', anchor: menu.anchor! })} />
         </Menu>
       )}
-      {sub?.kind === 'deps' && <DependencyMenu project={p} anchor={sub.anchor} onClose={() => setSub(null)} />}
-      {sub && sub.kind !== 'deps' && <Menu anchor={sub.anchor} onClose={() => setSub(null)} width={250}><ProjectMenuBody kind={sub.kind} project={p} onClose={() => setSub(null)} /></Menu>}
+      {sub && <Menu anchor={sub.anchor} onClose={() => setSub(null)} width={250}><ProjectMenuBody kind={sub.kind} project={p} onClose={() => setSub(null)} /></Menu>}
     </>
   );
 }
@@ -1263,7 +1212,7 @@ function UpdateComposerBody(props: { project: Project; latest?: Snap['projectUpd
   const [open, setOpen] = useState(false);
   const [health, setHealth] = useState<ProjectHealth>(props.project.health);
   const [body, setBody] = useState('');
-  // the editor's onChange is debounced — Post reads the editor itself so nothing typed is lost
+  // the editor's onChange is debounced, so Post reads the editor itself and nothing typed is lost
   const editorRef = useRef<Editor | null>(null);
   const post = async (md: string) => {
     if (isBlank(md)) return;
@@ -1404,7 +1353,6 @@ function ProjectDetails(props: { project: Project }) {
         {row('Updates', 'cadence', <span className={p.updateCadence ? '' : 'dim'}>{UPDATE_CADENCE_LABELS[p.updateCadence ?? snap.workspace.features.updateCadence]}</span>)}
         <ProjectLocationsRow project={p} />
       </div>
-      <ProjectDependencies project={p} />
       {ms.length > 0 && (
         <div className="rail-section">
           <div className="rail-header">Milestones</div>
@@ -1431,58 +1379,6 @@ function ProjectDetails(props: { project: Project }) {
         {rows.length === 0 && <div className="bd-empty">No issues yet.</div>}
       </div>
     </aside>
-  );
-}
-
-/* dependencies: "blocked by" projects must land first; "blocking" ones wait on this */
-function ProjectDependencies(props: { project: Project }) {
-  const snap = useApp(s => s.snap)!;
-  const navigate = useNavigate();
-  const menu = useMenu();
-  const p = props.project;
-  const blockedBy = snap.projectRelations.filter(r => r.relatedProjectId === p.id);
-  const blocking = snap.projectRelations.filter(r => r.projectId === p.id);
-  const row = (relId: string, otherId: string) => {
-    const o = snap.projects.find(x => x.id === otherId);
-    if (!o) return null;
-    return (
-      <div key={relId} className="prop-line rel-line" onClick={() => navigate(`/projects/${o.id}`)}>
-        <ProjectStatusIcon status={o.status} size={13} /><span className="prop-line-label">{o.icon} {o.name}</span>
-        {o.targetDate && <span className="prop-line-meta">{shortDate(o.targetDate.slice(0, 10) + 'T12:00')}</span>}
-        <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Remove dependency" onClick={async e => { e.stopPropagation(); await api.removeProjectDependency(relId); await useApp.getState().bootstrap(); }}><IconClose size={12} /></button>
-      </div>
-    );
-  };
-  return (
-    <div className="rail-section">
-      <div className="rail-header">Dependencies</div>
-      {blockedBy.length > 0 && <div className="rel-kind">Blocked by</div>}
-      {blockedBy.map(r => row(r.id, r.projectId))}
-      {blocking.length > 0 && <div className="rel-kind">Blocking</div>}
-      {blocking.map(r => row(r.id, r.relatedProjectId))}
-      <button className="prop-line dim" onClick={menu.open}><IconPlus size={13} /><span className="prop-line-label">Add dependency…</span></button>
-      {menu.anchor && <DependencyMenu project={p} anchor={menu.anchor} onClose={menu.close} />}
-    </div>
-  );
-}
-
-function DependencyMenu(props: { project: Project; anchor: DOMRect; onClose: () => void }) {
-  const snap = useApp(s => s.snap)!;
-  const [mode, setMode] = useState<'blocks' | 'blockedBy'>('blockedBy');
-  const [q, setQ] = useState('');
-  const p = props.project;
-  const linked = new Set([...snap.projectRelations.filter(r => r.relatedProjectId === p.id).map(r => r.projectId), ...snap.projectRelations.filter(r => r.projectId === p.id).map(r => r.relatedProjectId), p.id]);
-  return (
-    <Menu anchor={props.anchor} onClose={props.onClose} width={280}>
-      <div className="seg-pair" style={{ padding: '4px 6px 6px' }}>
-        <button className={`seg${mode === 'blockedBy' ? ' selected' : ''}`} onClick={e => { e.stopPropagation(); setMode('blockedBy'); }}>Blocked by</button>
-        <button className={`seg${mode === 'blocks' ? ' selected' : ''}`} onClick={e => { e.stopPropagation(); setMode('blocks'); }}>Blocking</button>
-      </div>
-      <div className="menu-input menu-filter" onClick={e => e.stopPropagation()}><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search projects…" /></div>
-      {snap.projects.filter(o => !linked.has(o.id) && o.name.toLowerCase().includes(q.toLowerCase())).map(o => (
-        <MenuItem key={o.id} icon={<span>{o.icon}</span>} label={o.name} onClick={async () => { await api.addProjectDependency(p.id, mode === 'blocks' ? { blocks: o.id } : { blockedBy: o.id }); await useApp.getState().bootstrap(); }} />
-      ))}
-    </Menu>
   );
 }
 

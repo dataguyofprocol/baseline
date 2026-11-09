@@ -29,7 +29,7 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
-/** a location by name or id — or a path, which is registered on the fly (it must exist) */
+/** a location by name or id, or a path, which is registered on the fly (it must exist) */
 function resolveLocationRef(store: ReturnType<typeof legacyStore>, ref: string): Location {
   if (resolve.isPathRef(ref)) {
     const path = localPath(ref);
@@ -185,7 +185,7 @@ withDb(team.command('update <key>')).description('Change a team: name, triage, e
   .action((key: string, opts: Record<string, string | undefined>) => {
     const store = legacyStore(opts.db);
     const t = resolveTeam(store.snapshot(), key, { required: true })!;
-    if (opts.estimates && !['none', 'linear', 'exponential', 'fibonacci', 'tshirt'].includes(opts.estimates)) fail('Invalid --estimates — use none|linear|exponential|fibonacci|tshirt');
+    if (opts.estimates && !['none', 'linear', 'exponential', 'fibonacci', 'tshirt'].includes(opts.estimates)) fail('Invalid --estimates. Use none|linear|exponential|fibonacci|tshirt.');
     store.updateTeam(t.id, {
       ...(opts.name ? { name: opts.name } : {}),
       ...(opts.triage !== undefined ? { triageEnabled: onOff(opts.triage) } : {}),
@@ -344,11 +344,11 @@ withDb(issue.command('handoff <key>')).description('Print a ready-to-paste agent
     if (!i) fail(`Unknown issue ${key}`);
     const h = (await bl.handoffFor(i.id))!;
     if (opts.copy) {
-      if (!copyToClipboard(h.prompt)) fail('Could not copy — install pbcopy (macOS), wl-copy or xclip, or drop --copy and pipe stdout');
+      if (!copyToClipboard(h.prompt)) fail('Could not copy. Install pbcopy (macOS), wl-copy or xclip, or drop --copy and pipe stdout.');
       console.error(`Copied prompt for ${h.key} → branch ${h.branchName}`);
     } else if (!opts.json) {
       console.log(h.prompt);
-      console.error(`\n— branch: ${h.branchName}\n— url: ${h.url}`);
+      console.error(`\nbranch: ${h.branchName}\nurl: ${h.url}`);
     }
     if (opts.json) console.log(JSON.stringify(h, null, 2));
     process.exit(0);
@@ -365,7 +365,7 @@ withDb(issue.command('open <key>')).description("Open an interactive Claude Code
       const r = openInClaudeCode(store, path, i.id, { locationId: loc?.id });
       console.log(`Opened Claude Code for ${r.key} in ${r.directory}${r.pinned ? ` (pinned to ${r.location.name})` : ''}`);
     } catch (err) {
-      if (err instanceof LaunchError) fail(err.code === 'no-location' ? `${key.toUpperCase()} has no location — pass --location <name|path>, or set one with \`issue update ${key.toUpperCase()} --location <name>\`` : err.message);
+      if (err instanceof LaunchError) fail(err.code === 'no-location' ? `${key.toUpperCase()} has no location. Pass --location <name|path>, or set one with \`issue update ${key.toUpperCase()} --location <name>\`.` : err.message);
       throw err;
     }
     process.exit(0);
@@ -622,7 +622,7 @@ withAs(withDb(issue.command('relate <key> <relatedKey>'))).description('Relate t
     if (!r) fail(`Unknown issue ${relatedKey}`);
     if (i.id === r.id) fail('An issue cannot relate to itself');
     const type = opts.type as RelationType;
-    if (!['blocks', 'blocked_by', 'related', 'duplicate'].includes(type)) fail(`Invalid relation type "${type}" — use blocks|blocked_by|related|duplicate`);
+    if (!['blocks', 'blocked_by', 'related', 'duplicate'].includes(type)) fail(`Invalid relation type "${type}". Use blocks|blocked_by|related|duplicate.`);
     store.setRelation(i.id, r.id, type, actorId(store.snapshot(), opts.as));
     console.log(`Related ${key} ${type} ${relatedKey}`);
     process.exit(0);
@@ -739,7 +739,7 @@ withDb(recurring.command('add <title>')).description('Create a recurring issue (
   .action((title: string, opts: { db?: string; team: string; cadence: string; from?: string; start?: string }) => {
     const store = legacyStore(opts.db);
     const snap = store.snapshot();
-    if (!['daily', 'weekly', 'biweekly', 'monthly'].includes(opts.cadence)) fail('Invalid --cadence — use daily|weekly|biweekly|monthly');
+    if (!['daily', 'weekly', 'biweekly', 'monthly'].includes(opts.cadence)) fail('Invalid --cadence. Use daily|weekly|biweekly|monthly.');
     const src = opts.from ? store.getByKey(opts.from) : undefined;
     if (opts.from && !src) fail(`Unknown issue ${opts.from}`);
     const t = src ? snap.teams.find(x => x.id === src.teamId)! : resolveTeam(snap, opts.team, { required: true })!;
@@ -771,7 +771,7 @@ withDb(triage.command('list')).description('List issues waiting in triage')
     const now = new Date().toISOString();
     const all = snap.issues.filter(i => triageStates.has(i.stateId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const queue = all.filter(i => !i.snoozedUntil || i.snoozedUntil <= now);
-    if (all.length > queue.length) console.error(`(${all.length - queue.length} snoozed — hidden)`);
+    if (all.length > queue.length) console.error(`(hidden: ${all.length - queue.length} snoozed)`);
     for (const i of queue) console.log(`${issueKey(i, snap.teams).padEnd(9)} ${(snap.users.find(u => u.id === i.creatorId)?.name ?? '?').padEnd(14)} ${i.title}`);
     console.error(`\n${queue.length} issue(s) in triage`);
     process.exit(0);
@@ -840,7 +840,6 @@ withDb(comment.command('delete <commentId>')).description('Delete a comment').ac
 const project = program.command('project').description('Project operations');
 
 withDb(project.command('create <name>')).description('Create a project')
-  .option('--template <name>', 'start from a project template (fields, milestones, starter issues)')
   .option('--summary <text>', 'one-line summary')
   .option('-d, --description <text>', 'description')
   .option('-l, --lead <name>', 'lead user name')
@@ -860,12 +859,6 @@ withDb(project.command('create <name>')).description('Create a project')
       startDate: opts.start ?? null, targetDate: opts.target ?? null,
       priority: priorityNum(opts.priority), icon: opts.icon, color: opts.color,
     });
-    if (opts.template) {
-      const tpl = snap.projectTemplates.find(x => x.name.toLowerCase() === opts.template!.toLowerCase());
-      if (!tpl) fail(`Unknown template "${opts.template}" — templates: ${snap.projectTemplates.map(x => x.name).join(', ') || '(none)'}`);
-      store.updateProject(p.id, { ...(opts.summary ? {} : { summary: tpl.summary }), ...(opts.description ? {} : { description: tpl.description }), icon: opts.icon ?? tpl.icon });
-      store.applyProjectTemplate(p.id, tpl.id);
-    }
     console.log(`Created project ${p.name}`);
     process.exit(0);
   });
@@ -955,8 +948,8 @@ withDb(project.command('update <name>')).description('Update a project')
     let leadId: string | null | undefined;
     if (opts.lead !== undefined) leadId = opts.lead.toLowerCase() === 'none' ? null : resolveUser(snap, opts.lead)!.id;
     const named = opts.status ? snap.projectStatuses.find(st => st.name.toLowerCase() === opts.status!.toLowerCase()) : undefined;
-    if (opts.status && !named && !['backlog', 'planned', 'started', 'paused', 'completed', 'canceled'].includes(opts.status)) fail(`Invalid status "${opts.status}" — use one of: ${snap.projectStatuses.map(st => st.name).join(', ')} (or a category)`);
-    if (opts.updates && !['none', 'weekly', 'biweekly', 'monthly', 'default'].includes(opts.updates)) fail('Invalid --updates — use none|weekly|biweekly|monthly|default');
+    if (opts.status && !named && !['backlog', 'planned', 'started', 'paused', 'completed', 'canceled'].includes(opts.status)) fail(`Invalid status "${opts.status}". Use one of: ${snap.projectStatuses.map(st => st.name).join(', ')} (or a category).`);
+    if (opts.updates && !['none', 'weekly', 'biweekly', 'monthly', 'default'].includes(opts.updates)) fail('Invalid --updates. Use none|weekly|biweekly|monthly|default.');
     let labelIds: string[] | undefined;
     if (opts.label || opts.removeLabel) {
       labelIds = [...p.labelIds];
@@ -966,7 +959,7 @@ withDb(project.command('update <name>')).description('Update a project')
       }
       if (opts.removeLabel) { const l = snap.projectLabels.find(x => x.name.toLowerCase() === opts.removeLabel!.toLowerCase()); labelIds = labelIds.filter(x => x !== l?.id); }
     }
-    if (opts.health && !['onTrack', 'atRisk', 'offTrack'].includes(opts.health)) fail(`Invalid health "${opts.health}" — use onTrack|atRisk|offTrack`);
+    if (opts.health && !['onTrack', 'atRisk', 'offTrack'].includes(opts.health)) fail(`Invalid health "${opts.health}". Use onTrack|atRisk|offTrack.`);
     store.updateProject(p.id, {
       ...(opts.newName ? { name: opts.newName } : {}),
       ...(opts.description !== undefined ? { description: opts.description } : {}),
@@ -998,29 +991,6 @@ withDb(project.command('link <name> <url>')).description('Add a resource link to
     console.log(`Linked ${url} to ${p.name}`);
     process.exit(0);
   });
-
-withDb(project.command('depend <name> <blockedBy>')).description('Mark a project as blocked by another (--remove to drop it)')
-  .option('--remove', 'remove the dependency', false)
-  .action((name: string, blocker: string, opts: { db?: string; remove?: boolean }) => {
-    const store = legacyStore(opts.db);
-    const snap = store.snapshot();
-    const p = resolveProject(snap, name)!;
-    const b = resolveProject(snap, blocker)!;
-    if (opts.remove) {
-      const r = snap.projectRelations.find(x => x.projectId === b.id && x.relatedProjectId === p.id);
-      if (r) store.removeProjectDependency(r.id);
-      console.log(`${p.name} no longer waits on ${b.name}`);
-    } else {
-      store.addProjectDependency(b.id, p.id);
-      console.log(`${p.name} is blocked by ${b.name}`);
-    }
-    process.exit(0);
-  });
-withDb(project.command('templates')).description('List project templates').action((opts: { db?: string }) => {
-  const store = legacyStore(opts.db);
-  for (const t of store.snapshot().projectTemplates) console.log(`${t.icon} ${t.name} — ${t.milestones.length} milestones, ${t.issues.length} issues`);
-  process.exit(0);
-});
 
 withDb(project.command('labels')).description('List project labels (groups show their labels)').action((opts: { db?: string }) => {
   const snap = legacyStore(opts.db).snapshot();
@@ -1057,13 +1027,13 @@ withDb(project.command('status-create <category> <name>')).description('Add a na
   });
 
 withAs(withDb(project.command('note <name> <body>'))).description('Post a project update')
-  .option('--health <health>', 'onTrack|atRisk|offTrack — also sets project health')
+  .option('--health <health>', 'onTrack|atRisk|offTrack, and sets the project health to match')
   .action(async (name: string, body: string, opts: { db?: string; health?: string; as?: string }) => {
     const bl = await connect(opts);
     const snap = await bl.snapshot(['projects', 'users']);
     const p = resolveProject(snap, name);
     if (!p) fail(`Unknown project "${name}"`);
-    if (opts.health && !['onTrack', 'atRisk', 'offTrack'].includes(opts.health)) fail(`Invalid health "${opts.health}" — use onTrack|atRisk|offTrack`);
+    if (opts.health && !['onTrack', 'atRisk', 'offTrack'].includes(opts.health)) fail(`Invalid health "${opts.health}". Use onTrack|atRisk|offTrack.`);
     await bl.addProjectUpdate(p.id, actorId(snap, opts.as), body, opts.health as Project['health'] | undefined);
     console.log(`Posted update on ${p.name}`);
     process.exit(0);
@@ -1106,7 +1076,7 @@ withDb(project.command('milestone-update <project> <name>')).description('Update
     const p = resolveProject(snap, proj);
     if (!p) fail(`Unknown project "${proj}"`);
     const m = resolveMilestone(snap, p.id, name);
-    if (opts.status && !['planned', 'inProgress', 'done'].includes(opts.status)) fail(`Invalid status "${opts.status}" — use planned|inProgress|done`);
+    if (opts.status && !['planned', 'inProgress', 'done'].includes(opts.status)) fail(`Invalid status "${opts.status}". Use planned|inProgress|done.`);
     store.updateMilestone(m.id, {
       ...(opts.rename ? { name: opts.rename } : {}),
       ...(opts.status ? { status: opts.status as 'planned' | 'inProgress' | 'done' } : {}),
@@ -1148,14 +1118,11 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof lega
     .map(u => ({ body: u.body, health: u.health, author: snap.users.find(x => x.id === u.userId)?.name ?? null, createdAt: u.createdAt }));
   const milestones = snap.milestones.filter(m => m.projectId === p.id)
     .map(m => ({ name: m.name, targetDate: m.targetDate, status: m.status }));
-  const name = (id: string) => snap.projects.find(x => x.id === id)?.name ?? id;
-  const blockedBy = snap.projectRelations.filter(r => r.relatedProjectId === p.id).map(r => name(r.projectId));
-  const blocking = snap.projectRelations.filter(r => r.projectId === p.id).map(r => name(r.relatedProjectId));
   const links = snap.projectLinks.filter(l => l.projectId === p.id).map(l => ({ title: l.title, url: l.url }));
-  return { ...projectJson(p, snap, store), issues, updates, milestones, blockedBy, blocking, links };
+  return { ...projectJson(p, snap, store), issues, updates, milestones, links };
 }
 
-// ---------- initiatives & releases ----------
+// ---------- initiatives ----------
 const initiative = program.command('initiative').description('Initiatives: strategic efforts made of projects');
 const findInitiative = (snap: Snapshot, ref: string) => snap.initiatives.find(i => i.id === ref) ?? snap.initiatives.find(i => /^i-\d+$/i.test(ref) && i.number === Number(ref.slice(2)))
   ?? snap.initiatives.find(i => i.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown initiative "${ref}"`);
@@ -1188,7 +1155,7 @@ withDb(initiative.command('update <initiative>')).description('Update an initiat
   .option('-t, --team <key>', 'lead team ("none" to clear)').option('--updates <cadence>', 'update reminders: none|weekly|biweekly|monthly|default')
   .action((ref: string, opts: { db?: string; status?: string; target?: string; addProject?: string; removeProject?: string; priority?: string; label?: string[]; removeLabel?: string[]; team?: string; updates?: string }) => {
     const store = legacyStore(opts.db); const snap = store.snapshot(); const ini = findInitiative(snap, ref);
-    if (opts.updates && !UPDATE_SCHEDULES.includes(opts.updates)) fail(`Invalid --updates — use ${UPDATE_SCHEDULES.join('|')}`);
+    if (opts.updates && !UPDATE_SCHEDULES.includes(opts.updates)) fail(`Invalid --updates. Use ${UPDATE_SCHEDULES.join('|')}.`);
     let labelIds: string[] | undefined;
     if (opts.label || opts.removeLabel) {
       const drop = new Set((opts.removeLabel ?? []).flatMap(n => n.split(',')).map(n => snap.initiativeLabels.find(l => l.name.toLowerCase() === n.trim().toLowerCase())?.id));
@@ -1225,26 +1192,6 @@ withAs(withDb(initiative.command('note <initiative> <body>'))).description('Post
     store.ext.planning.addInitiativeUpdate(findInitiative(snap, ref).id, actorId(snap, opts.as) ?? store.workspaceMeta().currentUser, body, opts.health as 'onTrack' | undefined);
     console.log('Posted update'); process.exit(0);
   });
-const release = program.command('release').description('Releases: which issues ship in a version');
-const findRelease = (snap: Snapshot, ref: string) => snap.releases.find(r => r.id === ref || r.name === ref) ?? fail(`Unknown release "${ref}"`);
-withDb(release.command('list')).description('List releases').option('--json', 'output as JSON', false).action((opts: { db?: string; json?: boolean }) => {
-  const snap = legacyStore(opts.db).snapshot();
-  const rows = snap.releases.map(r => ({ name: r.name, stage: r.stage, targetDate: r.targetDate, releasedAt: r.releasedAt, issues: snap.issues.filter(i => i.releaseId === r.id).map(i => issueKey(i, snap.teams)) }));
-  if (opts.json) console.log(JSON.stringify(rows, null, 2)); else for (const r of rows) console.log(`${r.name.padEnd(12)} ${r.stage.padEnd(9)} ${r.issues.join(' ')}`);
-  process.exit(0);
-});
-withDb(release.command('create <name>')).description('Create a release').option('-d, --description <text>').option('--target <date>').action((name: string, opts: { db?: string; description?: string; target?: string }) => {
-  legacyStore(opts.db).ext.planning.createRelease({ name, description: opts.description, targetDate: opts.target ?? null }); console.log(`Created release ${name}`); process.exit(0);
-});
-withDb(release.command('update <release>')).description('Change a release (stage: planned|started|released|canceled)').option('--stage <stage>').option('--add <keys...>', 'issue keys to add').option('--remove <keys...>', 'issue keys to remove')
-  .action((ref: string, opts: { db?: string; stage?: string; add?: string[]; remove?: string[] }) => {
-    const store = legacyStore(opts.db); const r = findRelease(store.snapshot(), ref);
-    if (opts.stage) store.ext.planning.updateRelease(r.id, { stage: opts.stage as 'released' });
-    for (const k of opts.add ?? []) store.updateIssue(store.getByKey(k)?.id ?? fail(`Unknown issue ${k}`), { releaseId: r.id });
-    for (const k of opts.remove ?? []) store.updateIssue(store.getByKey(k)?.id ?? fail(`Unknown issue ${k}`), { releaseId: null });
-    console.log(`Updated release ${r.name}`); process.exit(0);
-  });
-
 // ---------- personal API keys ----------
 const apiKey = program.command('api-key').description('Personal API keys for the REST API (Authorization: Bearer <key>)');
 withDb(apiKey.command('list')).description('List your API keys').option('--all', 'every member\'s keys', false).option('--json', 'output as JSON', false).action((opts: { db?: string; all?: boolean; json?: boolean }) => {
@@ -1270,7 +1217,7 @@ withDb(apiKey.command('revoke <id>')).description('Revoke a key by id or name').
   store.ext.apiKeys.revoke(k.id); console.log(`Revoked ${k.name}`); process.exit(0);
 });
 
-// ---------- SLAs, asks, loops, git ----------
+// ---------- SLAs, loops, git ----------
 const sla = program.command('sla').description('SLA rules: deadlines for matching issues');
 withDb(sla.command('list')).description('List SLA rules and breached issues').action((opts: { db?: string }) => {
   const snap = legacyStore(opts.db).snapshot();
@@ -1285,19 +1232,6 @@ withDb(sla.command('create <name>')).description('Add an SLA rule').requiredOpti
     const store = legacyStore(opts.db);
     store.ext.automation.createSlaRule({ name, hours: Number(opts.hours), priorities: (opts.priority ?? []).map(p => priorityNum(p)!), teamId: opts.team ? resolveTeam(store.snapshot(), opts.team, { required: true })!.id : null });
     console.log(`Created SLA rule "${name}"`); process.exit(0);
-  });
-const ask = program.command('ask').description('Asks: intake forms that file into triage');
-withDb(ask.command('list')).description('List Ask forms and their fields').action((opts: { db?: string }) => {
-  for (const f of legacyStore(opts.db).snapshot().askForms) console.log(`${f.id}  ${f.name} — ${f.fields.map(x => `${x.id}:${x.label}${x.required ? '*' : ''}`).join(', ')}`);
-  process.exit(0);
-});
-withAs(withDb(ask.command('submit <form>'))).description('Submit an Ask (field values as id=value)').argument('<values...>')
-  .action((ref: string, values: string[], opts: { db?: string; as?: string }) => {
-    const store = legacyStore(opts.db); const snap = store.snapshot();
-    const f = snap.askForms.find(x => x.id === ref || x.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown form "${ref}"`);
-    try { const issue = store.ext.automation.submitAsk(f.id, Object.fromEntries(values.map(v => [v.split('=')[0], v.split('=').slice(1).join('=')])), actorId(snap, opts.as)); console.log(`Filed ${store.keyOf(issue)}`); }
-    catch (e) { fail((e as Error).message); }
-    process.exit(0);
   });
 const loop = program.command('loop').description('Loops: workflows that run on a schedule or when issues change');
 withDb(loop.command('list')).description('List loops and recent runs').action((opts: { db?: string }) => {
@@ -1332,7 +1266,7 @@ withDb(gitCmd.command('webhook')).description('GitHub webhooks (read-only, signe
     const secret = opts.rotate ? w.rotateSecret() : null;
     const cfg = w.config();
     if (opts.json) { console.log(JSON.stringify({ ...cfg, ...(secret ? { secret } : {}) }, null, 2)); process.exit(0); }
-    console.log(`Webhooks: ${cfg.enabled ? `on (secret ${cfg.secretHint})` : 'off'}${store.getFeatures().githubEnabled ? '' : ' — GitHub is disabled in this workspace'}`);
+    console.log(`Webhooks: ${cfg.enabled ? `on (secret ${cfg.secretHint})` : 'off'}${store.getFeatures().githubEnabled ? '' : '. GitHub is disabled in this workspace'}`);
     console.log(`Payload URL: ${cfg.publicUrl ? `${cfg.publicUrl}/api/github/webhook` : '(set --url to your tunnel address)'}  ·  content type application/json`);
     console.log(`Events: ${cfg.events.join(', ')}`);
     if (secret) console.log(`Secret (shown once): ${secret}`);
@@ -1343,51 +1277,8 @@ withDb(gitCmd.command('import-issues <repo>')).description('Import a repo\'s ope
   .requiredOption('-t, --team <key>', 'team to import into').option('--follow', 'keep importing new issues as webhooks report them', false)
   .action(async (repo: string, opts: { db?: string; team: string; follow?: boolean }) => {
     const store = legacyStore(opts.db); const team = resolveTeam(store.snapshot(), opts.team, { required: true })!;
-    try { const r = await store.ext.webhooks.importIssues(repo, team.id, !!opts.follow); console.log(`Imported ${r.imported} issue${r.imported === 1 ? '' : 's'} into ${team.key}${r.skipped ? ` (${r.skipped} already imported)` : ''}${opts.follow ? ' — following new issues' : ''}`); }
+    try { const r = await store.ext.webhooks.importIssues(repo, team.id, !!opts.follow); console.log(`Imported ${r.imported} issue${r.imported === 1 ? '' : 's'} into ${team.key}${r.skipped ? ` (${r.skipped} already imported)` : ''}${opts.follow ? ' and now following new issues' : ''}`); }
     catch (e) { fail((e as Error).message); }
-    process.exit(0);
-  });
-
-// ---------- customers ----------
-const customer = program.command('customer').description('Customers and the issues / projects they asked for');
-function resolveCustomer(snap: Snapshot, ref: string) {
-  const q = ref.toLowerCase();
-  const c = snap.customers.find(x => x.id === ref) ?? snap.customers.find(x => x.name.toLowerCase() === q) ?? snap.customers.find(x => x.domains.includes(q));
-  if (!c) fail(`Unknown customer "${ref}" — see \`baseline customer list\``);
-  return c;
-}
-withDb(customer.command('list')).description('List customers with their request counts')
-  .option('--json', 'output as JSON', false)
-  .action((opts: { db?: string; json?: boolean }) => {
-    const snap = legacyStore(opts.db).snapshot();
-    const rows = snap.customers.map(c => ({ name: c.name, domains: c.domains, status: snap.customerStatuses.find(s => s.id === c.statusId)?.name ?? null, tier: snap.customerTiers.find(t => t.id === c.tierId)?.name ?? null, revenue: c.revenue, size: c.size, requests: snap.customerRequests.filter(r => r.customerId === c.id).length }));
-    if (opts.json) console.log(JSON.stringify(rows, null, 2));
-    else for (const r of rows) console.log(`${r.name.padEnd(28)} ${(r.status ?? '').padEnd(10)} ${String(r.requests).padStart(3)} requests`);
-    process.exit(0);
-  });
-withDb(customer.command('create <name>')).description('Add a customer')
-  .option('--domain <domain>', 'their email domain')
-  .option('--revenue <n>', 'annual revenue')
-  .option('--size <n>', 'company size')
-  .action((name: string, opts: { db?: string; domain?: string; revenue?: string; size?: string }) => {
-    const store = legacyStore(opts.db);
-    if (!store.snapshot().workspace.features.customerRequestsEnabled) store.setFeatures({ customerRequestsEnabled: true });
-    store.createCustomer({ name, domains: opts.domain ? [opts.domain] : [], revenue: opts.revenue ? Number(opts.revenue) : null, size: opts.size ? Number(opts.size) : null });
-    console.log(`Created customer "${name}"`);
-    process.exit(0);
-  });
-withAs(withDb(customer.command('request <customer> <target>'))).description('Record that a customer asked for an issue (KEY-12) or a project (name)')
-  .option('-b, --body <text>', 'what they said')
-  .option('--important', 'mark the request important', false)
-  .action((ref: string, target: string, opts: { db?: string; body?: string; important?: boolean; as?: string }) => {
-    const store = legacyStore(opts.db);
-    const snap = store.snapshot();
-    const c = resolveCustomer(snap, ref);
-    const issue = /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(target) ? store.getByKey(target) : undefined;
-    const proj = issue ? undefined : resolveProject(snap, target, { required: false });
-    if (!issue && !proj) fail(`"${target}" is neither an issue key nor a project`);
-    store.addCustomerRequest({ customerId: c.id, issueId: issue?.id ?? null, projectId: proj?.id ?? null, body: opts.body ?? '', important: opts.important }, actorId(snap, opts.as));
-    console.log(`${c.name} asked for ${issue ? store.keyOf(issue) : proj!.name}`);
     process.exit(0);
   });
 
@@ -1396,7 +1287,7 @@ const doc = program.command('doc').description('Documents on projects and teams 
 function resolveDoc(snap: Snapshot, ref: string): Snapshot['docs'][number] {
   const q = ref.toLowerCase();
   const hit = snap.docs.find(d => d.id === ref) ?? snap.docs.find(d => d.title.toLowerCase() === q) ?? snap.docs.filter(d => d.title.toLowerCase().includes(q))[0];
-  if (!hit) fail(`Unknown document "${ref}" — see \`baseline doc list\``);
+  if (!hit) fail(`Unknown document "${ref}". See \`baseline doc list\`.`);
   return hit;
 }
 function docJson(d: Snapshot['docs'][number], snap: Snapshot) {
@@ -1454,7 +1345,7 @@ withAs(withDb(doc.command('update <doc>'))).description('Change a document\'s ti
     if (opts.title !== undefined) patch.title = opts.title;
     if (opts.content !== undefined) patch.content = opts.content === '-' ? await readStdin() : opts.content;
     if (opts.append !== undefined) patch.content = `${(patch.content ?? d.content).replace(/\s+$/, '')}\n\n${opts.append}`;
-    if (!Object.keys(patch).length) fail('Nothing to change — pass --title, --content or --append');
+    if (!Object.keys(patch).length) fail('Nothing to change. Pass --title, --content or --append.');
     store.updateDoc(d.id, patch, actorId(store.snapshot(), opts.as));
     console.log(`Updated document "${patch.title ?? d.title}"`);
     process.exit(0);
@@ -1481,7 +1372,7 @@ withDb(agent.command('config')).description('Show or change where `issue open` s
   .action((opts: { db?: string; terminal?: string }) => {
     const store = legacyStore(opts.db);
     const terminalApp = opts.terminal ? TERMINAL_APPS.find(t => t.toLowerCase() === opts.terminal!.toLowerCase()) : undefined;
-    if (opts.terminal && !terminalApp) fail(`Invalid terminal "${opts.terminal}" — use ${TERMINAL_APPS.join('|')}`);
+    if (opts.terminal && !terminalApp) fail(`Invalid terminal "${opts.terminal}". Use ${TERMINAL_APPS.join('|')}.`);
     store.setAgentConfig({ terminalApp });
     const c = store.getAgentConfig();
     console.log(`terminal: ${c.terminalApp}\nlocations: ${store.listLocations().length}`);
@@ -1498,7 +1389,7 @@ withDb(location.command('list')).description('List locations with the projects t
     const issues = snap.issues.filter(i => i.locationId === l.id && !i.deletedAt).length;
     console.log(`${l.name.padEnd(20)} ${l.path}${isDirectory(l.path) ? '' : '  (missing)'}${projects.length ? `  · ${projects.join(', ')}` : ''}${issues ? `  · ${issues} issue${issues === 1 ? '' : 's'}` : ''}`);
   }
-  if (!snap.locations.length) console.log('no locations — add one with `location add <path>`');
+  if (!snap.locations.length) console.log('No locations yet. Add one with `location add <path>`.');
   process.exit(0);
 });
 withDb(location.command('add <path>')).description('Register a directory as a location')
