@@ -2,8 +2,10 @@
 // patched into the state first so the screen answers before the server does.
 import type { Dispatch } from 'react';
 import { BaselineError, ResolveError, type Baseline } from '../client/index.js';
-import { PRIORITY_LABELS, type Issue, type Priority } from '../core/types.js';
+import { PRIORITY_LABELS, type Handoff, type Issue, type Priority } from '../core/types.js';
+import { copyToClipboard, openBrowser } from '../cli/system.js';
 import type { CommandId } from './keys.js';
+import { agentCommand, agentCwd, agentEnv, editInEditor, runInTerminal } from './launch.js';
 import { groupIssues, inboxItems, isListRoute, issuesForRoute, listRows, navIdFor, navItems, projectRows, selectableIds } from './model.js';
 import { cycleDraft, filteredOptions, filteredPalette, newDraft, NONE, searchResults } from './overlays.js';
 import { expandedFn, routeKey, type Action, type PickerField, type TuiState } from './state.js';
@@ -66,6 +68,22 @@ async function write<T>(ctx: Ctx, opts: { issueId?: string; patch?: Partial<Issu
   await ctx.refresh();
   opts.after?.(result);
   return result;
+}
+
+async function handoff(ctx: Ctx, issue: Issue): Promise<Handoff | undefined> {
+  try {
+    const h = await ctx.bl.handoffFor(issue.id);
+    if (!h) toast(ctx.dispatch, 'error', `No handoff for ${ctx.state.data!.keyOf(issue)}`);
+    return h;
+  } catch (e) {
+    toast(ctx.dispatch, 'error', errorText(e));
+    return undefined;
+  }
+}
+
+function copy(ctx: Ctx, text: string, what: string): void {
+  if (copyToClipboard(text)) toast(ctx.dispatch, 'ok', `Copied ${what}`);
+  else toast(ctx.dispatch, 'error', 'No clipboard tool found. Install pbcopy (macOS), wl-copy or xclip.');
 }
 
 function openPicker(ctx: Ctx, field: PickerField): void {
@@ -141,6 +159,18 @@ async function accept(ctx: Ctx): Promise<unknown> {
       ctx.dispatch({ type: 'closeOverlay' });
       if (text === issue.title) return;
       return write(ctx, { issueId: issue.id, patch: { title: text }, run: () => ctx.bl.updateIssue(issue.id, { title: text }, ctx.actorId), ok: () => `${key} renamed` });
+    }
+    case 'confirm': {
+      ctx.dispatch({ type: 'closeOverlay' });
+      const issue = data.issueById.get(o.issueId);
+      if (!issue) return;
+      const key = data.keyOf(issue);
+      let result = { ok: false, message: '' };
+      await ctx.suspend(() => {
+        result = runInTerminal(o.command, { cwd: o.cwd, env: agentEnv(ctx.bl.target, key), banner: `baseline › ${key}: ${o.command[0]} in ${o.cwd} (exit it to return to the TUI)` });
+      });
+      toast(ctx.dispatch, result.ok ? 'ok' : 'error', `${key}: ${result.message}`);
+      return ctx.refresh();
     }
     default: return;
   }
@@ -257,6 +287,32 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     });
     case 'comment': return needIssue(i => d({ type: 'openOverlay', overlay: { kind: 'compose', target: 'comment', issueId: i.id, input: emptyField } }));
     case 'editTitle': return needIssue(i => d({ type: 'openOverlay', overlay: { kind: 'compose', target: 'title', issueId: i.id, input: fieldOf(i.title) } }));
+    case 'editDescription': return needIssue(async i => {
+      let result: ReturnType<typeof editInEditor> = { text: null, error: null };
+      await ctx.suspend(() => { result = editInEditor(i.description, data.keyOf(i)); });
+      if (result.error) return toast(d, 'error', result.error);
+      const text = result.text?.replace(/\s+$/, '') ?? null;
+      if (text === null || text === i.description.replace(/\s+$/, '')) return toast(d, 'info', 'Description unchanged');
+      return write(ctx, { issueId: i.id, patch: { description: text }, run: () => ctx.bl.updateIssue(i.id, { description: text }, ctx.actorId), ok: () => `${data.keyOf(i)} description saved` });
+    });
+
+    case 'copyKey': return needIssue(i => copy(ctx, data.keyOf(i), data.keyOf(i)));
+    case 'copyBranch': return needIssue(async i => { const h = await handoff(ctx, i); if (h) copy(ctx, h.branchName, `branch ${h.branchName}`); });
+    case 'copyPrompt': return needIssue(async i => { const h = await handoff(ctx, i); if (h) copy(ctx, h.prompt, `agent prompt for ${h.key}`); });
+    case 'openBrowser': return needIssue(async i => {
+      const h = await handoff(ctx, i);
+      if (!h) return;
+      openBrowser(h.url);
+      toast(d, 'ok', `Opened ${h.key} in the browser${ctx.bl.target.kind === 'local' ? ' (needs `baseline serve` running)' : ''}`);
+    });
+    case 'startAgent': return needIssue(async i => {
+      const h = await handoff(ctx, i);
+      if (!h) return;
+      const location = i.locationId ? data.locations.find(l => l.id === i.locationId) : undefined;
+      const where = agentCwd(location?.path);
+      d({ type: 'openOverlay', overlay: { kind: 'confirm', action: 'agent', issueId: i.id, command: agentCommand(h.prompt), cwd: where.cwd, note: where.note } });
+    });
+
     case 'markRead': {
       if (s.route.kind !== 'inbox') return;
       const id = cursorIds(s, now)[s.cursor[routeKey(s.route)] ?? 0];

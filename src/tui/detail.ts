@@ -72,13 +72,14 @@ function threadLines(t: WorkThread, data: TuiData, width: number, now: number): 
     : { text: `✓ ${t.state.status === 'finished' ? t.state.outcome : ''}`, color: theme.muted };
   const lines: Line[] = [[{ text: who, bold: true }, { text: '  ' }, status, { text: `  ·  ${relTime(t.updatedAt, now, { ago: true })}`, color: theme.muted }, ...(t.branch ? [{ text: `  ${t.branch}`, color: theme.accent }] : [])]];
   const field = (label: string, text: string | null, color?: string) => {
-    if (text) lines.push(...wrapSegs([{ text: `  ${label} `, color: theme.muted }, { text, color }], width, '        '));
+    if (!text) return;
+    markdownLines(text, width - 11).forEach((l, i) => lines.push([{ text: i ? ' '.repeat(11) : `  ${padEnd(label, 9)}`, color: theme.muted }, ...(color ? l.map(x => ({ ...x, color })) : l)]));
   };
   if (t.state.status === 'finished') field('summary', t.state.summary);
-  field('did    ', t.progress.did);
-  field('left   ', t.progress.left);
+  field('did', t.progress.did);
+  field('left', t.progress.left);
   field('blocked', t.progress.blocked, theme.error);
-  for (const l of t.links.slice(0, 3)) lines.push([{ text: `  link    `, color: theme.muted }, { text: truncate(l, width - 10), underline: true }]);
+  for (const l of t.links.slice(0, 3)) lines.push([{ text: `  ${padEnd('link', 9)}`, color: theme.muted }, { text: truncate(l, width - 11), underline: true }]);
   return lines;
 }
 

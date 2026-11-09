@@ -1,7 +1,8 @@
 // The centered boxes: pickers, search, the command palette, compose forms, help and the agent confirm.
 import type { TuiData } from './data.js';
 import { helpSections, hintsFor, type Context } from './keys.js';
-import { displayWidth, highlight, padEnd, truncate, type Line, type Seg } from './model.js';
+import { shellPreview } from './launch.js';
+import { displayWidth, highlight, padEnd, tildePath, truncate, type Line, type Seg } from './model.js';
 import { draftChoices, draftValue, filteredOptions, filteredPalette, PICKER_TITLE, searchResults } from './overlays.js';
 import { useWindow } from './screens.js';
 import { DRAFT_FIELDS, type Overlay, type TuiState } from './state.js';
@@ -61,7 +62,7 @@ export function OverlayView(p: Props) {
     case 'palette': return <PaletteView {...p} o={o} />;
     case 'compose': return <ComposeView {...p} o={o} />;
     case 'help': return <HelpView {...p} o={o} />;
-    case 'confirm': return null;
+    case 'confirm': return <ConfirmView {...p} o={o} />;
   }
 }
 
@@ -161,4 +162,18 @@ function HelpView({ contexts, cols, rows, o, onHelpMax }: Props & { o: Extract<O
   const lines = all.slice(scroll, scroll + room);
   const more = max ? [{ text: `   ${scroll < max ? 'j/k for more' : 'end'}`, color: theme.muted }] : [];
   return <Modal title="Keyboard shortcuts" rows={lines} width={width} left={left} top={Math.min(top, 1)} footer={[...hintLine(contexts), ...more]} />;
+}
+
+function ConfirmView({ data, contexts, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'confirm' }> }) {
+  const issue = data.issueById.get(o.issueId);
+  const { width, left, top } = place(cols, rows, 84, 10);
+  const inner = width - 4;
+  const lines: Line[] = [
+    [{ text: 'Runs here, in this terminal. The TUI comes back when it exits.', color: theme.muted }],
+    [],
+    [{ text: '$ ', color: theme.accent }, { text: shellPreview(o.command, inner - 2), bold: true }],
+    [{ text: '  in ', color: theme.muted }, { text: tildePath(o.cwd) }],
+    ...(o.note ? [[], [{ text: o.note, color: theme.warn }]] as Line[] : []),
+  ];
+  return <Modal title="Start an agent" subtitle={issue ? data.keyOf(issue) : undefined} rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
 }

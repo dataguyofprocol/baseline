@@ -81,6 +81,14 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
   const suspended = useRef(false);
   const helpMax = useRef(0);
 
+  const loadThreads = useCallback(async (issueId: string) => {
+    try {
+      dispatch({ type: 'threads', issueId, threads: await bl.workThreads(issueId) });
+    } catch {
+      // a key without access to agent work still shows the rest of the issue
+    }
+  }, [bl]);
+
   const refresh = useCallback(async () => {
     const started = epoch.current;
     fetching.current = true;
@@ -90,12 +98,14 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
       // a write began while this was in flight; its own refetch will land after it
       if (epoch.current !== started) return;
       dispatch({ type: 'loaded', data, at: Date.now() });
+      const r = stateRef.current.route;
+      if (r.kind === 'issue') void loadThreads(r.issueId);
     } catch (e) {
       dispatch({ type: 'loadFailed', message: errorText(e) });
     } finally {
       fetching.current = false;
     }
-  }, [bl]);
+  }, [bl, loadThreads]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -107,6 +117,7 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
   }, [refresh, pollMs]);
 
   const openIssue = state.route.kind === 'issue' ? state.route.issueId : null;
+  useEffect(() => { if (openIssue) void loadThreads(openIssue); }, [openIssue, loadThreads]);
 
   useEffect(() => {
     if (!state.toast) return;
