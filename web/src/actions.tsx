@@ -19,14 +19,25 @@ export function pushUndo(entry: UndoEntry) {
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
 }
 
-/** ⌘Z: revert the most recent change made in this tab */
+/** ⌘Z: revert the most recent change made in this tab. The entry is only dropped once the
+ *  revert worked, so a failed undo can be tried again. */
 export async function undoLast() {
-  const entry = undoStack.pop();
+  const entry = undoStack[undoStack.length - 1];
   const s = useApp.getState();
   if (!entry) { s.toast({ title: 'Nothing to undo' }); return; }
-  await entry.revert();
-  await s.bootstrap();
+  try { await entry.revert(); } finally { await s.bootstrap(); }
+  const at = undoStack.lastIndexOf(entry);
+  if (at >= 0) undoStack.splice(at, 1);
   s.toast({ title: `Undid: ${entry.label}` });
+}
+
+/** a toast's Undo button: run that entry's revert and take it off the ⌘Z stack, so a later ⌘Z
+ *  undoes the change before it instead of replaying this one */
+async function undoEntry(entry: UndoEntry) {
+  await entry.revert();
+  const at = undoStack.lastIndexOf(entry);
+  if (at >= 0) undoStack.splice(at, 1);
+  await useApp.getState().bootstrap();
 }
 
 function issuesById(ids: string[]): Issue[] {
@@ -100,12 +111,13 @@ export async function archiveIssues(ids: string[]) {
   await playExit(ids);
   for (const i of issues) await api.archiveIssue(i.id);
   const revert = async () => { for (const i of issues) await api.unarchiveIssue(i.id); };
-  pushUndo({ label: issues.length === 1 ? 'archive' : `archive of ${issues.length} issues`, revert });
+  const entry: UndoEntry = { label: issues.length === 1 ? 'archive' : `archive of ${issues.length} issues`, revert };
+  pushUndo(entry);
   const s = useApp.getState();
   await s.bootstrap();
   s.toast({
     title: issues.length === 1 ? 'Issue archived' : `${issues.length} issues archived`, line: describe(issues),
-    actions: [{ label: 'Undo', onClick: async () => { await revert(); await useApp.getState().bootstrap(); } }],
+    actions: [{ label: 'Undo', onClick: () => undoEntry(entry) }],
   });
 }
 
@@ -115,12 +127,13 @@ export async function deleteIssues(ids: string[]) {
   await playExit(ids);
   for (const i of issues) await api.deleteIssue(i.id);
   const revert = async () => { for (const i of issues) await api.restoreIssue(i.id); };
-  pushUndo({ label: issues.length === 1 ? 'delete' : `delete of ${issues.length} issues`, revert });
+  const entry: UndoEntry = { label: issues.length === 1 ? 'delete' : `delete of ${issues.length} issues`, revert };
+  pushUndo(entry);
   const s = useApp.getState();
   await s.bootstrap();
   s.toast({
     title: issues.length === 1 ? 'Issue moved to trash' : `${issues.length} issues moved to trash`, line: describe(issues),
-    actions: [{ label: 'Undo', onClick: async () => { await revert(); await useApp.getState().bootstrap(); } }],
+    actions: [{ label: 'Undo', onClick: () => undoEntry(entry) }],
   });
 }
 
@@ -182,11 +195,12 @@ export async function convertToProject(issueId: string, navigate?: (to: string) 
     for (const id of moved) await api.updateIssue(id, { parentId: issueId });
     await api.deleteProject(project.id);
   };
-  pushUndo({ label: 'convert to project', revert });
+  const entry: UndoEntry = { label: 'convert to project', revert };
+  pushUndo(entry);
   await s.bootstrap();
   s.toast({
     title: 'Converted to project', line: <>{project.name}{moved.length ? ` · ${moved.length} sub-issue${moved.length === 1 ? '' : 's'} moved in` : ''}</>,
-    actions: [{ label: 'Undo', onClick: async () => { await revert(); await useApp.getState().bootstrap(); } }],
+    actions: [{ label: 'Undo', onClick: () => undoEntry(entry) }],
   });
   navigate?.(`/projects/${project.id}`);
 }
@@ -215,4 +229,23 @@ export async function makeRecurring(issueId: string, cadence: keyof typeof CADEN
   await s.bootstrap();
   const team = s.snap?.teams.find(t => t.id === issue.teamId);
   s.toast({ title: 'Recurring issue set up', line: <>{CADENCE_LABELS[cadence]} — {issue.title}</>, link: team ? { label: 'Manage', to: `/settings/team/${team.key}` } : undefined });
+}
+
+/* Triage decisions, shared by the Triage page and the banner on a triaged issue so both land the
+   issue in the same place. Accept sends it to the team's first Backlog state (the queue sits
+   "before the backlog"), falling back to its first Todo state; Decline cancels it. */
+function firstState(teamId: string, types: string[]) {
+  const states = useApp.getState().snap?.states ?? [];
+  for (const type of types) {
+    const s = states.filter(x => x.teamId === teamId && x.type === type).sort((a, b) => a.position - b.position)[0];
+    if (s) return s;
+  }
+  return undefined;
+}
+export async function triageDecide(issue: Issue, decision: 'accept' | 'decline') {
+  const s = firstState(issue.teamId, decision === 'accept' ? ['backlog', 'unstarted'] : ['canceled']);
+  const toast = useApp.getState().toast;
+  if (!s) { toast({ title: decision === 'accept' ? 'This team has no Backlog or Todo state to accept into' : 'This team has no Canceled state', line: 'Add one in team settings › Issue statuses.' }); return; }
+  await setIssueProps([issue.id], { stateId: s.id });
+  toast({ title: decision === 'accept' ? `Accepted into ${s.name}` : 'Declined', line: issue.title });
 }

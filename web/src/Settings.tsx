@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useApp, shortDate } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, AdminLock, ADMIN_NOTE, useCanConfigure, useInFlight } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, ConfirmIconButton, AdminLock, ADMIN_NOTE, useCanConfigure, useInFlight, NotFound } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
-import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
+import { StateIcon, PriorityIcon, Avatar, CalendarGrid, teamDisplayIcon } from './pickers.js';
 import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconUpdates, IconInitiative, IconLoop, IconPr, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
@@ -19,6 +19,8 @@ import { InitiativesSettings, ProjectLabelsSettings, ProjectStatusesSettings, Pr
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
 import { TERMINAL_APPS, NOTIFY_CATEGORIES, type NotifyCategory, type WorkflowStateType, type Priority, type TerminalApp } from '../../src/core/types.js';
 import { readInboxPrefs, writeInboxPrefs, DEFAULT_PRIORITY_CATS } from './Inbox.js';
+import { LABEL_COLORS } from './labelColors.js';
+import { reorder } from './Projects.js';
 
 export const SETTINGS_NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
   { sec: 'Personal', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Security & access', 'security'], ['Keyboard shortcuts', 'shortcuts']] },
@@ -39,8 +41,10 @@ const SETTINGS_ICONS: Record<string, React.ReactNode> = {
 };
 
 // hosted, these pages set up the workspace or a team: admins change them, members can read them
+// (matches the server's adminOnly routes; api = /api/features. Cycles, team creation and invites stay
+// open to members, and Security and Members gate their own admin-only controls.)
 const ADMIN_SECTIONS = new Set(['workspace', 'data', 'labels', 'templates', 'slas', 'project-labels', 'project-statuses', 'project-updates',
-  'initiatives', 'loops', 'github']);
+  'initiatives', 'loops', 'github', 'api']);
 const ADMIN_TEAM_PAGES = new Set(['general', 'labels', 'templates', 'statuses', 'triage', 'workflow']);
 const LABELS_NOTE = 'Only admins can change labels. Anyone can add one from a label menu.';
 
@@ -48,7 +52,6 @@ const STATE_TYPES: Array<[WorkflowStateType, string]> = [
   ['backlog', 'Backlog'], ['unstarted', 'Todo'], ['started', 'Started'], ['completed', 'Completed'], ['canceled', 'Canceled'],
 ];
 const STATE_COLORS = ['#95a2b3', '#8a8f98', '#f2c94c', '#5e6ad2', '#7d8084', '#4cb782', '#eb5757', '#f2994a', '#c770f4', '#3b82f6'];
-const LABEL_COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
 
 export function SettingsLayout() {
   const { section = 'workspace', teamKey, sub, page } = useParams();
@@ -78,11 +81,12 @@ export function SettingsLayout() {
             </div>
           );
         })}
+        {q.trim() && !SETTINGS_NAV.some(g => g.items.some(([label]) => match(label, g.sec))) && <div className="settings-nav-empty">No settings match “{q.trim()}”.</div>}
         <div>
           <div className="sec">Your teams</div>
           {(snap.workspace.auth === 'hosted' ? snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id)) : snap.teams).map(t => (
             <NavLink key={t.id} to={`/settings/team/${t.key}`} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} style={{ height: 30 }}>
-              <span className="ws-avatar" style={{ background: t.color, borderRadius: 4, fontSize: 9, width: 16, height: 16 }}>{t.key[0]}</span>
+              {teamDisplayIcon(t)}
               <span className="nav-label">{t.name}</span>
             </NavLink>
           ))}
@@ -131,13 +135,20 @@ function SettingsPage() {
 function WorkspaceSettings() {
   const snap = useApp(s => s.snap)!;
   const [name, setName] = useState(snap.workspace.name);
-  const save = async () => { await api.updateWorkspace({ name }); await useApp.getState().bootstrap(); };
+  // a blank name would leave the top nav empty: put the old one back instead of saving it
+  const save = async () => {
+    const next = name.trim();
+    if (!next) { setName(snap.workspace.name); useApp.getState().toast({ title: 'The workspace needs a name', line: `Kept “${snap.workspace.name}”.` }); return; }
+    if (next === snap.workspace.name) { setName(next); return; }
+    await api.updateWorkspace({ name: next }); await useApp.getState().bootstrap();
+    useApp.getState().toast({ title: 'Workspace renamed', line: next });
+  };
   return (
     <div className="settings-card">
       <h1>Workspace</h1>
       <div className="field-row">
         <div><div className="field-label">Name</div><div className="field-help">Shown in the top nav and page titles.</div></div>
-        <input className="text-input" value={name} onChange={e => setName(e.target.value)} onBlur={save} />
+        <input className="text-input" aria-label="Workspace name" value={name} onChange={e => setName(e.target.value)} onBlur={save} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setName(snap.workspace.name); }} />
       </div>
       <div className="field-row">
         <div><div className="field-label">Members</div><div className="field-help">{snap.users.length} member{snap.users.length === 1 ? '' : 's'} in this local workspace.</div></div>
@@ -168,7 +179,7 @@ function TeamsSettings() {
       <div className="card" style={{ padding: '4px 10px', marginBottom: 14 }}>
         {snap.teams.map(t => (
           <Link key={t.id} to={`/settings/team/${t.key}`} className="team-list-row">
-            <span className="ws-avatar" style={{ background: t.color, borderRadius: 4 }}>{t.key.slice(0, 2)}</span>
+            {teamDisplayIcon(t)}
             <b>{t.name}</b>
             <span className="dim">{t.key}</span>
             <span style={{ flex: 1 }} />
@@ -220,7 +231,7 @@ function NewTeamSettings() {
           <input className="text-input" autoFocus placeholder="e.g. Engineering" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create(); }} />
         </div>
         <div className="field-row">
-          <div><div className="field-label">Identifier</div><div className="field-help">Used in issue IDs, like {ident || 'KEY'}-123.{taken && <span style={{ color: 'var(--danger, #e5484d)' }}> Already in use.</span>}</div></div>
+          <div><div className="field-label">Identifier</div><div className="field-help">Used in issue IDs, like {ident || 'KEY'}-123.{taken && <span style={{ color: 'var(--danger)' }}> Already in use.</span>}</div></div>
           <input className="text-input" style={{ width: 100 }} placeholder="KEY" value={ident} onChange={e => { setKeyTouched(true); setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7)); }} onKeyDown={e => { if (e.key === 'Enter') void create(); }} />
         </div>
       </div>
@@ -242,7 +253,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
   const [key, setKey] = useState(team?.key ?? '');
   const [desc, setDesc] = useState(team?.description ?? '');
   useEffect(() => { setName(team?.name ?? ''); setKey(team?.key ?? ''); setDesc(team?.description ?? ''); }, [team?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!team) return <div className="settings-card"><h1>Team not found</h1></div>;
+  if (!team) return <NotFound what="Team" back={{ label: 'Back to teams', to: '/settings/teams' }} />;
   const patch = async (p: Record<string, unknown>) => { await api.updateTeam(team.id, p); await useApp.getState().bootstrap(); };
   const wf = snap.teamWorkflows?.[team.id];
   const setWf = async (p: Record<string, unknown>) => { await api.setTeamWorkflow(team.id, p); await useApp.getState().bootstrap(); };
@@ -292,7 +303,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
   if (page === 'labels') return <div>{back}<LabelsSettings onlyTeamId={team.id} /></div>;
   if (page === 'templates') return <div>{back}<TemplatesSettings onlyTeamId={team.id} /></div>;
   if (page === 'recurring') return <div className="settings-card">{back}<h1>Recurring issues</h1><RecurringIssues teamId={team.id} /></div>;
-  if (page === 'statuses') return <div className="settings-card">{back}<h1>Issue statuses</h1><div className="field-help" style={{ marginBottom: 12 }}>Customize the statuses issues go through. Number keys 1–9 pick a status in that order.</div><TeamEditor teamId={team.id} part="states" /></div>;
+  if (page === 'statuses') return <div className="settings-card">{back}<h1>Issue statuses</h1><div className="field-help" style={{ marginBottom: 12 }}>Customize the statuses issues go through. Number keys 1–9 pick a status in that order.</div><TeamStateList teamId={team.id} /></div>;
   if (page === 'triage') return (
     <div className="settings-card">
       {back}
@@ -324,7 +335,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
       </div>
       </AdminLock>
       <div className="settings-h2">All cycles</div>
-      <TeamEditor teamId={team.id} part="cycles" />
+      <TeamCycleList teamId={team.id} />
     </div>
   );
   if (page === 'workflow') return (
@@ -424,7 +435,7 @@ function RecurringIssues(props: { teamId: string }) {
             {(Object.keys(CADENCE_LABELS) as Array<keyof typeof CADENCE_LABELS>).map(c => <option key={c} value={c}>{CADENCE_LABELS[c]}</option>)}
           </select>
           <span className="rr-next">next {shortDate(r.nextAt)}</span>
-          <button className="icon-btn" title="Stop recurring" onClick={async () => { await api.deleteRecurring(r.id); await useApp.getState().bootstrap(); }}><IconTrash size={13} /></button>
+          <ConfirmIconButton confirmLabel="Stop?" className="icon-btn" title="Stop recurring" onConfirm={async () => { await api.deleteRecurring(r.id); await useApp.getState().bootstrap(); }}><IconTrash size={13} /></ConfirmIconButton>
         </div>
       ))}
       <div className="recurring-row">
@@ -545,7 +556,7 @@ function ProfileSettings() {
     <div className="settings-card">
       <h1>Profile</h1>
       <div className="field-row">
-        <div><div className="field-label">Profile picture</div>{err ? <div className="field-help" style={{ color: 'var(--danger, #e5484d)' }}>{err}</div> : !me.avatarUrl && <div className="field-help">Or your initials on a colour of your choice.</div>}</div>
+        <div><div className="field-label">Profile picture</div>{err ? <div className="field-help" style={{ color: 'var(--danger)' }}>{err}</div> : !me.avatarUrl && <div className="field-help">Or your initials on a colour of your choice.</div>}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {!me.avatarUrl && <div style={{ display: 'flex', gap: 4 }}>
             {colors.map(c => <button key={c} className="label-dot" title={c} style={{ background: c, width: 16, height: 16, outline: me.color === c ? '2px solid var(--brand)' : 'none', outlineOffset: 2 }} onClick={() => void save({ color: c })} />)}
@@ -663,76 +674,26 @@ function NotificationSettings() {
   );
 }
 
-function TeamEditor(props: { teamId: string; part?: 'states' | 'cycles' }) {
+/** a team's workflow states (team settings › Issue statuses): add, reorder, recolour, delete */
+function TeamStateList(props: { teamId: string }) {
   const snap = useApp(s => s.snap)!;
-  const toast = useApp(s => s.toast);
-  const moreMenu = useMenu();
   const team = snap.teams.find(t => t.id === props.teamId)!;
   const states = snap.states.filter(s => s.teamId === team.id).sort((a, b) => a.position - b.position);
-  const cycles = snap.cycles.filter(c => c.teamId === team.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const [addingState, setAddingState] = useState(false);
   const [stName, setStName] = useState('');
   const [stType, setStType] = useState<WorkflowStateType>('unstarted');
   const [stColor, setStColor] = useState(STATE_COLORS[1]);
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState(team.name);
-  const [addingCycle, setAddingCycle] = useState(false);
-
-  const patchTeam = async (patch: Record<string, unknown>) => {
-    await api.updateTeam(team.id, patch);
-    await useApp.getState().bootstrap();
-  };
   const addState = async () => {
     if (!stName.trim()) return;
     await api.createState({ teamId: team.id, name: stName.trim(), type: stType, color: stColor });
     setStName(''); setAddingState(false);
     await useApp.getState().bootstrap();
   };
-  const moveState = async (stateId: string, dir: -1 | 1) => {
-    const idx = states.findIndex(s => s.id === stateId);
-    const other = states[idx + dir];
-    if (!other) return;
-    await api.updateState(stateId, { position: other.position });
-    await api.updateState(other.id, { position: states[idx].position });
-    await useApp.getState().bootstrap();
-  };
-
-  const nextCycleNumber = cycles.length ? Math.max(...cycles.map(c => c.number)) + 1 : 1;
-
+  // renumber the whole list so a failed or tied swap can't leave two states on one position
+  const moveState = (stateId: string, dir: -1 | 1) => reorder(states, stateId, dir, (id, position) => api.updateState(id, { position }));
   return (
     <div style={{ marginBottom: 28 }}>
-      {!props.part && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span className="ws-avatar" style={{ background: team.color, borderRadius: 4 }}>{team.key.slice(0, 2)}</span>
-        {editingName ? (
-          <input className="text-input" style={{ height: 26, width: 180 }} autoFocus value={nameDraft}
-            onChange={e => setNameDraft(e.target.value)}
-            onBlur={async () => { await patchTeam({ name: nameDraft || team.name }); setEditingName(false); }}
-            onKeyDown={async e => { if (e.key === 'Enter') { await patchTeam({ name: nameDraft || team.name }); setEditingName(false); } }} />
-        ) : (
-          <b style={{ cursor: 'text' }} onClick={() => { setNameDraft(team.name); setEditingName(true); }}>{team.name}</b>
-        )}
-        <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{team.key}</span>
-        <span style={{ flex: 1 }} />
-        <button className="icon-btn" title="More team actions" onClick={moreMenu.open}><IconClose size={0} /><span style={{ fontSize: 13 }}>…</span></button>
-      </div>}
-      {moreMenu.anchor && (
-        <Menu anchor={moreMenu.anchor} onClose={moreMenu.close}>
-          <div className="menu-header"><span>{team.key}</span></div>
-          <MenuItem label="Cycle key" onClick={() => {
-            const k = prompt('Team key', team.key);
-            if (k && k.trim()) void patchTeam({ key: k.trim().toUpperCase() });
-          }} />
-          <MenuSep />
-          <MenuItem icon={<IconTrash size={14} />} danger label="Delete team (deletes its issues)"
-            onClick={async () => {
-              await api.deleteTeam(team.id);
-              await useApp.getState().bootstrap();
-              toast({ title: `${team.name} deleted` });
-            }} />
-        </Menu>
-      )}
-
-      {props.part !== 'cycles' && <div className="card" style={{ padding: '8px 10px' }}>
+      <div className="card" style={{ padding: '8px 10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '4px 0' }}>
           <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Workflow states</span>
           <span style={{ flex: 1 }} />
@@ -758,9 +719,22 @@ function TeamEditor(props: { teamId: string; part?: 'states' | 'cycles' }) {
         {states.map((s, i) => (
           <StateRow key={s.id} stateId={s.id} onMove={dir => moveState(s.id, dir)} canUp={i > 0} canDown={i < states.length - 1} />
         ))}
-      </div>}
+      </div>
+    </div>
+  );
+}
 
-      {props.part !== 'states' && <div className="card" style={{ padding: '8px 10px', marginTop: 8 }}>
+/** a team's cycles, listed in team settings › Cycles (what was left of an older all-in-one team
+ *  editor whose header, team menu and workflow-state list no page rendered any more) */
+function TeamCycleList(props: { teamId: string }) {
+  const snap = useApp(s => s.snap)!;
+  const team = snap.teams.find(t => t.id === props.teamId)!;
+  const cycles = snap.cycles.filter(c => c.teamId === team.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  const [addingCycle, setAddingCycle] = useState(false);
+  const nextCycleNumber = cycles.length ? Math.max(...cycles.map(c => c.number)) + 1 : 1;
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div className="card" style={{ padding: '8px 10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '4px 0' }}>
           <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Cycles</span>
           <span style={{ flex: 1 }} />
@@ -769,16 +743,16 @@ function TeamEditor(props: { teamId: string; part?: 'states' | 'cycles' }) {
         <AnimatePresence>{addingCycle && <NewCycleModal key="cy" teamId={team.id} number={nextCycleNumber} onClose={() => setAddingCycle(false)} />}</AnimatePresence>
         {cycles.map(c => (
           <div key={c.id} className="prop-row group">
-            <span style={{ color: 'var(--text-secondary)', fontSize: 12, width: 16 }}>#{c.number}</span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: 12, width: 32, flex: 'none' }}>#{c.number}</span>
             <span style={{ flex: 1 }}>{c.name}</span>
             <span className="cy-dates">{shortDate(c.startsAt)} – {shortDate(c.endsAt)}</span>
-            <button className="icon-btn hover-only" title="Delete cycle" onClick={async () => { await api.deleteCycle(c.id); await useApp.getState().bootstrap(); }}>
+            <ConfirmIconButton className="icon-btn hover-only" title="Delete cycle" onConfirm={async () => { await api.deleteCycle(c.id); await useApp.getState().bootstrap(); }}>
               <IconTrash size={13} />
-            </button>
+            </ConfirmIconButton>
           </div>
         ))}
         {cycles.length === 0 && !addingCycle && <div style={{ color: 'var(--text-dim)', padding: '4px 0', fontSize: 12 }}>No cycles yet.</div>}
-      </div>}
+      </div>
     </div>
   );
 }
@@ -811,7 +785,8 @@ export function NewCycleModal(props: { teamId: string; number: number; onClose: 
     await api.createCycle({
       teamId: props.teamId, number: props.number,
       name: name.trim() || `Cycle ${props.number}`,
-      startsAt: new Date(start).toISOString(),
+      // both ends local: a date-only string parses as UTC midnight, the evening before west of UTC
+      startsAt: new Date(start + 'T00:00:00').toISOString(),
       endsAt: new Date(end + 'T23:59:59').toISOString(),
     });
     await useApp.getState().bootstrap();
@@ -838,7 +813,7 @@ export function NewCycleModal(props: { teamId: string; number: number; onClose: 
         <div className="cm-header">
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>New cycle</span>
           <span style={{ marginLeft: 'auto', display: 'flex' }}>
-            <button className="icon-btn" onClick={props.onClose}><IconClose size={14} /></button>
+            <button className="icon-btn" title="Close" aria-label="Close" onClick={props.onClose}><IconClose size={14} /></button>
           </span>
         </div>
 
@@ -860,7 +835,7 @@ export function NewCycleModal(props: { teamId: string; number: number; onClose: 
 
         <div className="cm-footer">
           {start && end && end < start ? (
-            <span style={{ color: '#eb5757', fontSize: 12 }}>End date must be on or after the start date.</span>
+            <span style={{ color: 'var(--danger)', fontSize: 12 }}>End date must be on or after the start date.</span>
           ) : (
             <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{start && !end ? 'End date defaults to a two-week cycle.' : undefined}</span>
           )}
@@ -923,8 +898,8 @@ function StateRow(props: { stateId: string; onMove: (dir: -1 | 1) => void; canUp
         <button className="icon-btn" style={{ width: 20, height: 20 }} disabled={!props.canUp} onClick={() => props.onMove(-1)} title="Move up">↑</button>
         <button className="icon-btn" style={{ width: 20, height: 20 }} disabled={!props.canDown} onClick={() => props.onMove(1)} title="Move down">↓</button>
       </span>
-      <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Delete state"
-        onClick={async () => {
+      <ConfirmIconButton className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Delete state"
+        onConfirm={async () => {
           try {
             const { movedTo } = await api.deleteState(st.id);
             await useApp.getState().bootstrap();
@@ -935,7 +910,7 @@ function StateRow(props: { stateId: string; onMove: (dir: -1 | 1) => void; canUp
           }
         }}>
         <IconTrash size={13} />
-      </button>
+      </ConfirmIconButton>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={210}>
           <div className="menu-header"><span>State type</span></div>
@@ -1074,14 +1049,14 @@ function LabelsSettings(props: { onlyTeamId?: string } = {}) {
                     <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Edit label" onClick={() => { setEditing(l.id); setEditName(l.name); setEditColor(l.color); }}>
                       <IconPlus size={0} /><span style={{ fontSize: 11 }}>✎</span>
                     </button>
-                    <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Delete label"
-                      onClick={async () => {
+                    <ConfirmIconButton className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Delete label"
+                      onConfirm={async () => {
                         await api.deleteLabel(l.id);
                         await useApp.getState().bootstrap();
                         toast({ title: `Label “${l.name}” deleted` });
                       }}>
                       <IconTrash size={13} />
-                    </button>
+                    </ConfirmIconButton>
                   </>
                 )}
               </div>
@@ -1267,10 +1242,10 @@ function TemplatesSettings(props: { onlyTeamId?: string } = {}) {
                       <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Edit template" onClick={() => startEdit(tpl.id, tpl.name, tpl.title, tpl.description)}>
                         <span style={{ fontSize: 11 }}>✎</span>
                       </button>
-                      <button className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Delete template"
-                        onClick={async () => { await api.deleteTemplate(tpl.id); await useApp.getState().bootstrap(); toast({ title: `Template “${tpl.name}” deleted` }); }}>
+                      <ConfirmIconButton className="icon-btn hover-only" style={{ width: 20, height: 20 }} title="Delete template"
+                        onConfirm={async () => { await api.deleteTemplate(tpl.id); await useApp.getState().bootstrap(); toast({ title: `Template “${tpl.name}” deleted` }); }}>
                         <IconTrash size={13} />
-                      </button>
+                      </ConfirmIconButton>
                     </>
                   )}
                 </div>
@@ -1298,15 +1273,19 @@ function TemplatesSettings(props: { onlyTeamId?: string } = {}) {
 function DataSettings() {
   const toast = useApp(s => s.toast);
   const fileRef = useRef<HTMLInputElement>(null);
+  // picking a file only stages it: replacing every issue, project and member takes a second, explicit press
+  const [staged, setStaged] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
   const importFile = async (file: File) => {
     const json = await file.text();
+    setImporting(true);
     try {
       await api.importWorkspace(json);
       await useApp.getState().bootstrap();
       toast({ title: 'Workspace imported' });
     } catch (err) {
-      toast({ title: 'Import failed', line: String(err) });
-    }
+      toast({ title: 'Import failed', line: err instanceof Error ? err.message : String(err) });
+    } finally { setImporting(false); setStaged(null); }
   };
   return (
     <div className="settings-card">
@@ -1316,10 +1295,20 @@ function DataSettings() {
         <a className="btn" href="/api/export" download>Export JSON</a>
       </div>
       <div className="field-row">
-        <div><div className="field-label">Import workspace</div><div className="field-help">Restore from an exported JSON file. Replaces all current data.</div></div>
-        <button className="btn" onClick={() => fileRef.current?.click()}>Import JSON</button>
+        <div>
+          <div className="field-label">Import workspace</div>
+          <div className="field-help">{staged
+            ? <>Replace everything in this workspace with <b>{staged.name}</b>? Current issues, projects and members are deleted. Export first if you might need them.</>
+            : 'Restore from an exported JSON file. Replaces all current data.'}</div>
+        </div>
+        {staged ? (
+          <span style={{ display: 'flex', gap: 6, flex: 'none' }}>
+            <button className="btn" disabled={importing} onClick={() => setStaged(null)}>Cancel</button>
+            <button className="btn danger" disabled={importing} onClick={() => void importFile(staged)}>{importing ? 'Importing…' : 'Replace workspace'}</button>
+          </span>
+        ) : <button className="btn" onClick={() => fileRef.current?.click()}>Import JSON</button>}
         <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: 'none' }}
-          onChange={e => { const f = e.target.files?.[0]; if (f) void importFile(f); e.target.value = ''; }} />
+          onChange={e => { const f = e.target.files?.[0]; if (f) setStaged(f); e.target.value = ''; }} />
       </div>
       <div className="field-row">
         <div><div className="field-label">Reset sample workspace</div><div className="field-help">Wipes everything and reseeds the demo data.</div></div>

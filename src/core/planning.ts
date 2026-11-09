@@ -82,6 +82,17 @@ export class Planning {
     return u;
   }
 
+  /** who posted an initiative update; null when it's gone */
+  updateAuthor(updateId: string): string | null {
+    return (this.db.prepare('SELECT user_id FROM initiative_updates WHERE id = ?').get(updateId) as { user_id: string } | undefined)?.user_id ?? null;
+  }
+  editUpdate(updateId: string, body: string): void {
+    this.db.prepare('UPDATE initiative_updates SET body = ? WHERE id = ?').run(body, updateId);
+  }
+  deleteUpdate(updateId: string): void {
+    this.db.prepare('DELETE FROM initiative_updates WHERE id = ?').run(updateId);
+  }
+
   /** add or remove your emoji reaction on an initiative update */
   toggleUpdateReaction(updateId: string, emoji: string, userId: string): void {
     const row = this.db.prepare('SELECT reactions FROM initiative_updates WHERE id = ?').get(updateId) as { reactions: string | null } | undefined;

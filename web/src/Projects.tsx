@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
-import { useApp, shortDate, relTime, copyText } from './store.js';
+import { useApp, shortDate, relTime, copyText, localIsoDate, isoDaysFromToday } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, MenuSub, useMenu, Modal, RegisterMark, useInFlight, Via } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, Modal, RegisterMark, useInFlight, Via, NotFound, exclusive } from './ui.js';
 import { Avatar, PriorityIcon, CalendarGrid, StateIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
@@ -17,11 +17,13 @@ import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueVie
 import { IssueListBody, ListToolbar, useListLayoutToggle, openFilterMenu, ViewNameSeg } from './Views.js';
 import {
   IconPlus, IconStar, IconLink, IconTrash, IconClose, IconCalendar, IconUsers, IconUser, IconEdit, IconMilestone,
-  IconChevronDown, IconCheck, IconFilter, IconDisplay, IconList, IconBoard, IconMore, IconPanel,
-  IconBox, IconTag, IconCycle, IconTeam, IconBell, IconViews,
+  IconChevronDown, IconChevronUp, IconCheck, IconFilter, IconDisplay, IconList, IconBoard, IconMore, IconPanel,
+  IconBox, IconTag, IconCycle, IconTeam, IconBell, IconViews, IconInitiative,
 } from './icons.js';
 import { UPDATE_CADENCE_LABELS, type Project, type ProjectStatus, type ProjectHealth, type Priority, type Issue, type SavedView, type UpdateCadence } from '../../src/core/types.js';
 import { Illustration } from './illustrations.js';
+import { nextLabelColor } from './labelColors.js';
+import { UpdateBody } from './UpdateBody.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 
@@ -210,7 +212,7 @@ export function ProjectMenuBody(props: { kind: ProjKind; project: Project; onClo
           {!snap.projectLabels.length && <div className="menu-empty">No project labels yet. Add them in Settings › Projects › Labels.</div>}
           {q.trim() && !snap.projectLabels.some(l => l.name.toLowerCase() === q.trim().toLowerCase()) && (
             <MenuItem icon={<IconPlus size={13} />} label={`Create label “${q.trim()}”`} onClick={async () => {
-              const { label } = await api.createProjectLabel({ name: q.trim(), color: '#5e6ad2' });
+              const { label } = await api.createProjectLabel({ name: q.trim(), color: nextLabelColor(snap.projectLabels.length) });
               await patchProject(p.id, { labelIds: [...p.labelIds, label.id] });
             }} />
           )}
@@ -265,8 +267,8 @@ const DEFAULT_PROJ: ProjOptions = {
 };
 
 function applyProjectFilters(list: Project[], f: ProjectFilters, snap: Snap): Project[] {
-  const today = new Date().toISOString().slice(0, 10);
-  const inDays = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  const today = localIsoDate();
+  const inDays = (n: number) => isoDaysFromToday(n);
   return list.filter(p =>
     (!f.statuses?.length || f.statuses.includes(p.status) || (!!p.statusId && f.statuses.includes(p.statusId)))
     && (!f.labels?.length || f.labels.some(l => l === 'none' ? !p.labelIds.length : p.labelIds.includes(l)))
@@ -619,7 +621,7 @@ function ProjectList(props: { groups: ProjGroup[]; display: ProjDisplay; grouped
               const lead = snap.users.find(u => u.id === p.leadId);
               const t = snap.teams.find(x => x.id === p.teamId);
               const faved = snap.favorites.some(f => f.type === 'project' && f.refId === p.id);
-              const overdue = !!p.targetDate && p.status !== 'completed' && p.status !== 'canceled' && p.targetDate.slice(0, 10) < new Date().toISOString().slice(0, 10);
+              const overdue = !!p.targetDate && p.status !== 'completed' && p.status !== 'canceled' && p.targetDate.slice(0, 10) < localIsoDate();
               const ms = snap.milestones.filter(m => m.projectId === p.id);
               return (
                 <ProjectRowShell key={p.id} project={p} style={grid} onOpen={() => navigate(`/projects/${p.id}`)}>
@@ -694,7 +696,7 @@ function ProjectContextMenu(props: { project: Project; anchor: DOMRect; onClose:
       <MenuItem icon={<IconLink size={14} />} label="Copy link" onClick={async () => { if (await copyText(`${location.origin}/#/projects/${p.id}`)) useApp.getState().toast({ title: 'Copied link' }); }} />
       <MenuItem icon={<IconBox size={14} />} label="Open project" onClick={() => navigate(`/projects/${p.id}`)} />
       <MenuSep />
-      <MenuItem icon={<IconTrash size={14} />} danger label="Delete project" onClick={async () => {
+      <MenuItem icon={<IconTrash size={14} />} danger label="Delete project" confirm="Delete project?" onClick={async () => {
         await api.deleteProject(p.id);
         await useApp.getState().bootstrap();
         useApp.getState().toast({ title: 'Project deleted', line: <>{p.icon} {p.name}</> });
@@ -910,7 +912,7 @@ export function NewProjectModal({ onClose, teamId, initialStatus }: { onClose: (
           <span className="crumb-sep">›</span>
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>New project</span>
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-            <button className="icon-btn" onClick={onClose}><IconClose size={14} /></button>
+            <button className="icon-btn" title="Close" aria-label="Close" onClick={onClose}><IconClose size={14} /></button>
           </span>
         </div>
         <div className="np-head">
@@ -970,6 +972,13 @@ export function ProjectPage() {
   const tab = (['overview', 'activity', 'issues'] as const).includes(rawTab as 'overview') ? rawTab as 'overview' | 'activity' | 'issues' : 'overview';
   const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:project:${projectId}`, { ...DEFAULT_VIEW_OPTIONS, filters: {} });
   const issuesDisplay = useMenu();
+  // a milestone's "View issues" arrives with its id: show just that milestone, as a removable filter
+  const routeState = useLocation().state as { milestoneId?: string } | null;
+  useEffect(() => {
+    if (!routeState?.milestoneId) return;
+    patch({ filters: { ...opts.filters, milestoneIds: [routeState.milestoneId] } });
+    navigate('.', { replace: true, state: null });
+  }, [routeState?.milestoneId]); // eslint-disable-line react-hooks/exhaustive-deps
   // closed until you open it (⌘I), as in Linear
   const [details, setDetails] = useState(() => localStorage.getItem('baseline:projectDetails') === '1');
   const toggleDetails = () => setDetails(d => { try { localStorage.setItem('baseline:projectDetails', d ? '0' : '1'); } catch { /* ignore */ } return !d; });
@@ -980,7 +989,7 @@ export function ProjectPage() {
   }, []);
   const project = snap.projects.find(p => p.id === projectId);
   const issues = useMemo(() => snap.issues.filter(i => i.projectId === projectId), [snap.issues, projectId]);
-  if (!project) return <div className="empty-state"><div className="empty-title">Project not found</div></div>;
+  if (!project) return <NotFound what="Project" back={{ label: 'Back to projects', to: '/projects' }} />;
   const toast = useApp.getState().toast;
 
   return (
@@ -989,9 +998,12 @@ export function ProjectPage() {
         crumbs={[{ label: project.name, icon: <span className="crumb-emoji">{project.icon}</span> }]}
         favoriteRef={{ type: 'project', refId: project.id }}
         more={<>
-          <MenuItem icon={<IconLink size={14} />} label="Copy project URL" onClick={async () => { if (await copyText(`${location.origin}/#/projects/${project.id}`)) toast({ title: 'Copied project URL' }); }} />
+          <MenuItem icon={<IconLink size={14} />} label="Copy link" onClick={async () => { if (await copyText(`${location.origin}/#/projects/${project.id}`)) toast({ title: 'Copied link' }); }} />
+          {/* reach the controls that otherwise hide behind a chip or the bell */}
+          <MenuItem icon={<IconBell size={14} />} label="Notifications…" onClick={() => setTimeout(() => document.querySelector<HTMLElement>('[data-project-bell]')?.click(), 0)} />
+          {snap.workspace.features.initiativesEnabled && <MenuItem icon={<IconInitiative size={14} />} label="Initiatives…" onClick={() => setTimeout(() => { if (tab !== 'overview') navigate(`/projects/${project.id}`); setTimeout(() => document.querySelector<HTMLElement>('[data-pprop="initiatives"]')?.click(), tab === 'overview' ? 0 : 120); }, 0)} />}
           <MenuSep />
-          <MenuItem icon={<IconTrash size={14} />} danger label="Delete project" onClick={async () => {
+          <MenuItem icon={<IconTrash size={14} />} danger label="Delete project" confirm="Delete project?" onClick={async () => {
             await api.deleteProject(project.id); await useApp.getState().bootstrap(); navigate('/projects');
             toast({ title: 'Project deleted', line: <>{project.icon} {project.name}</> });
           }} />
@@ -1050,10 +1062,11 @@ function ProjectOverview(props: { project: Project }) {
         <ProjectMenu kind="status" project={p}>{open => <button className="prop-chip ghost" data-pprop="status" onClick={open}><ProjectStatusBadge project={p} /></button>}</ProjectMenu>
         <ProjectMenu kind="priority" project={p}>{open => <button className="prop-chip ghost" onClick={open}><PriorityIcon priority={p.priority} size={13} />{p.priority ? PRIORITY_LABEL[p.priority] : 'Priority'}</button>}</ProjectMenu>
         <ProjectMenu kind="lead" project={p}>{open => <button className="prop-chip ghost" onClick={open}>{lead ? <Avatar user={lead} size={16} /> : <IconUser size={13} />}{lead ? lead.name : 'Lead'}</button>}</ProjectMenu>
-        <ProjectMenu kind="members" project={p}>{open => <button className="prop-chip ghost" onClick={open}>{p.memberIds.length ? <AvatarStack size={16} people={p.memberIds.slice(0, 3).map(id => snap.users.find(u => u.id === id)).filter(Boolean).map(u => ({ name: u!.name, initials: u!.initials, color: u!.color }))} /> : <IconUsers size={13} />}{p.memberIds.length ? '' : 'Members'}</button>}</ProjectMenu>
-        <ProjectMenu kind="target" project={p}>{open => <button className="prop-chip ghost" onClick={open}><IconCalendar size={13} />{p.targetDate ? shortDate(p.targetDate.slice(0, 10) + 'T12:00') : 'Target date'}</button>}</ProjectMenu>
+        <ProjectMenu kind="members" project={p}>{open => <button className="prop-chip ghost" onClick={open}>{p.memberIds.length ? <AvatarStack size={16} people={p.memberIds.slice(0, 3).map(id => snap.users.find(u => u.id === id)).filter(Boolean).map(u => ({ name: u!.name, initials: u!.initials, color: u!.color }))} /> : <IconUsers size={13} />}{p.memberIds.length ? `${p.memberIds.length} member${p.memberIds.length === 1 ? '' : 's'}` : 'Add members'}</button>}</ProjectMenu>
         <ProjectMenu kind="team" project={p}>{open => <button className="prop-chip ghost" onClick={open}><IconTeam size={13} />{team?.name ?? 'Team'}</button>}</ProjectMenu>
-        {p.startDate && <ProjectMenu kind="start" project={p}>{open => <button className="prop-chip ghost" onClick={open}><IconCalendar size={13} />Start {shortDate(p.startDate!.slice(0, 10) + 'T12:00')}</button>}</ProjectMenu>}
+        {/* one date chip: "Nov 2 → Dec 2" reads as a span, where "Start Nov 2" beside a bare "Dec 2" didn't say which was the target */}
+        {p.startDate && <ProjectMenu kind="start" project={p}>{open => <button className="prop-chip ghost" title="Start date" onClick={open}><IconCalendar size={13} />{shortDate(p.startDate!.slice(0, 10) + 'T12:00')} →</button>}</ProjectMenu>}
+        <ProjectMenu kind="target" project={p}>{open => <button className="prop-chip ghost" title="Target date" style={p.startDate ? { marginLeft: -6, paddingLeft: 2 } : undefined} onClick={open}>{!p.startDate && <IconCalendar size={13} />}{p.targetDate ? `${p.startDate ? '' : 'Target '}${shortDate(p.targetDate.slice(0, 10) + 'T12:00')}` : p.startDate ? 'No target' : 'Target date'}</button>}</ProjectMenu>
         {snap.projectLabels.filter(l => p.labelIds.includes(l.id)).map(l => (
           <ProjectMenu key={l.id} kind="labels" project={p} width={250}>{open => <button className="prop-chip ghost" data-pprop="labels" onClick={open}><span className="label-dot" style={{ background: l.color }} />{l.name}</button>}</ProjectMenu>
         ))}
@@ -1114,8 +1127,9 @@ function ProjectMoreProps(props: { project: Project }) {
       <button className="prop-chip ghost dim" data-pprop="more" title="More properties" onClick={menu.open}><IconMore size={13} /></button>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={230}>
-          <MenuItem icon={<IconCalendar size={14} />} label="Start date…" onClick={() => setSub({ kind: 'start', anchor: menu.anchor! })} />
-          <MenuItem icon={<IconTag size={14} />} label="Labels…" right={<span className="mi-hint">P then L</span>} onClick={() => setSub({ kind: 'labels', anchor: menu.anchor! })} />
+          {/* only what the row doesn't already show */}
+          {!p.startDate && <MenuItem icon={<IconCalendar size={14} />} label="Start date…" onClick={() => setSub({ kind: 'start', anchor: menu.anchor! })} />}
+          <MenuItem icon={<IconTag size={14} />} label={p.labelIds.length ? 'Edit labels…' : 'Labels…'} right={<span className="mi-hint">P then L</span>} onClick={() => setSub({ kind: 'labels', anchor: menu.anchor! })} />
         </Menu>
       )}
       {sub && <Menu anchor={sub.anchor} onClose={() => setSub(null)} width={250}><ProjectMenuBody kind={sub.kind} project={p} onClose={() => setSub(null)} /></Menu>}
@@ -1158,7 +1172,7 @@ function ProjectBell(props: { project: Project }) {
   );
 }
 
-function UpdateComposer(props: { project: Project; latest?: Snap['projectUpdates'][number] }) {
+function UpdateComposer(props: { project: Project; latest?: Snap['projectUpdates'][number]; promptOnly?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const draft = snap.updateDrafts?.find(d => d.projectId === props.project.id);
   if (draft) return <DraftComposer key={props.project.id} project={props.project} draft={draft} />;
@@ -1207,19 +1221,19 @@ function DraftEditor(props: { project: Project; draft: UpdateDraft; newerWaiting
   );
 }
 
-function UpdateComposerBody(props: { project: Project; latest?: Snap['projectUpdates'][number] }) {
+function UpdateComposerBody(props: { project: Project; latest?: Snap['projectUpdates'][number]; promptOnly?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const [open, setOpen] = useState(false);
   const [health, setHealth] = useState<ProjectHealth>(props.project.health);
   const [body, setBody] = useState('');
   // the editor's onChange is debounced, so Post reads the editor itself and nothing typed is lost
   const editorRef = useRef<Editor | null>(null);
-  const post = async (md: string) => {
+  const post = (md: string) => exclusive(`project-update-${props.project.id}`, async () => {
     if (isBlank(md)) return;
     await api.addProjectUpdate(props.project.id, md, health);
     await useApp.getState().bootstrap();
     setOpen(false); setBody('');
-  };
+  });
   if (open) {
     return (
       <div className="update-card composing">
@@ -1231,8 +1245,10 @@ function UpdateComposerBody(props: { project: Project; latest?: Snap['projectUpd
       </div>
     );
   }
-  if (!props.latest) {
-    return <button className="update-card empty" onClick={() => setOpen(true)}><IconEdit size={14} /> Write first project update</button>;
+  // promptOnly: the Activity tab lists every update below, so it only needs the button
+  if (!props.latest || props.promptOnly) {
+    const any = snap.projectUpdates.some(u => u.projectId === props.project.id);
+    return <button className="update-card empty" onClick={() => setOpen(true)}><IconEdit size={14} /> {any ? 'Write a project update' : 'Write first project update'}</button>;
   }
   const u = props.latest;
   const author = snap.users.find(x => x.id === u.userId);
@@ -1244,7 +1260,7 @@ function UpdateComposerBody(props: { project: Project; latest?: Snap['projectUpd
         <span style={{ flex: 1 }} />
         <button className="btn secondary sm" onClick={() => setOpen(true)}><IconEdit size={12} /> New update</button>
       </div>
-      <Markdown text={u.body} />
+      <UpdateBody kind="project" id={u.id} userId={u.userId} body={u.body} />
     </div>
   );
 }
@@ -1255,16 +1271,16 @@ function Milestones(props: { project: Project }) {
   const ms = snap.milestones.filter(m => m.projectId === props.project.id).sort((a, b) => a.position - b.position);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
-  const create = async () => {
+  const create = () => exclusive(`milestone-${props.project.id}`, async () => {
     if (!name.trim()) return;
     await api.createMilestone({ projectId: props.project.id, name: name.trim() });
     setName(''); setAdding(false);
     await useApp.getState().bootstrap();
-  };
+  });
   return (
     <div className="milestones">
       <div className="proj-section-label">Milestones</div>
-      {ms.map(m => <MilestoneRow key={m.id} milestone={m} project={props.project} onOpen={() => navigate(`/projects/${props.project.id}/issues`)} />)}
+      {ms.map(m => <MilestoneRow key={m.id} milestone={m} siblings={ms} project={props.project} onOpen={() => navigate(`/projects/${props.project.id}/issues`, { state: { milestoneId: m.id } })} />)}
       {adding ? (
         <div className="ms-add">
           <IconMilestone size={14} />
@@ -1278,7 +1294,18 @@ function Milestones(props: { project: Project }) {
   );
 }
 
-function MilestoneRow(props: { milestone: Snap['milestones'][number]; project: Project; onOpen: () => void }) {
+/** move one item a step up or down in an ordered list, renumbering positions 0..n so ties can't stick */
+export async function reorder<T extends { id: string }>(list: T[], id: string, dir: -1 | 1, save: (id: string, position: number) => Promise<unknown>) {
+  const at = list.findIndex(x => x.id === id);
+  const to = at + dir;
+  if (at < 0 || to < 0 || to >= list.length) return;
+  const next = [...list];
+  [next[at], next[to]] = [next[to], next[at]];
+  await Promise.all(next.map((x, i) => save(x.id, i)));
+  await useApp.getState().bootstrap();
+}
+
+function MilestoneRow(props: { milestone: Snap['milestones'][number]; siblings: Snap['milestones']; project: Project; onOpen: () => void }) {
   const snap = useApp(s => s.snap)!;
   const m = props.milestone;
   const prog = projectProgress(snap, props.project.id, m.id);
@@ -1291,23 +1318,27 @@ function MilestoneRow(props: { milestone: Snap['milestones'][number]; project: P
       {renaming ? (
         <input className="text-input" autoFocus defaultValue={m.name} style={{ height: 24 }}
           onBlur={async e => { setRenaming(false); if (e.target.value.trim() && e.target.value !== m.name) { await api.updateMilestone(m.id, { name: e.target.value.trim() }); await useApp.getState().bootstrap(); } }}
-          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setRenaming(false); }} />
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { (e.target as HTMLInputElement).value = m.name; setRenaming(false); } }} />
       ) : <span className="ms-name" onDoubleClick={() => setRenaming(true)}>{m.name}</span>}
-      <span className="ms-meta">{prog.pct}% of {prog.total}</span>
+      <span className="ms-meta" title={`${prog.pct}% complete`}>{prog.total ? `${prog.done} of ${prog.total} done` : 'No issues'}</span>
       <button className="ms-date" onClick={dateMenu.open}>{m.targetDate ? shortDate(m.targetDate.slice(0, 10) + 'T12:00') : <span className="dim">Target</span>}</button>
-      <button className="icon-btn hover-only" onClick={menu.open}><IconMore size={13} /></button>
+      <button className="icon-btn hover-only" title="More" aria-label="More" onClick={menu.open}><IconMore size={13} /></button>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={200}>
           <MenuItem icon={<IconEdit size={14} />} label="Rename" onClick={() => setRenaming(true)} />
           <MenuItem icon={<IconBox size={14} />} label="View issues" onClick={props.onOpen} />
+          {props.siblings.length > 1 && <MenuSep />}
+          {props.siblings[0]?.id !== m.id && <MenuItem icon={<IconChevronUp size={14} />} label="Move up" onClick={() => void reorder(props.siblings, m.id, -1, (id, position) => api.updateMilestone(id, { position }))} />}
+          {props.siblings[props.siblings.length - 1]?.id !== m.id && <MenuItem icon={<IconChevronDown size={14} />} label="Move down" onClick={() => void reorder(props.siblings, m.id, 1, (id, position) => api.updateMilestone(id, { position }))} />}
           <MenuSep />
-          <MenuItem icon={<IconTrash size={14} />} danger label="Delete milestone" onClick={async () => { await api.deleteMilestone(m.id); await useApp.getState().bootstrap(); }} />
+          <MenuItem icon={<IconTrash size={14} />} danger label="Delete milestone" confirm="Delete milestone?" onClick={async () => { await api.deleteMilestone(m.id); await useApp.getState().bootstrap(); }} />
         </Menu>
       )}
       {dateMenu.anchor && (
         <Menu anchor={dateMenu.anchor} onClose={dateMenu.close} width={250}>
           <div className="menu-header"><span>Target date</span></div>
           <CalendarGrid selected={m.targetDate?.slice(0, 10)} onPick={async iso => { await api.updateMilestone(m.id, { targetDate: iso }); await useApp.getState().bootstrap(); dateMenu.close(); }} />
+          {m.targetDate && <><MenuSep /><MenuItem icon={<IconClose size={13} />} label="Remove target date" onClick={async () => { await api.updateMilestone(m.id, { targetDate: null }); await useApp.getState().bootstrap(); }} /></>}
         </Menu>
       )}
     </div>
@@ -1357,7 +1388,7 @@ function ProjectDetails(props: { project: Project }) {
         <div className="rail-section">
           <div className="rail-header">Milestones</div>
           {ms.map(m => { const mp = projectProgress(snap, p.id, m.id); return (
-            <div key={m.id} className="rail-ms"><ProgressRing pct={mp.pct} size={13} /><span className="rail-ms-name">{m.name}</span><span className="rail-ms-num">{mp.pct}% of {mp.total}</span></div>
+            <div key={m.id} className="rail-ms"><ProgressRing pct={mp.pct} size={13} /><span className="rail-ms-name">{m.name}</span><span className="rail-ms-num">{mp.total ? `${mp.done}/${mp.total}` : '–'}</span></div>
           ); })}
         </div>
       )}
@@ -1382,18 +1413,31 @@ function ProjectDetails(props: { project: Project }) {
   );
 }
 
+/** stored field keys → the words a person reads; internal bookkeeping fields are dropped */
+const PROJECT_FIELD_NAMES: Record<string, string | null> = {
+  memberIds: 'members', leadId: 'lead', targetDate: 'target date', startDate: 'start date', teamId: 'team',
+  statusId: 'status', labelIds: 'labels', updateCadence: 'update schedule', initiativeIds: 'initiatives',
+  completedAt: null, canceledAt: null, health: null, sortOrder: null, updatedAt: null,
+};
+function projectFieldNames(fields: unknown): string[] {
+  const out = ((fields as string[] | undefined) ?? []).map(f =>
+    f in PROJECT_FIELD_NAMES ? PROJECT_FIELD_NAMES[f] : f.replace(/([A-Z])/g, ' $1').toLowerCase());
+  return [...new Set(out.filter((x): x is string => !!x))];
+}
+
 function ProjectActivity(props: { project: Project }) {
   const snap = useApp(s => s.snap)!;
   const p = props.project;
   const updates = snap.projectUpdates.filter(u => u.projectId === p.id);
-  const acts = snap.activity.filter(a => a.projectId === p.id);
+  // a health change is logged on its own ("set health to …"), so drop it from the generic field list
+  const acts = snap.activity.filter(a => a.projectId === p.id && !(a.type === 'projectUpdated' && projectFieldNames(a.data.fields).length === 0));
   const items = [
     ...updates.map(u => ({ kind: 'update' as const, at: u.createdAt, u })),
     ...acts.map(a => ({ kind: 'act' as const, at: a.createdAt, a })),
   ].sort((x, y) => y.at.localeCompare(x.at));
   return (
     <div className="proj-overview">
-      <UpdateComposer project={p} />
+      <UpdateComposer project={p} promptOnly />
       <div className="proj-section-label">Activity</div>
       {items.map(it => {
         if (it.kind === 'update') {
@@ -1404,7 +1448,7 @@ function ProjectActivity(props: { project: Project }) {
                 {it.u.health && <span className="update-health" style={{ color: healthColor(it.u.health) }}><span className="health-dot" style={{ background: healthColor(it.u.health) }} />{healthLabel(it.u.health)}</span>}
                 <Avatar user={author} size={18} /><b>{author?.name}<Via userId={it.u.viaUserId} /></b><span className="rel-time">posted an update · {relTime(it.u.createdAt)}</span>
               </div>
-              <Markdown text={it.u.body} />
+              <UpdateBody kind="project" id={it.u.id} userId={it.u.userId} body={it.u.body} />
             </div>
           );
         }
@@ -1412,7 +1456,7 @@ function ProjectActivity(props: { project: Project }) {
         const who = snap.users.find(u => u.id === a.userId);
         const text = a.type === 'projectCreated' ? 'created the project'
           : a.type === 'projectHealth' ? `set health to ${healthLabel(a.data.to as ProjectHealth)}`
-          : a.type === 'projectUpdated' ? `updated ${((a.data.fields as string[]) ?? []).filter(f => f !== 'completedAt').map(f => ({ memberIds: 'members', leadId: 'lead', targetDate: 'target date', startDate: 'start date', teamId: 'team' } as Record<string, string>)[f] ?? f).join(', ')}`
+          : a.type === 'projectUpdated' ? `updated ${projectFieldNames(a.data.fields).join(', ')}`
           : 'updated the project';
         return (
           <div key={a.id} className="activity-item">

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence } from 'framer-motion';
-import { useApp, relTime, shortDate, copyText } from './store.js';
+import { useApp, relTime, shortDate, copyText, dateTime } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, Modal, useMenu, useCanConfigure } from './ui.js';
 import { Avatar } from './pickers.js';
@@ -131,7 +131,7 @@ function MemberRow(props: { user: User; isAdmin: boolean; act: (fn: () => Promis
         : <span style={{ width: 24 }} />}
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={230}>
-          {!suspended && <MenuItem label={u.admin ? 'Make member' : 'Make admin'} onClick={() => void act(() => api.updateMember(u.id, { admin: !u.admin }), `${u.name} is now ${u.admin ? 'a member' : 'an admin'}`)} />}
+          {!suspended && <MenuItem label={u.admin ? 'Make member' : 'Make admin'} confirm={you && u.admin ? 'Remove your own admin access?' : undefined} onClick={() => void act(() => api.updateMember(u.id, { admin: !u.admin }), `${u.name} is now ${u.admin ? 'a member' : 'an admin'}`)} />}
           {snap.teams.length > 0 && <MenuSep />}
           {snap.teams.map((t, i) => {
             const on = t.memberIds.includes(u.id);
@@ -144,9 +144,7 @@ function MemberRow(props: { user: User; isAdmin: boolean; act: (fn: () => Promis
           {!you && !suspended && <MenuItem icon={<IconLink size={14} />} label="Password reset link…" onClick={() => { menu.close(); setResetFor(u); }} />}
           {!you && (suspended
             ? <MenuItem label="Reactivate" onClick={() => void act(() => api.updateMember(u.id, { suspended: false }), `${u.name} can sign in again`)} />
-            : <MenuItem label="Suspend…" danger onClick={() => {
-                if (window.confirm(`Suspend ${u.name}? They'll be signed out and can't sign in until reactivated.`)) void act(() => api.updateMember(u.id, { suspended: true }), `${u.name} is suspended`);
-              }} />)}
+            : <MenuItem label="Suspend" danger confirm={`Suspend ${u.name.split(' ')[0]}? Signs them out`} onClick={() => void act(() => api.updateMember(u.id, { suspended: true }), `${u.name} is suspended`)} />)}
         </Menu>
       )}
     </div>
@@ -185,7 +183,7 @@ function InviteRow(props: { invite: Invite; canManage: boolean; act: (fn: () => 
             toast({ title: r.emailed === 'sent' ? `Invite sent to ${i.email}` : r.emailed === 'failed' ? `Couldn't email ${i.email}: ${r.error}` : 'Invite renewed. Email isn\'t set up, so copy the link' });
           })} />
           <MenuSep />
-          <MenuItem icon={<IconTrash size={14} />} label="Revoke invite" danger onClick={() => void act(() => api.revokeInvite(i.id), `Invite to ${i.email} revoked`)} />
+          <MenuItem icon={<IconTrash size={14} />} label="Revoke invite" danger confirm="Revoke invite?" onClick={() => void act(() => api.revokeInvite(i.id), `Invite to ${i.email} revoked`)} />
         </Menu>
       )}
     </div>
@@ -263,7 +261,7 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
       <div className="cm-root" onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !results) { e.preventDefault(); void send(); } }}>
         <div className="cm-header">
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Invite to {snap.workspace.name}</span>
-          <span style={{ marginLeft: 'auto', display: 'flex' }}><button className="icon-btn" onClick={props.onClose}><IconClose size={14} /></button></span>
+          <span style={{ marginLeft: 'auto', display: 'flex' }}><button className="icon-btn" title="Close" aria-label="Close" onClick={props.onClose}><IconClose size={14} /></button></span>
         </div>
         {!results ? (
           <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -298,7 +296,7 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
                   <Avatar user={u ?? null} size={24} />
                   <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
                     <span>{u?.name ?? r.email}</span>
-                    <span style={{ fontSize: 12, color: bad ? '#eb5757' : 'var(--text-dim)' }}>{describe(r)}</span>
+                    <span style={{ fontSize: 12, color: bad ? 'var(--danger)' : 'var(--text-dim)' }}>{describe(r)}</span>
                   </span>
                   {r.invite && <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={async () => toast({ title: await copyText(r.invite!.link) ? 'Invite link copied' : 'Couldn\'t copy the link' })}><IconLink size={12} /> Copy link</button>}
                 </div>
@@ -512,7 +510,7 @@ function TeamMemberRow(props: { team: Team; user: User; canRemove: boolean; act:
         <Menu anchor={menu.anchor} onClose={menu.close} width={210}>
           {you
             ? <MenuItem label="Leave team" danger onClick={() => void act(() => api.leaveTeam(team.id), `You left ${team.name}`)} />
-            : <MenuItem icon={<IconTrash size={14} />} label="Remove from team" danger onClick={() => void act(() => api.removeTeamMember(team.id, u.id), `${u.name} removed from ${team.name}`)} />}
+            : <MenuItem icon={<IconTrash size={14} />} label="Remove from team" danger confirm="Remove from team?" onClick={() => void act(() => api.removeTeamMember(team.id, u.id), `${u.name} removed from ${team.name}`)} />}
         </Menu>
       )}
     </div>
@@ -550,7 +548,7 @@ function AddTeamMembersModal(props: { team: Team; onClose: () => void; onInvite?
       <div className="cm-root" onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void add(); } }}>
         <div className="cm-header">
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Add members to {team.name}</span>
-          <span style={{ marginLeft: 'auto', display: 'flex' }}><button className="icon-btn" onClick={props.onClose}><IconClose size={14} /></button></span>
+          <span style={{ marginLeft: 'auto', display: 'flex' }}><button className="icon-btn" title="Close" aria-label="Close" onClick={props.onClose}><IconClose size={14} /></button></span>
         </div>
         <div style={{ padding: '8px 16px 12px', display: 'flex', flexDirection: 'column' }}>
           <div className="set-filter"><IconSearch size={13} /><input ref={ref} placeholder="Search people in the workspace" value={q} onChange={e => setQ(e.target.value)} /></div>
@@ -651,7 +649,7 @@ export function SecuritySettings() {
           <div className="field-label">Approved email domains</div>
           <div className="field-help">People whose Google Workspace account is at one of these domains join as members the first time they sign in, with no invite needed. Personal Google accounts never qualify.</div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 240 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: 260, flex: 'none' }}>
           {sec.approvedDomains.map(d => (
             <div key={d} className="prop-row" style={{ gap: 8 }}>
               <span style={{ flex: 1 }}>@{d}</span>
@@ -661,8 +659,8 @@ export function SecuritySettings() {
           {!sec.approvedDomains.length && <span className="field-help">No approved domains, so only invited people can join.</span>}
           {isAdmin && (
             <div style={{ display: 'flex', gap: 6 }}>
-              <input className="text-input" placeholder="acme.dev" value={domain} onChange={e => setDomain(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDomain()} />
-              <button className="btn" onClick={addDomain}>Add</button>
+              <input className="text-input" style={{ flex: 1, minWidth: 0 }} placeholder="acme.dev" value={domain} onChange={e => setDomain(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDomain()} />
+              <button className="btn" style={{ flex: 'none' }} onClick={addDomain}>Add</button>
             </div>
           )}
         </div>
@@ -726,7 +724,7 @@ function ResetLinkModal({ user, onClose }: { user: User; onClose: () => void }) 
       <div className="cm-root">
         <div className="cm-header">
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Password reset link for {user.name}</span>
-          <span style={{ marginLeft: 'auto', display: 'flex' }}><button className="icon-btn" onClick={onClose}><IconClose size={14} /></button></span>
+          <span style={{ marginLeft: 'auto', display: 'flex' }}><button className="icon-btn" title="Close" aria-label="Close" onClick={onClose}><IconClose size={14} /></button></span>
         </div>
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {!state && <div className="field-help" style={{ marginTop: 0 }}>
@@ -735,9 +733,9 @@ function ResetLinkModal({ user, onClose }: { user: User; onClose: () => void }) 
           </div>}
           {state && 'link' in state && <>
             <LinkBox link={state.link} />
-            <div className="field-help" style={{ marginTop: 0 }}>Works once, until {new Date(state.expiresAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}. Anyone with it can sign in as {user.name}.</div>
+            <div className="field-help" style={{ marginTop: 0 }}>Works once, until {dateTime(state.expiresAt)}. Anyone with it can sign in as {user.name}.</div>
           </>}
-          {state && 'error' in state && <div className="field-help" style={{ color: '#eb5757', marginTop: 0 }}>{state.error}</div>}
+          {state && 'error' in state && <div className="field-help" style={{ color: 'var(--danger)', marginTop: 0 }}>{state.error}</div>}
         </div>
         <div className="cm-footer">
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>

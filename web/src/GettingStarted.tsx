@@ -40,7 +40,8 @@ function CheckCircle({ done }: { done: boolean }) {
 
 export function GettingStartedMenu() {
   const { items, done, dismissed } = useGettingStarted();
-  if (dismissed) return null;
+  // hidden is reversible: the help menu offers it back instead of losing it for good
+  if (dismissed) return <MenuItem label="Show getting started" onClick={() => void setGettingStarted({ dismissed: false })} />;
   return (
     <>
       <MenuSub icon={<ProgressRing done={done} total={items.length} />} label="Getting started" right={<span className="mi-kbd">{done}/{items.length}</span>} width={250}>

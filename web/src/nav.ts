@@ -9,6 +9,7 @@ export interface Origin { label: string; to: string }
 let lastList: Origin | null = null;
 let navIds: string[] = [];
 let navOrigin: Origin | null = null;
+let navRoute = '';
 
 /** label for a list route, as its breadcrumb reads */
 export function labelForPath(path: string): string | null {
@@ -43,12 +44,24 @@ export function noteRoute(path: string) {
 
 /** the issue page asks where it came from; the list is captured the first time an issue in it opens */
 export function navFor(issueId: string): { ids: string[]; origin: Origin | null } {
-  if (!navIds.includes(issueId)) {
+  // recapture when the issue left the captured list, or when a different list (opened since)
+  // also holds it: otherwise the first list that ever contained it ("Inbox") sticks for good
+  if (!navIds.includes(issueId) || (visibleList.route !== navRoute && visibleList.issues.some(i => i.id === issueId))) {
     const ids = visibleList.issues.map(i => i.id);
-    if (ids.includes(issueId)) { navIds = ids; navOrigin = lastList; }
-    else { navIds = []; navOrigin = null; }
+    if (ids.includes(issueId)) { navIds = ids; navOrigin = lastList; navRoute = visibleList.route; }
+    else { navIds = []; navOrigin = null; navRoute = ''; }
   }
   return { ids: navIds, origin: navOrigin };
+}
+
+/** where the issue page goes after the issue is archived or deleted: the list it was opened
+ *  from, else the last list visited, else the team's issues. Never history back, which from a
+ *  deep link leaves the app and from a peek leaves the list. */
+export function exitPathFor(issue: Issue): string {
+  if (navOrigin) return navOrigin.to;
+  if (lastList) return lastList.to;
+  const team = useApp.getState().snap?.teams.find(t => t.id === issue.teamId);
+  return team ? `/team/${team.key}/all` : '/inbox';
 }
 
 /** next/previous issue in the list the open issue came from */

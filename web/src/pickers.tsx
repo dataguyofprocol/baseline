@@ -4,7 +4,7 @@ import { useApp } from './store.js';
 import { api } from './api.js';
 import type { Issue, Priority, Team } from '../../src/core/types.js';
 import { PropertyMenu, type PropKind } from './propertyMenus.js';
-import { StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled, StatusTriage, PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconAgent, IconBlocks, IconBlocked, IconRelated, IconDuplicate } from './icons.js';
+import { StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled, StatusTriage, PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconAgent, IconLoop, IconPr, IconBlocks, IconBlocked, IconRelated, IconDuplicate } from './icons.js';
 
 export function StateIcon({ type, color, size = 14, morph }: { type: string; color?: string; size?: number; morph?: boolean }) {
   // the seeded Todo grey is near-white because it was tuned for dark. Theme it so it
@@ -26,6 +26,9 @@ export function PriorityIcon({ priority, size = 14 }: { priority: Priority; size
   return <PrioNone size={size} style={{ color: 'var(--text-dim)' }} />;
 }
 
+/** built-in agent identities (see agentUser() callers in src/core): coding agent, rule runner, GitHub sync */
+const AGENT_GLYPHS: Record<string, typeof IconAgent> = { Agent: IconAgent, Automation: IconLoop, GitHub: IconPr };
+
 export function Avatar({ user, size = 20 }: { user?: { name: string; initials: string; color: string; kind?: 'human' | 'agent'; avatarUrl?: string | null } | null; size?: number }) {
   if (!user) {
     return <span className="avatar placeholder" style={{ width: size, height: size }}><IconUser size={12} /></span>;
@@ -35,17 +38,31 @@ export function Avatar({ user, size = 20 }: { user?: { name: string; initials: s
     // person-coloured disc) so a glance separates them from human avatars
     return (
       <span className="avatar agent" title={`${user.name} (agent)`} style={{ width: size, height: size, borderRadius: Math.max(4, Math.round(size * 0.3)) }}>
-        <IconAgent size={Math.max(10, Math.round(size * 0.66))} />
+        {(() => {
+          // the square already says "agent"; the inside says which one. Built-in
+          // identities get their own glyph, hand-made agents their initials
+          const Glyph = AGENT_GLYPHS[user.name];
+          return Glyph ? <Glyph size={Math.max(10, Math.round(size * 0.66))} />
+            : <span style={{ fontSize: size * 0.4, fontWeight: 600 }}>{user.initials}</span>;
+        })()}
       </span>
     );
   }
-  if (user.avatarUrl) return <img className="avatar avatar-img" src={user.avatarUrl} alt={user.name} title={user.name} style={{ width: size, height: size }} />;
   return (
     <span className="avatar" title={user.name} style={{ width: size, height: size, background: user.color, fontSize: size * 0.42, overflow: 'hidden' }}>
-      {/* Google's picture when there is one (no-referrer: googleusercontent refuses some referrers) */}
-      {user.avatarUrl ? <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : user.initials}
+      {/* Google's picture when there is one (no-referrer: googleusercontent refuses some referrers);
+          initials when it fails to load, never the browser's broken-image glyph */}
+      {user.avatarUrl ? <AvatarImg url={user.avatarUrl} initials={user.initials} /> : user.initials}
     </span>
   );
+}
+
+const failedAvatars = new Set<string>();
+function AvatarImg({ url, initials }: { url: string; initials: string }) {
+  const [failed, setFailed] = useState(() => failedAvatars.has(url));
+  if (failed) return <>{initials}</>;
+  return <img src={url} alt="" referrerPolicy="no-referrer" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              onError={() => { failedAvatars.add(url); setFailed(true); }} />;
 }
 
 type MenuChildren = (p: { isOpen: boolean; open: (e: React.MouseEvent) => void }) => React.ReactNode;
@@ -104,9 +121,9 @@ export function CalendarGrid(props: { selected?: string; onPick: (iso: string) =
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', padding: '2px 8px' }}>
-        <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m - 1, 1))}>‹</button>
+        <button className="icon-btn" style={{ width: 20, height: 20 }} title="Previous month" aria-label="Previous month" onClick={() => setCursor(new Date(y, m - 1, 1))}>‹</button>
         <span style={{ flex: 1, textAlign: 'center', fontSize: 12.5, fontWeight: 600 }}>{cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
-        <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m + 1, 1))}>›</button>
+        <button className="icon-btn" style={{ width: 20, height: 20 }} title="Next month" aria-label="Next month" onClick={() => setCursor(new Date(y, m + 1, 1))}>›</button>
       </div>
       <div className="cal-grid">
         {(weekStart === 1 ? ['M', 'T', 'W', 'T', 'F', 'S', 'S'] : ['S', 'M', 'T', 'W', 'T', 'F', 'S']).map((d, i) => <span key={i} className="cal-dow">{d}</span>)}
@@ -136,7 +153,7 @@ export function IssuePickerMenu(props: {
   const snap = useApp(s => s.snap)!;
   const [q, setQ] = useState('');
   const pool = snap.issues.filter(i => i.id !== props.excludeId && (!props.teamId || i.teamId === props.teamId));
-  const results = (q.trim() ? pool.filter(i => `${i.title} ${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`.toLowerCase().includes(q.toLowerCase())) : pool).slice(0, 8);
+  const results = (q.trim() ? pool.filter(i => `${i.title} ${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`.toLowerCase().includes(q.toLowerCase())) : pool).slice(0, 12);
   return (
     <>
       {props.children({ isOpen, open })}
@@ -163,10 +180,10 @@ export function IssuePickerMenu(props: {
 }
 
 const RELATION_TYPES: Array<[string, string, React.ReactNode]> = [
-  ['blocks', 'blocks', <IconBlocks size={14} />],
-  ['blocked_by', 'is blocked by', <IconBlocked size={14} />],
-  ['related', 'relates to', <IconRelated size={14} />],
-  ['duplicate', 'duplicates', <IconDuplicate size={14} />],
+  ['blocks', 'Blocks…', <IconBlocks size={14} />],
+  ['blocked_by', 'Is blocked by…', <IconBlocked size={14} />],
+  ['related', 'Relates to…', <IconRelated size={14} />],
+  ['duplicate', 'Duplicates…', <IconDuplicate size={14} />],
 ];
 
 export function AddRelationMenu(props: { issue: Issue; children: MenuChildren }) {
@@ -186,15 +203,17 @@ export function AddRelationMenu(props: { issue: Issue; children: MenuChildren })
       {anchor && phase === 'type' && (
         <Menu anchor={anchor} onClose={() => { setAnchor(null); setPhase('type'); }} width={220}>
           <div className="menu-header"><span>Add relationship…</span></div>
+          {/* plain rows, not MenuItem: MenuItem closes its menu, which cleared the anchor before the issue picker could open */}
           {RELATION_TYPES.map(([value, label, icon]) => (
-            <MenuItem key={value} icon={icon} label={label} onClick={() => { setType(value); setPhase('issue'); }} />
+            <button key={value} className="menu-item" onClick={e => { e.stopPropagation(); setType(value); setPhase('issue'); }}>
+              <span className="mi-icon">{icon}</span><span className="mi-label">{label}</span>
+            </button>
           ))}
         </Menu>
       )}
       {anchor && phase === 'issue' && (
         <Menu anchor={anchor} onClose={() => { setAnchor(null); setPhase('type'); }} width={300}>
           <IssueSearchList
-            teamId={props.issue.teamId}
             exclude={[props.issue.id, ...snap.relations.filter(r => r.issueId === props.issue.id).map(r => r.relatedIssueId)]}
             onPick={pickIssue}
           />
@@ -208,7 +227,7 @@ export function IssueSearchList(props: { teamId?: string; exclude?: string[]; on
   const snap = useApp(s => s.snap)!;
   const [q, setQ] = useState('');
   const pool = snap.issues.filter(i => !props.exclude?.includes(i.id) && (!props.teamId || i.teamId === props.teamId));
-  const results = (q.trim() ? pool.filter(i => `${i.title} ${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`.toLowerCase().includes(q.toLowerCase())) : pool).slice(0, 8);
+  const results = (q.trim() ? pool.filter(i => `${i.title} ${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`.toLowerCase().includes(q.toLowerCase())) : pool).slice(0, 12);
   return (
     <>
       <MenuInput value={q} onChange={setQ} placeholder="Search issues…" autoFocus />

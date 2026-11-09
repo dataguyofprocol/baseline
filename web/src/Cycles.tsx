@@ -4,12 +4,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useApp, shortDate } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { useMenu, Menu, MenuItem, MenuSep, ConfirmButton } from './ui.js';
-import { Avatar, PriorityIcon } from './pickers.js';
+import { useMenu, Menu, MenuItem, MenuSep, ConfirmButton, NotFound, Modal, exclusive } from './ui.js';
+import { Avatar, PriorityIcon, teamDisplayIcon } from './pickers.js';
 import { NewCycleModal } from './Settings.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueViews.js';
 import { IssueListBody, ListToolbar, TeamMissingRedirect } from './Views.js';
-import { IconCycle, IconMore, IconTrash, IconEdit, IconChevronDown, IconBox, IconTag, IconPanel, IconPlus, IconEstimate } from './icons.js';
+import { IconCycle, IconMore, IconTrash, IconEdit, IconChevronDown, IconBox, IconTag, IconPanel, IconPlus, IconEstimate, IconCalendar, IconClose } from './icons.js';
 import type { Issue, ActivityItem, Snapshot, Cycle, Priority } from '../../src/core/types.js';
 import { Illustration } from './illustrations.js';
 
@@ -191,7 +191,7 @@ function Breakdown(props: { issues: Issue[] }) {
           <span className="bd-icon">{r.icon}</span>
           <span className="bd-label">{r.label}</span>
           <span className="bd-bar"><span style={{ width: `${pct(r.done, r.total)}%` }} /></span>
-          <span className="bd-num">{pct(r.done, r.total)}% of <IconEstimate size={10} /> {r.total}</span>
+          <span className="bd-num" title={`${pct(r.done, r.total)}% done`}>{r.done} of <IconEstimate size={10} /> {r.total}</span>
         </div>
       ))}
       {rows.length === 0 && <div className="bd-empty">No issues in this cycle yet.</div>}
@@ -215,7 +215,8 @@ export function CyclesPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Cycles' }]} favoriteRef={{ type: 'view', refId: `team-${team.id}-cycles` }}
+      <TopBar crumbs={[{ label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true }, { label: 'Cycles' }]} favoriteRef={{ type: 'view', refId: `team-${team.id}-cycles` }}
+        right={cycles.length ? <button className="btn secondary" onClick={() => setCreating(true)}><IconPlus size={13} /> New cycle</button> : undefined}
         more={<><MenuItem icon={<IconPlus size={14} />} label="New cycle" onClick={() => setCreating(true)} /><MenuItem label="Cycle settings" onClick={() => navigate(`/settings/team/${team.key}`)} /></>} />
       <div className="content">
         {cycles.length === 0 ? (
@@ -245,7 +246,7 @@ export function CyclesPage() {
                       <span className={`cycle-badge ${status.toLowerCase()}`}>{status}</span>
                       {status === 'Completed'
                         ? <><span className="cyt-metric"><Ring pct={pct(st.done, st.scope)} /><b>{pct(st.done, st.scope)}%</b> success</span><span className="cyt-metric"><IconEstimate size={11} /><b>{st.done}</b> completed</span></>
-                        : (() => { const cap = velocity ? pct(st.scope, velocity) : st.scope ? 100 : 0; return <span className={`cyt-metric${cap > 100 ? ' over' : ''}`}><Ring pct={cap} over={cap > 100} /><b>{cap}%</b> of capacity</span>; })()}
+                        : (() => { if (!velocity) return <span className="cyt-metric" title="Capacity compares scope with the points finished in past cycles. No cycle has finished points yet.">No capacity data yet</span>; const cap = pct(st.scope, velocity); return <span className={`cyt-metric${cap > 100 ? ' over' : ''}`}><Ring pct={cap} over={cap > 100} /><b>{cap}%</b> of capacity</span>; })()}
                       <span className="cyt-metric"><IconEstimate size={11} /><b>{st.scope}</b> scope</span>
                     </button>
                     {status === 'Current' && (
@@ -297,10 +298,11 @@ export function CycleDetailPage() {
   const menu = useMenu();
   const switcher = useMenu();
   const [renaming, setRenaming] = useState(false);
+  const [editingDates, setEditingDates] = useState(false);
   const [panel, setPanel] = useState(() => localStorage.getItem('baseline:cyclePanel') !== '0');
   const issues = useMemo(() => snap.issues.filter(i => i.cycleId === cycleId), [snap.issues, cycleId]);
   if (!team) return <TeamMissingRedirect />;
-  if (!cycle) return <div className="empty-state"><div className="empty-title">Cycle not found</div></div>;
+  if (!cycle) return <NotFound what="Cycle" back={{ label: 'Back to cycles', to: `/team/${team.key}/cycles` }} />;
   const teamCycles = snap.cycles.filter(c => c.teamId === team.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const status = cycleStatus(cycle, teamCycles);
   const togglePanel = () => setPanel(p => { try { localStorage.setItem('baseline:cyclePanel', p ? '0' : '1'); } catch { /* ignore */ } return !p; });
@@ -308,7 +310,7 @@ export function CycleDetailPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar
-        crumbs={[{ label: team.name, to: `/team/${team.key}/all`, muted: true }, { label: 'Cycles', to: `/team/${team.key}/cycles`, muted: true },
+        crumbs={[{ label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true }, { label: 'Cycles', to: `/team/${team.key}/cycles`, muted: true },
           { label: '', icon: <button className="cy-switch" onClick={switcher.open}><IconCycle size={13} />{cycleName(cycle)}<IconChevronDown size={11} /></button> }]}
         favoriteRef={{ type: 'cycle', refId: cycle.id }}
         right={<button className="icon-btn" title="Cycle actions" onClick={menu.open}><IconMore size={15} /></button>}
@@ -334,7 +336,7 @@ export function CycleDetailPage() {
             {renaming ? (
               <input className="text-input" autoFocus defaultValue={cycleName(cycle)} style={{ height: 30, fontWeight: 600 }}
                 onBlur={async e => { setRenaming(false); if (e.target.value.trim() && e.target.value.trim() !== cycleName(cycle)) { await api.updateCycle(cycle.id, { name: e.target.value.trim() }); await useApp.getState().bootstrap(); } }}
-                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setRenaming(false); }} />
+                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { (e.target as HTMLInputElement).value = cycleName(cycle); setRenaming(false); } }} />
             ) : <div className="cyr-name" onDoubleClick={() => setRenaming(true)}><IconCycle size={15} /> {cycleName(cycle)}</div>}
             <div className="rail-header" style={{ padding: 0 }}>Progress</div>
             <Legend cycle={cycle} vertical />
@@ -351,14 +353,49 @@ export function CycleDetailPage() {
           ))}
         </Menu>
       )}
+      <AnimatePresence>{editingDates && <CycleDatesModal key="cyd" cycle={cycle} onClose={() => setEditingDates(false)} />}</AnimatePresence>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={220}>
           <MenuItem icon={<IconEdit size={14} />} label="Rename cycle" onClick={() => { if (!panel) togglePanel(); setRenaming(true); }} />
+          <MenuItem icon={<IconCalendar size={14} />} label="Change dates…" onClick={() => setEditingDates(true)} />
           <MenuSep />
-          <ConfirmButton className="menu-item danger" label={<><span className="mi-icon"><IconTrash size={14} /></span><span className="mi-label">Delete cycle</span></>} confirmLabel={<span className="mi-label">Click again. Issues stay, the cycle goes</span>}
+          <ConfirmButton className="menu-item danger" label={<><span className="mi-icon"><IconTrash size={14} /></span><span className="mi-label">Delete cycle</span></>} confirmLabel={<span className="mi-label">Delete cycle? Its issues stay</span>}
             onConfirm={async () => { menu.close(); await api.deleteCycle(cycle.id); await useApp.getState().bootstrap(); navigate(`/team/${team.key}/cycles`); }} />
         </Menu>
       )}
     </div>
+  );
+}
+
+/** move a cycle's start or end after it was created (it could only be renamed or deleted) */
+function CycleDatesModal(props: { cycle: Cycle; onClose: () => void }) {
+  const day = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const [start, setStart] = useState(day(props.cycle.startsAt));
+  const [end, setEnd] = useState(day(props.cycle.endsAt));
+  const valid = !!start && !!end && end >= start;
+  const save = () => exclusive(`cycle-dates-${props.cycle.id}`, async () => {
+    if (!valid) return;
+    // both ends local, as when a cycle is created
+    await api.updateCycle(props.cycle.id, { startsAt: new Date(start + 'T00:00:00').toISOString(), endsAt: new Date(end + 'T23:59:59').toISOString() });
+    await useApp.getState().bootstrap();
+    useApp.getState().toast({ title: 'Cycle dates changed', line: `${shortDate(start + 'T12:00')} → ${shortDate(end + 'T12:00')}` });
+    props.onClose();
+  });
+  return (
+    <Modal onClose={props.onClose} className="modal modal-create cy-modal">
+      <div className="cm-root" onKeyDown={e => { if (e.key === 'Enter') void save(); }}>
+        <div className="cm-header"><span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Change dates · {props.cycle.name || `Cycle ${props.cycle.number}`}</span>
+          <span style={{ marginLeft: 'auto' }}><button className="icon-btn" title="Close" aria-label="Close" onClick={props.onClose}><IconClose size={14} /></button></span></div>
+        <div style={{ display: 'flex', gap: 12, padding: '16px 16px 4px' }}>
+          <label className="auth-field" style={{ flex: 1 }}><span className="field-label">Start</span><input className="text-input" type="date" value={start} onChange={e => setStart(e.target.value)} /></label>
+          <label className="auth-field" style={{ flex: 1 }}><span className="field-label">End</span><input className="text-input" type="date" value={end} onChange={e => setEnd(e.target.value)} /></label>
+        </div>
+        {!valid && <div className="field-help" style={{ color: 'var(--danger)', padding: '0 16px' }}>The end date must be on or after the start date.</div>}
+        <div className="cm-footer"><div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button className="btn" onClick={props.onClose}>Cancel</button>
+          <button className="btn primary" disabled={!valid} onClick={() => void save()}>Save dates</button>
+        </div></div>
+      </div>
+    </Modal>
   );
 }

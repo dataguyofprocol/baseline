@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useApp, useHelpers, relTime, shortDate, nameOf } from './store.js';
+import { useApp, useHelpers, relTime, shortDate, nameOf, localIsoDate, dateTime, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure, Via } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure, Via, ConfirmIconButton, NotFound, exclusive } from './ui.js';
 import { IssueToolbar, IssueLocationRow, OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { IssuePullRequests } from './GitHubUI.js';
 import { SlaBadge } from './AutomationUI.js';
@@ -20,14 +20,14 @@ import { PropertyMenuBody, propMenuWidth } from './propertyMenus.js';
 import { SubIssueSpine, AvatarStack } from './AvatarStack.js';
 import { SubIssueComposer } from './SubIssueComposer.js';
 import { SubIssueProgress, subIssueProgress, estimateLabel } from './IssueViews.js';
-import { archiveIssues, deleteIssues, setIssueProps, toggleSubscription, markDuplicate, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS } from './actions.js';
-import { navFor, neighbour } from './nav.js';
+import { archiveIssues, deleteIssues, setIssueProps, toggleSubscription, markDuplicate, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS, triageDecide } from './actions.js';
+import { navFor, neighbour, exitPathFor } from './nav.js';
 import { Logo } from './Logo.js';
 import { useLanding } from './motion.js';
 import {
   IconPlus, IconClose, IconArchive, IconRestore, IconTrash, IconEdit, IconDuplicate,
   IconEstimate, IconCycle, IconCalendar, IconBox, IconBranch, IconHandoff, IconSpark, IconCopyId,
-  IconMilestone, IconLink, IconFile, IconReply, IconResolve, IconChevronDown, IconChevronUp, IconExternal,
+  IconMilestone, IconLink, IconCopy, IconFile, IconReply, IconResolve, IconChevronDown, IconChevronUp, IconExternal,
   IconBell, IconBellOff, IconTeam, IconClock, IconTriage, IconCheck, IconEmoji, IconMore, IconDoc,
   IconArrowUp,
 } from './icons.js';
@@ -46,7 +46,7 @@ function useActivityText() {
       const t = snap.teams.find(t2 => t2.id === i.teamId);
       return `${t?.key}-${i.number} ${i.title}`;
     };
-    const when = <span className="rel-time" title={new Date(a.createdAt).toLocaleString()}>· {relTime(a.createdAt)}</span>;
+    const when = <span className="rel-time" title={dateTime(a.createdAt)}>· {relTime(a.createdAt)}</span>;
     const relLabel: Record<string, string> = { blocks: 'marked this as blocking', blocked_by: 'marked this as blocked by', related: 'related this to', duplicate: 'marked this as a duplicate of' };
     switch (a.type) {
       case 'created': return <>{who} created the issue {when}</>;
@@ -87,7 +87,7 @@ function useActivityText() {
         : <>{who} removed the location {when}</>;
       case 'archived': return <>{who} archived the issue {when}</>;
       case 'restored': return <>{who} restored the issue {when}</>;
-      case 'slaApplied': return <>{who} applied SLA <b>{String(a.data.rule)}</b>, due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
+      case 'slaApplied': return <>{who} applied SLA <b>{String(a.data.rule)}</b>, due {dateTime(String(a.data.breachesAt))} {when}</>;
       case 'slaBreached': return <>{who} marked the SLA as breached {when}</>;
       case 'prLinked': return <>{who} linked {a.data.kind === 'closing' ? 'pull request' : 'a reference from'} <a href={String(a.data.url)} target="_blank" rel="noreferrer"><b>{String(a.data.pr)}</b></a> {String(a.data.title ?? '')} {when}</>;
       case 'prStateMoved': return <>{who} moved the issue: {String(a.data.why)} {when}</>;
@@ -123,6 +123,11 @@ export function ReactionChips(props: { reactions: Record<string, string[]>; onTo
   );
 }
 
+/* Deleting a comment can't be reversed on the server, so the delete waits out the toast: the
+   comment hides at once, Undo shows it again, and the delete is sent when the toast closes
+   (timed out or ×). The set lives at module level so a remount still sees the comment as gone. */
+const pendingCommentDeletes = new Set<string>();
+
 function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean; onReply?: () => void; resolved?: boolean; onResolve?: () => void }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
@@ -132,13 +137,25 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
   const reactMenu = useMenu();
   const moreMenu = useMenu();
   const [editing, setEditing] = useState(false);
+  const [hidden, setHidden] = useState(() => pendingCommentDeletes.has(props.comment.id));
+  const scheduleDelete = () => {
+    moreMenu.close(); // the menu unmounts with the comment, so close it now or Undo brings it back open
+    setHidden(true);
+    pendingCommentDeletes.add(c.id);
+    toast({
+      title: props.reply ? 'Reply deleted' : 'Comment deleted',
+      actions: [{ label: 'Undo', onClick: () => { pendingCommentDeletes.delete(c.id); setHidden(false); } }],
+      onClose: () => { pendingCommentDeletes.delete(c.id); void api.deleteComment(c.id).then(() => useApp.getState().bootstrap()); },
+    });
+  };
+  if (hidden) return null;
 
   return (
-    <div className={`cmt${props.reply ? ' reply' : ''}`}>
+    <div className={`cmt${props.reply ? ' reply' : ''}`} id={`comment-${c.id}`}>
       <div className="cmt-head">
         <Avatar user={author} size={props.reply ? 18 : 20} />
         <span className="cmt-author">{nameOf(author)}<Via userId={c.viaUserId} /></span>
-        <span className="rel-time" title={new Date(c.createdAt).toLocaleString()}>{relTime(c.createdAt)}{c.editedAt ? ' (edited)' : ''}</span>
+        <span className="rel-time" title={dateTime(c.createdAt)}>{relTime(c.createdAt)}{c.editedAt ? ' (edited)' : ''}</span>
         <span style={{ flex: 1 }} />
         <span className="cmt-actions">
           <button className="icon-btn" title="Add reaction" onClick={reactMenu.open}><IconEmoji size={13} /></button>
@@ -150,7 +167,11 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
       {editing ? (
         <div className="comment-box editing">
           <RichEditor value={c.body} autoFocus issueId={props.issueId}
-            onSubmit={async md => { setEditing(false); if (md !== c.body && !isBlank(md)) { await api.updateComment(c.id, md); await useApp.getState().bootstrap(); } }}
+            onSubmit={async md => {
+              // save before closing: if the save fails the editor stays open with the text
+              if (md !== c.body && !isBlank(md)) { await api.updateComment(c.id, md); await useApp.getState().bootstrap(); }
+              setEditing(false);
+            }}
             onEscape={() => setEditing(false)} />
           <div className="cbox-foot">
             <span className="cbox-hint">⌘↵ to save · Esc to cancel</span>
@@ -173,10 +194,14 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
       )}
       {moreMenu.anchor && (
         <Menu anchor={moreMenu.anchor} onClose={moreMenu.close} width={200}>
-          <MenuItem icon={<IconLink size={14} />} label="Copy comment text" onClick={async () => { await navigator.clipboard.writeText(c.body).catch(() => {}); toast({ title: 'Copied comment' }); }} />
+          <MenuItem icon={<IconLink size={14} />} label="Copy link to comment" onClick={async () => {
+            const iss = snap.issues.find(i => i.id === props.issueId); const tk = snap.teams.find(t => t.id === iss?.teamId)?.key;
+            if (iss && tk && await copyText(`${location.origin}/#/issue/${tk}-${iss.number}?comment=${c.id}`)) toast({ title: 'Copied link to comment' });
+          }} />
+          <MenuItem icon={<IconCopy size={14} />} label="Copy comment text" onClick={async () => { if (await copyText(c.body)) toast({ title: 'Copied comment' }); }} />
           {isMine && <MenuItem icon={<IconEdit size={14} />} label="Edit comment" onClick={() => setEditing(true)} />}
           {isMine && <MenuSep />}
-          {isMine && <MenuItem icon={<IconTrash size={14} />} danger label={props.reply ? 'Delete reply' : 'Delete comment'} onClick={async () => { await api.deleteComment(c.id); await useApp.getState().bootstrap(); toast({ title: 'Comment deleted' }); }} />}
+          {isMine && <MenuItem icon={<IconTrash size={14} />} danger label={props.reply ? 'Delete reply' : 'Delete comment'} onClick={scheduleDelete} />}
         </Menu>
       )}
     </div>
@@ -314,7 +339,7 @@ function Attachments(props: { issue: Issue }) {
           <a className="att-title" href={a.url} target="_blank" rel="noreferrer">{a.title}</a>
           <span className="att-meta">{a.kind === 'file' ? `${Math.max(1, Math.round(a.size / 1024))} KB` : host(a.url)} · {relTime(a.createdAt)}</span>
           <a className="icon-btn hover-only" href={a.url} target="_blank" rel="noreferrer" title="Open"><IconExternal size={12} /></a>
-          <button className="icon-btn hover-only" title="Remove" onClick={async () => { await api.deleteAttachment(a.id); await useApp.getState().bootstrap(); }}><IconClose size={12} /></button>
+          <ConfirmIconButton confirmLabel="Remove?" className="icon-btn hover-only" title="Remove" onConfirm={async () => { await api.deleteAttachment(a.id); await useApp.getState().bootstrap(); }}><IconClose size={12} /></ConfirmIconButton>
         </div>
       ))}
     </div>
@@ -324,13 +349,13 @@ function Attachments(props: { issue: Issue }) {
 function AddLinkMenu(props: { issue: Issue; anchor: DOMRect; onClose: () => void }) {
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
-  const save = async () => {
+  const save = () => exclusive(`link-${props.issue.id}`, async () => {
     const u = url.trim();
     if (!u) return;
     await api.addLink(props.issue.id, /^[a-z]+:\/\//i.test(u) ? u : `https://${u}`, title.trim() || undefined);
     await useApp.getState().bootstrap();
     props.onClose();
-  };
+  });
   return (
     <Menu anchor={props.anchor} onClose={props.onClose} width={320}>
       <div className="menu-header"><span>Add link</span><span className="kbd">⌃L</span></div>
@@ -404,7 +429,7 @@ export function PropertiesRail(props: { issue: Issue }) {
   const est = estimateLabel(issue, snap);
   const closed = state?.type === 'completed' || state?.type === 'canceled';
   const due = issue.dueDate?.slice(0, 10);
-  const overdue = !!due && !closed && due < new Date().toISOString().slice(0, 10);
+  const overdue = !!due && !closed && due < localIsoDate();
   // the rail's own status line morphs when the issue lands on completed
   const { becameDone } = useLanding(issue, state?.type);
 
@@ -521,15 +546,14 @@ function TriageBanner(props: { issue: Issue }) {
   const dup = useMenu();
   if (state?.type !== 'triage') return null;
   const creator = snap.users.find(u => u.id === props.issue.creatorId);
-  const target = (type: string) => snap.states.filter(s => s.teamId === props.issue.teamId && s.type === type).sort((a, b) => a.position - b.position)[0];
   return (
     <div className="triage-banner">
       <IconTriage size={14} />
       <span className="tb-text"><b>{creator?.name ?? 'Someone'}</b> filed this into triage {relTime(props.issue.createdAt)}</span>
       <span style={{ flex: 1 }} />
-      <button className="btn primary sm" title="Accept (1)" onClick={() => { const s = target('backlog') ?? target('unstarted'); if (s) void setIssueProps([props.issue.id], { stateId: s.id }); }}><IconCheck size={12} /> Accept</button>
+      <button className="btn primary sm" title="Accept into the backlog" onClick={() => void triageDecide(props.issue, 'accept')}><IconCheck size={12} /> Accept</button>
       <button className="btn secondary sm" title="Mark as duplicate (⇧M)" onClick={dup.open}><IconDuplicate size={12} /> Duplicate</button>
-      <button className="btn secondary sm" title="Decline (2)" onClick={() => { const s = target('canceled'); if (s) void setIssueProps([props.issue.id], { stateId: s.id }); }}><IconClose size={12} /> Decline</button>
+      <button className="btn secondary sm" title="Decline (cancel the issue)" onClick={() => void triageDecide(props.issue, 'decline')}><IconClose size={12} /> Decline</button>
       {dup.anchor && (
         <Menu anchor={dup.anchor} onClose={dup.close} width={propMenuWidth('duplicate')}>
           <PropertyMenuBody kind="duplicate" issues={[props.issue]} onClose={dup.close} />
@@ -549,6 +573,19 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const key = helpers.keyOf(issue);
   const team = helpers.teamById(issue.teamId)!;
   const activityText = useActivityText();
+  // ?comment=<id> (from "Copy link to comment"): bring that comment into view and mark it briefly
+  const linkedComment = new URLSearchParams(useLocation().search).get('comment');
+  useEffect(() => {
+    if (!linkedComment) return;
+    const t = setTimeout(() => {
+      const el = document.getElementById(`comment-${linkedComment}`);
+      if (!el) return;
+      el.scrollIntoView({ block: 'center' });
+      el.classList.add('cmt-linked');
+      setTimeout(() => el.classList.remove('cmt-linked'), 2400);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [linkedComment, issue.id]);
   const toast = useApp(s => s.toast);
   const [titleDraft, setTitleDraft] = useState(issue.title);
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -609,7 +646,8 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const saveTitle = async (value: string) => {
     if (titleTimer.current) { clearTimeout(titleTimer.current); titleTimer.current = null; }
     const v = value.trim();
-    if (v && v !== issue.title) await setIssueProps([issue.id], { title: v });
+    // typing autosaves every pause; the field's own undo covers that, so it stays off the ⌘Z stack
+    if (v && v !== issue.title) await setIssueProps([issue.id], { title: v }, { undoable: false });
     else setTitleDraft(issue.title);
   };
   const onTitleChange = (value: string) => {
@@ -619,7 +657,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   };
   const saveDesc = async (md: string) => {
     const cur = useApp.getState().snap?.issues.find(i => i.id === issue.id)?.description ?? '';
-    if (md !== cur) await setIssueProps([issue.id], { description: md });
+    if (md !== cur) await setIssueProps([issue.id], { description: md }, { undoable: false });
   };
   const commentEditor = useRef<Editor | null>(null);
   const postComment = async (md: string) => {
@@ -680,24 +718,19 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
             </MenuSub>
             <MenuItem icon={<IconBranch size={14} />} label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={e => void handoff.copyBranch({ skipStart: e.altKey })} />
             <MenuItem icon={<IconCopyId size={14} />} label="Copy issue ID" right={<span className="mi-kbd">⌘.</span>} onClick={() => void handoff.copyId()} />
-            <MenuItem icon={<IconDuplicate size={14} />} label="Make a copy" onClick={async () => {
-              const { issue: dup } = await api.createIssue({
-                teamId: issue.teamId, title: `${issue.title} (copy)`, description: issue.description,
-                priority: issue.priority, assigneeId: issue.assigneeId, projectId: issue.projectId, milestoneId: issue.milestoneId,
-                labelIds: issue.labelIds, dueDate: issue.dueDate, estimate: issue.estimate, cycleId: issue.cycleId, parentId: issue.parentId,
-              });
-              await useApp.getState().bootstrap();
-              toast({ title: 'Copy created', link: { label: `View ${team.key}-${dup.number}`, to: `/issue/${team.key}-${dup.number}` } });
-            }} />
+            {/* same as the row menu: open the copy in the create modal so it can be edited before it exists */}
+            <MenuItem icon={<IconDuplicate size={14} />} label="Make a copy…" onClick={() => useApp.getState().openCreate({ teamId: issue.teamId, copyFrom: issue.id })} />
             <MenuSep />
             {issue.archivedAt
               ? <MenuItem icon={<IconRestore size={14} />} label="Unarchive" onClick={async () => { await api.unarchiveIssue(issue.id); await useApp.getState().bootstrap(); }} />
-              : <MenuItem icon={<IconArchive size={14} />} label="Archive" right={<span className="mi-kbd">E</span>} onClick={async () => { await archiveIssues([issue.id]); navigate(-1); }} />}
-            <MenuItem icon={<IconTrash size={14} />} danger label="Delete" right={<span className="mi-kbd">⌘⌫</span>} onClick={async () => { await deleteIssues([issue.id]); navigate(-1); }} />
+              : <MenuItem icon={<IconArchive size={14} />} label="Archive" right={<span className="mi-kbd">E</span>} onClick={async () => { await archiveIssues([issue.id]); if (props.full) navigate(exitPathFor(issue)); }} />}
+            <MenuItem icon={<IconTrash size={14} />} danger label="Delete" right={<span className="mi-kbd">⌘⌫</span>} onClick={async () => { await deleteIssues([issue.id]); if (props.full) navigate(exitPathFor(issue)); }} />
           </>
         }
         right={
           <>
+            {/* the copy / branch / prompt tools sit in the top bar, not a strip of their own above the title */}
+            <IssueToolbar issue={issue} />
             {props.full && nav.ids.length > 1 && navIndex >= 0 && (
               <span className="issue-nav">
                 <span className="issue-nav-count">{navIndex + 1} / {nav.ids.length}</span>
@@ -711,7 +744,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
       />
       <div className="issue-body">
         <div className="issue-main">
-          <div className="issue-toolbar-row"><IssueToolbar issue={issue} /></div>
           <div className="issue-scroll">
             <div className="issue-col" style={props.full ? undefined : { maxWidth: 'none' }}>
               {!props.hideTriage && <TriageBanner issue={issue} />}
@@ -733,7 +765,8 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
               </div>
               <div className="issue-under-desc">
                 <button className="icon-btn" data-add-link title="Add link (⌃L)" onClick={linkMenu.open}><IconLink size={14} /></button>
-                <button className="icon-btn" title="Add sub-issue (⌘⇧O)" onClick={() => useApp.getState().openCreate({ teamId: issue.teamId, parentId: issue.id, projectId: issue.projectId, cycleId: issue.cycleId })}><IconPlus size={14} /></button>
+                {/* once there are sub-issues their section header has its own +, so this one would be a second copy */}
+                {!snap.issues.some(i => i.parentId === issue.id) && <button className="icon-btn" title="Add sub-issue (⌘⇧O)" onClick={() => useApp.getState().openCreate({ teamId: issue.teamId, parentId: issue.id, projectId: issue.projectId, cycleId: issue.cycleId })}><IconPlus size={14} /></button>}
               </div>
               <Attachments issue={issue} />
               <SubIssuesSection issue={issue} />
@@ -765,8 +798,9 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                 <div className="comment-box composer">
                   <RichEditor key={`c-${issue.id}`} value="" issueId={issue.id} placeholder="Leave a comment…" clearOnSubmit onSubmit={postComment} editorRef={commentEditor} />
                   <div className="cbox-foot">
+                    <span className="cbox-hint">{snap.workspace.preferences.sendCommentsOn === 'enter' ? '↵ to comment · ⇧↵ new line' : '⌘↵ to comment'}</span>
                     <span style={{ flex: 1 }} />
-                    <button className="icon-btn cbox-send" title="Comment (⌘↵)" onClick={async () => { const ed = commentEditor.current; if (!ed) return; const md = htmlToMarkdown(ed.getHTML()); if (isBlank(md)) return; ed.commands.clearContent(); await postComment(md); }}><IconArrowUp size={14} /></button>
+                    <button className="icon-btn cbox-send" title="Comment (⌘↵)" onClick={async () => { const ed = commentEditor.current; if (!ed) return; const html = ed.getHTML(); const md = htmlToMarkdown(html); if (isBlank(md)) return; ed.commands.clearContent(); try { await postComment(md); } catch (err) { if (ed.isEmpty) ed.commands.setContent(html); throw err; } }}><IconArrowUp size={14} /></button>
                   </div>
                 </div>
               </div>
@@ -795,10 +829,13 @@ export function IssuePage(props: { issueKey: string }) {
 function MissingIssue(props: { issueKey: string }) {
   const navigate = useNavigate();
   const [found, setFound] = useState<{ issue: Issue; where: 'archive' | 'trash' } | null | undefined>(undefined);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let off = false;
     void (async () => {
-      const [a, d] = await Promise.all([api.archivedIssues(), api.deletedIssues()]);
+      const lists = await Promise.all([api.archivedIssues(), api.deletedIssues()]).catch(() => null);
+      if (!lists) { if (!off) setFailed(true); return; }
+      const [a, d] = lists;
       const snap = useApp.getState().snap!;
       const keyOf = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`.toLowerCase();
       const k = props.issueKey.toLowerCase();
@@ -808,8 +845,9 @@ function MissingIssue(props: { issueKey: string }) {
     })();
     return () => { off = true; };
   }, [props.issueKey]);
+  if (failed) return <NotFound what="Issue" detail={`Couldn’t check the archive and trash for ${props.issueKey}. Reload to try again.`} back={{ label: 'Go to my issues', to: '/my-issues' }} />;
   if (found === undefined) return null;
-  if (!found) return <div className="empty-state"><div className="empty-title">Issue not found</div><div className="empty-desc">{props.issueKey} doesn't exist, or was deleted permanently.</div></div>;
+  if (!found) return <NotFound what="Issue" detail={`${props.issueKey} doesn’t exist, or was deleted permanently.`} back={{ label: 'Go to my issues', to: '/my-issues' }} />;
   return (
     <div className="empty-state">
       <div className="empty-title">{props.issueKey.toUpperCase()} is {found.where === 'trash' ? 'in the trash' : 'archived'}</div>

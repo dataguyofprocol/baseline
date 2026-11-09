@@ -9,10 +9,21 @@
 // this cut, so it must stay legible there.
 // Grounds stay flat at any size, with no gradient, sheen or glow.
 
-export function Logo({ size = 18, tone = 'ink' }: { size?: number; tone?: 'ink' | 'paper' }) {
+// tone: 'theme' (default) follows the UI theme through the --logo-* tokens in styles.css:
+// the paper cut on dark chrome, the ink cut on light chrome, so the tile always contrasts
+// with the surface it sits on. 'ink' and 'paper' pin a cut for surfaces that ignore the
+// theme (print, export cards).
+type Tone = 'theme' | 'ink' | 'paper';
+const TONES: Record<Tone, { ground: string; fg: string; edge: string; edgeOpacity: number }> = {
+  ink: { ground: '#14151A', fg: '#F3F1EC', edge: '#fff', edgeOpacity: 0.09 },
+  paper: { ground: '#F3F1EC', fg: '#14151A', edge: '#09090A', edgeOpacity: 0.1 },
+  theme: { ground: 'var(--logo-ground)', fg: 'var(--logo-fg)', edge: 'var(--logo-edge)', edgeOpacity: 1 },
+};
+
+export function Logo({ size = 18, tone = 'theme' }: { size?: number; tone?: Tone }) {
   const small = size < 24;
-  const paper = tone === 'paper';
-  const uid = (small ? 'bl-logo-s' : 'bl-logo-l') + (paper ? '-p' : '');
+  const t = TONES[tone];
+  const uid = (small ? 'bl-logo-s' : 'bl-logo-l') + '-' + tone;
   const rule = small ? 2.6 : 1.9;
   const ruleX = small ? 4.4 : 6;
   const ruleW = small ? 23.2 : 20;
@@ -33,14 +44,14 @@ export function Logo({ size = 18, tone = 'ink' }: { size?: number; tone?: 'ink' 
       {/* the paper cut inverts only the ground. Geometry, register line and the
           knocked-out gap are identical; it is for ink-on-paper surfaces (print,
           export cards, a light marketing ground) */}
-      <rect width="32" height="32" rx={small ? 6.4 : 7.6} fill={paper ? '#F3F1EC' : '#14151A'} />
+      <rect width="32" height="32" rx={small ? 6.4 : 7.6} style={{ fill: t.ground }} />
       {!small && (
         <>
-          <rect x={0.5} y={0.5} width={31} height={31} rx={7.2} fill="none" stroke={paper ? '#09090A' : '#fff'} strokeOpacity={paper ? 0.1 : 0.09} />
+          <rect x={0.5} y={0.5} width={31} height={31} rx={7.2} fill="none" style={{ stroke: t.edge }} strokeOpacity={t.edgeOpacity} />
           <rect x={6} y={22.3} width={20} height={0.9} fill="#5E6AD2" />
         </>
       )}
-      <g fill={paper ? '#14151A' : '#F3F1EC'}>
+      <g style={{ fill: t.fg }}>
         <rect x={ruleX} y={ruleY} width={ruleW} height={rule} mask={`url(#${uid}-gap)`} />
         <circle cx={nodeCx} cy={cy} r={nodeR} />
       </g>

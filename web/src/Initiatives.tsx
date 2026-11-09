@@ -10,7 +10,7 @@ import {
 import { useApp, shortDate, relTime, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, MenuSub, Modal, useMenu, useInFlight } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, Modal, useMenu, useInFlight, exclusive } from './ui.js';
 import { Avatar, CalendarGrid, StateIcon, PriorityIcon, teamDisplayIcon } from './pickers.js';
 import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
 import { Markdown } from './Markdown.js';
@@ -23,6 +23,7 @@ import {
   IconTag, IconTeam, IconEmoji, IconClock, IconCopyId, IconList, IconBoard, IconTimeline, IconSettings,
 } from './icons.js';
 import { initiativeKey, PRIORITY_LABELS, UPDATE_CADENCE_LABELS, type DateResolution, type Initiative, type InitiativeStatus, type InitiativeUpdate, type Priority, type ProjectHealth, type Project, type UpdateCadence } from '../../src/core/types.js';
+import { UpdateBody } from './UpdateBody.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 const refresh = () => useApp.getState().bootstrap();
@@ -36,6 +37,8 @@ export const INITIATIVE_STATUS: Array<[InitiativeStatus, string, string]> = [
 const STATE_GLYPH: Record<InitiativeStatus, string> = { proposed: 'backlog', planned: 'unstarted', active: 'started', completed: 'completed', canceled: 'canceled' };
 const HEALTH: Array<[ProjectHealth, string, string]> = [['onTrack', 'On track', '#4cb782'], ['atRisk', 'At risk', '#f2c94c'], ['offTrack', 'Off track', '#eb5757']];
 const healthOf = (h: ProjectHealth | null | undefined) => HEALTH.find(x => x[0] === h);
+
+const SERIES_COLORS = ['#5e6ad2', '#4cb782', '#f2994a', '#8e4ffa', '#3b82f6', '#eb5757'];
 
 export function InitiativeStatusIcon({ status, size = 14 }: { status: InitiativeStatus; size?: number }) {
   const c = INITIATIVE_STATUS.find(x => x[0] === status)?.[2];
@@ -291,20 +294,19 @@ export function InitiativesPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={[{ label: 'Initiatives' }]} right={snap.initiatives.length ? <button className="btn secondary sm" onClick={() => setCreating(true)} title="New initiative · N then I"><IconPlus size={13} /> New initiative</button> : undefined} />
+      <TopBar crumbs={[{ label: 'Initiatives' }]} right={snap.initiatives.length ? <button className="btn secondary" onClick={() => setCreating(true)} title="New initiative · N then I"><IconPlus size={13} /> New initiative</button> : undefined} />
       <div className="subnav pill-tabs">
         {([['active', 'Active', <StateIcon key="a" type="started" color="currentColor" size={13} />], ['planned', 'Planned', <StateIcon key="p" type="unstarted" color="currentColor" size={13} />], ['all', 'All initiatives', null]] as const).map(([k, l, ic]) => (
           <button key={k} className={`pill-tab${tab === k ? ' on' : ''}`} onClick={() => navigate(`/initiatives/view/${k}`)}>{ic}{l}{snap.initiatives.length > 0 && <span className="pill-count">{counts[k]}</span>}</button>
         ))}
-      </div>
-      {snap.initiatives.length > 0 && (
-        <div className="ini-toolbar">
-          <button className={`btn ghost sm${filtered ? ' on' : ''}`} onClick={filterMenu.open}><IconFilter size={13} /> Filter{filtered ? <span className="pill-count">{filtered}</span> : null}</button>
-          {filtered > 0 && <button className="btn ghost sm dim" onClick={() => patchPrefs(CLEAR_FILTERS)}>Clear</button>}
+        {/* filter and display as icon buttons at the end of the tab row, like Issues, Projects and Views */}
+        {snap.initiatives.length > 0 && <>
           <span style={{ flex: 1 }} />
-          <button className="btn ghost sm" onClick={displayMenu.open}><IconDisplay size={13} /> Display</button>
-        </div>
-      )}
+          {filtered > 0 && <button className="btn ghost sm dim" onClick={() => patchPrefs(CLEAR_FILTERS)}>Clear filters</button>}
+          <button className={`icon-btn${filtered ? ' on' : ''}`} title={filtered ? `Filter (${filtered} active)` : 'Filter'} aria-label="Filter" onClick={filterMenu.open}><IconFilter size={15} /></button>
+          <button className="icon-btn" title="Display options" aria-label="Display options" onClick={displayMenu.open}><IconDisplay size={15} /></button>
+        </>}
+      </div>
       {filterMenu.anchor && (
         <Menu anchor={filterMenu.anchor} onClose={filterMenu.close} width={230}>
           <MenuSub icon={<StateIcon type="started" color="var(--text-secondary)" size={13} />} label="Status" right={prefs.statuses.length ? <span className="dim">{prefs.statuses.length}</span> : undefined}>
@@ -502,7 +504,7 @@ function InitiativeContextMenu({ ini, anchor, onClose }: { ini: Initiative; anch
       <MenuItem icon={<IconLink size={14} />} label="Copy link" right={<span className="kbd">⌘⇧,</span>} onClick={async () => { if (await copyText(`${location.origin}/#/initiatives/${ini.id}`)) toast('Copied initiative link'); }} />
       <MenuItem icon={<IconCopyId size={14} />} label="Copy ID" onClick={async () => { if (await copyText(initiativeKey(ini))) toast(`Copied ${initiativeKey(ini)}`); }} />
       <MenuSep />
-      <MenuItem icon={<IconTrash size={14} />} danger label="Delete initiative" onClick={async () => { await api.deleteInitiative(ini.id); await refresh(); toast(`Deleted ${ini.name}`); }} />
+      <MenuItem icon={<IconTrash size={14} />} danger label="Delete initiative" confirm="Delete initiative?" onClick={async () => { await api.deleteInitiative(ini.id); await refresh(); toast(`Deleted ${ini.name}`); }} />
     </Menu>
   );
 }
@@ -531,25 +533,42 @@ function NewInitiativeModal(props: { onClose: () => void; onCreated?: (id: strin
   });
   const parent = snap.initiatives.find(i => i.id === props.parentId);
   return (
-    <Modal onClose={props.onClose} className="modal ini-modal">
-      <div className="ini-modal-head">
-        <span className="ini-modal-crumb"><IconInitiative size={13} />{parent ? <>{parent.name}<span className="dim">›</span>New sub-initiative</> : 'New initiative'}</span>
-        <button className="icon-btn" onClick={props.onClose}><IconClose size={14} /></button>
-      </div>
-      <div className="ini-modal-body">
-        <button className="ini-modal-icon" onClick={iconMenu.open} title="Choose icon"><InitiativeIcon ini={{ icon, color }} size={36} tile /></button>
-        <input className="ini-modal-name" autoFocus placeholder="Initiative name" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !e.shiftKey)) void create(); }} />
-        <input className="ini-modal-summary" placeholder="Add a short summary…" value={summary} onChange={e => setSummary(e.target.value)} />
-        <div className="ini-modal-chips">
-          <button className="prop-chip boxed" onClick={statusMenu.open}><InitiativeStatusIcon status={status} size={13} />{INITIATIVE_STATUS.find(s => s[0] === status)?.[1]}</button>
-          <button className="prop-chip boxed" onClick={prioMenu.open}><PriorityIcon priority={priority} size={13} />{priority ? PRIORITY_LABELS[priority] : 'Priority'}</button>
-          <button className="prop-chip boxed" onClick={ownerMenu.open}>{owner ? <><Avatar user={owner} size={16} />{owner.name}</> : <><IconUser size={13} />Owner</>}</button>
-          <button className="prop-chip boxed" onClick={teamMenu.open}>{team ? <>{teamDisplayIcon(team)}{team.name}</> : <><IconTeam size={13} />Lead team</>}</button>
-          <button className="prop-chip boxed" onClick={labelMenu.open}>{labelIds.length ? <InitiativeLabelChips ini={{ labelIds }} /> : <><IconTag size={13} />Labels</>}</button>
+    <Modal onClose={props.onClose} className="modal modal-create np-modal ini-modal">
+      {/* same scaffold as New project (cm-header, np-*, cm-pills, cm-footer) so the two read as one family */}
+      <div className="cm-root" onKeyDown={e => {
+        if ((e.target as HTMLElement).closest?.('.menu')) return;
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void create(); }
+      }}>
+        <div className="cm-header">
+          <span className="cm-team"><IconInitiative size={13} />{parent ? parent.name : 'Initiatives'}</span>
+          <span className="crumb-sep">›</span>
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{parent ? 'New sub-initiative' : 'New initiative'}</span>
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+            <button className="icon-btn" title="Close" aria-label="Close" onClick={props.onClose}><IconClose size={14} /></button>
+          </span>
         </div>
-        <textarea className="ini-modal-desc" placeholder="Write a description, a goal or a plan…" value={description} onChange={e => setDescription(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void create(); }} />
+        <div className="np-head">
+          <button className="np-icon" onClick={iconMenu.open} title="Choose icon"><InitiativeIcon ini={{ icon, color }} size={20} /></button>
+        </div>
+        <input className="np-name" autoFocus placeholder="Initiative name" value={name} spellCheck={false} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void create(); } }} />
+        <input className="np-summary" placeholder="Add a short summary…" value={summary} spellCheck={false} onChange={e => setSummary(e.target.value)} />
+        <div className="cm-pills">
+          <button className="prop-chip" onClick={statusMenu.open}><InitiativeStatusIcon status={status} size={13} />{INITIATIVE_STATUS.find(s => s[0] === status)?.[1]}</button>
+          <button className="prop-chip" onClick={prioMenu.open}><PriorityIcon priority={priority} size={13} />{priority ? PRIORITY_LABELS[priority] : 'Priority'}</button>
+          <button className="prop-chip" onClick={ownerMenu.open}>{owner ? <><Avatar user={owner} size={16} />{owner.name.split(' ')[0]}</> : <><IconUser size={13} />Owner</>}</button>
+          <button className="prop-chip" onClick={teamMenu.open}>{team ? <>{teamDisplayIcon(team)}{team.name}</> : <><IconTeam size={13} />Lead team</>}</button>
+          <button className="prop-chip" onClick={labelMenu.open}>{labelIds.length ? <InitiativeLabelChips ini={{ labelIds }} /> : <><IconTag size={13} />Labels</>}</button>
+        </div>
+        <div className="np-desc">
+          <textarea placeholder="Write a description, a goal or a plan…" value={description} onChange={e => setDescription(e.target.value)} />
+        </div>
+        <div className="cm-footer">
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={props.onClose}>Cancel</button>
+            <button className="btn primary" disabled={!name.trim() || busy} onClick={() => void create()}>Create initiative <span className="btn-kbd kbd">⌘↵</span></button>
+          </div>
+        </div>
       </div>
-      <div className="sm-foot"><button className="btn ghost" onClick={props.onClose}>Cancel</button><button className="btn primary" disabled={!name.trim() || busy} onClick={() => void create()}>Create initiative</button></div>
       {iconMenu.anchor && <Menu anchor={iconMenu.anchor} onClose={iconMenu.close} width={292}><IconPicker value={icon} color={color} onPick={p => { if (p.icon) setIcon(p.icon); if (p.color) setColor(p.color); }} /></Menu>}
       {statusMenu.anchor && <Menu anchor={statusMenu.anchor} onClose={statusMenu.close} width={200}>{INITIATIVE_STATUS.map(([v, l]) => <MenuItem key={v} icon={<InitiativeStatusIcon status={v} />} label={l} selected={status === v} onClick={() => setStatus(v)} />)}</Menu>}
       {prioMenu.anchor && <Menu anchor={prioMenu.anchor} onClose={prioMenu.close} width={200}><PriorityMenuItems value={priority} onPick={setPriority} /></Menu>}
@@ -595,7 +614,7 @@ export function InitiativePage() {
             {(Object.keys(UPDATE_CADENCE_LABELS) as UpdateCadence[]).map(c => <MenuItem key={c} label={UPDATE_CADENCE_LABELS[c]} selected={ini.updateCadence === c} onClick={async () => { await api.updateInitiative(ini.id, { updateCadence: c }); await refresh(); }} />)}
           </MenuSub>
           <MenuSep />
-          <MenuItem icon={<IconTrash size={14} />} danger label="Delete initiative" onClick={async () => { await api.deleteInitiative(ini.id); await refresh(); navigate('/initiatives'); toast(`Deleted ${ini.name}`); }} />
+          <MenuItem icon={<IconTrash size={14} />} danger label="Delete initiative" confirm="Delete initiative?" onClick={async () => { await api.deleteInitiative(ini.id); await refresh(); navigate('/initiatives'); toast(`Deleted ${ini.name}`); }} />
         </>} />
       <div className="subnav pill-tabs">
         {(['overview', 'projects', 'updates'] as const).map(t => (
@@ -687,7 +706,7 @@ function UpdateComposer({ ini, onDone }: { ini: Initiative; onDone: () => void }
   const [health, setHealth] = useState<ProjectHealth>(ini.health ?? 'onTrack');
   const editorRef = useRef<Editor | null>(null);
   const [body, setBody] = useState('');
-  const post = async (md: string) => { if (isBlank(md)) return; await api.addInitiativeUpdate(ini.id, md, health); await refresh(); onDone(); toast('Update posted'); };
+  const post = (md: string) => exclusive(`ini-update-${ini.id}`, async () => { if (isBlank(md)) return; await api.addInitiativeUpdate(ini.id, md, health); await refresh(); onDone(); toast('Update posted'); });
   return (
     <div className="update-card composing">
       <div className="update-health-row">{HEALTH.map(([v, l, c]) => <button key={v} className={`health-pick${health === v ? ' on' : ''}`} style={health === v ? { color: c } : undefined} onClick={() => setHealth(v)}><HealthIcon health={v} size={13} />{l}</button>)}</div>
@@ -749,7 +768,7 @@ function InitiativeUpdateCard({ ini, latest }: { ini: Initiative; latest?: Snap[
         <button className="btn ghost sm" onClick={() => navigate(`/initiatives/${ini.id}/updates`)}>All updates</button>
         <button className="btn secondary sm" onClick={() => setComposing(true)}><IconEdit size={12} /> New update</button>
       </div>
-      <Markdown text={latest.body} />
+      <UpdateBody kind="initiative" id={latest.id} userId={latest.userId} body={latest.body} />
       <UpdateReactions update={latest} />
     </div>
   );
@@ -871,6 +890,9 @@ function InitiativeGraph({ ini }: { ini: Initiative }) {
     const pts = ys.map((n, w) => [X(w), Y(n)] as const); if (rev) pts.reverse();
     return pts.map(([x, y], k) => { if (!k) return `${rev ? 'L' : 'M'}${x},${y}`; const [px, py] = pts[k - 1]; const mx = (px + x) / 2; return `C${mx},${py} ${mx},${y} ${x},${y}`; }).join(' ');
   };
+  // projects without distinct colours of their own still need distinct swatches, or every legend dot reads the same
+  const ownColors = layers.every(l => l.p.color) && new Set(layers.map(l => l.p.color)).size === layers.length;
+  const colorOf = (l: (typeof layers)[number]) => (ownColors ? l.p.color : null) || SERIES_COLORS[layers.indexOf(l) % SERIES_COLORS.length];
   const hov = layers.find(l => l.p.id === hover);
   const end = new Date(start.getTime() + (WEEKS - 1) * 7 * 86400000);
   return (
@@ -885,7 +907,7 @@ function InitiativeGraph({ ini }: { ini: Initiative }) {
           )}
           <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" width="100%" height={H}>
             {layers.map(l => {
-              const on = hover === l.p.id; const c = l.p.color || 'var(--brand)';
+              const on = hover === l.p.id; const c = colorOf(l);
               return <path key={l.p.id} d={`${curve(l.y1)} ${curve(l.y0, true)} Z`} fill={on ? c : 'var(--text-primary)'} fillOpacity={on ? 0.42 : hover ? 0.03 : 0.06}
                 stroke={on ? c : 'var(--text-secondary)'} strokeOpacity={on ? 0.9 : 0.45} strokeWidth="1" vectorEffect="non-scaling-stroke"
                 onMouseEnter={() => setHover(l.p.id)} onClick={() => navigate(`/projects/${l.p.id}`)} style={{ cursor: 'pointer', transition: 'fill-opacity 160ms var(--ease)' }} />;
@@ -893,7 +915,7 @@ function InitiativeGraph({ ini }: { ini: Initiative }) {
           </svg>
           <div className="ini-graph-axis"><span>{shortDate(start.toISOString())}</span><span>{shortDate(end.toISOString())}</span></div>
           <div className="ini-graph-legend">
-            {layers.map(l => <button key={l.p.id} className={`ini-legend${hover === l.p.id ? ' on' : ''}`} onMouseEnter={() => setHover(l.p.id)} onClick={() => navigate(`/projects/${l.p.id}`)}><span className="health-dot" style={{ background: l.p.color || 'var(--brand)' }} />{l.p.name}<span className="dim">{l.total}</span></button>)}
+            {layers.map(l => <button key={l.p.id} className={`ini-legend${hover === l.p.id ? ' on' : ''}`} onMouseEnter={() => setHover(l.p.id)} onClick={() => navigate(`/projects/${l.p.id}`)}><span className="health-dot" style={{ background: colorOf(l) }} />{l.p.name}<span className="dim">{l.total}</span></button>)}
           </div>
         </div>
       )}
@@ -934,7 +956,7 @@ function InitiativeUpdatesTab({ ini, compose }: { ini: Initiative; compose: bool
               {h && <span className="update-health" style={{ color: h[2] }}><HealthIcon health={u.health} size={13} />{h[1]}</span>}
               <span style={{ flex: 1 }} /><Avatar user={a} size={16} /><span className="dim">{a?.name} · {relTime(u.at)}</span>
             </header>
-            <div className="ini-upd-body"><Markdown text={u.body} /></div>
+            <UpdateBody kind={u.project ? 'project' : 'initiative'} id={u.key} userId={u.userId} body={u.body} className="ini-upd-body" />
             {u.update && <UpdateReactions update={u.update} />}
           </article>
         ); })}

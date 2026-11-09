@@ -468,7 +468,7 @@ function PaletteStep({ back, finish }: StepProps) {
     return () => window.removeEventListener('keydown', onKey);
   });
   // with the palette up, Enter and Esc go to the palette
-  useStepKeys(open ? null : () => used && void finish(), open ? null : () => void finish());
+  useStepKeys(open ? null : () => void finish(), open ? null : () => void finish());
 
   return (
     <Frame
@@ -477,7 +477,8 @@ function PaletteStep({ back, finish }: StepProps) {
       sub={used
         ? 'It works on every page: create, jump, change any property of the issues you’ve selected. Pick “Create new issue” there, or continue, to write your first issue.'
         : 'Everything in Baseline is a few keystrokes away. Open the command menu once to continue.'}
-      primary={{ label: 'Create your first issue', onClick: () => void finish(), disabled: !used }}
+      // the ⌘K lesson is offered, not required: continuing works whether or not it was tried
+      primary={{ label: 'Create your first issue', onClick: () => void finish() }}
       onSkip={() => void finish()}
       back={back}
     >

@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useApp, relTime } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, useMenu, RegisterMark } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, RegisterMark, NotFound, exclusive } from './ui.js';
 import { GroupedList, FilterBar, DisplayOptionsMenu, useViewPrefs, DEFAULT_VIEW_OPTIONS, activeFilterCount, applyFilters, applyDisplay, countConditions, type ViewOptions } from './IssueViews.js';
 import { Board } from './Board.js';
 import { ProjectsPage, countProjectView, describeProjectView } from './Projects.js';
@@ -65,6 +65,8 @@ export function IssueListBody(props: {
   onFocusStatus?: (stateId: string) => void;
   /** "Save" in the filter bar: omit where a view can't be saved (a view saves itself) */
   onSaveView?: (() => void) | null;
+  /** a saved view: its filters are the point, so don't count what they hide as a problem */
+  savedView?: boolean;
 }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -105,7 +107,15 @@ export function IssueListBody(props: {
             createDefaults={props.createDefaults}
             onFocusStatus={props.onFocusStatus}
             onClearFilters={() => patch({ filters: {} })}
+            hideFilterFooter={props.savedView}
           />
+        ) : boardIssues.length === 0 && Object.keys(opts.filters ?? {}).length > 0 && props.issues.length > 0 ? (
+          // the list says "N hidden by filters"; a board filtered to nothing used to look empty
+          <div className="empty-state">
+            <div className="empty-title">No matching issues</div>
+            <div className="empty-desc">No issues match the current filters.</div>
+            <div className="empty-actions"><button className="btn secondary" onClick={() => patch({ filters: {} })}>Clear filters</button></div>
+          </div>
         ) : (
           <Board
             issues={boardIssues}
@@ -232,7 +242,7 @@ export function TeamSubnav(props: { teamId: string; filter: 'all' | 'active' | '
           {props.filter === f && <RegisterMark group="team-tabs" />}
         </button>
       ))}
-      <button className="icon-btn seg-add" title="New view from this list (⌥V)" onClick={() => { const ev = new CustomEvent('baseline:save-view', { cancelable: true }); window.dispatchEvent(ev); }}><IconViews size={14} /></button>
+      <button className="icon-btn seg-add" title="New view from this list (⌥V)" aria-label="New view from this list" onClick={() => { const ev = new CustomEvent('baseline:save-view', { cancelable: true }); window.dispatchEvent(ev); }}><IconViews size={14} /></button>
       <span style={{ flex: 1 }} />
       {props.trailing}
       {teamMenu.anchor && (
@@ -303,7 +313,9 @@ function MyActivity() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const me = snap.currentUser.id;
-  const items = snap.activity.filter(a => a.userId === me && a.issueId).slice(0, 300);
+  // a comment you deleted no longer counts as something you did
+  const liveComments = new Set(snap.comments.map(c => c.id));
+  const items = snap.activity.filter(a => a.userId === me && a.issueId && !(a.type === 'commented' && typeof a.data?.commentId === 'string' && !liveComments.has(a.data.commentId))).slice(0, 300);
   const issueOf = (id: string | null) => snap.issues.find(i => i.id === id);
   const keyOf = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
   const verb = (a: typeof items[number]) => {
@@ -385,7 +397,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
   const describe = (filters: ViewFilters): Array<[string, string]> => {
     const bits: Array<[string, string]> = [];
     if (filters.query) bits.push(['Text', `“${filters.query}”`]);
-    if (filters.priority?.length) bits.push(['Priority', filters.priority.slice().sort().map(p => ['None', 'Urgent', 'High', 'Medium', 'Low'][p]).join(', ')]);
+    if (filters.priority?.length) bits.push(['Priority', filters.priority.slice().sort().map(p => ['No priority', 'Urgent', 'High', 'Medium', 'Low'][p]).join(', ')]);
     if (filters.assigneeIds?.length) bits.push(['Assignee', filters.assigneeIds.map(id => snap.users.find(u => u.id === id)?.name ?? id).join(', ')]);
     if (filters.labelIds?.length) bits.push(['Label', filters.labelIds.map(id => snap.labels.find(l => l.id === id)?.name ?? id).join(', ')]);
     if (filters.projectIds?.length) bits.push(['Project', filters.projectIds.map(id => snap.projects.find(p => p.id === id)?.name ?? id).join(', ')]);
@@ -398,18 +410,27 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
   };
   const live = snap.issues.filter(i => !i.archivedAt && !i.deletedAt);
 
-  const createView = async () => {
+  // one rename settles once: Enter saves, Esc cancels, and the blur that follows either is ignored
+  const renameSettled = useRef<string | null>(null);
+  const finishRename = async (id: string, old: string, keep: boolean) => {
+    if (renameSettled.current === id) return;
+    renameSettled.current = id;
+    setRenaming(null);
+    const next = renameValue.trim();
+    if (keep && next && next !== old) { await api.updateView(id, { name: next }); await useApp.getState().bootstrap(); }
+  };
+  const createView = () => exclusive('view-create', async () => {
     const { view } = await api.createView(kind === 'projects'
       ? { name: 'New view', kind: 'projects', projectOptions: {}, filters: {}, icon: '📁', teamId: team?.id ?? null }
       : { name: 'New view', filters: {}, icon: '🗂', teamId: team?.id ?? null });
     await useApp.getState().bootstrap();
     // open the new view with its name selected, since naming it is the likely next step
     navigate(`/views/${view.id}`, { state: { rename: true } });
-  };
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={team ? [{ label: team.name, to: `/team/${team.key}/all`, muted: true }, { label: 'Views' }] : [{ label: 'Views' }]} right={<button className="btn secondary" onClick={createView}>＋ New view</button>} />
+      <TopBar crumbs={team ? [{ label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true }, { label: 'Views' }] : [{ label: 'Views' }]} right={<button className="btn secondary" onClick={createView}>＋ New view</button>} />
       <div className="subnav">
         {(['issues', 'projects'] as const).map(k => (
           <button key={k} className={`seg ${kind === k ? 'selected' : ''}`} onClick={() => navigate(k === 'issues' ? base : `${base}/projects`)}>
@@ -447,10 +468,10 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
                   <input ref={renameRef} className="text-input" style={{ height: 26, flex: 1 }} autoFocus value={renameValue}
                     onClick={e => e.stopPropagation()}
                     onChange={e => setRenameValue(e.target.value)}
-                    onBlur={async () => { await api.updateView(v.id, { name: renameValue || v.name }); await useApp.getState().bootstrap(); setRenaming(null); }}
-                    onKeyDown={async e => {
-                      if (e.key === 'Enter') { await api.updateView(v.id, { name: renameValue || v.name }); await useApp.getState().bootstrap(); setRenaming(null); }
-                      if (e.key === 'Escape') setRenaming(null);
+                    onBlur={() => void finishRename(v.id, v.name, true)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') void finishRename(v.id, v.name, true);
+                      if (e.key === 'Escape') void finishRename(v.id, v.name, false);
                     }} />
                 ) : (
                   <span className="row-title" style={{ fontWeight: 600 }}>{v.name}</span>
@@ -474,7 +495,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
       </div>
       {rowMenu.anchor && menuView && (
         <Menu anchor={rowMenu.anchor} onClose={() => { rowMenu.close(); setMenuView(null); }}>
-          <MenuItem icon={<IconStar size={14} />} label="Toggle favorite" onClick={async () => { await api.toggleFavorite('view', menuView); await useApp.getState().bootstrap(); }} />
+          {(faved => <MenuItem icon={<IconStar size={14} filled={faved} />} label={faved ? 'Unfavorite' : 'Favorite'} onClick={async () => { await api.toggleFavorite('view', menuView); await useApp.getState().bootstrap(); }} />)(snap.favorites.some(f => f.type === 'view' && f.refId === menuView))}
           {(() => {
             // only whoever saved a view decides who sees it (and only where there's more than one person)
             const v = snap.views.find(x => x.id === menuView);
@@ -488,11 +509,11 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
           <MenuItem label="Rename" onClick={() => {
             const v = snap.views.find(x => x.id === menuView);
             setRenameValue(v?.name ?? '');
-            setRenaming(menuView);
+            renameSettled.current = null; setRenaming(menuView);
             rowMenu.close();
           }} />
           <MenuSep />
-          <MenuItem icon={<IconTrash size={14} />} danger label="Delete view" onClick={async () => {
+          <MenuItem icon={<IconTrash size={14} />} danger label="Delete view" confirm="Delete view?" onClick={async () => {
             await api.deleteView(menuView);
             await useApp.getState().bootstrap();
             toast({ title: 'View deleted' });
@@ -511,7 +532,11 @@ export function ViewNameSeg(props: { view: SavedView; startEditing?: boolean }) 
   useEffect(() => { setName(props.view.name); }, [props.view.name]);
   // select after mount, because the caret's default placement undoes a focus-event select()
   useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+  // Enter or Esc settles the edit; the blur that follows the input's removal must not save again
+  const settled = useRef(false);
   const save = async () => {
+    if (settled.current) return;
+    settled.current = true;
     setEditing(false);
     const trimmed = name.trim();
     if (trimmed && trimmed !== props.view.name) {
@@ -526,12 +551,12 @@ export function ViewNameSeg(props: { view: SavedView; startEditing?: boolean }) 
       onBlur={save}
       onKeyDown={e => {
         if (e.key === 'Enter') save();
-        if (e.key === 'Escape') { setName(props.view.name); setEditing(false); }
+        if (e.key === 'Escape') { settled.current = true; setName(props.view.name); setEditing(false); }
       }} />
   );
   return (
     <button className="seg selected" title="Click to rename" style={{ gap: 6 }}
-      onClick={() => { setName(props.view.name); setEditing(true); }}>
+      onClick={() => { settled.current = false; setName(props.view.name); setEditing(true); }}>
       {props.view.name}
       <IconEdit size={11} style={{ opacity: 0.45 }} />
     </button>
@@ -563,12 +588,12 @@ function IssueViewPage() {
   const localJson = JSON.stringify({ filters: opts.filters, groupBy: opts.groupBy, orderBy: opts.orderBy, layout: opts.layout });
   const dirty = view && savedJson !== localJson;
   const issues = useMemo(() => view?.teamId ? snap.issues.filter(i => i.teamId === view.teamId) : snap.issues, [snap.issues, view?.teamId]);
-  if (!view) return <div className="empty-state"><div className="empty-title">View not found</div></div>;
+  if (!view) return <NotFound what="View" back={{ label: 'Back to views', to: '/views' }} />;
   const team = view.teamId ? snap.teams.find(t => t.id === view.teamId) : undefined;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar
-        crumbs={[...(team ? [{ label: team.name, to: `/team/${team.key}/all`, muted: true }] : []), { label: 'Views', to: '/views', muted: true }, { label: view.name, icon: <span>{view.icon || '🗂'}</span> }]}
+        crumbs={[...(team ? [{ label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true }] : []), { label: 'Views', to: '/views', muted: true }, { label: view.name, icon: <span>{view.icon || '🗂'}</span> }]}
         favoriteRef={{ type: 'view', refId: view.id }}
         right={dirty ? (
           <span style={{ display: 'flex', gap: 6 }}>
@@ -587,7 +612,7 @@ function IssueViewPage() {
         <ListToolbar opts={opts} onDisplay={displayBtn.open} />
       </div>
       <IssueListBody issues={issues} opts={opts} patch={patch} teamId={view.teamId ?? undefined} multiTeam={!view.teamId}
-        displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close} onSaveView={null}
+        displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close} onSaveView={null} savedView
         emptyTitle={view.name} emptyDesc="No issues match this view right now." />
     </div>
   );
@@ -603,7 +628,7 @@ export function LabelPage() {
   const label = snap.labels.find(l => l.id === labelId);
   const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:label:${labelId}`, { ...TEAM_DEFAULT_OPTS });
   const issues = useMemo(() => snap.issues.filter(i => i.labelIds.includes(labelId)), [snap.issues, labelId]);
-  if (!label) return <div className="empty-state"><div className="es-title">Label not found</div></div>;
+  if (!label) return <NotFound what="Label" back={{ label: 'Go to my issues', to: '/my-issues' }} />;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar
@@ -633,7 +658,7 @@ export function ProfilePage() {
   const tab = rawTab === 'created' ? 'created' : 'assigned';
   const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:profile:${tab}`, { ...TEAM_DEFAULT_OPTS });
   const issues = useMemo(() => snap.issues.filter(i => (tab === 'created' ? i.creatorId : i.assigneeId) === userId), [snap.issues, userId, tab]);
-  if (!user) return <div className="empty-state"><div className="es-title">User not found</div></div>;
+  if (!user) return <NotFound what="Person" back={{ label: 'Back to members', to: '/members' }} />;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={[{ label: user.name, icon: <Avatar user={user} size={16} />, onClick: switcher.open }]} />
@@ -642,6 +667,17 @@ export function ProfilePage() {
           {snap.users.map(u => <MenuItem key={u.id} icon={<Avatar user={u} size={16} />} label={u.name} selected={u.id === user.id} onClick={() => { switcher.close(); navigate(`/profiles/${u.id}/${tab}`); }} />)}
         </Menu>
       )}
+      {/* who this is, before their issues: a profile with only a list didn't say whose it was */}
+      <div className="profile-head">
+        <Avatar user={user} size={40} />
+        <div className="profile-id">
+          <div className="profile-name">{user.name}{user.id === snap.currentUser.id && <span className="profile-you"> (you)</span>}</div>
+          <div className="profile-meta">
+            {[user.title, user.kind === 'agent' ? 'Agent' : user.admin ? 'Admin' : 'Member', user.kind === 'agent' ? null : user.email].filter(Boolean).join(' · ')}
+            {snap.teams.filter(t => t.memberIds.includes(user.id)).map(t => <span key={t.id} className="profile-team">{teamDisplayIcon(t)}{t.name}</span>)}
+          </div>
+        </div>
+      </div>
       <div className="subnav">
         {(['assigned', 'created'] as const).map(t => (
           <button key={t} className={`seg ${tab === t ? 'selected' : ''}`} onClick={() => navigate(`/profiles/${user.id}/${t}`)}>
@@ -652,7 +688,8 @@ export function ProfilePage() {
         <span style={{ flex: 1 }} />
         <ListToolbar opts={opts} onDisplay={displayBtn.open} />
       </div>
-      <IssueListBody issues={issues} opts={opts} patch={patch} reset={reset} multiTeam
+      {/* on Assigned every row's assignee is this person, so that column only repeats the header */}
+      <IssueListBody issues={issues} opts={tab === 'assigned' ? { ...opts, display: { ...opts.display, assignee: false } } : opts} patch={patch} reset={reset} multiTeam
         displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close}
         emptyTitle={tab === 'created' ? `No issues created by ${user.name}` : `No issues assigned to ${user.name}`} emptyDesc="" emptyHideCreate />
     </div>

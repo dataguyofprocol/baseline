@@ -7,7 +7,7 @@ import {
 } from '@dnd-kit/core';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useApp, STATUS_ORDER, copyText, shortDate, useSelection, useCursor, registerVisibleList } from './store.js';
+import { useApp, STATUS_ORDER, copyText, shortDate, useSelection, useCursor, registerVisibleList, localIsoDate } from './store.js';
 import { api } from './api.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { IconPlus, IconMore, IconCopy, IconFocus, IconCycle, IconEstimate, IconCalendar, IconChevronRight, IconCaret, IconMilestone, IconAttach, IconChevronDown } from './icons.js';
@@ -39,7 +39,7 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
   const progress = subIssueProgress(issue.id, snap);
   const closed = state?.type === 'completed' || state?.type === 'canceled';
   const due = issue.dueDate?.slice(0, 10);
-  const overdue = !!due && !closed && due < new Date().toISOString().slice(0, 10);
+  const overdue = !!due && !closed && due < localIsoDate();
   const links = d.links ? snap.attachments.filter(a => a.issueId === issue.id).length : 0;
   const est = estimateLabel(issue, snap);
   const pr = d.prs !== false ? issuePrState(snap, issue.id) : null;
@@ -81,7 +81,7 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
     <>
       <div className="bc-top">
         {d.id !== false && <span className="bc-key">{team?.key}-{issue.number}</span>}
-        {parent && <span className="bc-parent" title={`Sub-issue of ${parent.title}`}><IconChevronRight size={10} />{parent.title}</span>}
+        {parent && <span className="bc-parent" title={`Sub-issue of ${parent.title}`}><IconChevronRight size={10} /><span className="bc-parent-text">{parent.title}</span></span>}
         <span className="bc-fill" />
         {d.assignee !== false && !grouped('assignee') && (assignee || onProp) && (
           // unassigned cards keep an empty avatar that surfaces on hover, so assigning is one click
@@ -439,11 +439,11 @@ function ColumnHeader(props: {
       {estimatesOn && props.points > 0 && <span className="gh-points" title={`${props.points} points`}><IconEstimate size={11} />{props.points}</span>}
       <span className="col-actions">
         <button className="icon-btn col-more" data-no-drag title="Column actions" onClick={menu.open}><IconMore size={13} /></button>
-        {canCreate && <button className="icon-btn" data-no-drag title="New issue in this column" onClick={addIssue}><IconPlus size={13} /></button>}
+        {canCreate && <button className="icon-btn" data-no-drag title="New issue" onClick={addIssue}><IconPlus size={13} /></button>}
       </span>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={210}>
-          {canCreate && <MenuItem icon={<IconPlus size={14} />} label="Add issue…" onClick={addIssue} />}
+          {canCreate && <MenuItem icon={<IconPlus size={14} />} label="New issue" onClick={addIssue} />}
           {props.groupBy === 'status' && props.onFocus && <MenuItem icon={<IconFocus size={14} />} label="Focus this column" onClick={() => props.onFocus!(props.col.stateIds)} />}
           {(canCreate || props.onFocus) && <MenuSep />}
           <MenuItem label="Hide column" onClick={props.onHide} />

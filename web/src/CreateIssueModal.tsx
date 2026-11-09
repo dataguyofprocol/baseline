@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { useApp, refresh, shortDate } from './store.js';
+import { useApp, refresh, shortDate, isoDaysFromToday } from './store.js';
 import { api } from './api.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu, useInFlight } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
-import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
+import { StateIcon, PriorityIcon, Avatar, teamDisplayIcon } from './pickers.js';
 import { IconClose, IconPlus, IconExpand, IconTag, IconCalendar, IconEstimate, IconMore, IconChevronDown, IconSubIssue, IconDoc, IconBox, IconUser, IconCheck, IconCycle, IconMilestone } from './icons.js';
 import { teamScale, type Priority, type Team } from '../../src/core/types.js';
 import type { Editor } from '@tiptap/react';
-import { RichEditor, htmlToMarkdown } from './RichEditor.js';
+import { RichEditor, htmlToMarkdown, isBlank } from './RichEditor.js';
+import { LABEL_COLORS } from './labelColors.js';
 
 const SUGGESTIONS: Array<[RegExp, string]> = [
   [/\b(bug|crash|error|broken|fix|fails?|regression)\b/i, 'Bug'],
@@ -15,13 +16,14 @@ const SUGGESTIONS: Array<[RegExp, string]> = [
   [/\b(improve|refactor|polish|cleanup|optimi[sz]e|speed)\b/i, 'Improvement'],
 ];
 
-// same palette as Settings → Labels; kept local to avoid importing the settings page
-const LABEL_COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
+
 
 interface Draft {
   title: string; description: string; statusId?: string; priority: Priority;
   assigneeId: string | null; labelIds: string[]; projectId: string | null;
   dueDate: string | null; estimate: number | null; savedAt: string;
+  /** kept since the auto-draft on close: a draft used to lose its cycle and milestone */
+  cycleId?: string | null; milestoneId?: string | null;
 }
 
 const draftKey = (teamId: string) => `baseline:draft:${teamId}`;
@@ -64,6 +66,9 @@ export function CreateIssueModal() {
   const [appliedTemplateId, setAppliedTemplateId] = useState<string | undefined>(undefined);
 
   const titleRef = useRef<HTMLInputElement>(null);
+  // Create with no title used to do nothing at all: now the title field says what it needs
+  const [titleMissing, setTitleMissing] = useState(false);
+  const askForTitle = () => { setTitleMissing(true); titleRef.current?.focus(); };
   const editorRef = useRef<Editor | null>(null);
   const teamMenu = useMenu();
   const statusMenu = useMenu();
@@ -81,6 +86,7 @@ export function CreateIssueModal() {
       const tid = state.teamId ?? snap.teams[0]?.id;
       setTeamId(tid);
       setExpanded(!!state.expanded);
+      setTitleMissing(false);
       setTitle(state.title ?? '');
       setDescription('');
       setPriority(0);
@@ -115,6 +121,8 @@ export function CreateIssueModal() {
         setProjectId(existing.projectId ?? state.projectId ?? null);
         setDueDate(existing.dueDate ?? null);
         setEstimate(existing.estimate ?? null);
+        if (existing.cycleId !== undefined) setCycleId(existing.cycleId ?? null);
+        if (existing.milestoneId !== undefined) setMilestoneId(existing.milestoneId ?? null);
         setStatusId(existing.statusId);
       } else {
         setStatusId(state.stateId ?? snap.states.find(s => s.teamId === tid && s.type === 'unstarted')?.id ?? snap.states[0]?.id);
@@ -175,16 +183,36 @@ export function CreateIssueModal() {
     setNewLabelColor(LABEL_COLORS[(LABEL_COLORS.indexOf(newLabelColor) + 1) % LABEL_COLORS.length]);
   };
 
-  const saveDraft = () => {
-    if (!team) return;
+  const persistDraft = (): Draft | null => {
+    if (!team) return null;
+    // the editor's onChange is debounced: read it directly so the last keystrokes are kept
+    const desc = editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : description;
     const d: Draft = {
-      title: title.trim(), description, statusId: current?.id, priority, assigneeId,
-      labelIds, projectId, dueDate, estimate, savedAt: new Date().toISOString(),
+      title: title.trim(), description: desc, statusId: current?.id, priority, assigneeId,
+      labelIds, projectId, dueDate, estimate, cycleId, milestoneId, savedAt: new Date().toISOString(),
     };
     try { localStorage.setItem(draftKey(team.id), JSON.stringify(d)); } catch { /* ignore */ }
     window.dispatchEvent(new Event('baseline:drafts'));
+    return d;
+  };
+  const saveDraft = () => {
+    const d = persistDraft();
+    if (!d) return;
     closeCreate();
-    toast({ title: 'Draft saved', line: <>{d.title}</> });
+    toast({ title: 'Draft saved', line: <>{d.title || 'Untitled issue'}</> });
+  };
+  /* Esc, the X and a click outside used to throw away everything typed. Anything written is
+     kept as the team's draft instead (pressing C brings it back), and the toast can discard it. */
+  const dismiss = () => {
+    const desc = editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : description;
+    const tid = team?.id;
+    if (!tid || (!title.trim() && isBlank(desc))) { closeCreate(); return; }
+    const d = persistDraft();
+    closeCreate();
+    toast({ title: 'Saved as draft', line: <>{d?.title || 'Untitled issue'}</>, link: { label: 'View drafts', to: '/drafts' }, actions: [{ label: 'Discard', onClick: () => {
+      try { localStorage.removeItem(draftKey(tid)); } catch { /* ignore */ }
+      window.dispatchEvent(new Event('baseline:drafts'));
+    } }] });
   };
   const discardDraft = () => {
     if (team) { try { localStorage.removeItem(draftKey(team.id)); } catch { /* ignore */ } window.dispatchEvent(new Event('baseline:drafts')); }
@@ -270,7 +298,7 @@ export function CreateIssueModal() {
     if ((e.target as HTMLElement).closest?.('.menu')) return;
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (title.trim() && current) void create();
+      if (title.trim() && current) void create(); else askForTitle();
     } else if (e.key === 'Enter' && !e.shiftKey && e.target === titleRef.current) {
       e.preventDefault();
       // the editor remounts on reset, so reach it through the DOM rather than a stale ref
@@ -282,7 +310,7 @@ export function CreateIssueModal() {
   return (
     <AnimatePresence>
     {state.open && (
-    <Modal onClose={closeCreate} className={`modal modal-create ${expanded ? 'expanded' : ''}`}>
+    <Modal onClose={dismiss} className={`modal modal-create ${expanded ? 'expanded' : ''}`}>
       <div className="cm-root" onKeyDown={onModalKeyDown}>
       <div className="cm-header">
         {snap.teams.length > 1 ? (
@@ -319,7 +347,7 @@ export function CreateIssueModal() {
           <button className="icon-btn" title={expanded ? 'Contract' : 'Expand'} onClick={() => setExpanded(v => !v)}>
             <IconExpand size={14} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 140ms var(--ease)' }} />
           </button>
-          <button className="icon-btn" title="Close (Esc)" onClick={closeCreate}><IconClose size={14} /></button>
+          <button className="icon-btn" title="Close (Esc). Anything typed is kept as a draft" aria-label="Close" onClick={dismiss}><IconClose size={14} /></button>
         </span>
       </div>
 
@@ -334,8 +362,10 @@ export function CreateIssueModal() {
         <input
           ref={titleRef}
           value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="Issue title"
+          onChange={e => { setTitle(e.target.value); setTitleMissing(false); }}
+          placeholder={titleMissing ? 'Add a title to create the issue' : 'Issue title'}
+          className={titleMissing ? 'missing' : undefined}
+          aria-invalid={titleMissing || undefined}
           spellCheck={false}
         />
       </div>
@@ -392,7 +422,7 @@ export function CreateIssueModal() {
         )}
         <button className={`prop-chip${estimate != null ? ' set' : ''}`} onClick={e => { setMorePhase('estimate'); moreMenu.open(e); }}>
           <IconEstimate size={13} style={{ color: 'var(--text-dim)' }} />
-          <span className="chip-text">{estimate != null ? `${estimate} pt${estimate !== 1 ? 's' : ''}` : 'Estimate'}</span>
+          <span className="chip-text">{estimate != null ? `${estimate} point${estimate !== 1 ? 's' : ''}` : 'Estimate'}</span>
         </button>
         <button className={`prop-chip${selectedLabels.length ? ' set' : ''}`} onClick={e => { setNewLabelName(''); labelsMenu.open(e); }}>
           {selectedLabels.length
@@ -430,13 +460,13 @@ export function CreateIssueModal() {
 
       <div className="cm-footer">
         {/* always laid out but only shown once there's something to save, so nothing reflows */}
-        <button className="cm-link" style={{ visibility: title.trim() ? 'visible' : 'hidden' }} onClick={saveDraft}>Save draft</button>
+        <button className="cm-link" style={{ visibility: title.trim() || !isBlank(description) ? 'visible' : 'hidden' }} onClick={saveDraft}>Save draft</button>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           <button className="cm-more" role="switch" aria-checked={createMore} onClick={() => setCreateMore(v => !v)}>
             <span className={`toggle ${createMore ? 'on' : ''}`} />
             Create more
           </button>
-          <button className="btn primary cm-create" disabled={busy} onClick={() => { if (title.trim()) void create(); else titleRef.current?.focus(); }} title="Create issue (⌘↵)">
+          <button className="btn primary cm-create" disabled={busy} onClick={() => { if (title.trim()) void create(); else askForTitle(); }} title="Create issue (⌘↵)">
             {state.parentId ? 'Create sub-issue' : 'Create issue'}
           </button>
         </div>
@@ -448,7 +478,7 @@ export function CreateIssueModal() {
           {snap.teams.map(t => (
             <MenuItem
               key={t.id}
-              icon={<span className="ws-avatar" style={{ background: t.color, borderRadius: 4, fontSize: 8, width: 16, height: 16 }}>{t.key.slice(0, 2)}</span>}
+              icon={<span style={{ display: 'inline-flex', width: 16, height: 16 }}>{teamDisplayIcon(t)}</span>}
               label={t.name} selected={t.id === team.id}
               onClick={() => { switchTeam(t); teamMenu.close(); }}
             />
@@ -612,15 +642,15 @@ function MorePropsMenu(props: {
       <Menu key={phase} anchor={props.anchor} onClose={() => { setPhase('root'); props.onClose(); }} width={236}>
         <div className="menu-header"><span>Due date</span></div>
         <div style={{ display: 'flex', gap: 4, padding: '2px 6px 6px', flexWrap: 'wrap' }}>
-          {[['Today', 0], ['Tomorrow', 1], ['Next week', 7]].map(([label, off]) => (
+          {[['Today', 0], ['Tomorrow', 1], ['In one week', 7]].map(([label, off]) => (
             <button key={label as string} className="prop-chip boxed" style={{ height: 22, fontSize: 11.5 }}
-              onClick={() => { props.setDueDate(new Date(Date.now() + (off as number) * 86400000).toISOString().slice(0, 10)); setPhase('root'); props.onClose(); }}>{label}</button>
+              onClick={() => { props.setDueDate(isoDaysFromToday(off as number)); setPhase('root'); props.onClose(); }}>{label}</button>
           ))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', padding: '2px 8px' }}>
-          <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m - 1, 1))}>‹</button>
+          <button className="icon-btn" style={{ width: 20, height: 20 }} title="Previous month" aria-label="Previous month" onClick={() => setCursor(new Date(y, m - 1, 1))}>‹</button>
           <span style={{ flex: 1, textAlign: 'center', fontSize: 12.5, fontWeight: 600 }}>{cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
-          <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={() => setCursor(new Date(y, m + 1, 1))}>›</button>
+          <button className="icon-btn" style={{ width: 20, height: 20 }} title="Next month" aria-label="Next month" onClick={() => setCursor(new Date(y, m + 1, 1))}>›</button>
         </div>
         <div className="cal-grid">
           {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => <span key={i} className="cal-dow">{d}</span>)}
@@ -634,7 +664,7 @@ function MorePropsMenu(props: {
             );
           })}
         </div>
-        {props.dueDate && <MenuItem icon={<IconClose size={13} />} label="Clear due date" onClick={() => { props.setDueDate(null); setPhase('root'); props.onClose(); }} />}
+        {props.dueDate && <MenuItem icon={<IconClose size={13} />} label="Remove due date" onClick={() => { props.setDueDate(null); setPhase('root'); props.onClose(); }} />}
       </Menu>
     );
   }

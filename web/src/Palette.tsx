@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, useSelection, copyText, visibleList, type PaletteScope } from './store.js';
+import { useApp, useSelection, copyText, visibleList, type PaletteScope, localIsoDate, isoDaysFromToday } from './store.js';
 import { api } from './api.js';
 import { handoffActions, hostedWorkspace } from './CodingTools.js';
 import { setIssueProps, archiveIssues, deleteIssues, assignToMe, toggleSubscription, undoLast } from './actions.js';
@@ -298,9 +298,9 @@ function buildCyclePage(): PaletteItem[] {
 
 function buildDuePage(): PaletteItem[] {
   return [
-    { id: 'bulk-due-today', icon: <IconCalendar size={14} />, label: 'Today', section: 'Due date', action: () => void applyBulk({ dueDate: new Date().toISOString().slice(0, 10) }, 'Due date') },
-    { id: 'bulk-due-tomorrow', icon: <IconCalendar size={14} />, label: 'Tomorrow', section: 'Due date', action: () => void applyBulk({ dueDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10) }, 'Due date') },
-    { id: 'bulk-due-week', icon: <IconCalendar size={14} />, label: 'Next week', section: 'Due date', action: () => void applyBulk({ dueDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10) }, 'Due date') },
+    { id: 'bulk-due-today', icon: <IconCalendar size={14} />, label: 'Today', section: 'Due date', action: () => void applyBulk({ dueDate: localIsoDate() }, 'Due date') },
+    { id: 'bulk-due-tomorrow', icon: <IconCalendar size={14} />, label: 'Tomorrow', section: 'Due date', action: () => void applyBulk({ dueDate: isoDaysFromToday(1) }, 'Due date') },
+    { id: 'bulk-due-week', icon: <IconCalendar size={14} />, label: 'In one week', section: 'Due date', action: () => void applyBulk({ dueDate: isoDaysFromToday(7) }, 'Due date') },
     { id: 'bulk-due-clear', icon: <IconClose size={13} />, label: 'Clear due date', section: 'Due date', action: () => void applyBulk({ dueDate: null }, 'Due date') },
   ];
 }

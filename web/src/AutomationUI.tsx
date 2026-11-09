@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { useApp, relTime } from './store.js';
+import { useApp, relTime, dateTime } from './store.js';
 import { api } from './api.js';
 import { PriorityIcon } from './pickers.js';
-import { IconPlus, IconTrash, IconSla, IconLoop, IconClose } from './icons.js';
+import { IconPlus, IconTrash, IconSla, IconLoop, IconClose, IconEdit } from './icons.js';
 import type { Issue, Loop, LoopAction, LoopTrigger, Priority, WorkflowStateType } from '../../src/core/types.js';
+import { ConfirmIconButton, exclusive } from './ui.js';
 
 const refresh = () => useApp.getState().bootstrap();
 const PRIORITIES: Array<[Priority, string]> = [[1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low'], [0, 'No priority']];
@@ -21,7 +22,7 @@ export function SlaBadge({ issue, long = false }: { issue: Pick<Issue, 'slaBreac
   const left = new Date(issue.slaBreachesAt!).getTime() - Date.now();
   const abs = Math.abs(left); const h = Math.round(abs / 3600_000); const txt = h >= 48 ? `${Math.round(h / 24)}d` : `${h}h`;
   const label = st === 'breached' ? `SLA breached ${txt} ago` : `SLA ${txt} left`;
-  return <span className={`sla-badge ${st}`} title={`${label} · due ${new Date(issue.slaBreachesAt!).toLocaleString()}`}><IconSla size={12} />{long ? label : st === 'breached' ? 'Breached' : txt}</span>;
+  return <span className={`sla-badge ${st}`} title={`${label} · due ${dateTime(issue.slaBreachesAt!)}`}><IconSla size={12} />{long ? label : st === 'breached' ? 'Breached' : txt}</span>;
 }
 
 /* ================= Settings › Issues › SLAs ================= */
@@ -31,11 +32,17 @@ export function SlaSettings() {
   const [hours, setHours] = useState('24');
   const [prio, setPrio] = useState<Priority[]>([1]);
   const [teamId, setTeamId] = useState('');
-  const create = async () => {
-    if (!name.trim() || !(Number(hours) > 0)) return;
-    await api.createSlaRule({ name: name.trim(), hours: Number(hours), priorities: prio, teamId: teamId || null });
-    setName(''); await refresh();
-  };
+  // the form below doubles as the editor: Edit on a rule loads it here and the button saves instead of adding
+  const [editing, setEditing] = useState<string | null>(null);
+  const resetForm = () => { setEditing(null); setName(''); setHours('24'); setPrio([1]); setTeamId(''); };
+  const create = () => exclusive('sla-create', async () => {
+    if (!name.trim()) return;
+    if (!(Number(hours) > 0)) { useApp.getState().toast({ title: 'Set how many hours the SLA allows', line: 'It needs to be more than 0.' }); return; }
+    const body = { name: name.trim(), hours: Number(hours), priorities: prio, teamId: teamId || null };
+    if (editing) await api.updateSlaRule(editing, body); else await api.createSlaRule(body);
+    useApp.getState().toast({ title: editing ? 'Rule saved' : 'Rule added', line: body.name });
+    resetForm(); await refresh();
+  });
   const count = (ruleId: string) => snap.issues.filter(i => i.slaRuleId === ruleId).length;
   const breached = snap.issues.filter(i => slaState(i) === 'breached').length;
   return (
@@ -50,7 +57,8 @@ export function SlaSettings() {
             <span style={{ flex: 1 }}><b>{r.name}</b><span className="set-meta" style={{ marginLeft: 8 }}>{r.priorities.length ? r.priorities.map(p => PRIORITIES.find(x => x[0] === p)?.[1]).join(', ') : 'Any priority'}{r.labelIds.length ? ` · ${r.labelIds.map(l => snap.labels.find(x => x.id === l)?.name).join(', ')}` : ''} · {r.teamId ? snap.teams.find(t => t.id === r.teamId)?.name : 'All teams'} · within {fmtHours(r.hours)}</span></span>
             <span className="set-meta">{count(r.id)} active</span>
             <button className={`switch${r.enabled ? ' on' : ''}`} role="switch" aria-checked={r.enabled} aria-label={`Enable ${r.name}`} onClick={async () => { await api.updateSlaRule(r.id, { enabled: !r.enabled }); await refresh(); }}><span /></button>
-            <button className="icon-btn hover-only" title="Delete rule" onClick={async () => { await api.deleteSlaRule(r.id); await refresh(); }}><IconTrash size={13} /></button>
+            <button className="icon-btn hover-only" title="Edit rule" aria-label="Edit rule" onClick={() => { setEditing(r.id); setName(r.name); setHours(String(r.hours)); setPrio(r.priorities); setTeamId(r.teamId ?? ''); }}><IconEdit size={13} /></button>
+            <ConfirmIconButton className="icon-btn hover-only" title="Delete rule" onConfirm={async () => { await api.deleteSlaRule(r.id); await refresh(); }}><IconTrash size={13} /></ConfirmIconButton>
           </div>
         ))}
         {!snap.slaRules.length && <div className="set-empty">No SLA rules yet</div>}
@@ -59,7 +67,8 @@ export function SlaSettings() {
           <div className="sla-prios">{PRIORITIES.map(([p, l]) => <button key={p} className={`prop-chip${prio.includes(p) ? ' set' : ''}`} onClick={() => setPrio(cur => cur.includes(p) ? cur.filter(x => x !== p) : [...cur, p])}><PriorityIcon priority={p} size={12} />{l}</button>)}</div>
           <select className="text-input" aria-label="SLA team" value={teamId} onChange={e => setTeamId(e.target.value)}><option value="">All teams</option>{snap.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
           <label className="sla-hours">Within <input className="text-input" aria-label="SLA hours" type="number" min={1} value={hours} onChange={e => setHours(e.target.value)} /> hours</label>
-          <button className="btn primary sm" disabled={!name.trim()} onClick={create}><IconPlus size={12} /> Add rule</button>
+          {editing && <button className="btn sm" onClick={resetForm}>Cancel</button>}
+          <button className="btn primary sm" disabled={!name.trim()} onClick={create}>{editing ? 'Save rule' : <><IconPlus size={12} /> Add rule</>}</button>
         </div>
       </div>
     </div>
@@ -81,23 +90,31 @@ export function triggerText(t: LoopTrigger, labels: Array<{ id: string; name: st
 export function LoopsSettings() {
   const snap = useApp(s => s.snap)!;
   const [draft, setDraft] = useState<{ name: string; teamId: string; trigger: LoopTrigger; actions: LoopAction[] } | null>(null);
+  // set while the editor holds an existing loop (loops could only be created, run, toggled or deleted)
+  const [editingId, setEditingId] = useState<string | null>(null);
   const runs = (id: string) => snap.loopRuns.filter(r => r.loopId === id);
-  const newDraft = () => setDraft({ name: '', teamId: '', trigger: { kind: 'issueCreated' }, actions: [{ kind: 'comment', body: 'Thanks, {issue.key} is on our radar.' }] });
+  const newDraft = () => { setEditingId(null); setDraft({ name: '', teamId: '', trigger: { kind: 'issueCreated' }, actions: [{ kind: 'comment', body: 'Thanks, {issue.key} is on our radar.' }] }); };
   return (
-    <div className="settings-card wide">
+    <div className="settings-card">
       <div className="set-head"><h1>Loops</h1><span style={{ flex: 1 }} /><button className="btn primary" onClick={newDraft}>New loop</button></div>
       <div className="field-help" style={{ marginBottom: 14 }}>Workflows that run on a schedule or when issues change: comment, assign, label, move, file an issue, or open the issue in Claude Code. Changes are attributed to the Automation agent.</div>
-      {draft && <LoopEditor draft={draft} setDraft={setDraft} onSave={async () => { await api.createLoop({ ...draft, teamId: draft.teamId || null }); setDraft(null); await refresh(); }} />}
+      {draft && <LoopEditor draft={draft} setDraft={d => { setDraft(d); if (!d) setEditingId(null); }} saveLabel={editingId ? 'Save loop' : 'Create loop'} onSave={() => exclusive('loop-save', async () => {
+        const body = { ...draft, teamId: draft.teamId || null };
+        if (editingId) await api.updateLoop(editingId, body); else await api.createLoop(body);
+        useApp.getState().toast({ title: editingId ? 'Loop saved' : 'Loop created', line: draft.name });
+        setDraft(null); setEditingId(null); await refresh();
+      })} />}
       <div className="card set-list">
         {snap.loops.map((l: Loop) => (
           <div key={l.id}>
             <div className="set-row group">
               <IconLoop size={14} />
-              <span style={{ flex: 1 }}><b>{l.name}</b><span className="set-meta" style={{ marginLeft: 8 }}>{triggerText(l.trigger, snap.labels)} → {l.actions.map(a => ACTIONS.find(x => x[0] === a.kind)?.[1]).join(', ')}{l.teamId ? ` · ${snap.teams.find(t => t.id === l.teamId)?.name}` : ''}</span></span>
+              <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left', padding: '6px 0' }}><b>{l.name}</b><span className="set-meta" style={{ marginLeft: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{triggerText(l.trigger, snap.labels)} → {l.actions.map(a => ACTIONS.find(x => x[0] === a.kind)?.[1]).join(', ')}{l.teamId ? ` · ${snap.teams.find(t => t.id === l.teamId)?.name}` : ''}</span></span>
               <span className="set-meta">{l.lastRunAt ? `ran ${relTime(l.lastRunAt)}` : 'never ran'}</span>
-              <button className="btn ghost sm" onClick={async () => { await api.runLoop(l.id); await refresh(); }}>Run now</button>
+              <button className="icon-btn hover-only" title="Edit loop" aria-label="Edit loop" onClick={() => { setEditingId(l.id); setDraft({ name: l.name, teamId: l.teamId ?? '', trigger: l.trigger, actions: l.actions }); }}><IconEdit size={13} /></button>
+              <button className="btn ghost sm" onClick={() => void exclusive(`loop-run-${l.id}`, async () => { await api.runLoop(l.id); await refresh(); useApp.getState().toast({ title: `Ran ${l.name}` }); })}>Run now</button>
               <button className={`switch${l.enabled ? ' on' : ''}`} role="switch" aria-checked={l.enabled} aria-label={`Enable ${l.name}`} onClick={async () => { await api.updateLoop(l.id, { enabled: !l.enabled }); await refresh(); }}><span /></button>
-              <button className="icon-btn hover-only" title="Delete loop" onClick={async () => { await api.deleteLoop(l.id); await refresh(); }}><IconTrash size={13} /></button>
+              <ConfirmIconButton className="icon-btn hover-only" title="Delete loop" onConfirm={async () => { await api.deleteLoop(l.id); await refresh(); }}><IconTrash size={13} /></ConfirmIconButton>
             </div>
             {runs(l.id).slice(0, 3).map(r => <div key={r.id} className={`loop-run${r.ok ? '' : ' fail'}`}>{r.ok ? '✓' : '✗'} {r.detail} <span className="dim">· {relTime(r.createdAt)}</span></div>)}
           </div>
@@ -108,7 +125,7 @@ export function LoopsSettings() {
   );
 }
 
-function LoopEditor({ draft, setDraft, onSave }: { draft: { name: string; teamId: string; trigger: LoopTrigger; actions: LoopAction[] }; setDraft: (d: typeof draft | null) => void; onSave: () => void }) {
+function LoopEditor({ draft, setDraft, onSave, saveLabel = 'Create loop' }: { saveLabel?: string; draft: { name: string; teamId: string; trigger: LoopTrigger; actions: LoopAction[] }; setDraft: (d: typeof draft | null) => void; onSave: () => void }) {
   const snap = useApp(s => s.snap)!;
   const t = draft.trigger;
   const setTrigger = (kind: LoopTrigger['kind']) => setDraft({ ...draft, trigger: kind === 'schedule' ? { kind, cadence: 'weekly' } : kind === 'labelAdded' ? { kind, labelId: snap.labels[0]?.id ?? '' } : kind === 'statusChanged' ? { kind, stateType: 'completed' } : { kind } });
@@ -143,7 +160,7 @@ function LoopEditor({ draft, setDraft, onSave }: { draft: { name: string; teamId
         <button className="btn ghost sm" onClick={() => setDraft({ ...draft, actions: [...draft.actions, blank('comment')] })}><IconPlus size={12} /> Add action</button>
         <span style={{ flex: 1 }} />
         <button className="btn ghost sm" onClick={() => setDraft(null)}>Cancel</button>
-        <button className="btn primary sm" disabled={!draft.name.trim() || !draft.actions.length} onClick={onSave}>Create loop</button>
+        <button className="btn primary sm" disabled={!draft.name.trim() || !draft.actions.length} onClick={onSave}>{saveLabel}</button>
       </div>
     </div>
   );

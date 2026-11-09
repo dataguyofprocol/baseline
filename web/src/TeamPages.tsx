@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useApp, relTime, shortDate, useCursor, registerVisibleList } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, ConfirmButton, useCanConfigure } from './ui.js';
+import { Menu, MenuItem, ConfirmButton, useCanConfigure, exclusive } from './ui.js';
 import { IssueDetail } from './IssueDetail.js';
-import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
+import { StateIcon, PriorityIcon, Avatar, teamDisplayIcon } from './pickers.js';
 import { PropertyMenuBody, propMenuWidth, parseReminder } from './propertyMenus.js';
-import { setIssueProps } from './actions.js';
+import { setIssueProps, triageDecide } from './actions.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, FilterBar, applyFilters, activeFilterCount, type ViewOptions } from './IssueViews.js';
 import { IssueListBody, ListToolbar, openFilterMenu } from './Views.js';
 import { useMenu } from './ui.js';
@@ -58,9 +58,8 @@ export function TriagePage() {
   useEffect(() => { if (cursor >= queue.length && queue.length) useCursor.setState({ index: queue.length - 1 }); }, [queue.length, cursor]);
   const current = cursor >= 0 ? queue[cursor] : undefined;
 
-  const stateOf = (type: string) => team ? snap.states.filter(s => s.teamId === team.id && s.type === type).sort((a, b) => a.position - b.position)[0] : undefined;
-  const accept = (i: Issue) => { const s = stateOf('unstarted') ?? stateOf('backlog'); if (s) void setIssueProps([i.id], { stateId: s.id }); };
-  const decline = (i: Issue) => { const s = stateOf('canceled'); if (s) void setIssueProps([i.id], { stateId: s.id }); };
+  const accept = (i: Issue) => void triageDecide(i, 'accept');
+  const decline = (i: Issue) => void triageDecide(i, 'decline');
 
   // the triage keys take precedence over the global 1-9 status shortcuts while this page is up
   const currentRef = useRef(current);
@@ -85,14 +84,14 @@ export function TriagePage() {
   if (!team.triageEnabled) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-        <TopBar crumbs={[{ label: team.name, to: `/team/${team.key}/all`, muted: true }, { label: 'Triage' }]} />
+        <TopBar crumbs={[{ label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true }, { label: 'Triage' }]} />
         <div className="empty-state">
           <Illustration name="triage" />
           <div className="empty-title">Triage is off for {team.name}</div>
           <div className="empty-desc">With triage on, issues that agents and teammates file through the CLI land in a review queue before they reach the backlog.</div>
           <div className="empty-actions">
             {canConfigure
-              ? <button className="btn primary" onClick={async () => { await api.updateTeam(team.id, { triageEnabled: true }); await useApp.getState().bootstrap(); }}>Turn on triage</button>
+              ? <button className="btn primary" onClick={() => void exclusive(`triage-${team.id}`, async () => { await api.updateTeam(team.id, { triageEnabled: true }); await useApp.getState().bootstrap(); })}>Turn on triage</button>
               : <span className="dim">Only admins can turn on triage.</span>}
           </div>
         </div>
@@ -103,7 +102,7 @@ export function TriagePage() {
   return (
     <div className="inbox">
       <div className="inbox-list">
-        <TopBar crumbs={[{ label: 'Triage' }]} favoriteRef={{ type: 'view', refId: `team-${team.id}-triage` }}
+        <TopBar crumbs={[{ label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true }, { label: 'Triage' }]} favoriteRef={{ type: 'view', refId: `team-${team.id}-triage` }}
           right={<>
             <button className={`icon-btn${activeFilterCount(prefs.filters) ? ' on' : ''}`} data-filter-trigger title="Filter (F)" onClick={openFilterMenu}><IconFilter size={15} /></button>
             <button className="icon-btn" title="Display options" onClick={displayMenu.open}><IconDisplay size={15} /></button>
@@ -197,12 +196,18 @@ function TriageSnooze(props: { onPick: (d: Date | null) => void; snoozed: boolea
 }
 
 /* ================= archive (team) & trash (workspace) ================= */
+/** a list the snapshot doesn't carry (archive, trash). A failed fetch says so with a Retry
+ *  instead of leaving the page blank for good. */
 function useServerList(load: () => Promise<{ issues: Issue[] }>, deps: unknown[]) {
   const [issues, setIssues] = useState<Issue[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const snapIssues = useApp(s => s.snap?.issues);
-  const reload = () => { void load().then(r => setIssues(r.issues)); };
+  const reload = () => { setFailed(false); void load().then(r => setIssues(r.issues), () => setFailed(true)); };
   useEffect(reload, [...deps, snapIssues]); // eslint-disable-line react-hooks/exhaustive-deps
-  return { issues, reload };
+  const placeholder = failed && issues === null
+    ? <div className="empty-state"><div className="empty-title">Couldn’t load this list</div><div className="empty-desc">Baseline didn’t answer. Check that the server is running.</div><div className="empty-actions"><button className="btn secondary" onClick={reload}>Try again</button></div></div>
+    : null;
+  return { issues, reload, placeholder };
 }
 
 function StaticIssueRow(props: { issue: Issue; when: string; actions: React.ReactNode }) {
@@ -232,8 +237,8 @@ export function ArchivePage() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const [tab, setTab] = useState<'issues' | 'cycles' | 'deleted'>('issues');
-  const { issues } = useServerList(() => api.archivedIssues(team?.id), [team?.id]);
-  const { issues: deleted, reload } = useServerList(() => api.deletedIssues(), []);
+  const { issues, placeholder } = useServerList(() => api.archivedIssues(team?.id), [team?.id]);
+  const { issues: deleted, reload, placeholder: deletedPlaceholder } = useServerList(() => api.deletedIssues(), []);
   if (!team) return null;
   const now = new Date().toISOString();
   const cycles = snap.cycles.filter(c => c.teamId === team.id && c.endsAt < now).sort((a, b) => b.endsAt.localeCompare(a.endsAt));
@@ -249,7 +254,7 @@ export function ArchivePage() {
         ))}
       </div>
       <div className="content">
-        {tab === 'issues' && (issues === null ? null : issues.length === 0 ? (
+        {tab === 'issues' && (issues === null ? placeholder : issues.length === 0 ? (
           <div className="empty-state"><Illustration name="archive" /><div className="empty-title">No archived issues</div><div className="empty-desc">Issues you archive in {team.name} (E) and closed issues the team’s auto-archive picks up are kept here. You can bring them back at any time.</div></div>
         ) : (
           <div className="static-list">
@@ -272,7 +277,7 @@ export function ArchivePage() {
             ))}
           </div>
         ))}
-        {tab === 'deleted' && (deleted === null ? null : gone.length === 0 ? (
+        {tab === 'deleted' && (deleted === null ? deletedPlaceholder : gone.length === 0 ? (
           <div className="empty-state"><Illustration name="trash" /><div className="empty-title">Nothing deleted recently</div><div className="empty-desc">Deleted issues stay here until you restore them or delete them for good.</div></div>
         ) : (
           <div className="static-list">
@@ -290,7 +295,7 @@ export function ArchivePage() {
 }
 
 export function TrashPage() {
-  const { issues, reload } = useServerList(() => api.deletedIssues(), []);
+  const { issues, reload, placeholder } = useServerList(() => api.deletedIssues(), []);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={[{ label: 'Trash' }]} right={issues && issues.length > 0 ? (
@@ -301,7 +306,7 @@ export function TrashPage() {
         }} />
       ) : undefined} />
       <div className="content">
-        {issues === null ? null : issues.length === 0 ? (
+        {issues === null ? placeholder : issues.length === 0 ? (
           <div className="empty-state"><Illustration name="trash" /><div className="empty-title">Trash is empty</div><div className="empty-desc">Deleted issues stay here until you restore them or delete them for good.</div></div>
         ) : (
           <div className="static-list">
@@ -333,7 +338,10 @@ function Bolded({ text, words }: { text: string; words: string[] }) {
 export function SearchPage() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
-  const [q, setQ] = useState(() => sessionStorage.getItem('baseline:search') ?? '');
+  // the query lives in the address (#/search?q=…), so a search can be shared and Back returns to it
+  const [params, setParams] = useSearchParams();
+  const [q, setQ] = useState(() => params.get('q') ?? sessionStorage.getItem('baseline:search') ?? '');
+  useEffect(() => { if ((params.get('q') ?? '') !== q.trim()) setParams(q.trim() ? { q: q.trim() } : {}, { replace: true }); }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tab, setTab] = useState<SearchTab>(() => (sessionStorage.getItem('baseline:searchTab') as SearchTab) || 'all');
   const [archived, setArchived] = useState<Issue[]>([]);
   const [opts, patch, reset] = useViewPrefs<ViewOptions>('baseline:view:search', { ...DEFAULT_VIEW_OPTIONS, groupBy: 'none', orderBy: 'updated', filters: {}, showTriage: true });
@@ -360,12 +368,22 @@ export function SearchPage() {
   const docs = words.length ? snap.docs.filter(d => hit(`${d.title} ${d.content}`)) : [];
   const counts: Record<SearchTab, number> = { all: issues.length + projects.length + initiatives.length + docs.length, issues: issues.length, projects: projects.length, initiatives: initiatives.length, documents: docs.length };
   const keyOf = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
-  type Row = { id: string; kind: string; icon: React.ReactNode; title: string; right: React.ReactNode; at: string; to: string };
+  type Row = { id: string; kind: string; icon: React.ReactNode; title: string; right: React.ReactNode; at: string; to: string; snippet?: string };
+  /** when the title doesn't hold every word, the bit of body text that does: why the row matched */
+  const snippetOf = (title: string, ...bodies: string[]) => {
+    if (words.every(w => title.toLowerCase().includes(w))) return undefined;
+    for (const body of bodies) {
+      const flat = body.replace(/[#*`>_~\[\]()]/g, ' ').replace(/\s+/g, ' ');
+      const at = flat.toLowerCase().indexOf(words.find(w => !title.toLowerCase().includes(w)) ?? words[0]);
+      if (at >= 0) return `${at > 30 ? '…' : ''}${flat.slice(Math.max(0, at - 30), at + 60).trim()}${at + 60 < flat.length ? '…' : ''}`;
+    }
+    return undefined;
+  };
   const rows: Row[] = [
-    ...(tab === 'all' || tab === 'issues' ? issues.map(i => { const st = snap.states.find(s => s.id === i.stateId); const team = snap.teams.find(t => t.id === i.teamId); return { id: i.id, kind: 'Issue', icon: st ? <StateIcon type={st.type} color={st.color} size={14} /> : null, title: i.title, right: team && <span className="sr-team"><span className="ws-avatar" style={{ background: team.color, borderRadius: 3, fontSize: 7, width: 13, height: 13 }}>{team.key[0]}</span>{team.name}</span>, at: i.updatedAt, to: `/issue/${keyOf(i)}` }; }) : []),
-    ...(tab === 'all' || tab === 'projects' ? projects.map(p => ({ id: p.id, kind: 'Project', icon: <span>{p.icon}</span>, title: p.name, right: null, at: p.updatedAt ?? p.createdAt, to: `/projects/${p.id}` })) : []),
+    ...(tab === 'all' || tab === 'issues' ? issues.map(i => { const st = snap.states.find(s => s.id === i.stateId); const team = snap.teams.find(t => t.id === i.teamId); return { id: i.id, kind: 'Issue', icon: st ? <StateIcon type={st.type} color={st.color} size={14} /> : null, title: i.title, right: team && <span className="sr-team">{teamDisplayIcon(team)}{team.name}</span>, at: i.updatedAt, to: `/issue/${keyOf(i)}`, snippet: snippetOf(`${keyOf(i)} ${i.title}`, i.description, snap.comments.filter(c => c.issueId === i.id).map(c => c.body).join(' ')) }; }) : []),
+    ...(tab === 'all' || tab === 'projects' ? projects.map(p => ({ id: p.id, kind: 'Project', icon: <span>{p.icon}</span>, title: p.name, right: null, at: p.updatedAt ?? p.createdAt, to: `/projects/${p.id}`, snippet: snippetOf(p.name, p.summary ?? '', p.description) })) : []),
     ...(tab === 'all' || tab === 'initiatives' ? initiatives.map(i => ({ id: i.id, kind: 'Initiative', icon: <InitiativeIcon ini={i} size={14} />, title: i.name, right: null, at: i.updatedAt, to: `/initiatives/${i.id}` })) : []),
-    ...(tab === 'all' || tab === 'documents' ? docs.map(d => ({ id: d.id, kind: 'Document', icon: <span>{d.icon || '📄'}</span>, title: d.title || 'Untitled document', right: null, at: d.updatedAt, to: `/docs/${d.id}` })) : []),
+    ...(tab === 'all' || tab === 'documents' ? docs.map(d => ({ id: d.id, kind: 'Document', icon: <span>{d.icon || '📄'}</span>, title: d.title || 'Untitled document', right: null, at: d.updatedAt, to: `/docs/${d.id}`, snippet: snippetOf(d.title, d.content) })) : []),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -394,12 +412,12 @@ export function SearchPage() {
             <button key={`${r.kind}-${r.id}`} className="sr-row" data-search-row={r.kind} onClick={() => navigate(r.to)}>
               <span className="sr-kind">{r.kind}</span>
               <span className="sr-icon">{r.icon}</span>
-              <span className="sr-title"><Bolded text={r.title} words={words} /></span>
+              <span className="sr-title"><Bolded text={r.title} words={words} />{r.snippet && <span className="sr-snippet"><Bolded text={r.snippet} words={words} /></span>}</span>
               <span className="sr-right">{r.right}</span>
               <span className="sr-at">{relTime(r.at).replace(/ ago$/, "")}</span>
             </button>
           ))}
-          {!rows.length && <div className="empty-state"><div className="empty-title">No results</div><div className="empty-desc">Nothing matches “{q.trim()}”.</div></div>}
+          {!rows.length && <div className="empty-state no-anim"><div className="empty-title">No results</div><div className="empty-desc">Nothing matches “{q.trim()}”.</div></div>}
         </div>
       )}
     </div>

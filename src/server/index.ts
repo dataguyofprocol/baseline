@@ -577,6 +577,24 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const update = attributedTo(c, b.userId, (userId) => store.addProjectUpdate(c.req.param('id'), userId, b.body, b.health));
     return c.json({ update }, 201);
   });
+  // a posted update can be corrected or removed by whoever posted it, or an admin
+  const mayChangeUpdate = (c: Context, author: string | null) => author !== null && (!hosted || author === actor(c) || isAdmin(actor(c)));
+  app.patch('/api/project-updates/:id', async (c) => {
+    const b = await c.req.json();
+    if (typeof b.body !== 'string' || !b.body.trim()) return c.json({ error: 'body is required' }, 400);
+    const author = store.projectUpdateAuthor(c.req.param('id'));
+    if (author === null) return c.json({ error: 'not found' }, 404);
+    if (!mayChangeUpdate(c, author)) return c.json({ error: 'Only the person who posted an update (or an admin) can edit it', code: 'forbidden' }, 403);
+    store.editProjectUpdate(c.req.param('id'), b.body);
+    return c.json({ ok: true });
+  });
+  app.delete('/api/project-updates/:id', (c) => {
+    const author = store.projectUpdateAuthor(c.req.param('id'));
+    if (author === null) return c.json({ error: 'not found' }, 404);
+    if (!mayChangeUpdate(c, author)) return c.json({ error: 'Only the person who posted an update (or an admin) can delete it', code: 'forbidden' }, 403);
+    store.deleteProjectUpdate(c.req.param('id'));
+    return c.json({ ok: true });
+  });
   app.post('/api/projects/:id/links', async (c) => {
     const b = await c.req.json();
     if (!b.url) return c.json({ error: 'url is required' }, 400);
@@ -768,7 +786,24 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.post('/api/initiatives/:id/projects', async (c) => { const b = await c.req.json(); planning.addProject(c.req.param('id'), b.projectId); return c.json({ ok: true }, 201); });
   app.delete('/api/initiatives/:id/projects/:projectId', (c) => { planning.removeProject(c.req.param('id'), c.req.param('projectId')); return c.json({ ok: true }); });
   app.post('/api/initiatives/:id/updates', async (c) => { const b = await c.req.json(); if (!b.body) return c.json({ error: 'body is required' }, 400); return c.json({ update: attributedTo(c, b.userId, (userId) => planning.addInitiativeUpdate(c.req.param('id'), userId, b.body, b.health)) }, 201); });
-  app.patch('/api/initiative-updates/:id', async (c) => { const b = await c.req.json(); if (!b.reaction) return c.json({ error: 'reaction is required' }, 400); attributedTo(c, b.userId, (userId) => planning.toggleUpdateReaction(c.req.param('id'), String(b.reaction), userId)); return c.json({ ok: true }); });
+  app.patch('/api/initiative-updates/:id', async (c) => { const b = await c.req.json();
+    // { body } edits the text (its author or an admin); { reaction } toggles an emoji
+    if (typeof b.body === 'string') {
+      if (!b.body.trim()) return c.json({ error: 'body is required' }, 400);
+      const author = planning.updateAuthor(c.req.param('id'));
+      if (author === null) return c.json({ error: 'not found' }, 404);
+      if (!mayChangeUpdate(c, author)) return c.json({ error: 'Only the person who posted an update (or an admin) can edit it', code: 'forbidden' }, 403);
+      planning.editUpdate(c.req.param('id'), b.body);
+      return c.json({ ok: true });
+    }
+    if (!b.reaction) return c.json({ error: 'reaction is required' }, 400); attributedTo(c, b.userId, (userId) => planning.toggleUpdateReaction(c.req.param('id'), String(b.reaction), userId)); return c.json({ ok: true }); });
+  app.delete('/api/initiative-updates/:id', (c) => {
+    const author = planning.updateAuthor(c.req.param('id'));
+    if (author === null) return c.json({ error: 'not found' }, 404);
+    if (!mayChangeUpdate(c, author)) return c.json({ error: 'Only the person who posted an update (or an admin) can delete it', code: 'forbidden' }, 403);
+    planning.deleteUpdate(c.req.param('id'));
+    return c.json({ ok: true });
+  });
   app.post('/api/initiatives/:id/links', async (c) => { const b = await c.req.json(); if (!b.url) return c.json({ error: 'url is required' }, 400); return c.json({ link: planning.addLink(c.req.param('id'), String(b.url), b.title) }, 201); });
   app.delete('/api/initiative-links/:id', (c) => { planning.deleteLink(c.req.param('id')); return c.json({ ok: true }); });
   app.post('/api/initiative-labels', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ label: planning.createLabel(b) }, 201); });

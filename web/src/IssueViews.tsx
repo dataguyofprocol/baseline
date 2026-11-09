@@ -2,14 +2,14 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, visibleList, LIST_GROUP_ORDER } from './store.js';
+import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, visibleList, LIST_GROUP_ORDER, localIsoDate, dateTime } from './store.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure } from './ui.js';
 import { OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { PropertyMenu, PropertyMenuBody, propMenuWidth, PROP_KBD, type PropKind } from './propertyMenus.js';
-import { deleteIssues, toggleFavoriteIssue, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS } from './actions.js';
+import { deleteIssues, archiveIssues, toggleFavoriteIssue, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS } from './actions.js';
 import { useLanding } from './motion.js';
-import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc, IconSla, IconPr, IconSortDir, IconMore, IconLink, IconBranch, IconHandoff, IconExternal, IconSettings } from './icons.js';
+import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconArchive, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc, IconSla, IconPr, IconSortDir, IconMore, IconLink, IconBranch, IconHandoff, IconExternal, IconSettings } from './icons.js';
 import { slaState, SlaBadge } from './AutomationUI.js';
 import { issuePrList, issuePrState, prSummary, PrIcon } from './GitHubUI.js';
 import { teamScale, pointsOf, type Issue, type Priority, type ViewFilters, type GroupBy, type OrderBy, type FilterCondition, type FilterGroup } from '../../src/core/types.js';
@@ -74,7 +74,7 @@ export function useViewPrefs<T extends object>(key: string, defaults: T): [T, (p
 /* ================= filtering ================= */
 const DAY = 86400000;
 const WINDOW_MS: Record<string, number> = { day: DAY, week: 7 * DAY, month: 30 * DAY, quarter: 91 * DAY };
-const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const todayIso = () => localIsoDate();
 const addDaysIso = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 /** does one filter field hold an issue? (before the field's "is not" is applied) */
@@ -477,7 +477,7 @@ export function IssueRow(props: {
       onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); navigate(`/issue/${key}`); } }}
     >
       <input
-        type="checkbox" className="row-check" checked={props.selected ?? false}
+        type="checkbox" className="row-check" checked={props.selected ?? false} aria-label={`Select ${props.issue.title}`}
         onClick={e => e.stopPropagation()}
         onChange={(e) => {
           if ((e.nativeEvent as MouseEvent).shiftKey) shiftSelectRange(issue.id);
@@ -519,8 +519,8 @@ export function IssueRow(props: {
         )}
         {display.creator && creator && <span className="row-creator" title={`Created by ${creator.name}`}><Avatar user={creator} size={16} /></span>}
         {display.assignee && <Avatar user={assignee} />}
-        {display.created && <span className="row-date" title={`Created ${new Date(issue.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`}>{dateShort(issue.createdAt)}</span>}
-        {display.updated && <span className="row-date" title={`Updated ${new Date(issue.updatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`}>{dateShort(issue.updatedAt)}</span>}
+        {display.created && <span className="row-date" title={`Created ${dateTime(issue.createdAt)}`}>{dateShort(issue.createdAt)}</span>}
+        {display.updated && <span className="row-date" title={`Updated ${dateTime(issue.updatedAt)}`}>{dateShort(issue.updatedAt)}</span>}
       </span>
       {issueMenu.anchor && <IssueContextMenu anchor={issueMenu.anchor} onClose={issueMenu.close} issue={issue} />}
     </div>
@@ -630,7 +630,8 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
         <PropertyMenuBody kind="remind" issues={targets} onClose={props.onClose} />
       </MenuSub>
       <MenuSep />
-      <MenuItem icon={<IconTrash size={14} />} label={many ? `Delete ${targets.length} issues` : 'Delete'} right={<span className="mi-kbd">⌘⌫</span>} onClick={() => void deleteIssues(targets.map(t => t.id))} />
+      <MenuItem icon={<IconArchive size={14} />} label={many ? `Archive ${targets.length} issues` : 'Archive'} right={<span className="mi-kbd">E</span>} onClick={() => void archiveIssues(targets.map(t => t.id))} />
+      <MenuItem icon={<IconTrash size={14} />} danger label={many ? `Delete ${targets.length} issues` : 'Delete'} right={<span className="mi-kbd">⌘⌫</span>} onClick={() => void deleteIssues(targets.map(t => t.id))} />
     </Menu>
   );
 }
@@ -1118,6 +1119,8 @@ export function DisplayOptionsMenu(props: {
   onReset?: () => void;
 }) {
   const { opts, onPatch } = props;
+  // "Show triage issues" means nothing until some team has triage turned on
+  const triageOn = useApp(s => !!s.snap?.teams.some(t => t.triageEnabled));
   const groupKeys: GroupBy[] = ['status', 'assignee', 'project', 'priority', 'cycle', 'label', 'milestone', ...(props.multiTeam ? ['team' as GroupBy] : [])];
   const groups: Array<[GroupBy, string]> = [...groupKeys.map(g => [g, GROUP_LABELS[g]] as [GroupBy, string]), ['none', 'No grouping']];
   const board = opts.layout === 'board';
@@ -1147,7 +1150,7 @@ export function DisplayOptionsMenu(props: {
         <div className="dopts-row"><span>Completed issues</span>
           <InlineSelect value={opts.completed ?? 'all'} options={Object.entries(COMPLETED_LABELS) as Array<[CompletedWindow, string]>} onChange={v => onPatch({ completed: v })} /></div>
         <div className="dopts-row"><span>Show sub-issues</span><Toggle on={opts.showSubIssues !== false} onChange={v => onPatch({ showSubIssues: v })} /></div>
-        <div className="dopts-row"><span>Show triage issues</span><Toggle on={!!opts.showTriage} onChange={v => onPatch({ showTriage: v })} /></div>
+        {triageOn && <div className="dopts-row"><span>Show triage issues</span><Toggle on={!!opts.showTriage} onChange={v => onPatch({ showTriage: v })} /></div>}
         <div className="dopts-sep" />
         <div className="dopts-head">{board ? 'Board options' : 'List options'}</div>
         <div className="dopts-row"><span>{board ? 'Show empty columns' : 'Show empty groups'}</span><Toggle on={opts.showEmpty} onChange={v => onPatch({ showEmpty: v })} /></div>
@@ -1199,6 +1202,9 @@ export function SelectionBar() {
           <button className="bulk-act" title="Labels (L)" onClick={quick('labels')}><IconTag size={13} /></button>
           <button className="bulk-act" title="Project (⇧P)" onClick={quick('project')}><IconBox size={13} /></button>
           <button className="bulk-act" title="Cycle (⇧C)" onClick={quick('cycle')}><IconCycle size={13} /></button>
+          <span className="bulk-sep" />
+          <button className="bulk-act" title="Archive (E)" aria-label="Archive selected" onClick={() => { void archiveIssues(ids); clear(); }}><IconArchive size={13} /></button>
+          <button className="bulk-act" title="Delete (⌘⌫)" aria-label="Delete selected" onClick={() => { void deleteIssues(ids); clear(); }}><IconTrash size={13} /></button>
           <button className="bulk-actions-btn" onClick={() => setPalette(true)}>
             <span className="kbd">⌘K</span> Actions
           </button>
@@ -1225,6 +1231,8 @@ export function GroupedList(props: {
   onFocusStatus?: (stateId: string) => void;
   /** clears the page's filters (the "hidden by filters" footer offers it) */
   onClearFilters?: () => void;
+  /** saved views: no "N hidden by filters" footer under the list */
+  hideFilterFooter?: boolean;
   /** project/cycle pages pass create defaults so "+" on a group lands the issue there */
   createDefaults?: { projectId?: string | null; cycleId?: string | null };
 }) {
@@ -1308,7 +1316,7 @@ export function GroupedList(props: {
   }, [collapsed]);
   useKeyColumn(listRef, render);
 
-  const hiddenFooter = hiddenByFilters > 0 && (
+  const hiddenFooter = hiddenByFilters > 0 && !props.hideFilterFooter && (
     <div className="hidden-by-filters">
       <b>{hiddenByFilters} issue{hiddenByFilters === 1 ? '' : 's'}</b> hidden by filters
       {props.onClearFilters && <button className="btn ghost" onClick={props.onClearFilters}>Clear filters <IconClose size={11} /></button>}
@@ -1363,6 +1371,7 @@ export function GroupedList(props: {
               <button
                 className={`gh-chevron${collapsed[item.spec.id] ? ' collapsed' : ''}`}
                 aria-expanded={!collapsed[item.spec.id]}
+                aria-label={collapsed[item.spec.id] ? `Expand ${item.spec.label}` : `Collapse ${item.spec.label}`}
                 onClick={e => { e.stopPropagation(); toggleCollapse(item.spec.id); }}
               >
                 <IconChevronDown size={13} />

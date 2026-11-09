@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp, relTime, shortDate } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, Modal, useMenu } from './ui.js';
+import { Menu, MenuItem, Modal, useMenu, ConfirmIconButton } from './ui.js';
 import { Avatar, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import {
@@ -17,11 +17,16 @@ type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 const refresh = () => useApp.getState().bootstrap();
 
 /* ================= Teams & Members (workspace directories) ================= */
-/** join or leave a team right in a list whose row opens the team; "Joined" leaves on click */
+/** join or leave a team right in a list whose row opens the team. Joining is one click; leaving
+ *  takes two ("Joined" → "Leave?"), since the chip sits inside a row that opens the team. */
 export function TeamJoinChip({ team }: { team: Team }) {
   const joined = useApp(s => team.memberIds.includes(s.snap!.currentUser.id));
+  const [armed, setArmed] = useState(false);
+  useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(false), 3000); return () => clearTimeout(t); }, [armed]);
   const toggle = async (e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation();
+    if (joined && !armed) { setArmed(true); return; }
+    setArmed(false);
     try {
       await (joined ? api.leaveTeam(team.id) : api.joinTeam(team.id));
       await useApp.getState().bootstrap();
@@ -29,8 +34,8 @@ export function TeamJoinChip({ team }: { team: Team }) {
     } catch (err) { useApp.getState().toast({ title: (err as Error).message }); }
   };
   return (
-    <button className={`plabel-chip team-join${joined ? ' joined' : ''}`} title={joined ? `Leave ${team.name}` : `Join ${team.name}`} aria-label={joined ? `Leave ${team.name}` : `Join ${team.name}`} onClick={toggle}>
-      {joined ? <><IconCheck size={11} /> Joined</> : 'Join'}
+    <button className={`plabel-chip team-join${joined ? ' joined' : ''}${armed ? ' armed' : ''}`} title={joined ? `Leave ${team.name}` : `Join ${team.name}`} aria-label={joined ? `Leave ${team.name}` : `Join ${team.name}`} onClick={toggle} onBlur={() => setArmed(false)}>
+      {armed ? 'Leave?' : joined ? <><IconCheck size={11} /> Joined</> : 'Join'}
     </button>
   );
 }
@@ -48,6 +53,7 @@ export function TeamsPage() {
       <div className="content">
         <div className="wtable">
           <div className="wt-head wt-teams"><span>Name</span><span>Description</span><span>Membership</span><span>Members</span><span>Cycle</span><span>Active projects</span></div>
+          {!list.length && <div className="set-empty">No teams match “{q.trim()}”.</div>}
           {list.map(t => {
             const members = t.memberIds.map(id => snap.users.find(u => u.id === id)).filter(Boolean);
             const cur = snap.cycles.find(c => c.teamId === t.id && c.startsAt <= now && c.endsAt >= now);
@@ -90,7 +96,8 @@ export function MembersPage() {
       <div className="subnav"><div className="set-filter" style={{ border: 0, margin: 0, flex: 1 }}><IconSearch size={13} /><input placeholder="Find members…" value={q} onChange={e => setQ(e.target.value)} /></div></div>
       <div className="content">
         <div className="wtable">
-          <div className="wt-head wt-members"><span>Name ↓</span><span>Status</span><span>Joined</span><span>Teams</span><span>Last seen</span></div>
+          <div className="wt-head wt-members"><span>Name</span><span>Role</span><span>Joined</span><span>Teams</span><span>Last seen</span></div>
+          {!list.length && <div className="set-empty">No one matches “{q.trim()}”.</div>}
           {list.map(u => {
             const teams = snap.teams.filter(t => t.memberIds.includes(u.id));
             const joinedAt = u.createdAt ?? firstSeen.get(u.id) ?? snap.workspace.createdAt;
@@ -156,7 +163,7 @@ export function DraftsPage() {
                   {t && teamDisplayIcon(t)}
                   <span className="row-title-wrap"><span className="row-title">{d.title || 'Untitled draft'}</span><span className="row-parent">{d.description.replace(/\s+/g, ' ').slice(0, 80)}</span></span>
                   <span className="row-meta"><span className="row-date">{d.savedAt ? relTime(d.savedAt) : ''}</span>
-                    <button className="icon-btn" title="Delete draft" onClick={e => { e.stopPropagation(); try { localStorage.removeItem(`baseline:draft:${d.teamId}`); } catch { /* ignore */ } window.dispatchEvent(new Event('baseline:drafts')); }}><IconTrash size={13} /></button>
+                    <ConfirmIconButton className="icon-btn" title="Delete draft" onConfirm={e => { e.stopPropagation(); try { localStorage.removeItem(`baseline:draft:${d.teamId}`); } catch { /* ignore */ } window.dispatchEvent(new Event('baseline:drafts')); }}><IconTrash size={13} /></ConfirmIconButton>
                   </span>
                 </div>
               );

@@ -435,6 +435,13 @@ export class Store {
     const now = ts();
     const next: Issue = { ...before, ...patch, updatedAt: now };
     if (patch.locationId !== undefined && patch.locationId !== null && !this.getLocation(patch.locationId)) next.locationId = before.locationId;
+    // a parent can't be the issue itself or one of its own sub-issues (at any depth): that makes a loop
+    if (patch.parentId && patch.parentId !== before.parentId) {
+      for (let at: string | null = patch.parentId, hops = 0; at && hops < 1000; hops++) {
+        if (at === issueId) throw new Error('An issue can’t be the parent of its own parent issue');
+        at = (this.db.prepare('SELECT parent_id FROM issues WHERE id = ?').get(at) as { parent_id: string | null } | undefined)?.parent_id ?? null;
+      }
+    }
     // a milestone belongs to one project: leaving the project (or picking a milestone of another) clears it
     if (next.milestoneId) {
       const ms = this.db.prepare('SELECT project_id FROM milestones WHERE id = ?').get(next.milestoneId) as { project_id: string } | undefined;
@@ -799,6 +806,18 @@ export class Store {
     const pname = (this.db.prepare('SELECT name FROM projects WHERE id = ?').get(projectId) as { name: string } | undefined)?.name ?? '';
     this.notifyProject(projectId, 'updates', 'projectUpdate', userId, `New update on ${pname}: ${body.replace(/\s+/g, ' ').slice(0, 120)}`);
     return u;
+  }
+
+  /** who posted a project update (the route lets only them, or an admin, change it); null when it's gone */
+  projectUpdateAuthor(updateId: string): string | null {
+    return (this.db.prepare('SELECT user_id FROM project_updates WHERE id = ?').get(updateId) as { user_id: string } | undefined)?.user_id ?? null;
+  }
+  /** fix a posted update's text (a typo was permanent before) */
+  editProjectUpdate(updateId: string, body: string): void {
+    this.db.prepare('UPDATE project_updates SET body = ? WHERE id = ?').run(body, updateId);
+  }
+  deleteProjectUpdate(updateId: string): void {
+    this.db.prepare('DELETE FROM project_updates WHERE id = ?').run(updateId);
   }
 
   projectProgress(projectId: string): { total: number; done: number; percent: number } {

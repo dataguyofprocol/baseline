@@ -5,7 +5,7 @@ import { useApp, useCursor, useSelection, visibleList, copyText } from './store.
 import { undoLast, setIssueProps, assignToMe, toggleSubscription, toggleFavoriteIssue, archiveIssues, deleteIssues } from './actions.js';
 import { sortedStatesOf, type PropKind } from './propertyMenus.js';
 import { handoffActions } from './CodingTools.js';
-import { noteRoute, neighbour, shortcutTargets, pageIssue, listIssueAtCursor } from './nav.js';
+import { noteRoute, neighbour, shortcutTargets, pageIssue, listIssueAtCursor, exitPathFor } from './nav.js';
 import { PeekPanel } from './IssueDetail.js';
 import type { Issue } from '../../src/core/types.js';
 import { Sidebar } from './AppShell.js';
@@ -198,8 +198,8 @@ function KeyboardManager() {
       if (!e.metaKey && !e.ctrlKey && !e.altKey && e.shiftKey && k === 's' && one) { e.preventDefault(); void toggleSubscription(one.id); return; }
       if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyF' && one) { e.preventDefault(); void toggleFavoriteIssue(one.id); return; }
       if (!e.metaKey && !e.ctrlKey && !e.altKey && e.shiftKey && k === 'r' && onPage) { e.preventDefault(); window.dispatchEvent(new CustomEvent('baseline:rename-issue')); return; }
-      if (plain && !e.shiftKey && k === 'e') { e.preventDefault(); void archiveIssues(ids); if (onPage) navigate(-1); return; }
-      if (e.key === 'Backspace' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void deleteIssues(ids); if (onPage) navigate(-1); return; }
+      if (plain && !e.shiftKey && k === 'e') { e.preventDefault(); void archiveIssues(ids); if (onPage && one) navigate(exitPathFor(one)); return; }
+      if (e.key === 'Backspace' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void deleteIssues(ids); if (onPage && one) navigate(exitPathFor(one)); return; }
       // copy chords on list rows (the issue page's toolbar handles its own)
       if ((e.metaKey || e.ctrlKey) && one && !onPage) {
         const h = handoffActions(one);
@@ -353,7 +353,7 @@ function NotFoundPage() {
     <div className="content"><div className="empty-state">
       <Illustration name="search" />
       <div className="empty-title">Not found</div>
-      <div className="empty-desc">We could not find the page you were looking for</div>
+      <div className="empty-desc">There’s no page at this address.</div>
       <div className="empty-actions"><button className="btn secondary" onClick={() => navigate('/inbox')}>Go to inbox</button></div>
     </div></div>
   );

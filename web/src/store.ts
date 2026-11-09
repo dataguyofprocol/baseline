@@ -13,6 +13,9 @@ export interface Toast {
   link?: { label: string; to: string };
   actions?: Array<{ label: string; onClick: () => void | Promise<void> }>;
   autoClose?: boolean;
+  /** runs when the toast goes away without one of its actions being pressed (timed out or ×):
+   *  how a delayed delete commits once its Undo window has passed */
+  onClose?: () => void;
 }
 
 interface AppState {
@@ -39,7 +42,10 @@ interface AppState {
   bootstrap: () => Promise<void>;
   setTheme: (t: ThemePref) => void;
   toast: (t: Omit<Toast, 'id'>) => void;
-  dismissToast: (id: number) => void;
+  /** viaAction: an action button closed it, so onClose (the commit) is skipped */
+  dismissToast: (id: number, viaAction?: boolean) => void;
+  /** hovering a toast pauses its clock so there's time to reach Undo */
+  holdToast: (id: number, hold: boolean) => void;
   setPalette: (open: boolean, scope?: PaletteScope | null) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
@@ -61,6 +67,8 @@ export function resolveTheme(p: ThemePref): 'dark' | 'light' {
 }
 
 let toastSeq = 1;
+const TOAST_MS = 5200;
+const toastClocks = new Map<number, { left: number; since: number; timer: ReturnType<typeof setTimeout> | null }>();
 
 /** a narrow window hides the nav on its own (the saved preference is left alone) so the page keeps its width */
 const narrowNav = window.matchMedia('(max-width: 760px)');
@@ -110,9 +118,22 @@ export const useApp = create<AppState>((set, get) => ({
   toast: (t) => {
     const id = toastSeq++;
     set(s => ({ toasts: [...s.toasts, { ...t, id }] }));
-    if (t.autoClose !== false) setTimeout(() => get().dismissToast(id), 5200);
+    if (t.autoClose !== false) toastClocks.set(id, { left: TOAST_MS, since: Date.now(), timer: setTimeout(() => get().dismissToast(id), TOAST_MS) });
   },
-  dismissToast: (id) => set(s => ({ toasts: s.toasts.filter(x => x.id !== id) })),
+  dismissToast: (id, viaAction) => {
+    const t = get().toasts.find(x => x.id === id);
+    const clock = toastClocks.get(id);
+    if (clock?.timer) clearTimeout(clock.timer);
+    toastClocks.delete(id);
+    set(s => ({ toasts: s.toasts.filter(x => x.id !== id) }));
+    if (t && !viaAction) t.onClose?.();
+  },
+  holdToast: (id, hold) => {
+    const c = toastClocks.get(id);
+    if (!c) return;
+    if (hold && c.timer) { clearTimeout(c.timer); c.left -= Date.now() - c.since; c.timer = null; }
+    if (!hold && !c.timer) { c.since = Date.now(); c.timer = setTimeout(() => get().dismissToast(id), Math.max(1200, c.left)); }
+  },
   setPalette: (open, scope = null) => {
     set({ paletteOpen: open, paletteScope: open ? scope : null });
     if (open && get().snap?.workspace.preferences.gettingStarted.usedPalette === false) setGettingStarted({ usedPalette: true });
@@ -213,9 +234,27 @@ export function relTime(iso: string): string {
   return `${Math.floor(months / 12)}y ago`;
 }
 
+/** a calendar date (YYYY-MM-DD) in the viewer's own timezone. toISOString() is UTC, which
+ *  names the wrong day in the evening west of UTC and the early morning east of it. */
+export function localIsoDate(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+/** today plus n calendar days, as a local YYYY-MM-DD */
+export function isoDaysFromToday(n: number): string {
+  const d = new Date(); d.setDate(d.getDate() + n); return localIsoDate(d);
+}
+
+/** "Nov 11", or "Nov 11, 2025" outside the current year (a bare "Nov 11" on old work is ambiguous) */
 export function shortDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', d.getFullYear() === new Date().getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+}
+/** "Nov 10, 2:08 PM" (year added outside the current year): the one format for a moment in time.
+ *  The browser's own locale gave "10 Nov 2026, 14:08" beside "Nov 11" elsewhere. */
+export function dateTime(iso: string): string {
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }), hour: 'numeric', minute: '2-digit' });
 }
 
 export const STATUS_ORDER = ['backlog', 'unstarted', 'started', 'completed', 'canceled'] as const;

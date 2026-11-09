@@ -99,47 +99,47 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
       </div>
       <textarea ref={descRef} className="subc-desc" rows={1} value={description} onChange={e => setDescription(e.target.value)}
         placeholder="Add description…" spellCheck={false} />
-      <div className="subc-chips">
-        <span className="prop-chip boxed static" title={`Team: ${team.name}`}>
+      <div className="subc-chips cm-pills">
+        <span className="prop-chip static" title={`Team: ${team.name}`}>
           <span className="cm-team-mark" style={{ background: team.color }}>{team.key.slice(0, 1)}</span>{team.key}
         </span>
-        <button className={`prop-chip boxed${priority ? ' set' : ''}`} onClick={prio.open}>
+        <button className={`prop-chip${priority ? ' set' : ''}`} onClick={prio.open}>
           <PriorityIcon priority={priority} size={13} /><span className="chip-text">{priority ? PRIORITIES[priority][1] : 'Priority'}</span>
         </button>
-        <button className={`prop-chip boxed${assignee ? ' set' : ''}`} onClick={who.open}>
+        <button className={`prop-chip${assignee ? ' set' : ''}`} onClick={who.open}>
           {assignee ? <Avatar user={assignee} size={16} /> : <IconUser size={13} />}
           <span className="chip-text">{assignee?.name ?? 'Assignee'}</span>
         </button>
-        <button className={`prop-chip boxed${estimate != null ? ' set' : ''}`} onClick={est.open}>
-          <IconEstimate size={13} /><span className="chip-text">{estimate != null ? `${estimate} pt${estimate !== 1 ? 's' : ''}` : 'Estimate'}</span>
+        <button className={`prop-chip${estimate != null ? ' set' : ''}`} onClick={est.open}>
+          <IconEstimate size={13} /><span className="chip-text">{estimate != null ? `${estimate} point${estimate !== 1 ? 's' : ''}` : 'Estimate'}</span>
         </button>
-        <button className={`prop-chip boxed${labels.length ? ' set' : ''}`} onClick={lbl.open}>
+        <button className={`prop-chip${labels.length ? ' set' : ''}`} onClick={lbl.open}>
           {labels.length
             ? <span className="cm-label-dots">{labels.slice(0, 3).map(l => <span key={l.id} className="label-dot" style={{ background: l.color }} />)}</span>
             : <IconTag size={13} />}
           <span className="chip-text">{labels.length === 0 ? 'Labels' : labels.length === 1 ? labels[0].name : `${labels.length} labels`}</span>
         </button>
         {teamCycles.length > 0 && (
-          <button className={`prop-chip boxed${cycle ? ' set' : ''}`} onClick={cyc.open}>
+          <button className={`prop-chip${cycle ? ' set' : ''}`} onClick={cyc.open}>
             <IconCycle size={13} /><span className="chip-text">{cycle ? (cycle.name || `Cycle ${cycle.number}`) : 'Cycle'}</span>
           </button>
         )}
         {(snap.locations.length > 0 || loc) && (
-          <button className={`prop-chip boxed${loc ? ' set' : ''}`} onClick={locMenu.open} title={loc ? loc.path : 'Where agents work on it'}>
+          <button className={`prop-chip${loc ? ' set' : ''}`} onClick={locMenu.open} title={loc ? loc.path : 'Where agents work on it'}>
             <IconFolder size={13} /><span className="chip-text">{loc?.name ?? 'Location'}</span>
           </button>
         )}
         {project && project.id !== parent.projectId && (
-          <button className="prop-chip boxed set" onClick={e => { setMorePhase('project'); more.open(e); }}>
+          <button className="prop-chip set" onClick={e => { setMorePhase('project'); more.open(e); }}>
             <span className="fav-emoji">{project.icon}</span><span className="chip-text">{project.name}</span>
           </button>
         )}
         {dueDate && (
-          <button className="prop-chip boxed set" onClick={e => { setMorePhase('due'); more.open(e); }}>
+          <button className="prop-chip set" onClick={e => { setMorePhase('due'); more.open(e); }}>
             <IconCalendar size={13} /><span className="chip-text">{shortDate(dueDate)}</span>
           </button>
         )}
-        <button className="prop-chip boxed" title="More properties" onClick={e => { setMorePhase('root'); more.open(e); }}><IconMore size={13} /></button>
+        <button className="prop-chip" title="More properties" onClick={e => { setMorePhase('root'); more.open(e); }}><IconMore size={13} /></button>
       </div>
       <div className="subc-footer">
         <button className="btn secondary" onClick={props.onClose}>Cancel</button>

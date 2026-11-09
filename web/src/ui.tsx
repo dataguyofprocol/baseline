@@ -68,6 +68,12 @@ export function Menu(props: {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [index, closing, close]);
 
+  // open on the current value (the ticked row), not the first one: ↵ keeps it, ↑/↓ move from it
+  useLayoutEffect(() => {
+    const at = itemEls().findIndex(el => el.classList.contains('is-selected'));
+    if (at > 0) setIndex(at);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // the highlight is the single source of truth for both mouse and keyboard
   useLayoutEffect(() => {
     const els = itemEls();
@@ -129,7 +135,7 @@ export function Menu(props: {
   return createPortal(
     <>
       {!closing && <div className="menu-backdrop" onMouseDown={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />}
-      <div className={`menu${closing ? ' closing' : ''}`} ref={ref} style={pos} onPointerMove={onPointerMove}>
+      <div className={`menu${closing ? ' closing' : ''}`} ref={ref} role="menu" style={pos} onPointerMove={onPointerMove}>
         <MenuContext.Provider value={{ close, registerItem: () => {} }}>
           {props.children}
         </MenuContext.Provider>
@@ -145,22 +151,35 @@ export function MenuItem(props: {
   right?: React.ReactNode;
   selected?: boolean;
   danger?: boolean;
+  /** destructive rows: the first press swaps the label for this consequence and keeps the
+   *  menu open; a second press within 3s runs it (the ConfirmButton pattern, inside a menu) */
+  confirm?: React.ReactNode;
   onClick?: (e: React.MouseEvent) => void;
   sectionHeader?: string;
 }) {
   const { close } = useContext(MenuContext);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
   return (
     <>
       {props.sectionHeader && <div className="menu-header"><span>{props.sectionHeader}</span></div>}
       <button
-        className="menu-item"
-        style={props.danger ? { color: '#eb5757' } : undefined}
-        onClick={(e) => { e.stopPropagation(); props.onClick?.(e); close(); }}
+        className={`menu-item${props.danger ? ' danger' : ''}${armed ? ' armed' : ''}${props.selected ? ' is-selected' : ''}`}
+        role={props.selected !== undefined ? 'menuitemradio' : 'menuitem'} aria-checked={props.selected !== undefined ? props.selected : undefined}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (props.confirm && !armed) { setArmed(true); return; }
+          props.onClick?.(e); close();
+        }}
       >
         {props.icon && <span className="mi-icon">{props.icon}</span>}
-        <span className="mi-label">{props.label}</span>
+        <span className="mi-label">{armed ? props.confirm : props.label}</span>
         <span className="mi-right">
-          {props.right}
+          {!armed && props.right}
           {props.selected && <IconCheck size={13} />}
         </span>
       </button>
@@ -250,11 +269,28 @@ export function RegisterMark({ group }: { group: string }) {
    (`<AnimatePresence>{open && <Modal …/>}</AnimatePresence>`), because an unmounted
    component can't animate itself out. */
 export function Modal(props: { onClose: () => void; children: React.ReactNode; className?: string; dismissOnBackdrop?: boolean }) {
+  const boxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); props.onClose(); } };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopImmediatePropagation(); props.onClose(); return; }
+      // Tab stays inside the dialog instead of wandering into the page behind it
+      if (e.key === 'Tab' && boxRef.current && !document.querySelector('.menu:not(.closing)')) {
+        const f = [...boxRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select, textarea, [contenteditable="true"], [tabindex]:not([tabindex="-1"])')].filter(el => el.offsetParent !== null);
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        else if (!boxRef.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      }
+    };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [props]);
+  // give focus back to whatever opened the dialog once it closes
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    return () => { if (opener && document.contains(opener)) opener.focus({ preventScroll: true }); };
+  }, []);
   return createPortal(
     <motion.div
       className="overlay"
@@ -265,6 +301,7 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
       onMouseDown={(e) => { if (props.dismissOnBackdrop !== false && e.target === e.currentTarget) props.onClose(); }}
     >
       <motion.div
+        ref={boxRef} role="dialog" aria-modal="true"
         className={props.className ?? 'modal modal-create'}
         initial={{ opacity: 0, y: 8, scale: 0.982 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -286,12 +323,14 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
 export function Toasts() {
   const toasts = useApp(s => s.toasts);
   const dismiss = useApp(s => s.dismissToast);
+  const hold = useApp(s => s.holdToast);
   const shown = toasts.slice(-3);
   return createPortal(
     <div className="toasts">
       <AnimatePresence>
         {shown.map((t, i) => (
-          <motion.div key={t.id} className={`toast ${i < shown.length - 1 ? 'stacked' : ''}`} layout
+          <motion.div key={t.id} className={`toast ${i < shown.length - 1 ? 'stacked' : ''}`} layout role="status"
+            onMouseEnter={() => hold(t.id, true)} onMouseLeave={() => hold(t.id, false)}
             initial={{ opacity: 0, y: 14, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.98, transition: { duration: 0.22, ease: 'easeOut' } }}
@@ -303,9 +342,9 @@ export function Toasts() {
             </div>
             {t.actions?.map(a => (
               <button key={a.label} className="btn primary" style={{ height: 26, fontSize: 12 }}
-                onClick={async () => { await a.onClick(); dismiss(t.id); }}>{a.label}</button>
+                onClick={async () => { await a.onClick(); dismiss(t.id, true); }}>{a.label}</button>
             ))}
-            <button className="icon-btn" onClick={() => dismiss(t.id)}><IconClose size={13} /></button>
+            <button className="icon-btn" title="Dismiss" aria-label="Dismiss" onClick={() => dismiss(t.id)}><IconClose size={13} /></button>
             {t.autoClose !== false && (
               <div className="toast-line-track"><div className="toast-line-fill" /></div>
             )}
@@ -434,6 +473,15 @@ export function Tooltips() {
  *  while the first is still in flight (double-click, Enter then click, ⌘↵ firing from
  *  both the editor and the modal) is dropped instead of creating a duplicate. The ref
  *  catches calls in the same tick, before `busy` has re-rendered the button disabled. */
+/** the useInFlight guard for handlers that aren't in a hook-friendly spot: calls sharing a key
+ *  while one is still running are dropped (a double-click, Enter then click) */
+const runningKeys = new Set<string>();
+export async function exclusive(key: string, fn: () => Promise<unknown>): Promise<void> {
+  if (runningKeys.has(key)) return;
+  runningKeys.add(key);
+  try { await fn(); } finally { runningKeys.delete(key); }
+}
+
 export function useInFlight() {
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -443,6 +491,41 @@ export function useInFlight() {
     try { await fn(...args); } finally { inFlight.current = false; setBusy(false); }
   };
   return { busy, guard };
+}
+
+/** the icon-sized ConfirmButton for hover trash/× buttons: the first press turns the icon into a
+ *  short red "Delete?" and a second press within 3s runs it */
+export function ConfirmIconButton(props: {
+  title: string;
+  confirmLabel?: string;
+  onConfirm: (e: React.MouseEvent) => void | Promise<void>;
+  className?: string;
+  style?: React.CSSProperties;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <button
+      className={`${props.className ?? 'icon-btn hover-only'}${armed ? ' armed' : ''}`}
+      style={props.style} disabled={props.disabled}
+      title={armed ? 'Click again to confirm' : props.title} aria-label={props.title}
+      onClick={async (e) => {
+        e.stopPropagation();
+        if (!armed) { setArmed(true); return; }
+        setArmed(false);
+        await props.onConfirm(e);
+      }}
+      onBlur={() => setArmed(false)}
+    >
+      {armed ? <span className="confirm-text">{props.confirmLabel ?? 'Delete?'}</span> : props.children}
+    </button>
+  );
 }
 
 export function ConfirmButton(props: {
@@ -491,4 +574,15 @@ export function AdminLock(props: { children: React.ReactNode; note?: string }) {
 export function Via({ userId }: { userId: string | null }) {
   const name = useApp(s => userId ? s.snap?.users.find(u => u.id === userId)?.name : undefined);
   return name ? <span className="via"> via {name}</span> : null;
+}
+
+/** one "not found" treatment for every entity page: what's missing, why, and a way back */
+export function NotFound(props: { what: string; detail?: string; back: { label: string; to: string } }) {
+  return (
+    <div className="content"><div className="empty-state">
+      <div className="empty-title">{props.what} not found</div>
+      <div className="empty-desc">{props.detail ?? 'It may have been deleted, or the link is wrong.'}</div>
+      <div className="empty-actions"><Link className="btn secondary" to={props.back.to}>{props.back.label}</Link></div>
+    </div></div>
+  );
 }

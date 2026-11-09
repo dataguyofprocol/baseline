@@ -39,7 +39,8 @@ function takeParams(): Params {
 export function SignIn() {
   const [params] = useState(takeParams);
   const [config, setConfig] = useState<Config | null>(null);
-  useEffect(() => { void authApi.config().then(setConfig); }, []);
+  // unreachable server: fall back to the password form rather than a blank shell
+  useEffect(() => { void authApi.config().then(setConfig, () => setConfig({ methods: ['password'], setup: false, mail: false } as Config)); }, []);
   // where to land once signed in: back to the page that asked (the CLI's approval page sends ?next)
   const back = params.next ?? window.location.pathname + window.location.hash;
   const done = () => {
@@ -78,11 +79,17 @@ function Shell(props: { headline: string; sub: React.ReactNode; children?: React
 }
 
 function Field(props: { label: string; hint?: string; value: string; onChange: (v: string) => void; type?: string; autoComplete?: string; autoFocus?: boolean; placeholder?: string; mono?: boolean; name?: string }) {
+  // a password field can be shown, so a new password can be checked before it's set
+  const [shown, setShown] = useState(false);
+  const isPassword = props.type === 'password';
   return (
     <label className="auth-field">
       <span className="auth-label">{props.label}</span>
-      <input className={`text-input${props.mono ? ' mono' : ''}`} name={props.name} type={props.type ?? 'text'} value={props.value} autoComplete={props.autoComplete}
-        autoFocus={props.autoFocus} placeholder={props.placeholder} spellCheck={false} onChange={e => props.onChange(e.target.value)} />
+      <span className="auth-input-wrap">
+        <input className={`text-input${props.mono ? ' mono' : ''}`} name={props.name} type={isPassword && shown ? 'text' : props.type ?? 'text'} value={props.value} autoComplete={props.autoComplete}
+          autoFocus={props.autoFocus} placeholder={props.placeholder} spellCheck={false} onChange={e => props.onChange(e.target.value)} />
+        {isPassword && <button type="button" className="auth-reveal" aria-pressed={shown} onClick={() => setShown(v => !v)}>{shown ? 'Hide' : 'Show'}</button>}
+      </span>
       {props.hint && <span className="auth-hint">{props.hint}</span>}
     </label>
   );

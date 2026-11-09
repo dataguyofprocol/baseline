@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useApp, relTime, copyText } from './store.js';
+import { useApp, relTime, copyText, shortDate } from './store.js';
 import { api } from './api.js';
 import { IconPr, IconCommit, IconClose, IconExternal, IconCopy, IconShieldUser } from './icons.js';
 import { branchName } from '../../src/core/handoff.js';
 import type { GitStatus, PrAutomation, PrEvent, PullRequest, WebhookConfig, WebhookDelivery } from '../../src/core/types.js';
+import { ConfirmButton } from './ui.js';
 
 const refresh = () => useApp.getState().bootstrap();
 const PR_COLOR: Record<PullRequest['state'], string> = { draft: '#8a8f98', open: '#4cb782', merged: '#a371f7', closed: '#eb5757' };
@@ -50,7 +51,7 @@ export function IssuePullRequests({ issueId }: { issueId: string }) {
           <div key={p.id} className="pr-row">
             <PrIcon state={p.state} />
             <a href={p.url} target="_blank" rel="noreferrer" className="pr-title">{p.title}</a>
-            <span className="pr-meta">{p.repo}#{p.number}</span>
+            <span className="pr-meta pr-repo">{p.repo}#{p.number}</span>
             {p.reviewDecision && <span className={`pr-review ${p.reviewDecision}`}>{p.reviewDecision === 'approved' ? 'Approved' : p.reviewDecision === 'changes_requested' ? 'Changes requested' : 'Review requested'}</span>}
             {p.checks && <span className={`pr-checks ${p.checks}`} title={`Checks ${p.checks}`}>{p.checks === 'success' ? '✓' : p.checks === 'failure' ? '✗' : '•'}</span>}
             {l.kind !== 'closing' && <span className="pr-kind">{l.kind === 'ref' ? 'reference' : 'related'}</span>}
@@ -84,7 +85,7 @@ export function GitHubSettings() {
   const sample = snap.issues[0];
   const sampleKey = sample ? `${snap.teams.find(t => t.id === sample.teamId)?.key}-${sample.number}` : 'ENG-42';
   return (
-    <div className="settings-card wide">
+    <div className="settings-card">
       <h1>GitHub</h1>
       <div className="field-help" style={{ marginBottom: 14 }}>Link pull requests and commits to issues and move issues as PRs progress, like Linear's GitHub integration.</div>
       <div className="gh-readonly">
@@ -152,13 +153,13 @@ function GitHubAccess({ status, hosted, onChange }: { status: GitStatus; hosted:
           <div>
             <div className="field-label">Read-only token for @{t.login}</div>
             <div className="field-help">
-              {t.hint} · {t.expiresAt ? `expires ${new Date(t.expiresAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}` : 'no expiry'}
-              {days !== null && days < 7 && <span style={{ color: days < 0 ? '#eb5757' : '#f2c94c' }}> · {days < 0 ? 'expired, so syncing has stopped: replace it' : 'expires within a week: replace it soon'}</span>}
+              {t.hint} · {t.expiresAt ? `expires ${shortDate(t.expiresAt)}` : 'no expiry'}
+              {days !== null && days < 7 && <span style={{ color: days < 0 ? 'var(--danger)' : '#f2c94c' }}> · {days < 0 ? 'expired, so syncing has stopped: replace it' : 'expires within a week: replace it soon'}</span>}
             </div>
           </div>
           <span style={{ display: 'flex', gap: 6 }}>
             <button className="btn secondary sm" onClick={() => setReplacing(true)}>Replace</button>
-            <button className="btn ghost sm" onClick={async () => { await api.removeGithubToken(); await onChange(); }}>Remove</button>
+            <ConfirmButton className="btn ghost sm" label="Remove" confirmLabel="Stop syncing?" onConfirm={async () => { await api.removeGithubToken(); await onChange(); }} />
           </span>
         </div>
       ) : (
@@ -174,7 +175,7 @@ function GitHubAccess({ status, hosted, onChange }: { status: GitStatus; hosted:
             <button className="btn primary sm" disabled={busy || !token.trim()} onClick={() => void save()}>{busy ? 'Checking…' : 'Save'}</button>
             {t && <button className="btn ghost sm" onClick={() => { setReplacing(false); setError(''); }}>Cancel</button>}
           </div>
-          {error && <div className="field-help" style={{ color: '#eb5757', marginTop: 6 }}>{error}</div>}
+          {error && <div className="field-help" style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
           {hosted && !status.ghInstalled && <div className="field-help" style={{ marginTop: 6 }}>The GitHub CLI (<code>gh</code>) isn't installed on this server, so a token can't be checked or used yet.</div>}
         </div>
       )}
@@ -234,7 +235,7 @@ function GitHubRepos({ status, hosted, onChange, syncButton }: { status: GitStat
                 {!choices.length && <div className="field-help">{available.length ? 'No other repositories match.' : 'This access can’t see any repositories.'}</div>}
               </div>
             )}
-            {error && <div className="field-help" style={{ color: '#eb5757' }}>{error}</div>}
+            {error && <div className="field-help" style={{ color: 'var(--danger)' }}>{error}</div>}
             <div style={{ display: 'flex', gap: 6 }}>
               <button className="btn primary sm" disabled={!chosen.length} onClick={() => void save([...picked, ...chosen])}>{chosen.length ? `Add ${chosen.length}` : 'Add'}</button>
               <button className="btn ghost sm" onClick={() => setPicking(false)}>Cancel</button>
@@ -242,7 +243,7 @@ function GitHubRepos({ status, hosted, onChange, syncButton }: { status: GitStat
           </div>
         )}
       </div>
-      {error && !picking && <div className="field-help" style={{ color: '#eb5757', marginTop: 6 }}>{error}</div>}
+      {error && !picking && <div className="field-help" style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
     </>
   );
 }
@@ -281,7 +282,7 @@ function WebhookSettings({ polls }: { polls: boolean }) {
       )}
       {!cfg.fixedUrl && (
         <div className="field-row">
-          <div><div className="field-label">Public address</div><div className="field-help">Baseline only listens on this machine, so GitHub reaches it through a tunnel, e.g. <code>cloudflared tunnel --url http://localhost:{location.port || 7327}</code>. Only the webhook path is reachable from outside, and only with a valid signature.{urlError && <span style={{ color: '#eb5757' }}> {urlError}</span>}</div></div>
+          <div><div className="field-label">Public address</div><div className="field-help">Baseline only listens on this machine, so GitHub reaches it through a tunnel, e.g. <code>cloudflared tunnel --url http://localhost:{location.port || 7327}</code>. Only the webhook path is reachable from outside, and only with a valid signature.{urlError && <span style={{ color: 'var(--danger)' }}> {urlError}</span>}</div></div>
           <input className="text-input" style={{ width: 280 }} aria-label="Public address" placeholder="https://baseline.example.com" value={url} onChange={e => setUrl(e.target.value)} onBlur={() => void saveUrl()} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
         </div>
       )}
@@ -342,7 +343,7 @@ function IssueImportSettings({ repos }: { repos: string[] }) {
         <label className="gh-follow"><input type="checkbox" checked={follow} onChange={e => setFollow(e.target.checked)} /> Keep importing new issues</label>
         <button className="btn secondary sm" disabled={busy || !/^[\w.-]+\/[\w.-]+$/.test(repo.trim()) || !teamId} onClick={() => void run()}>{busy ? 'Importing…' : 'Import'}</button>
       </div>
-      {error && <div className="field-help" style={{ color: '#eb5757', marginTop: 6 }}>{error}</div>}
+      {error && <div className="field-help" style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
       {!!cfg?.imports.length && (
         <div className="card set-list" style={{ marginTop: 10 }}>
           {cfg.imports.map(x => (

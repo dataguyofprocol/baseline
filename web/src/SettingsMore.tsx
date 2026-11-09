@@ -5,11 +5,14 @@ import { api } from './api.js';
 import { IconPlus, IconTrash, IconSearch } from './icons.js';
 import { ProjectStatusIcon, PROJECT_STATUS } from './Projects.js';
 import { UPDATE_CADENCE_LABELS, type UpdateCadence, type WorkspaceFeatures } from '../../src/core/types.js';
+import { ConfirmIconButton } from './ui.js';
+import { LABEL_COLORS } from './labelColors.js';
+import { reorder } from './Projects.js';
 
 /* Settings pages Linear keeps under Projects (Labels, Statuses, Updates) and Features
    (Initiatives). */
 
-const COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
+const COLORS = LABEL_COLORS;
 const nextColor = (c: string) => COLORS[(COLORS.indexOf(c) + 1) % COLORS.length];
 const refresh = () => useApp.getState().bootstrap();
 
@@ -58,11 +61,11 @@ export function ProjectLabelsSettings() {
       <button className="label-dot" style={{ background: l.color, width: 12, height: 12 }} title="Change colour" onClick={async () => { await api.updateProjectLabel(l.id, { color: nextColor(l.color) }); await refresh(); }} />
       <EditableName value={l.name} onSave={async v => { await api.updateProjectLabel(l.id, { name: v }); await refresh(); }} />
       <span className="set-meta">{count(l.id) ? `${count(l.id)} project${count(l.id) === 1 ? '' : 's'}` : ''}</span>
-      <button className="icon-btn hover-only" title="Delete label" onClick={async () => { await api.deleteProjectLabel(l.id); await refresh(); }}><IconTrash size={13} /></button>
+      <ConfirmIconButton className="icon-btn hover-only" title="Delete label" onConfirm={async () => { await api.deleteProjectLabel(l.id); await refresh(); }}><IconTrash size={13} /></ConfirmIconButton>
     </div>
   );
   return (
-    <div className="settings-card wide">
+    <div className="settings-card">
       <div className="set-head">
         <h1>Project labels</h1>
         <span style={{ flex: 1 }} />
@@ -84,7 +87,7 @@ export function ProjectLabelsSettings() {
                 <EditableName value={g.name} className="strong" onSave={async v => { await api.updateProjectLabel(g.id, { name: v }); await refresh(); }} />
                 <span className="set-meta">{kids.length} label{kids.length === 1 ? '' : 's'} · one per project</span>
                 <button className="icon-btn hover-only" title="Add label to group" onClick={() => { setAdding({ group: false, parentId: g.id }); setName(''); }}><IconPlus size={13} /></button>
-                <button className="icon-btn hover-only" title="Delete group and its labels" onClick={async () => { await api.deleteProjectLabel(g.id); await refresh(); }}><IconTrash size={13} /></button>
+                <ConfirmIconButton confirmLabel="Delete group?" className="icon-btn hover-only" title="Delete group and its labels" onConfirm={async () => { await api.deleteProjectLabel(g.id); await refresh(); }}><IconTrash size={13} /></ConfirmIconButton>
               </div>
               {kids.map(l => labelRow(l, true))}
               {addRow(g.id, false)}
@@ -109,17 +112,16 @@ export function InitiativesSettings() {
   const overrides = snap.initiatives.filter(i => i.updateCadence).length;
   return (
     <div className="settings-card">
-      <h1>Initiatives</h1>
+      <div className="set-head"><h1>Initiatives</h1><span style={{ flex: 1 }} />{f.initiativesEnabled && <Link className="btn secondary" to="/initiatives">Open initiatives</Link>}</div>
       <div className="field-row">
         <div><div className="field-label">Enable initiatives</div><div className="field-help">Initiatives are larger, strategic efforts made of projects. They get their own status, owner, priority, labels, target date, health and updates, and can nest as sub-initiatives.</div></div>
         <Switch on={f.initiativesEnabled} label="Enable initiatives" onChange={v => void setFeatures({ initiativesEnabled: v })} />
       </div>
       {f.initiativesEnabled && <>
-        <Link className="btn secondary sm" to="/initiatives">Open initiatives</Link>
         <div className="settings-h2">Update schedule</div>
         <div className="field-help" style={{ marginBottom: 8 }}>How often initiative owners are expected to post an update. Owners get an inbox reminder when one is due.</div>
         <div className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ flex: 1 }}>{UPDATE_CADENCE_LABELS[f.initiativeUpdateCadence]}</span>
+          <span style={{ flex: 1 }}>Default schedule</span>
           <select className="text-input" aria-label="Initiative update schedule" value={f.initiativeUpdateCadence} onChange={e => void setFeatures({ initiativeUpdateCadence: e.target.value as UpdateCadence })}>
             {(Object.keys(UPDATE_CADENCE_LABELS) as UpdateCadence[]).map(c => <option key={c} value={c}>{UPDATE_CADENCE_LABELS[c]}</option>)}
           </select>
@@ -141,7 +143,7 @@ export function InitiativesSettings() {
               <button className="label-dot" style={{ background: l.color, width: 12, height: 12 }} title="Change colour" onClick={async () => { await api.updateInitiativeLabel(l.id, { color: nextColor(l.color) }); await refresh(); }} />
               <EditableName value={l.name} onSave={async v => { await api.updateInitiativeLabel(l.id, { name: v }); await refresh(); }} />
               <span className="set-meta">{count(l.id) ? `${count(l.id)} initiative${count(l.id) === 1 ? '' : 's'}` : ''}</span>
-              <button className="icon-btn hover-only" title="Delete label" onClick={async () => { await api.deleteInitiativeLabel(l.id); await refresh(); }}><IconTrash size={13} /></button>
+              <ConfirmIconButton className="icon-btn hover-only" title="Delete label" onConfirm={async () => { await api.deleteInitiativeLabel(l.id); await refresh(); }}><IconTrash size={13} /></ConfirmIconButton>
             </div>
           ))}
           {!snap.initiativeLabels.length && !adding && <div className="set-empty">No initiative labels yet</div>}
@@ -174,10 +176,14 @@ export function ProjectStatusesSettings() {
                     <button className="set-icon" title="Change colour" onClick={async () => { await api.updateProjectStatus(st.id, { color: nextColor(st.color) }); await refresh(); }}><ProjectStatusIcon status={type} color={st.color} /></button>
                     <EditableName value={st.name} onSave={async v => { await api.updateProjectStatus(st.id, { name: v }); await refresh(); }} />
                     <span className="set-meta">{n ? `${n} project${n === 1 ? '' : 's'}` : ''}</span>
-                    <button className="icon-btn hover-only" title={list.length > 1 ? 'Delete status' : 'Each category keeps one status'} disabled={list.length < 2}
-                      onClick={async () => { try { await api.deleteProjectStatus(st.id); await refresh(); toast({ title: `Status “${st.name}” deleted`, line: n ? `${n} project${n === 1 ? '' : 's'} moved to ${list.find(x => x.id !== st.id)?.name}` : undefined }); } catch (e) { toast({ title: 'Can’t delete', line: String((e as Error).message) }); } }}>
+                    {list.length > 1 && <span className="reorder hover-only">
+                      <button className="icon-btn" style={{ width: 20, height: 20 }} title="Move up" aria-label="Move up" disabled={list[0].id === st.id} onClick={() => void reorder(list, st.id, -1, (id, position) => api.updateProjectStatus(id, { position }))}>↑</button>
+                      <button className="icon-btn" style={{ width: 20, height: 20 }} title="Move down" aria-label="Move down" disabled={list[list.length - 1].id === st.id} onClick={() => void reorder(list, st.id, 1, (id, position) => api.updateProjectStatus(id, { position }))}>↓</button>
+                    </span>}
+                    <ConfirmIconButton className="icon-btn hover-only" title={list.length > 1 ? 'Delete status' : 'Each category keeps one status'} disabled={list.length < 2}
+                      onConfirm={async () => { try { await api.deleteProjectStatus(st.id); await refresh(); toast({ title: `Status “${st.name}” deleted`, line: n ? `${n} project${n === 1 ? '' : 's'} moved to ${list.find(x => x.id !== st.id)?.name}` : undefined }); } catch (e) { toast({ title: 'Can’t delete', line: String((e as Error).message) }); } }}>
                       <IconTrash size={13} />
-                    </button>
+                    </ConfirmIconButton>
                   </div>
                 );
               })}
@@ -209,7 +215,7 @@ export function ProjectUpdatesSettings() {
       <div className="settings-h2" style={{ marginTop: 0 }}>Update schedule</div>
       <div className="field-help" style={{ marginBottom: 8 }}>How often updates are expected on projects. Project leads get an inbox reminder when one is due.</div>
       <div className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ flex: 1 }}>{UPDATE_CADENCE_LABELS[f.updateCadence]}</span>
+        <span style={{ flex: 1 }}>Default schedule</span>
         <select className="text-input" aria-label="Update schedule" value={f.updateCadence} onChange={e => void setFeatures({ updateCadence: e.target.value as UpdateCadence })}>
           {(Object.keys(UPDATE_CADENCE_LABELS) as UpdateCadence[]).map(c => <option key={c} value={c}>{UPDATE_CADENCE_LABELS[c]}</option>)}
         </select>

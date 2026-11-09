@@ -123,6 +123,8 @@ export const api = {
   addProjectLink: (id: string, url: string, title?: string) => req<{ ok: true }>('POST', `/api/projects/${id}/links`, { url, title }),
   deleteProjectLink: (id: string) => req<{ ok: true }>('DELETE', `/api/project-links/${id}`),
   addProjectUpdate: (id: string, body: string, health?: string) => req<{ ok: true }>('POST', `/api/projects/${id}/updates`, { body, health }),
+  editProjectUpdate: (updateId: string, body: string) => req<{ ok: true }>('PATCH', `/api/project-updates/${updateId}`, { body }),
+  deleteProjectUpdate: (updateId: string) => req<{ ok: true }>('DELETE', `/api/project-updates/${updateId}`),
   /** the signed-in person's own draft (an agent wrote it): published as an update by them, with their edits */
   publishUpdateDraft: (id: string, edits: { body: string; health: string }) => req<{ published: unknown }>('POST', `/api/projects/${id}/update-draft/publish`, edits),
   discardUpdateDraft: (id: string) => req<{ ok: boolean }>('DELETE', `/api/projects/${id}/update-draft`),
@@ -135,6 +137,8 @@ export const api = {
   addInitiativeProject: (id: string, projectId: string) => req<{ ok: true }>('POST', `/api/initiatives/${id}/projects`, { projectId }),
   removeInitiativeProject: (id: string, projectId: string) => req<{ ok: true }>('DELETE', `/api/initiatives/${id}/projects/${projectId}`),
   addInitiativeUpdate: (id: string, body: string, health?: string | null) => req<{ ok: true }>('POST', `/api/initiatives/${id}/updates`, { body, health }),
+  editInitiativeUpdate: (updateId: string, body: string) => req<{ ok: true }>('PATCH', `/api/initiative-updates/${updateId}`, { body }),
+  deleteInitiativeUpdate: (updateId: string) => req<{ ok: true }>('DELETE', `/api/initiative-updates/${updateId}`),
   toggleInitiativeUpdateReaction: (updateId: string, reaction: string) => req<{ ok: true }>('PATCH', `/api/initiative-updates/${updateId}`, { reaction }),
   addInitiativeLink: (id: string, url: string, title?: string) => req<{ ok: true }>('POST', `/api/initiatives/${id}/links`, { url, title }),
   deleteInitiativeLink: (id: string) => req<{ ok: true }>('DELETE', `/api/initiative-links/${id}`),

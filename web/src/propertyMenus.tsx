@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Menu, MenuItem, MenuSep } from './ui.js';
-import { useApp, STATUS_ORDER } from './store.js';
+import { useApp, STATUS_ORDER, localIsoDate, isoDaysFromToday } from './store.js';
 import { api } from './api.js';
 import { setIssueProps, toggleLabel, moveIssueToTeam, markDuplicate } from './actions.js';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid, teamDisplayIcon } from './pickers.js';
 import { IconUser, IconCycle, IconEstimate, IconClose, IconCheck, IconBox, IconCalendar, IconMilestone, IconPlus, IconClock } from './icons.js';
 import { teamScale, type Issue, type Priority } from '../../src/core/types.js';
+import { nextLabelColor } from './labelColors.js';
 
 /* Linear's property menus all share one shape: a filter field on top (with the
    shortcut that opened it), then the values, each with a number key where order
@@ -133,8 +134,7 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
       const create = async () => {
         const name = q.trim();
         if (!name) return;
-        const colors = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#26b5ce', '#5e6ad2', '#8e4ffa', '#bec2c8'];
-        const { label } = await api.createLabel({ teamId: first.teamId, name, color: colors[teamLabels.length % colors.length] });
+        const { label } = await api.createLabel({ teamId: first.teamId, name, color: nextLabelColor(teamLabels.length) });
         await toggleLabel(ids, label.id);
         setQ('');
       };
@@ -240,8 +240,8 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
     }
     case 'due': {
       const current = same(i => i.dueDate?.slice(0, 10) ?? null);
-      const day = (off: number) => { const d = new Date(); d.setDate(d.getDate() + off); return d.toISOString().slice(0, 10); };
-      const endOfWeek = () => { const d = new Date(); d.setDate(d.getDate() + ((5 - d.getDay() + 7) % 7 || 7)); return d.toISOString().slice(0, 10); };
+      const day = (off: number) => isoDaysFromToday(off);
+      const endOfWeek = () => { const d = new Date(); d.setDate(d.getDate() + ((5 - d.getDay() + 7) % 7 || 7)); return localIsoDate(d); };
       const quick: Array<[string, string]> = [['Today', day(0)], ['Tomorrow', day(1)], ['End of this week', endOfWeek()], ['In one week', day(7)], ['In two weeks', day(14)], ['In one month', day(30)]];
       const shown = quick.filter(([l]) => match(q, l));
       const typed = parseDateInput(q);
@@ -271,7 +271,10 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
       );
     }
     case 'parent': {
-      const pool = snap.issues.filter(i => !ids.includes(i.id) && !ids.includes(i.parentId ?? ''));
+      // never offer an issue's own sub-issues at any depth: picking one would make a loop
+      const below = new Set(ids);
+      for (let grew = true; grew;) { grew = false; for (const i of snap.issues) if (i.parentId && below.has(i.parentId) && !below.has(i.id)) { below.add(i.id); grew = true; } }
+      const pool = snap.issues.filter(i => !below.has(i.id));
       const keyOf = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
       const shown = pool.filter(i => match(q, i.title, keyOf(i))).slice(0, 10);
       return (
@@ -334,11 +337,19 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
         await useApp.getState().bootstrap();
         useApp.getState().toast({ title: 'Reminder set', line: <>You'll get an inbox notification {fmt(d)}</> });
       };
+      // a reminder that's still waiting can be called off (once set, there was no way to remove it)
+      const nowIso = now.toISOString();
+      const pending = snap.notifications.filter(n => n.type === 'issueReminder' && n.issueId && ids.includes(n.issueId) && n.snoozedUntil && n.snoozedUntil > nowIso);
       return (
         <Shell {...common} placeholder="Try: 4 pm, 2 days, in 5 weeks…">
           {typed && <MenuItem icon={<IconClock size={14} />} label={<>Remind me {fmt(typed)}</>} onClick={() => remind(typed)} />}
           {opts.filter(([l]) => match(q, l)).map(([l, d]) => (
             <MenuItem key={l} icon={<IconClock size={14} />} label={l} right={<span className="mi-hint">{fmt(d)}</span>} onClick={() => remind(d)} />
+          ))}
+          {pending.length > 0 && <MenuSep />}
+          {pending.map(n => (
+            <MenuItem key={n.id} icon={<IconClose size={13} />} label="Cancel reminder" right={<span className="mi-hint">{fmt(new Date(n.snoozedUntil!))}</span>}
+              onClick={async () => { await api.deleteNotification(n.id); await useApp.getState().bootstrap(); useApp.getState().toast({ title: 'Reminder canceled' }); }} />
           ))}
         </Shell>
       );

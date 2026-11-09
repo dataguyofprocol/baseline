@@ -65,7 +65,7 @@ function PasswordSection() {
             <input className="text-input" type="password" name="next" autoComplete="new-password" value={next} onChange={e => setNext(e.target.value)} />
           </div>
           <div className="set-row">
-            <span style={{ flex: 1, fontSize: 12, color: '#eb5757' }} role="alert">{err}</span>
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--danger)' }} role="alert">{err}</span>
             <button className="btn ghost sm" disabled={busy || !current || !next}>Change password</button>
           </div>
         </form>
@@ -171,7 +171,7 @@ export function NewApiKey() {
             <label key={t.id} className="check-row"><input type="checkbox" checked={teamIds.includes(t.id)} onChange={() => setTeamIds(toggle(teamIds, t.id))} /><span className="check-label">{t.name}</span><span className="field-help">{t.key}</span></label>
           ))}
         </div>}
-        {err && <div className="field-help" style={{ color: 'var(--danger, #e5484d)', marginTop: 10 }}>{err}</div>}
+        {err && <div className="field-help" style={{ color: 'var(--danger)', marginTop: 10 }}>{err}</div>}
         <div className="form-actions">
           <button className="btn secondary" onClick={() => navigate('/settings/security')}>Cancel</button>
           <button className="btn primary" disabled={!valid || busy} onClick={() => void create()}>Create</button>

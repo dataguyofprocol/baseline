@@ -216,7 +216,8 @@ export function RichEditor(props: {
   onChange?: (markdown: string) => void;
   onBlur?: (markdown: string) => void;
   /** ⌘↵ */
-  onSubmit?: (markdown: string) => void;
+  /** may return a promise: if it rejects, a cleared composer gets its text back */
+  onSubmit?: (markdown: string) => void | Promise<unknown>;
   onEscape?: () => void;
   /** clears after submit (comment composers) */
   clearOnSubmit?: boolean;
@@ -270,8 +271,13 @@ export function RichEditor(props: {
           e.preventDefault();
           const ed = editorInstance.current;
           if (ed && propsRef.current.onSubmit) {
-            propsRef.current.onSubmit(htmlToMarkdown(ed.getHTML()));
-            if (propsRef.current.clearOnSubmit) ed.commands.clearContent();
+            const html = ed.getHTML();
+            const sent = propsRef.current.onSubmit(htmlToMarkdown(html));
+            if (propsRef.current.clearOnSubmit) {
+              ed.commands.clearContent();
+              // a failed send must not eat what was typed: put it back, then let the error surface
+              if (sent instanceof Promise) void sent.catch(err => { if (ed.isEmpty) ed.commands.setContent(html); throw err; });
+            }
           }
           return true;
         }

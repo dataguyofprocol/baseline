@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
-import { useApp } from './store.js';
+import { useApp, copyText } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, RegisterMark, ConfirmButton } from './ui.js';
 import { Logo } from './Logo.js';
@@ -256,7 +256,7 @@ export function Sidebar() {
             try { await api.leaveTeam(menuTeam.id); await useApp.getState().bootstrap(); useApp.getState().toast({ title: `You left ${menuTeam.name}` }); }
             catch (err) { useApp.getState().toast({ title: (err as Error).message }); }
           }} />}
-          <MenuItem icon={<IconLink size={14} />} label="Copy link to team" onClick={async () => { await navigator.clipboard.writeText(`${location.origin}/#/team/${menuTeam.key}/all`).catch(() => {}); useApp.getState().toast({ title: 'Copied link' }); }} />
+          <MenuItem icon={<IconLink size={14} />} label="Copy link to team" onClick={async () => { if (await copyText(`${location.origin}/#/team/${menuTeam.key}/all`)) useApp.getState().toast({ title: 'Copied link' }); }} />
         </Menu>
       )}
 
@@ -419,19 +419,8 @@ export function TopBar(props: {
       </div>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close}>
+          {/* only the page's own actions: Settings, shortcuts and theme live in the sidebar footer */}
           {props.more}
-          {props.more && <MenuSep />}
-          <MenuItem icon={<IconSettings size={14} />} label="Settings" onClick={() => navigate('/settings/workspace')} />
-          <MenuItem label="Keyboard shortcuts" right={<span className="kbd">?</span>} onClick={() => useApp.getState().setShortcuts(true)} />
-          <MenuSep />
-          <MenuItem
-            icon={<span>🌓</span>}
-            label="Toggle theme"
-            onClick={() => {
-              const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-              useApp.getState().setTheme(next as 'dark' | 'light');
-            }}
-          />
         </Menu>
       )}
     </div>

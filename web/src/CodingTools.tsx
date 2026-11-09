@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp, copyText } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, ConfirmIconButton } from './ui.js';
 import { IconLink, IconCopyId, IconBranch, IconHandoff, IconChevronDown, IconSpark, IconFolder, IconTools, IconPlus, IconCheck, IconClose } from './icons.js';
 import type { Issue, Location } from '../../src/core/types.js';
 
@@ -399,10 +399,10 @@ export function LocationsSettings() {
               {projects.map(p => <span key={p.id} className="loc-chip"><span className="fav-emoji">{p.icon}</span>{p.name}</span>)}
               {issues > 0 && <span className="loc-count">{issues} issue{issues === 1 ? '' : 's'}</span>}
             </div>
-            {canEdit && <button className="icon-btn" title={issues ? `Remove. ${issues} issue${issues === 1 ? '' : 's'} will need a new location` : 'Remove location'}
-              onClick={async () => { await api.deleteLocation(l.id); await useApp.getState().bootstrap(); toast({ title: `Removed ${l.name}` }); }}>
+            {canEdit && <ConfirmIconButton confirmLabel="Remove?" className="icon-btn" title={issues ? `Remove. ${issues} issue${issues === 1 ? '' : 's'} will need a new location` : 'Remove location'}
+              onConfirm={async () => { await api.deleteLocation(l.id); await useApp.getState().bootstrap(); toast({ title: `Removed ${l.name}` }); }}>
               <IconClose size={12} />
-            </button>}
+            </ConfirmIconButton>}
           </div>
         );
       })}

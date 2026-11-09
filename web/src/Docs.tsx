@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useApp, relTime, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, useMenu, RegisterMark, useCanConfigure, ADMIN_NOTE } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, RegisterMark, useCanConfigure, ADMIN_NOTE, NotFound } from './ui.js';
 import { Markdown } from './Markdown.js';
 import { RichEditor } from './RichEditor.js';
 import { Avatar, teamDisplayIcon } from './pickers.js';
@@ -93,7 +93,7 @@ export function DocumentPage() {
   const doc = snap.docs.find(d => d.id === docId);
   const [title, setTitle] = useState(doc?.title ?? '');
   useEffect(() => { setTitle(doc?.title ?? ''); }, [doc?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!doc) return <div className="empty-state"><div className="empty-title">Document not found</div></div>;
+  if (!doc) return <NotFound what="Document" back={{ label: 'Go to inbox', to: '/inbox' }} />;
   const project = snap.projects.find(p => p.id === doc.projectId);
   const team = snap.teams.find(t => t.id === doc.teamId);
   const initiative = snap.initiatives.find(i => i.id === doc.initiativeId);
@@ -102,14 +102,14 @@ export function DocumentPage() {
   const crumbs = project
     ? [{ label: 'Projects', to: '/projects', muted: true }, { label: project.name, icon: <span className="crumb-emoji">{project.icon}</span>, to: `/projects/${project.id}`, muted: true }, { label: doc.title || 'Untitled' }]
     : initiative ? [{ label: 'Initiatives', to: '/initiatives', muted: true }, { label: initiative.name, to: `/initiatives/${initiative.id}`, muted: true }, { label: doc.title || 'Untitled' }]
-    : team ? [{ label: team.name, to: `/team/${team.key}/overview`, muted: true }, { label: 'Documents', to: `/team/${team.key}/overview/documents`, muted: true }, { label: doc.title || 'Untitled' }]
+    : team ? [{ label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true }, { label: 'Documents', to: `/team/${team.key}/overview/documents`, muted: true }, { label: doc.title || 'Untitled' }]
     : [{ label: doc.title || 'Untitled' }];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={crumbs} more={<>
         <MenuItem icon={<IconLink size={14} />} label="Copy link" onClick={async () => { if (await copyText(`${location.origin}/#/docs/${doc.id}`)) useApp.getState().toast({ title: 'Copied link' }); }} />
         <MenuSep />
-        <MenuItem icon={<IconTrash size={14} />} danger label="Delete document" onClick={async () => { await api.deleteDoc(doc.id); await useApp.getState().bootstrap(); navigate(project ? `/projects/${project.id}` : initiative ? `/initiatives/${initiative.id}` : team ? `/team/${team.key}/overview` : '/'); useApp.getState().toast({ title: 'Document deleted' }); }} />
+        <MenuItem icon={<IconTrash size={14} />} danger label="Delete document" confirm="Delete document?" onClick={async () => { await api.deleteDoc(doc.id); await useApp.getState().bootstrap(); navigate(project ? `/projects/${project.id}` : initiative ? `/initiatives/${initiative.id}` : team ? `/team/${team.key}/overview` : '/'); useApp.getState().toast({ title: 'Document deleted' }); }} />
       </>} />
       <div className="content">
         <div className="doc-page">
@@ -138,8 +138,8 @@ export function TeamHomePage() {
   useEffect(() => { setName(team?.name ?? ''); }, [team?.id, team?.name]);
   if (!team) return <TeamMissingRedirect />;
   const docs = snap.docs.filter(d => d.teamId === team.id || snap.projects.some(p => p.id === d.projectId && p.teamId === team.id));
-  const memberIds = [...new Set(snap.issues.filter(i => i.teamId === team.id && i.assigneeId).map(i => i.assigneeId!))];
-  const members = snap.users.filter(u => memberIds.includes(u.id) || u.id === snap.currentUser.id);
+  // the team's roster, the same list Members, Teams and Settings show (not whoever has issues here)
+  const members = snap.users.filter(u => team.memberIds.includes(u.id));
   const go = (label: string, icon: React.ReactNode, to: string) => <button className="go-link" onClick={() => navigate(to)}>{icon}{label}</button>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -197,9 +197,9 @@ export function TeamHomePage() {
           <div className="static-list">
             <div className="static-head">{members.length} member{members.length === 1 ? '' : 's'}</div>
             {members.map(u => (
-              <div key={u.id} className="issue-row static-row">
+              <div key={u.id} className="issue-row static-row" onClick={() => navigate(`/profiles/${u.id}`)}>
                 <Avatar user={u} size={20} /><span className="row-title-wrap"><span className="row-title">{u.name}</span><span className="row-parent">{u.email}</span></span>
-                <span className="row-meta"><span className="row-date">{snap.issues.filter(i => i.teamId === team.id && i.assigneeId === u.id).length} assigned</span></span>
+                <span className="row-meta"><span className="row-count">{(n => n ? `${n} open issue${n === 1 ? '' : 's'}` : 'Nothing assigned')(snap.issues.filter(i => i.teamId === team.id && i.assigneeId === u.id && !i.completedAt && !i.canceledAt).length)}</span></span>
               </div>
             ))}
           </div>
