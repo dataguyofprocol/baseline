@@ -69,6 +69,10 @@ export interface Baseline {
   createLocation(path: string): Promise<Location>;
   /** DELETE /api/me/key revokes the key this client authenticates with */
   revokeOwnKey(): Promise<void>;
+  /** POST /api/notifications/:id/read; read false marks it unread again. Always the request's own inbox */
+  markNotificationRead(notificationId: string, read?: boolean): Promise<void>;
+  /** POST /api/notifications/read-all */
+  markAllNotificationsRead(): Promise<void>;
 
   // Agent work (core/work.ts). Each is one route and one server transaction; a repeat that changes
   // nothing answers with opId null. `session` is BASELINE_SESSION, or null for the default lane.
@@ -150,6 +154,10 @@ export class HttpBaseline implements Baseline {
     return this.call('POST', '/api/locations', { json: { path }, unwrap: 'location' });
   }
   async revokeOwnKey(): Promise<void> { await this.call('DELETE', '/api/me/key'); }
+  async markNotificationRead(notificationId: string, read = true): Promise<void> {
+    await this.call('POST', `/api/notifications/${encodeURIComponent(notificationId)}/read`, { json: { read } });
+  }
+  async markAllNotificationsRead(): Promise<void> { await this.call('POST', '/api/notifications/read-all'); }
 
   startWork(issueId: string, input: { session: string | null; takeOver?: boolean }, actorId?: string): Promise<StartWorkResult> {
     return this.call('POST', `/api/issues/${encodeURIComponent(issueId)}/work/start`, { json: { ...input, actorId } });

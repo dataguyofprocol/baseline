@@ -1,6 +1,5 @@
 // login, logout, whoami: the CLI's side of the flow in src/server/cli-auth.ts.
 import type { Command } from 'commander';
-import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { hostname } from 'node:os';
@@ -8,14 +7,10 @@ import {
   BaselineError, CONFIG_PATH, connect, connectTo, describeTarget, readConfig, removeConfig, serverUrl, TargetError, writeConfig,
   type CliConfig,
 } from '../client/index.js';
+import { openBrowser } from './system.js';
 
 const b64url = (buf: Buffer) => buf.toString('base64url');
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
-
-function openBrowser(url: string): void {
-  const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
-  spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
-}
 
 /** waits on 127.0.0.1 for the browser to come back with ?code&state */
 async function browserCode(server: URL, device: string, opts: { browser: boolean }): Promise<{ code: string; verifier: string }> {

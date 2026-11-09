@@ -2,7 +2,6 @@
 import { Command } from 'commander';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { serve } from '../server/index.js';
 import { isDirectory, LaunchError, openInClaudeCode } from '../server/launch.js';
 import { seedWorkspace } from '../core/seed.js';
@@ -18,6 +17,7 @@ import { mountOperations } from './ops.js';
 import { serveStdio } from '../mcp/server.js';
 import { mountConnectCommand } from './connect.js';
 import { agentContext, mountWorkflowCommands } from './workflow.js';
+import { copyToClipboard } from './system.js';
 
 const { priorityNum, resolveTeam, resolveState, resolveUser, resolveProject, resolveLabel, resolveCycle, milestoneIdFor } = resolve;
 const { relationRows, invertRelation } = views;
@@ -71,15 +71,6 @@ async function readStdin(): Promise<string> {
 const actorId = (snap: Pick<Snapshot, 'users'>, flag?: string) => resolve.actorId(snap, flag, process.env.BASELINE_AS);
 
 const withAs = (cmd: Command) => cmd.option('--as <user>', 'attribute this write to a named user (e.g. an agent identity)');
-
-/** copy text to the system clipboard via whatever helper exists; false if none worked */
-function copyToClipboard(text: string): boolean {
-  for (const [cmd, args] of [['pbcopy', [] as string[]], ['wl-copy', []], ['xclip', ['-selection', 'clipboard']]] as const) {
-    const r = spawnSync(cmd, args, { input: text, stdio: ['pipe', 'ignore', 'ignore'] });
-    if (!r.error && r.status === 0) return true;
-  }
-  return false;
-}
 
 // ---------- service commands ----------
 program
