@@ -2,25 +2,7 @@
 
 Local-first issue & project tracker in the Linear style — one SQLite file, drivable from the **web UI** or the **CLI** (the CLI is the coding-agent surface).
 
-## Work vs dev instances
-
-| | work | dev (this repo) |
-|---|---|---|
-| code | `~/sideones/baseline-work` — git worktree, branch `work` | this checkout, branch `main` |
-| web | http://localhost:7770 | http://localhost:7327 |
-| data | `~/.baseline/baseline.db` | `~/.baseline/baseline-dev.db` (sandbox, auto-seeded) |
-
-The work instance runs the real database — daily tracking and agent traffic (CLI) belong
-there. Ops from the worktree:
-
-```bash
-~/sideones/baseline-work/app.sh start        # also: status · stop · restart
-~/sideones/baseline-work/app.sh update       # DB backup → merge --ff-only main → build → restart
-~/sideones/baseline-work/app.sh backup       # sqlite backup → ~/.baseline/backups (keeps last 10)
-```
-
-Ship a feature by landing it on `main` in this repo, then `app.sh update` in the worktree — data
-lives outside the repo, so updates never touch it.
+## Running locally
 
 Dev commands here (`npm run dev`, `dev:server`, `start`, `serve`, `cli`, `seed`) default to the
 sandbox DB and port 7327 so they can't touch real data — including `seed --reset`. Bare

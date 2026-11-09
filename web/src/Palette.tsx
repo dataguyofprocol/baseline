@@ -32,7 +32,7 @@ interface PaletteItem {
   keepOpen?: boolean;
   /** render the label in the danger color */
   danger?: boolean;
-  /** check mark on the right — this value is shared by every selected issue */
+  /** check mark on the right, shown when every selected issue shares this value */
   checked?: boolean;
   /** leading chars of the label drawn as a mono key ("CORE-12 …") */
   prefixLen?: number;
@@ -44,7 +44,7 @@ interface PaletteItem {
   verb?: string;
 }
 
-/* issues opened recently, newest first — the palette's empty state leads with them */
+/* issues opened recently, newest first; the palette's empty state lists them first */
 const RECENT_KEY = 'baseline:recentIssues';
 export function recordRecentIssue(key: string) {
   try {
@@ -78,15 +78,15 @@ function Highlighted({ text, indices }: { text: string; indices: number[] }) {
 }
 
 /* ================= bulk actions =================
-   The palette reads the selection store directly, so any surface that fills
+   The palette reads the selection store directly, so anything that fills
    useSelection (row checkboxes, X key) instantly gets the bulk section here.
    Everything is resolved from getState() at call time so sub-page builders
    stay fresh across snapshot refreshes and selection edits. */
 
 interface SubPage { title: string; build: () => PaletteItem[]; calendar?: boolean }
 
-/* The issues the palette acts on: the selection, or — with nothing selected — the issue
-   you're on (open page, peek, or the row under the cursor), captured when it opened. */
+/* The issues the palette acts on, captured when it opened. That is the selection, or, if
+   nothing is selected, the issue you're on (open page, peek, or the row under the cursor). */
 let ctxIds: string[] = [];
 let ctxIsSelection = false;
 function selIds() {
@@ -145,7 +145,7 @@ async function toggleBulkLabel(labelId: string) {
   let changed = 0;
   for (const id of ids) {
     const issue = snap.issues.find(i => i.id === id);
-    // already in the target state (has it when removing / lacks it when adding) — skip
+    // skip an issue already in the target state (lacks it when removing / has it when adding)
     if (!issue || issue.labelIds.includes(labelId) !== allHave) continue;
     const labelIds = allHave ? issue.labelIds.filter(l => l !== labelId) : [...issue.labelIds, labelId];
     await api.updateIssue(id, { labelIds });
@@ -538,7 +538,7 @@ export function CommandPalette() {
       .slice(0, 24)
       .map(({ i, s }) => ({ item: i, match: s!.match }));
     if (sub) return hits;
-    // whatever you typed can always become an issue — last, unless nothing matched
+    // whatever you typed can always become an issue. It goes last, unless nothing matched
     const title = q.trim();
     return [...hits, { item: {
       id: 'act-create-from-query', icon: <IconPlus size={14} />, label: `Create issue “${title}”`,
@@ -701,7 +701,7 @@ export function CommandPalette() {
 }
 
 /* ---------------- keyboard shortcuts overlay ---------------- */
-/** every shortcut, grouped as Linear's cheatsheet groups them — the overlay and Settings both read this */
+/** every shortcut, grouped as Linear's cheatsheet groups them; the overlay and Settings both read this */
 export const SHORTCUT_GROUPS: Array<[string, Array<[string, string]>]> = [
   ['General', [
     ['⌘ K', 'Open command menu'], ['⌘ ↵', 'Save or submit'], ['↵', 'Send comment'], ['Esc', 'Back'], ['/', 'Open search'],

@@ -37,7 +37,7 @@ function sqlPairs<T extends object>(patch: T, allowed: Array<keyof T>): Array<[s
 const ISSUE_PATCH_KEYS = new Set<string>(['title', 'description', 'stateId', 'priority', 'assigneeId', 'projectId', 'parentId', 'cycleId', 'locationId', 'milestoneId', 'estimate', 'dueDate', 'labelIds', 'sortOrder', 'archivedAt']);
 
 export class Store {
-  /** extension modules (initiatives, SLAs, loops, git) — see extensions.ts */
+  /** extension modules (initiatives, SLAs, loops, git); see extensions.ts */
   readonly ext: Extensions;
   /** called after every issue create (before = null) and update */
   readonly issueHooks: Array<(before: Issue | null, after: Issue, actorId?: string) => void> = [];
@@ -150,7 +150,7 @@ export class Store {
       ['Done', 'completed', '#5e6ad2'], ['Canceled', 'canceled', '#7d8084'],
     ];
     defaults.forEach(([name2, type, color2], i) => this.createState(team.id, name2, type, color2, i + 1));
-    // whoever makes a team belongs to it (agents aren't members — they're assigned, not on teams)
+    // whoever makes a team belongs to it (agents aren't members; they're assigned, not on teams)
     const me = this.actor();
     if (me && (this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'human'").get(me))) this.addTeamMember(tid, me);
     return this.getTeam(tid)!;
@@ -204,7 +204,7 @@ export class Store {
   }
 
   // ---------- users ----------
-  /** profile fields only — admin rights go through Accounts.setAdmin, which keeps at least one admin */
+  /** profile fields only; admin rights go through Accounts.setAdmin, which keeps at least one admin */
   updateUser(userId: string, patch: Partial<Pick<User, 'name' | 'email' | 'color' | 'title' | 'username' | 'githubUsername' | 'avatarUrl'>>): void {
     const cur = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as { name: string; email: string } | undefined;
     if (!cur) return;
@@ -235,8 +235,8 @@ export class Store {
     this.db.prepare(`UPDATE states SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
   deleteState(stateId: string): string | undefined {
-    // migrate the state's issues to another state of the same team — prefer the backlog,
-    // fall back to the first remaining state; the last state of a team cannot be deleted
+    // migrate the state's issues to another state of the same team. Prefer the backlog,
+    // and fall back to the first remaining state. The last state of a team cannot be deleted
     const others = this.db.prepare('SELECT id, type FROM states WHERE team_id = (SELECT team_id FROM states WHERE id = ?) AND id != ? ORDER BY position').all(stateId, stateId) as Array<{ id: string; type: string }>;
     if (!others.length) throw new Error('Cannot delete the only workflow state of a team');
     const movedTo = (others.find(s => s.type === 'backlog') ?? others[0]).id;
@@ -309,7 +309,7 @@ export class Store {
   setAgentConfig(patch: { terminalApp?: TerminalApp }): void {
     if (patch.terminalApp !== undefined) setMeta(this.db, 'terminalApp', toTerminalApp(patch.terminalApp));
   }
-  /** the one location an issue's agent works in — never a guess: unset means "ask" */
+  /** the one location an issue's agent works in, never a guess; unset means "ask" */
   locationFor(issue: Pick<Issue, 'locationId'>): Location | undefined {
     return issue.locationId ? this.getLocation(issue.locationId) : undefined;
   }
@@ -365,7 +365,7 @@ export class Store {
       this.db.prepare('INSERT INTO project_locations (project_id, location_id, position) VALUES (?, ?, ?)').run(projectId, lid, n));
   }
   /** where a new issue starts: a sub-issue where its parent happens; anything else has no location
-   *  until someone picks one — a project's locations are suggestions, never defaults */
+   *  until someone picks one. A project's locations are suggestions, never defaults */
   defaultLocationFor(input: { parentId?: string | null }): string | null {
     const parent = input.parentId ? this.getIssue(input.parentId) : undefined;
     return parent?.locationId ?? null;
@@ -375,7 +375,7 @@ export class Store {
     const uid = getMeta(this.db, 'agentUserId');
     return uid && this.db.prepare('SELECT 1 FROM users WHERE id = ?').get(uid) ? uid : ensureWorkspaceAgent(this.db);
   }
-  /** first state of a type by position — e.g. the team's "In Progress" for 'started' */
+  /** first state of a type by position, e.g. the team's "In Progress" for 'started' */
   stateOfType(teamId: string, type: WorkflowStateType): string | undefined {
     return (this.db.prepare('SELECT id FROM states WHERE team_id = ? AND type = ? ORDER BY position LIMIT 1').get(teamId, type) as { id: string } | undefined)?.id;
   }
@@ -556,14 +556,14 @@ export class Store {
   snoozeIssue(issueId: string, until: string | null): void {
     this.db.prepare('UPDATE issues SET snoozed_until = ? WHERE id = ?').run(until, issueId);
   }
-  /** archived (not deleted) issues, newest first — the team's Archive view */
+  /** archived (not deleted) issues, newest first, for the team's Archive view */
   listArchived(teamId?: string): Issue[] {
     const rows = teamId
       ? this.db.prepare('SELECT * FROM issues WHERE archived_at IS NOT NULL AND deleted_at IS NULL AND team_id = ? ORDER BY archived_at DESC').all(teamId)
       : this.db.prepare('SELECT * FROM issues WHERE archived_at IS NOT NULL AND deleted_at IS NULL ORDER BY archived_at DESC').all();
     return (rows as unknown as IssueRow[]).map(this.mapIssue);
   }
-  /** soft-deleted issues, newest first — the Trash view; they can be restored or purged */
+  /** soft-deleted issues, newest first, for the Trash view; they can be restored or purged */
   listDeleted(teamId?: string): Issue[] {
     const rows = teamId
       ? this.db.prepare('SELECT * FROM issues WHERE deleted_at IS NOT NULL AND team_id = ? ORDER BY deleted_at DESC').all(teamId)
@@ -630,7 +630,7 @@ export class Store {
     this.subscribe(issueId, userId);
     const mentioned = this.mentions(body);
     for (const uid of mentioned) this.subscribe(issueId, uid);
-    // a mention outranks a reply, which outranks the plain comment notification — never raise two for one person
+    // a mention outranks a reply, which outranks the plain comment notification, so never raise two for one person
     const threadAuthors = threadId ? (this.db.prepare('SELECT DISTINCT user_id FROM comments WHERE id = ? OR parent_id = ?').all(threadId, threadId) as Array<{ user_id: string }>).map(r => r.user_id) : [];
     for (const uid of mentioned) this.notifyMention(issueId, uid, userId, body);
     const replied = threadAuthors.filter(u => !mentioned.includes(u));
@@ -910,7 +910,7 @@ export class Store {
     this.db.prepare(`UPDATE recurring_issues SET ${pairs.map(([k]) => `${col[k] ?? k} = ?`).join(', ')} WHERE id = ?`).run(...(pairs.map(([, v]) => v) as Array<string | number | null>), recId);
   }
   deleteRecurring(recId: string): void { this.db.prepare('DELETE FROM recurring_issues WHERE id = ?').run(recId); }
-  /** file every recurring issue whose time has come (once each — a long gap doesn't flood the backlog) */
+  /** file every recurring issue whose time has come (once each, so a long gap doesn't flood the backlog) */
   fileRecurring(now = new Date()): void {
     const due = this.db.prepare('SELECT * FROM recurring_issues WHERE next_at <= ?').all(now.toISOString()) as Array<{ id: string; team_id: string; title: string; description: string; priority: number; assignee_id: string | null; labels: string; project_id: string | null; cadence: RecurringIssue['cadence']; next_at: string }>;
     for (const r of due) {
@@ -976,7 +976,7 @@ export class Store {
   }
 
   // ---------- favorites ----------
-  /** star or unstar for whoever is acting — everyone keeps their own favorites */
+  /** star or unstar for whoever is acting; everyone keeps their own favorites */
   toggleFavorite(type: Favorite['type'], refId: string): void {
     const me = this.actor();
     const existing = this.db.prepare('SELECT id FROM favorites WHERE type = ? AND ref_id = ? AND user_id = ?').get(type, refId, me) as { id: string } | undefined;
@@ -985,9 +985,9 @@ export class Store {
   }
 
   // ---------- notifications ----------
-  // only notify when someone else assigned it to you — never for self-assignment
+  // only notify when someone else assigned it to you, never for self-assignment
   private notifyAssign(issueId: string, assigneeId: string, actorId?: string): void {
-    // the actor is who the inbox row leads with — without it the row falls back
+    // the actor is who the inbox row leads with; without it the row falls back
     // to the app's own tile, which reads as a system message it isn't
     this.notifyEach([assigneeId], 'issueAssignedToYou', { actorId, issueId, body: 'You were assigned this issue' });
   }
@@ -996,7 +996,7 @@ export class Store {
     this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, project_id, body, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id('n'), type, o.actorId ?? null, o.issueId ?? null, o.projectId ?? null, plainMentions(o.body ?? ''), o.createdAt ?? ts(), o.userId);
   }
-  /** one notification in each recipient's inbox — once per person, never to agents (they have no
+  /** one notification in each recipient's inbox: once per person, never to agents (they have no
    *  inbox), and never to whoever is acting unless `selfToo` (as in Linear: your own action isn't news) */
   notifyEach(recipients: Iterable<string | null | undefined>, type: NotificationType, o: { actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string; selfToo?: boolean }): void {
     const { selfToo, ...rest } = o;
@@ -1016,7 +1016,7 @@ export class Store {
     return (this.db.prepare('SELECT user_id FROM subscriptions WHERE issue_id = ?').all(issueId) as Array<{ user_id: string }>).map(r => r.user_id);
   }
   /** raise one for each person following the issue, except whoever acted. Everything lands in the
-   *  inbox, as in Linear; Settings › Notifications only chooses what is pushed to the desktop and
+   *  inbox, as in Linear; Settings › Notifications only chooses what the browser pushes and
    *  what counts as priority. `skip`: people a stronger notification already reached. */
   private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, _pref: keyof Preferences['notify'], skip: Iterable<string> = []): void {
     const done = new Set(skip);
@@ -1047,7 +1047,9 @@ export class Store {
     try {
       const row = this.db.prepare('SELECT json FROM user_preferences WHERE user_id = ?').get(userId) as { json: string } | undefined;
       const raw = JSON.parse(row?.json ?? '{}') as Partial<Preferences>;
-      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, push: { ...DEFAULT_PREFERENCES.push, ...(raw.push ?? {}), types: { ...DEFAULT_PREFERENCES.push.types, ...(raw.push?.types ?? {}) } }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } }, gettingStarted: { ...DEFAULT_PREFERENCES.gettingStarted, ...(raw.gettingStarted ?? {}) } };
+      // push.browser was stored as push.desktop before the rename
+      const { desktop, ...rawPush } = (raw.push ?? {}) as Partial<Preferences['push']> & { desktop?: boolean };
+      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, push: { ...DEFAULT_PREFERENCES.push, ...(desktop === undefined ? {} : { browser: desktop }), ...rawPush, types: { ...DEFAULT_PREFERENCES.push.types, ...(raw.push?.types ?? {}) } }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } }, gettingStarted: { ...DEFAULT_PREFERENCES.gettingStarted, ...(raw.gettingStarted ?? {}) } };
     } catch { return DEFAULT_PREFERENCES; }
   }
   setPreferences(patch: PreferencesPatch, userId = this.actor()): void {
@@ -1147,7 +1149,7 @@ export class Store {
     this.db.prepare('INSERT INTO project_subscriptions (project_id, user_id, issue_added, issue_closed, comments, updates) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id) DO UPDATE SET issue_added = excluded.issue_added, issue_closed = excluded.issue_closed, comments = excluded.comments, updates = excluded.updates')
       .run(projectId, userId, v.issue_added ? 1 : 0, v.issue_closed ? 1 : 0, v.comments ? 1 : 0, v.updates ? 1 : 0);
   }
-  /** notify everyone following a project for this kind of event — never about their own changes */
+  /** notify everyone following a project for this kind of event, but never about their own changes */
   private notifyProject(projectId: string, flag: 'issueAdded' | 'issueClosed' | 'comments' | 'updates', type: NotificationType, actorId: string | undefined | null, body: string, issueId?: string): void {
     const col = { issueAdded: 'issue_added', issueClosed: 'issue_closed', comments: 'comments', updates: 'updates' }[flag];
     const subs = this.db.prepare(`SELECT user_id FROM project_subscriptions WHERE project_id = ? AND ${col} = 1`).all(projectId) as Array<{ user_id: string }>;
@@ -1227,7 +1229,7 @@ export class Store {
     const snap = this.snapshot();
     // the snapshot hides archived and trashed issues; a backup keeps them
     const issues = (this.db.prepare('SELECT * FROM issues').all() as unknown as IssueRow[]).map(this.mapIssue);
-    // uploaded images ride along as base64 — they're small, so the JSON stays a complete backup
+    // uploaded images are included as base64; they're small, so the JSON stays a complete backup
     const files = (this.db.prepare('SELECT * FROM files ORDER BY created_at').all() as Array<Record<string, unknown>>).map(f => ({
       id: f.id, name: f.name, mime: f.mime, size: f.size, sha256: f.sha256,
       ownerType: f.owner_type, ownerId: f.owner_id, uploadedBy: f.uploaded_by, createdAt: f.created_at,
@@ -1267,10 +1269,10 @@ export class Store {
       if (ws.id) setMeta(this.db, 'workspaceId', ws.id);
       if (ws.name) setMeta(this.db, 'workspaceName', ws.name);
       if (ws.createdAt) setMeta(this.db, 'workspaceCreatedAt', ws.createdAt);
-      // coding-tools settings ride along
+      // restore the coding-tools settings too
       if (ws.handoffPromptTemplate && ws.handoffPromptTemplate !== DEFAULT_PROMPT_TEMPLATE) setMeta(this.db, 'handoffPromptTemplate', ws.handoffPromptTemplate);
       if (ws.terminalApp) setMeta(this.db, 'terminalApp', toTerminalApp(ws.terminalApp));
-      // exports from before locations carried a default directory and recent picks — hand them to the migration below
+      // exports from before locations carried a default directory and recent picks; hand them to the migration below
       const legacy = ws as { agentCwd?: string; recentDirectories?: string[] };
       if (legacy.agentCwd) setMeta(this.db, 'agentCwd', normalizeDir(legacy.agentCwd));
       if (Array.isArray(legacy.recentDirectories)) setMeta(this.db, 'recentDirectories', JSON.stringify(legacy.recentDirectories.map(normalizeDir).filter(Boolean)));

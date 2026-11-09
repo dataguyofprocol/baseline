@@ -322,7 +322,7 @@ let lastCheckedId: string | null = null;
 /** shift-click a checkbox: extend the selection across the visible list from the last clicked row */
 function shiftSelectRange(id: string) {
   const list = visibleList.issues.map(i => i.id);
-  // extend from the last row you selected — by click or with X — like Linear
+  // extend from the last row you selected, by click or with X, like Linear does
   const sel = useSelection.getState().ids;
   const anchor = lastCheckedId && sel.includes(lastCheckedId) ? lastCheckedId : sel[sel.length - 1];
   const from = anchor ? list.indexOf(anchor) : -1;
@@ -337,7 +337,7 @@ function shiftSelectRange(id: string) {
 }
 
 /* ================= sub-issues ================= */
-/* one pass per snapshot builds every parent's tally — rows and cards then just look theirs up.
+/* one pass per snapshot builds every parent's tally, and rows and cards then look theirs up.
    Keyed on the issues array, which every snapshot swap (bootstrap, optimistic move) replaces. */
 const progressIndex = new WeakMap<Snap['issues'], Map<string, { done: number; total: number }>>();
 function progressFor(snap: Snap): Map<string, { done: number; total: number }> {
@@ -361,7 +361,7 @@ export function subIssueProgress(issueId: string, snap: Snap): { done: number; t
   return progressFor(snap).get(issueId) ?? null;
 }
 
-/** a ring that fills with closed sub-issues, beside the count — the parent's row and page both show it */
+/** a ring beside the count that fills as sub-issues close; the parent's row and page both show it */
 export function SubIssueProgress(props: { done: number; total: number; size?: number }) {
   const size = props.size ?? 13;
   const r = size / 2 - 1.5;
@@ -513,7 +513,7 @@ export function IssueRow(props: {
         {display.prs !== false && (() => { const pr = issuePrState(snap, issue.id); return pr ? <PrIcon state={pr} size={13} title={prSummary(issuePrList(snap, issue.id))} /> : null; })()}
         {issue.slaBreachesAt && !closed && <SlaBadge issue={issue} />}
         {display.due && due && (
-          <span className={`due-chip ${overdue ? 'overdue' : ''}`} title={overdue ? `Overdue — due ${shortDate(due)}` : `Due ${shortDate(due)}`}>
+          <span className={`due-chip ${overdue ? 'overdue' : ''}`} title={overdue ? `Overdue, due ${shortDate(due)}` : `Due ${shortDate(due)}`}>
             <IconCalendar size={11} /> {shortDate(due + 'T12:00')}
           </span>
         )}
@@ -887,8 +887,8 @@ function FilterMenu(props: { anchor: DOMRect; onClose: () => void; filters: View
   );
 }
 
-/* Filter pills: field · operator · values · ×, each part its own button — the
-   operator flips "is" / "is not", the values reopen that field's picker. */
+/* Filter pills: field · operator · values · ×, each part its own button. Clicking the
+   operator flips "is" / "is not", and clicking the values reopens that field's picker. */
 export function FilterBar(props: {
   filters: ViewFilters;
   onChange: (f: ViewFilters) => void;
@@ -989,7 +989,7 @@ export function FilterBar(props: {
 /* ---------------- advanced filter ----------------
    Linear's builder: rows of conditions joined by "and" / "or" (click the word to flip it
    for the whole group), with nested groups in brackets. Each condition is a field, an
-   operator and values — picked with the same menus as the plain pills. */
+   operator and values, picked with the same menus as the plain pills. */
 function AdvancedFilterPanel(props: { anchor: DOMRect; group: FilterGroup; onChange: (g: FilterGroup) => void; onClose: () => void; teamId?: string; pool?: Issue[] }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1278,7 +1278,7 @@ export function GroupedList(props: {
         }
         for (const i of g.issues) if (!covered.has(i.id)) { renderItems.push({ kind: 'row', issue: i, nested: true }); flatIssues.push(i); }
       } else if (props.opts.orderBy === 'manual') {
-        // manual order is the user's own arrangement — don't regroup it under parents
+        // manual order is the user's own arrangement, so don't regroup it under parents
         for (const i of g.issues) { renderItems.push({ kind: 'row', issue: i, nested: false }); flatIssues.push(i); }
       } else {
         for (const { issue: i, depth } of nestSubIssues(g.issues)) { renderItems.push({ kind: 'row', issue: i, nested: false, depth }); if (!flatIssues.includes(i)) flatIssues.push(i); }
@@ -1345,7 +1345,7 @@ export function GroupedList(props: {
     const g = props.opts.groupBy;
     const base = { teamId: props.teamId, ...props.createDefaults };
     if (g === 'status') {
-      // cross-team lists: the group's state belongs to some team — open the modal there
+      // cross-team lists: the group's state belongs to one team, so open the modal in that team
       const st = snap.states.find(s => s.id === spec.id);
       openCreate({ ...base, teamId: props.teamId ?? st?.teamId, stateId: spec.id });
     } else if (g === 'project') openCreate({ ...base, projectId: spec.id === 'none' ? null : spec.id });

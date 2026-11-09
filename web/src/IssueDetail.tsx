@@ -87,10 +87,10 @@ function useActivityText() {
         : <>{who} removed the location {when}</>;
       case 'archived': return <>{who} archived the issue {when}</>;
       case 'restored': return <>{who} restored the issue {when}</>;
-      case 'slaApplied': return <>{who} applied SLA <b>{String(a.data.rule)}</b> — due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
+      case 'slaApplied': return <>{who} applied SLA <b>{String(a.data.rule)}</b>, due {new Date(String(a.data.breachesAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} {when}</>;
       case 'slaBreached': return <>{who} marked the SLA as breached {when}</>;
       case 'prLinked': return <>{who} linked {a.data.kind === 'closing' ? 'pull request' : 'a reference from'} <a href={String(a.data.url)} target="_blank" rel="noreferrer"><b>{String(a.data.pr)}</b></a> {String(a.data.title ?? '')} {when}</>;
-      case 'prStateMoved': return <>{who} moved the issue — {String(a.data.why)} {when}</>;
+      case 'prStateMoved': return <>{who} moved the issue: {String(a.data.why)} {when}</>;
       case 'commitLinked': return <>{who} linked commit <b className="mono">{String(a.data.sha)}</b> {String(a.data.message ?? '')} {when}</>;
       case 'loopRan': return <>{who} ran loop <b>{String(a.data.loop)}</b> — {String(a.data.detail)} {when}</>;
       default: return <>{who} {a.type} {when}</>;
@@ -251,7 +251,7 @@ function SubIssuesSection(props: { issue: Issue }) {
           </div>
           {open && (
             <div style={{ display: 'flex', gap: 4 }}>
-              {/* the nodes punch the spine they sit on — no opaque dot on a continuous rule */}
+              {/* the nodes cut through the spine they sit on instead of an opaque dot on a continuous rule */}
               <SubIssueSpine rows={children.map(ch => ({ active: snap.states.find(s => s.id === ch.stateId)?.type === 'started' }))} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 {children.map(ch => {
@@ -278,7 +278,7 @@ function SubIssuesSection(props: { issue: Issue }) {
   );
 }
 
-/* "Sub-issue of ◐ KEY title  ◌ 1/3" under the title — the parent, its state, and how far along its siblings are */
+/* "Sub-issue of ◐ KEY title  ◌ 1/3" under the title: the parent, its state, and how far along its siblings are */
 function ParentLine(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -791,7 +791,7 @@ export function IssuePage(props: { issueKey: string }) {
   return <IssueDetail issue={issue} full />;
 }
 
-/* an archived or trashed issue still opens — read-only, with a way back */
+/* an archived or trashed issue still opens, read-only and with a way back */
 function MissingIssue(props: { issueKey: string }) {
   const navigate = useNavigate();
   const [found, setFound] = useState<{ issue: Issue; where: 'archive' | 'trash' } | null | undefined>(undefined);

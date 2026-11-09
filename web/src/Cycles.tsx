@@ -355,7 +355,7 @@ export function CycleDetailPage() {
         <Menu anchor={menu.anchor} onClose={menu.close} width={220}>
           <MenuItem icon={<IconEdit size={14} />} label="Rename cycle" onClick={() => { if (!panel) togglePanel(); setRenaming(true); }} />
           <MenuSep />
-          <ConfirmButton className="menu-item danger" label={<><span className="mi-icon"><IconTrash size={14} /></span><span className="mi-label">Delete cycle</span></>} confirmLabel={<span className="mi-label">Click again — issues stay, the cycle goes</span>}
+          <ConfirmButton className="menu-item danger" label={<><span className="mi-icon"><IconTrash size={14} /></span><span className="mi-label">Delete cycle</span></>} confirmLabel={<span className="mi-label">Click again. Issues stay, the cycle goes</span>}
             onConfirm={async () => { menu.close(); await api.deleteCycle(cycle.id); await useApp.getState().bootstrap(); navigate(`/team/${team.key}/cycles`); }} />
         </Menu>
       )}

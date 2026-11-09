@@ -38,7 +38,7 @@ export interface ServeOptions {
 
 const WEB_DIST = resolve(fileURLToPath(import.meta.url), '../../../web/dist');
 
-/** BASELINE_HOST opens the server beyond this machine (e.g. 0.0.0.0); unset = loopback only */
+/** BASELINE_HOST opens the server beyond this machine (e.g. 0.0.0.0); unset: loopback only */
 const LISTEN_HOST = process.env.BASELINE_HOST?.trim() || '';
 const LAN_OPEN = !!LISTEN_HOST && !isLoopback(LISTEN_HOST);
 
@@ -50,20 +50,20 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const changes = new ChangeFeed(db);
   const hosted = auth.mode === 'hosted';
   const { planning, automation, git, apiKeys, webhooks, work } = store.ext;
-  // images (avatars, pasted pictures) live in the database; pick up any from the old uploads folder
+  // images (avatars, pasted pictures) are stored in the database; pick up any from the old uploads folder
   const files = new FileService(db, join(dirname(dbPath), 'attachments'));
   const moved = files.migrateLegacy();
   if (moved) console.error(`[baseline] moved ${moved} upload(s) into the database`);
   // Loops' "Open in Claude Code" action opens the same interactive session as the manual hand-off.
-  // Hosted, that would open it on the server's machine — it waits for a companion on each person's laptop
+  // Hosted, that would open it on the server's machine, so it waits for a companion on each person's laptop
   if (hosted) automation.launcherMissing = 'needs a connected companion';
   else automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
-  // the git integration polls gh / git log in each location every two minutes while it's on —
-  // those are this machine's folders, so a hosted server leaves GitHub to its webhooks
+  // the git integration polls gh / git log in each location every two minutes while it's on.
+  // Those are this machine's folders, so a hosted server leaves GitHub to its webhooks
   if (!hosted) setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
 
-  // first run: a laptop gets the sample workspace to play with; a hosted one starts empty —
-  // its owner is created on the setup screen (or by Google sign-in), and onboarding asks for the first team
+  // first run: a laptop gets the sample workspace to play with; a hosted one starts empty.
+  // Its owner is created on the setup screen (or by Google sign-in), and onboarding asks for the first team
   const hasWorkspace = db.prepare('SELECT COUNT(*) AS n FROM meta').get() as { n: number };
   if (Number(hasWorkspace.n) === 0 && hosted) {
     setMeta(db, 'workspaceId', id('w'));
@@ -74,7 +74,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (opts.blank) blankWorkspace(db);
     else {
       seedWorkspace(db);
-      console.error('[baseline] seeded a sample workspace — run `baseline seed --reset` to reseed');
+      console.error('[baseline] seeded a sample workspace; run `baseline seed --reset` to reseed');
     }
   }
 
@@ -86,7 +86,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // GitHub webhooks are the one door open to other hosts (GitHub reaches this machine through
+  // GitHub webhooks are the one route open to other hosts (GitHub reaches this machine through
   // a tunnel): they carry no cookies or keys and are authenticated by their HMAC signature alone
   app.post(WEBHOOK_PATH, async (c) => {
     if (Number(c.req.header('content-length') ?? 0) > WEBHOOK_MAX_BYTES) return c.json({ error: 'Payload too large' }, 413);
@@ -96,7 +96,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json(r.body, r.status as 200);
   });
 
-  // who every /api request is (key, session or this machine) — before any /api route, see principal.ts
+  // who every /api request is (key, session or this machine). It runs before any /api route; see principal.ts
   const sessions = hosted ? cookieSessions(auth, accounts) : null;
   const guard = authenticate({ auth, sessions, apiKeys, store, lanOpen: LAN_OPEN });
   app.use('/api/*', guard);
@@ -158,7 +158,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/api-keys/:id', async (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.rename(c.req.param('id'), String((await c.req.json()).name ?? '')); return c.json({ ok: true }); });
   app.delete('/api/api-keys/:id', (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.revoke(c.req.param('id')); return c.json({ ok: true }); });
 
-  // a write tells open tabs at once, rather than at the feed's next look
+  // after a write, tell open tabs at once instead of waiting for the feed's next check
   app.use('/api/*', async (c, next) => {
     await next();
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') changes.check();
@@ -236,7 +236,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- live updates ----------
   // Server-sent events: the current version on connect, every new one after, and a comment every
-  // 25s so proxies keep the connection open. Only a number travels — each tab then fetches its own
+  // 25s so proxies keep the connection open. Only the version number is sent, and each tab then fetches its own
   // snapshot, so nobody learns anything here they couldn't already see.
   app.get('/api/events', (c) => streamSSE(c, async (stream) => {
     let open = true;
@@ -258,7 +258,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       priority: b.priority, assigneeId: b.assigneeId ?? null, projectId: b.projectId ?? null,
       parentId: b.parentId ?? null, cycleId: b.cycleId ?? null, labelIds: b.labelIds,
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null, milestoneId: b.milestoneId ?? null,
-      // omitted = a sub-issue inherits its parent's (nothing else is defaulted); null = explicitly none
+      // omitted: a sub-issue inherits its parent's (nothing else is defaulted); null: explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
     }, actorId));
     return c.json({ issue }, 201);
@@ -284,7 +284,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const issue = store.getByKey(c.req.param('key'));
     return issue ? c.json({ issue }) : c.json({ error: 'not found' }, 404);
   });
-  // archive & trash (registered before /api/issues/:id so the words don't read as ids)
+  // archive & trash (registered before /api/issues/:id so the words aren't matched as ids)
   app.get('/api/issues/archived', (c) => c.json({ issues: store.listArchived(c.req.query('teamId') || undefined) }));
   app.get('/api/issues/deleted', (c) => c.json({ issues: store.listDeleted(c.req.query('teamId') || undefined) }));
   app.get('/api/issues/:id', (c) => {
@@ -331,7 +331,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // ---------- images ----------
   /** the request body is the image; a Content-Length over the limit is refused before reading */
   const readUpload = async (c: Context, max: number): Promise<Buffer> => {
-    if (Number(c.req.header('content-length')) > max) throw new FileError(`Images are limited to ${formatBytes(max)} — link to bigger files instead`, 413);
+    if (Number(c.req.header('content-length')) > max) throw new FileError(`Images are limited to ${formatBytes(max)}. Link to bigger files instead.`, 413);
     return Buffer.from(await c.req.arrayBuffer());
   };
   const uploadFailed = (c: Context, err: unknown) => err instanceof FileError
@@ -402,18 +402,19 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     store.moveIssue(c.req.param('id'), b.beforeId ?? null, b.afterId ?? null);
     return c.json({ ok: true });
   });
-  // branch copy / hand-off: backlog or unstarted → first started state, unassigned → you
+  // branch copy / hand-off: a backlog or unstarted issue moves to the first started state, and an
+  // unassigned one is assigned to you
   app.post('/api/issues/:id/start', (c) => c.json(store.startIssue(c.req.param('id'), actor(c))));
   app.get('/api/issues/:id/handoff', (c) => {
     const handoff = store.handoffFor(c.req.param('id'), hosted ? auth.publicUrl.origin : undefined);
     return handoff ? c.json({ handoff }) : c.json({ error: 'not found' }, 404);
   });
-  // these routes start local processes (a terminal, a folder picker): only this machine's own
-  // pages may call them — a Host other than localhost means LAN or DNS rebinding, a foreign
+  // these routes start local processes (a terminal, a folder picker), so only this machine's own
+  // pages may call them. A Host other than localhost means LAN or DNS rebinding, a foreign
   // Origin means another site, and a non-JSON body means a CORS-free "simple" form post
   // (these stay loopback-only even when BASELINE_HOST opens the rest to the LAN)
   const localOnly = async (c: Context, next: Next) => {
-    if (hosted) return c.json({ error: 'The hosted app can\'t open programs on your computer yet — copy the prompt instead', code: 'companion-required' }, 403);
+    if (hosted) return c.json({ error: 'The hosted app can\'t open programs on your computer yet. Copy the prompt instead.', code: 'companion-required' }, 403);
     const originHost = originHostOf(c);
     if (!isLoopback(hostOf(c)) || (originHost !== null && !isLoopback(originHost)) || !(c.req.header('content-type') ?? '').includes('application/json')) {
       return c.json({ error: 'Only this machine can do that', code: 'forbidden' }, 403);
@@ -454,7 +455,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- locations (directories agents work in) ----------
   app.post('/api/locations', async (c) => {
-    // a location is checked against this server's disk — meaningless (and a probe) on a hosted server
+    // a location is checked against this server's disk, which is meaningless (and a probe) on a hosted server
     if (hosted) return c.json({ error: 'Locations can\'t be added on the hosted app yet', code: 'companion-required' }, 403);
     const b = await c.req.json() as { path?: string; name?: string };
     const path = normalizeDir(b.path);
@@ -917,7 +918,7 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
   const server = nodeServe({ fetch: app.fetch, port, hostname: LISTEN_HOST || '127.0.0.1' });
   if (!LISTEN_HOST) {
     const v6 = nodeServe({ fetch: app.fetch, port, hostname: '::1' });
-    v6.on('error', () => { /* no IPv6 loopback on this machine — IPv4 alone is fine */ });
+    v6.on('error', () => { /* no IPv6 loopback on this machine; IPv4 alone is fine */ });
   }
   server.once('listening', () => {
     const url = `http://localhost:${port}`;

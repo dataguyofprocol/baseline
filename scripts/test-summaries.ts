@@ -1,6 +1,6 @@
 // The project updates summary: each person's inbox gets one notification counting new updates on
 // projects they lead, are a member of, or follow, on their own schedule (Preferences.updatesSummary).
-// Runs against a throwaway local-mode database — never touches ~/.baseline.
+// Runs against a throwaway local-mode database and never touches ~/.baseline.
 //
 //   npx tsx scripts/test-summaries.ts
 import { mkdtempSync, rmSync } from 'node:fs';

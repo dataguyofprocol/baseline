@@ -7,7 +7,7 @@ import { FILE_OWNER_TYPES } from './types.js';
 import { id as newId, nowIso } from './util.js';
 
 /* Images: profile pictures and pictures pasted into descriptions, comments and
-   docs. They are small by design (Baseline doesn't host file attachments — link to them), so
+   docs. They are small by design (Baseline doesn't host file attachments; link to them instead), so
    the bytes live in SQLite next to everything else: one database file is the whole backup.
    A file lives as long as its owner; gc() deletes those whose owner is gone. */
 
@@ -26,7 +26,7 @@ const OWNER_TABLE: Record<Exclude<FileOwnerType, 'workspace'>, string> = {
   issue: 'issues', doc: 'documents', project: 'projects', initiative: 'initiatives', team: 'teams', avatar: 'users',
 };
 
-/** what image the bytes are — null when they aren't one we take */
+/** what image the bytes are, or null when they aren't one we take */
 export function sniffImage(b: Buffer): string | null {
   const at = (o: number, sig: number[]) => b.length >= o + sig.length && sig.every((x, i) => b[o + i] === x);
   const ascii = (o: number, s: string) => b.length >= o + s.length && b.toString('latin1', o, o + s.length) === s;
@@ -93,10 +93,10 @@ export class FileService {
   upload(i: { data: Buffer; name?: string; ownerType: FileOwnerType; ownerId: string; uploadedBy?: string | null; maxBytes?: number }): StoredFile {
     const max = i.maxBytes ?? MAX_IMAGE_BYTES;
     if (!i.data.length) throw new FileError('The image is empty', 400);
-    if (i.data.length > max) throw new FileError(`Images are limited to ${formatBytes(max)} — link to bigger files instead`, 413);
+    if (i.data.length > max) throw new FileError(`Images are limited to ${formatBytes(max)}. Link to bigger files instead.`, 413);
     if (!this.ownerExists(i.ownerType, i.ownerId)) throw new FileError(`That ${i.ownerType} doesn't exist`, 404);
     const mime = sniffImage(i.data);
-    if (!mime) throw new FileError('Only images can be uploaded (PNG, JPEG, GIF, WebP, AVIF or SVG) — link to other files instead', 415);
+    if (!mime) throw new FileError('Only images can be uploaded (PNG, JPEG, GIF, WebP, AVIF or SVG). Link to other files instead.', 415);
     const fallback = `image.${mime.split('/')[1].replace('svg+xml', 'svg').replace('jpeg', 'jpg')}`;
     return this.insert(newId('file'), i.data, cleanFileName(i.name, fallback), mime, i.ownerType, i.ownerId, i.uploadedBy ?? null, nowIso());
   }

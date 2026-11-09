@@ -1,7 +1,7 @@
 // First run of a hosted server: the owner account is created in the browser by whoever holds the
 // setup token. The token is printed to the server log at startup and kept in a file beside the
-// database (`<db>.setup-token`, mode 0600) so `baseline setup-token` can show it again — a fresh
-// public server can't be claimed by the first stranger who finds it. Gone once setup is done.
+// database (`<db>.setup-token`, mode 0600) so `baseline setup-token` can show it again. A fresh
+// public server can't be claimed by the first stranger who finds it. The token is removed once setup is done.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
@@ -11,7 +11,7 @@ export const setupTokenPath = (dbPath: string) => `${dbPath}.setup-token`;
 const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const SHAPE = /^[0-9A-HJKMNP-TV-Z]{5}(-[0-9A-HJKMNP-TV-Z]{5}){3}$/;
 
-/** "K7Q2M-…" — 20 characters, 100 bits */
+/** "K7Q2M-…", 20 characters, 100 bits */
 function newToken(): string {
   const bytes = randomBytes(20);
   const chars = [...bytes].map(b => ALPHABET[b & 31]!).join('');

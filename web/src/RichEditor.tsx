@@ -21,7 +21,8 @@ import { mentionToken, uniquelyNamed } from '../../src/core/mentions.js';
 
 /* Descriptions and comments are stored as Markdown (agents read and write them through the
    CLI), and edited as rich text, like Linear: headings, lists, checklists, code, quotes,
-   links, images, @mentions and a "/" command menu. Markdown ↔ HTML happens at the edges. */
+   links, images, @mentions and a "/" command menu. Markdown is converted to HTML on load
+   and back to Markdown on each change. */
 
 /* ---------- markdown → editor HTML ---------- */
 function escapeRe(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -47,7 +48,7 @@ export function markdownToHtml(md: string): string {
     span.textContent = `@${label}`;
     return span;
   };
-  // @[Name](user:id) parses as "@" + a link to user:id → mention chip (with the person's current name)
+  // @[Name](user:id) parses as "@" plus a link to user:id, which becomes a mention chip (with the person's current name)
   doc.querySelectorAll('a[href^="user:"]').forEach(a => {
     const prev = a.previousSibling;
     if (!(prev instanceof Text) || !prev.data.endsWith('@')) return;
@@ -55,7 +56,7 @@ export function markdownToHtml(md: string): string {
     const id = a.getAttribute('href')!.slice(5);
     a.replaceWith(chip(id, snap?.users.find(u => u.id === id)?.name ?? a.textContent ?? id));
   });
-  // a plain @Full Name (CLI-written, or from before ids) → chip, if only one member has that name
+  // a plain @Full Name (CLI-written, or from before ids) becomes a chip if only one member has that name
   if (snap) {
     const people = uniquelyNamed(snap.users).sort((a, b) => b.name.length - a.name.length);
     const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
@@ -76,7 +77,7 @@ export function markdownToHtml(md: string): string {
     }
   }
   html = doc.body.innerHTML;
-  // the editor's schema drops what it doesn't know, but loaded HTML is someone else's input — clean it first
+  // the editor's schema drops what it doesn't know, but loaded HTML is someone else's input, so clean it first
   return sanitize(html);
 }
 
@@ -208,7 +209,7 @@ export function RichEditor(props: {
   autoFocus?: boolean;
   /** pasted / dropped images belong to this issue */
   issueId?: string;
-  /** elsewhere, pasted / dropped images belong to this owner — "doc:<id>", "project:<id>", "initiative:<id>", "team:<id>" */
+  /** elsewhere, pasted / dropped images belong to this owner: "doc:<id>", "project:<id>", "initiative:<id>", "team:<id>" */
   uploadTo?: string;
   className?: string;
   /** fires (debounced) as you type */
@@ -229,7 +230,7 @@ export function RichEditor(props: {
   const upload = async (editor: Editor, files: File[], pos?: number) => {
     const owner = uploadOwner(propsRef.current);
     if (!owner) return false;
-    // only small images are hosted; other files are linked to wherever they live
+    // only small images are hosted; other files are linked to wherever they are stored
     if (files.some(f => !f.type.startsWith('image/'))) useApp.getState().toast({ title: 'Only images can be added', line: 'Paste a link to other files instead' });
     for (const f of files.filter(f => f.type.startsWith('image/'))) {
       try {
@@ -321,7 +322,7 @@ export function RichEditor(props: {
   if (props.editorRef) props.editorRef.current = editor;
 
   // a value that changes underneath (another tab, an agent via the CLI) replaces the
-  // content — unless you're mid-edit, which wins
+  // content, unless you're mid-edit, in which case your edit stays
   useEffect(() => {
     if (!editor || editor.isFocused) return;
     if (props.value === lastValue.current) return;

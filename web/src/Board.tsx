@@ -18,7 +18,7 @@ import { issuePrList, issuePrState, prSummary, PrIcon } from './GitHubUI.js';
 import { PropertyMenu, type PropKind } from './propertyMenus.js';
 import { pointsOf, type Issue, type GroupBy } from '../../src/core/types.js';
 
-/* card internals — shared by the sortable card and the drag overlay. Linear's layout:
+/* card internals, shared by the sortable card and the drag overlay. Linear's layout:
    the key (and parent, for a sub-issue) with the avatar, then status + title, then a row
    of small bordered chips for whatever is set and shown, then when it was created. A chip
    that would only repeat the column's or the row's grouping is left out. With `onProp` the
@@ -74,7 +74,7 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
     d.estimate && est != null && <span key="e" className={`bc-chip${editable}`} {...edit('estimate')} title={`${issue.estimate} points`}><IconEstimate size={12} />{est}</span>,
     d.links && links > 0 && <span key="lk" className="bc-chip" title={`${links} links`}><IconAttach size={12} />{links}</span>,
     d.due && due && (
-      <span key="d" className={`bc-chip${editable}${overdue ? ' overdue' : ''}`} {...edit('due')} title={overdue ? `Overdue — was due ${shortDate(due + 'T12:00')}` : `Due ${shortDate(due + 'T12:00')}`}><IconCalendar size={12} />{shortDate(due + 'T12:00')}</span>
+      <span key="d" className={`bc-chip${editable}${overdue ? ' overdue' : ''}`} {...edit('due')} title={overdue ? `Overdue, was due ${shortDate(due + 'T12:00')}` : `Due ${shortDate(due + 'T12:00')}`}><IconCalendar size={12} />{shortDate(due + 'T12:00')}</span>
     ),
   ].filter(Boolean);
   return (
@@ -170,7 +170,7 @@ const ALL_LANE = '__all';
 
 export function Board(props: {
   issues: Issue[];
-  /** omit for cross-team boards (My Issues, saved views) — columns merge by state name */
+  /** omit for cross-team boards (My Issues, saved views); columns merge by state name */
   teamId?: string;
   groupBy?: GroupBy;
   /** rows (swimlanes) */
@@ -331,7 +331,7 @@ export function Board(props: {
         : hi !== undefined ? hi - 1 : lo !== undefined ? lo + 1 : issue.sortOrder;
     }
     if (!Object.keys(patch).length && !moved) return;
-    // land the card now, persist after — the drop never snaps back while the request runs
+    // move the card now and save after, so the drop never snaps back while the request runs
     useApp.setState(s => s.snap ? { snap: { ...s.snap, issues: s.snap.issues.map(i => i.id === issue.id ? { ...i, ...optimistic } : i) } } : {});
     try {
       if (Object.keys(patch).length) await api.updateIssue(issue.id, patch);

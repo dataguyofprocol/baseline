@@ -20,7 +20,7 @@ export interface User {
   kind: 'human' | 'agent';
   /** job title or role (Settings › Profile) */
   title?: string;
-  /** one word, like a nickname — used for {username} in branch names */
+  /** one word, like a nickname, used for {username} in branch names */
   username?: string;
   /** GitHub login (Settings › Profile): PRs by this login are attributed to and assign this user */
   githubUsername?: string;
@@ -121,7 +121,7 @@ export interface Issue {
   projectId: string | null;
   cycleId: string | null;
   parentId: string | null;
-  /** where coding agents work on this issue — one location per task (null = not set) */
+  /** where coding agents work on this issue, one location per task (null = not set) */
   locationId: string | null;
   /** project milestone this issue counts toward (only meaningful with a project) */
   milestoneId: string | null;
@@ -312,7 +312,7 @@ export type LoopAction =
   | { kind: 'status'; stateType: WorkflowStateType }
   | { kind: 'createIssue'; title: string; description: string }
   | { kind: 'claudeCode' };
-/** a workflow that runs on a schedule or when issues change — "Agent workflows" in Linear */
+/** a workflow that runs on a schedule or when issues change; Linear calls these "Agent workflows" */
 export interface Loop { id: string; name: string; teamId: string | null; trigger: LoopTrigger; actions: LoopAction[]; enabled: boolean; lastRunAt: string | null; createdAt: string }
 export interface LoopRun { id: string; loopId: string; issueId: string | null; ok: boolean; detail: string; createdAt: string }
 
@@ -438,14 +438,14 @@ export interface InviteResult {
   email: string;
   status: 'invited' | 'already-member' | 'invalid';
   invite?: Invite;
-  /** 'off': no SMTP on this server — share the link instead */
+  /** 'off': no SMTP on this server, so share the link instead */
   emailed?: 'sent' | 'failed' | 'off';
   error?: string;
 }
 
 export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', initiativesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
 
-/** a directory on this machine that coding agents can work in — usually a git repo */
+/** a directory on this machine that coding agents can work in, usually a git repo */
 export interface Location {
   id: string;
   name: string;
@@ -609,7 +609,7 @@ export type NotificationType =
   | 'issueMentioned'
   | 'issueStatusChanged'
   | 'issueReplied'
-  /** a reminder you set on an issue ("Remind me", ⇧H) — held back until its time */
+  /** a reminder you set on an issue ("Remind me", ⇧H), held back until its time */
   | 'issueReminder'
   | 'projectUpdate'
   /** project bell: an issue joined the project / was completed or canceled / the description or a comment changed */
@@ -636,7 +636,7 @@ export type NotificationType =
   | 'commentReacted'
   /** someone else changed a document you wrote; body is "<docId>|<title>" */
   | 'docChanged'
-  /** raised by the app itself — no human actor, so the inbox row signs with the tile */
+  /** raised by the app itself with no human actor, so the inbox row signs with the tile */
   | 'systemUpdate';
 
 export interface Notification {
@@ -681,7 +681,7 @@ export interface Workspace {
   handoffPromptTemplate: string;
   /** macOS app that interactive Claude Code sessions open in */
   terminalApp: TerminalApp;
-  /** the workspace's agent user — agent sessions write as it, on a person's behalf */
+  /** the workspace's agent user; agent sessions write as it, on a person's behalf */
   agentUserId: string | null;
   /** the server's home directory, so the web app can show paths as ~/… (server memory) */
   homeDir?: string;
@@ -732,8 +732,8 @@ export interface Preferences {
   startOnHandoff: boolean;
   /** Settings › Notifications: how often the project updates summary lands in your inbox */
   updatesSummary: 'daily' | 'weekly' | 'off';
-  /** Settings › Notifications › Desktop: browser notifications, and which kinds */
-  push: { desktop: boolean; types: Record<NotifyCategory, boolean> };
+  /** Settings › Notifications › Browser: browser notifications, and which kinds */
+  push: { browser: boolean; types: Record<NotifyCategory, boolean> };
   /** Customize sidebar: badge style, and when each item shows (hidden ones move to More) */
   sidebar: { badgeStyle: 'count' | 'dot' | 'none'; items: Record<string, SidebarVisibility> };
   /** the first-run flow and the help menu's Getting started checklist */
@@ -792,7 +792,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   sidebar: { badgeStyle: 'count', items: {} },
   gettingStarted: { onboarding: 'done', step: 0, since: null, usedPalette: false },
   displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false, startOnBranchCopy: true, startOnHandoff: true, updatesSummary: 'weekly',
-  push: { desktop: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
+  push: { browser: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
 };
 
 /** macOS terminals interactive sessions can open in, by app name (`open -a <name>`) */
@@ -802,7 +802,7 @@ export function toTerminalApp(v: unknown): TerminalApp {
   return TERMINAL_APPS.includes(v as TerminalApp) ? v as TerminalApp : 'Terminal';
 }
 
-/** Full client snapshot — small scale, so the web app boots from one payload. */
+/** Full client snapshot. Workspaces are small, so the web app boots from one payload. */
 export interface Snapshot {
   workspace: Workspace;
   users: User[];

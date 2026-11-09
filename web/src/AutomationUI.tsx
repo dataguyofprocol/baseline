@@ -82,7 +82,7 @@ export function LoopsSettings() {
   const snap = useApp(s => s.snap)!;
   const [draft, setDraft] = useState<{ name: string; teamId: string; trigger: LoopTrigger; actions: LoopAction[] } | null>(null);
   const runs = (id: string) => snap.loopRuns.filter(r => r.loopId === id);
-  const newDraft = () => setDraft({ name: '', teamId: '', trigger: { kind: 'issueCreated' }, actions: [{ kind: 'comment', body: 'Thanks — {issue.key} is on our radar.' }] });
+  const newDraft = () => setDraft({ name: '', teamId: '', trigger: { kind: 'issueCreated' }, actions: [{ kind: 'comment', body: 'Thanks, {issue.key} is on our radar.' }] });
   return (
     <div className="settings-card wide">
       <div className="set-head"><h1>Loops</h1><span style={{ flex: 1 }} /><button className="btn primary" onClick={newDraft}>New loop</button></div>
@@ -128,13 +128,13 @@ function LoopEditor({ draft, setDraft, onSave }: { draft: { name: string; teamId
       {draft.actions.map((a, i) => (
         <div key={i} className="loop-line"><span>{i ? 'and' : 'Then'}</span>
           <select className="text-input" aria-label="Loop action" value={a.kind} onChange={e => setAction(i, blank(e.target.value as LoopAction['kind']))}>{ACTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-          {a.kind === 'comment' && <input className="text-input grow" aria-label="Comment text" placeholder="Comment — {issue.key} and {issue.title} fill in" value={a.body} onChange={e => setAction(i, { kind: 'comment', body: e.target.value })} />}
+          {a.kind === 'comment' && <input className="text-input grow" aria-label="Comment text" placeholder="Comment, with {issue.key} and {issue.title} filled in" value={a.body} onChange={e => setAction(i, { kind: 'comment', body: e.target.value })} />}
           {a.kind === 'assign' && <select className="text-input" value={a.userId} onChange={e => setAction(i, { kind: 'assign', userId: e.target.value })}>{snap.users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select>}
           {a.kind === 'label' && <select className="text-input" value={a.labelId} onChange={e => setAction(i, { kind: 'label', labelId: e.target.value })}>{snap.labels.map(l => <option key={l.id} value={l.id}>{snap.teams.find(x => x.id === l.teamId)?.key} · {l.name}</option>)}</select>}
           {a.kind === 'status' && <select className="text-input" value={a.stateType} onChange={e => setAction(i, { kind: 'status', stateType: e.target.value as WorkflowStateType })}>{STATE_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>}
-          {a.kind === 'createIssue' && <input className="text-input grow" placeholder="Title — {date} fills in" value={a.title} onChange={e => setAction(i, { ...a, title: e.target.value })} />}
+          {a.kind === 'createIssue' && <input className="text-input grow" placeholder="Title, with {date} filled in" value={a.title} onChange={e => setAction(i, { ...a, title: e.target.value })} />}
           {a.kind === 'claudeCode' && <span className="set-meta">{snap.workspace.auth === 'hosted'
-            ? 'skipped on the hosted app for now — it needs a connected companion on your computer (coming in Phase 2)'
+            ? 'skipped on the hosted app for now, since it needs a connected companion on your computer (coming in Phase 2)'
             : 'opens an interactive session in the issue\'s location'}</span>}
           <button className="icon-btn" title="Remove action" onClick={() => setDraft({ ...draft, actions: draft.actions.filter((_, n) => n !== i) })}><IconClose size={12} /></button>
         </div>

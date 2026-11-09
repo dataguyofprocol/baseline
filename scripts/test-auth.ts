@@ -1,6 +1,6 @@
 // End-to-end tests for hosted mode: Google sign-in (with Google's token endpoint stubbed),
 // sessions, the CSRF and host guards, admin-only routes, and who writes are attributed to.
-// Runs against a throwaway database — never touches ~/.baseline.
+// Runs against a throwaway database and never touches ~/.baseline.
 //
 //   npx tsx scripts/test-auth.ts
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -51,8 +51,8 @@ const cookiesFrom = (res: Response): Record<string, string> => {
   return out;
 };
 
-/** run the whole browser dance: /auth/google → (Google) → /auth/google/callback; returns the final redirect and cookies */
-// each sign-in comes from its own address, so the sign-in rate limit only bites where a test means it to
+/** run the whole browser redirect sequence: /auth/google → (Google) → /auth/google/callback; returns the final redirect and cookies */
+// each sign-in comes from its own address, so the sign-in rate limit only trips in the tests that check it
 let ipSeq = 0;
 async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boolean; next?: string; invite?: string; ip?: string } = {}) {
   const ip = opts.ip ?? `10.0.${Math.floor(++ipSeq / 250)}.${ipSeq % 250}`;
@@ -920,7 +920,7 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
     check('CLI login is approved from a password session and gets a key as that person', got.token?.startsWith('bl_api_') && got.user.id === tiaId, JSON.stringify(got));
   }
 
-  // suspension still wins over a right password
+  // a suspended account is refused even with the right password
   pw.db.prepare("UPDATE users SET status = 'suspended' WHERE id = ?").run(tiaId);
   const susp = await signInPw('tia@example.com', 'brand new password here');
   check('a suspended person can\'t sign in with the right password', susp.status === 403 && (await errOf(susp)).code === 'suspended' && !sessionOf(susp));

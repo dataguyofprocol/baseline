@@ -2,7 +2,7 @@
 //  - an issue's completedAt/canceledAt come only from its state, never from a raw PATCH body
 //  - the workspace always keeps at least one active admin, whichever route changes admin rights
 //  - importing a backup is all-or-nothing: a bad file leaves the current workspace untouched
-// Runs against a throwaway local-mode database — never touches ~/.baseline.
+// Runs against a throwaway local-mode database and never touches ~/.baseline.
 //
 //   npx tsx scripts/test-state-guards.ts
 import { mkdtempSync, rmSync } from 'node:fs';

@@ -219,7 +219,7 @@ function migrate(db: DatabaseSync): void {
   if (!columns('projects').includes('directory')) db.exec("ALTER TABLE projects ADD COLUMN directory TEXT NOT NULL DEFAULT ''");
   if (!columns('issues').includes('location_id')) db.exec('ALTER TABLE issues ADD COLUMN location_id TEXT');
   migrateDirectoriesToLocations(db);
-  // the background runner was removed — its switch and bookkeeping go with it
+  // the background runner was removed, so its switch and bookkeeping are deleted too
   db.prepare("DELETE FROM meta WHERE key IN ('agentRunner', 'agentNudges')").run();
   if (!columns('users').includes('kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'human'");
   for (const [col, def] of [['title', "TEXT NOT NULL DEFAULT ''"], ['username', "TEXT NOT NULL DEFAULT ''"], ['avatar_url', 'TEXT'], ['github_username', "TEXT NOT NULL DEFAULT ''"]] as const) {
@@ -297,7 +297,7 @@ function migrate(db: DatabaseSync): void {
 
   // per-person state: favorites, inbox rows and preferences belong to someone, and a saved view is
   // either shared with the workspace or its owner's alone. Everything from before belonged to the
-  // workspace's own user — it stays theirs, and existing views stay shared.
+  // workspace's own user, so it stays theirs, and existing views stay shared.
   const own = (db.prepare("SELECT value FROM meta WHERE key = 'currentUser'").get() as { value: string } | undefined)?.value ?? null;
   if (!columns('favorites').includes('user_id')) {
     db.exec('ALTER TABLE favorites ADD COLUMN user_id TEXT');
@@ -468,7 +468,7 @@ function migrate(db: DatabaseSync): void {
   `);
   // a pre-release build kept file bytes outside the database; its table was never populated
   if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'files'").get() && !columns('files').includes('data')) db.exec('DROP TABLE files');
-  // uploaded images (avatars, pictures pasted into editors) — small by design, so the
+  // uploaded images (avatars, pictures pasted into editors) are small by design, so the
   // bytes live here too; owners are polymorphic, so files.ts deletes a file when its owner
   // goes rather than a foreign key
   db.exec(`
@@ -502,7 +502,7 @@ function migrate(db: DatabaseSync): void {
     `);
   }
 
-  // initiatives came back with a new schema (extensions.ts) — drop only tables left from the old one
+  // initiatives came back with a new schema (extensions.ts), so drop only tables left from the old one
   if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'initiatives'").get() && !columns('initiatives').includes('parent_id')) {
     db.exec('DROP TABLE IF EXISTS initiative_updates');
     db.exec('DROP TABLE IF EXISTS initiatives');
@@ -565,7 +565,7 @@ export function ensureWorkspaceAgent(db: DatabaseSync): string {
 /* One-time move from "a directory per project + a workspace default" to a list of locations:
    each project directory becomes a location linked to its project, and that project's issues
    are pinned to it (they already ran there). The workspace default and recent picks become
-   plain locations — registered, but pinned to nothing, so nothing runs in them by accident. */
+   plain locations. They are registered but pinned to nothing, so nothing runs in them by accident. */
 export function migrateDirectoriesToLocations(db: DatabaseSync): void {
   if (getMeta(db, 'locationsMigrated')) return;
   const ensure = (path: string): string => {
@@ -589,13 +589,13 @@ export function migrateDirectoriesToLocations(db: DatabaseSync): void {
   if (cwd) ensure(cwd);
   try { for (const d of JSON.parse(getMeta(db, 'recentDirectories') ?? '[]') as string[]) if (d) ensure(d); } catch { /* ignore */ }
   db.prepare("DELETE FROM meta WHERE key IN ('agentCwd', 'recentDirectories')").run();
-  // only mark workspaces that exist — a brand-new database is seeded after this runs
+  // only mark workspaces that exist, because a brand-new database is seeded after this runs
   if (getMeta(db, 'workspaceId')) setMeta(db, 'locationsMigrated', '1');
 }
 
 /** rows every workspace starts with: one project status per category (Linear's defaults) */
 export function ensureDefaults(db: DatabaseSync): void {
-  // one named status per category to start with — Linear's defaults
+  // one named status per category to start with, matching Linear's defaults
   if (!(db.prepare('SELECT COUNT(*) n FROM project_statuses').get() as { n: number }).n) {
     const defs: Array<[string, string, string]> = [['backlog', 'Backlog', '#bec2c8'], ['planned', 'Planned', '#8a8f98'], ['started', 'In Progress', '#f2c94c'], ['paused', 'Paused', '#f2994a'], ['completed', 'Completed', '#5e6ad2'], ['canceled', 'Canceled', '#95a2b3']];
     defs.forEach(([type, name, color], i) => db.prepare('INSERT INTO project_statuses (id, type, name, color, description, position) VALUES (?, ?, ?, ?, ?, ?)').run(id('ps'), type, name, color, '', i));

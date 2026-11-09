@@ -59,7 +59,7 @@ export const api = {
   moveIssue: (id: string, beforeId: string | null, afterId: string | null) => req<{ ok: true }>('POST', `/api/issues/${id}/move`, { beforeId, afterId }),
   startIssue: (id: string) => req<{ moved: boolean; assigned: boolean; stateName?: string }>('POST', `/api/issues/${id}/start`, {}),
   getHandoff: (id: string) => req<{ handoff: Handoff }>('GET', `/api/issues/${id}/handoff`),
-  /** errors come back as values — the caller reacts to `code` (e.g. no-directory → open the picker) */
+  /** errors come back as values, and the caller reacts to `code` (e.g. no-directory opens the picker) */
   openClaude: async (id: string, b: { locationId?: string; directory?: string }) => {
     const res = await fetch(`/api/issues/${id}/open-claude`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
     return res.json().catch(() => ({ error: `Server error (${res.status})`, code: 'server' })) as Promise<{ key: string; directory: string; location: { id: string; name: string }; pinned: boolean; error?: undefined } | { error: string; code: string }>;
@@ -226,7 +226,7 @@ export const authApi = {
   },
   post: async (path: string, body: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string; code?: string }> => {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
-    if (!res) return { ok: false, error: 'Can’t reach the server — check your connection and try again.' };
+    if (!res) return { ok: false, error: 'Can’t reach the server. Check your connection and try again.' };
     if (res.ok) return { ok: true };
     const j = await res.json().catch(() => ({})) as { error?: string; code?: string };
     return { ok: false, error: j.error ?? `Something went wrong (${res.status})`, code: j.code };

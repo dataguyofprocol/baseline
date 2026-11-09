@@ -80,7 +80,7 @@ export function mountConnectCommand(program: Command): void {
     .option('--dry-run', 'print what would change, and change nothing', false)
     .action((agent: string, flags: ConnectFlags) => {
       const harness = HARNESSES.find(h => h === agent.toLowerCase()) as Harness | undefined;
-      if (!harness) return fail(`Unknown agent "${agent}" — valid agents: ${HARNESSES.join(', ')}`);
+      if (!harness) return fail(`Unknown agent "${agent}". Valid agents: ${HARNESSES.join(', ')}`);
       const dir = repoDir(flags.dir);
       if (!existsSync(dir) || !statSync(dir).isDirectory()) return fail(`Directory not found: ${dir}`);
 

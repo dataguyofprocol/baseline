@@ -51,7 +51,7 @@ export function sortedStatesOf(teamId: string) {
   });
 }
 
-/** the menu's content (filter field + values) — embedded in a popover or a context-menu flyout */
+/** the menu's content (filter field + values), embedded in a popover or a context-menu flyout */
 export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClose: () => void }) {
   const snap = useApp(s => s.snap)!;
   const [q, setQ] = useState('');
@@ -69,7 +69,7 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
       const current = same(i => i.stateId);
       const pick = async (stateId: string) => {
         const target = snap.states.find(s => s.id === stateId)!;
-        // a selection spanning teams lands on each team's state of the same name (or type)
+        // a selection spanning teams moves to each team's state of the same name (or type)
         const byTeam = new Map<string, string[]>();
         for (const i of issues) byTeam.set(i.teamId, [...(byTeam.get(i.teamId) ?? []), i.id]);
         for (const [teamId, group] of byTeam) {
@@ -140,7 +140,7 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
       };
       return (
         <Shell {...common} placeholder={`Change labels${plural}…`}>
-          {/* raw items so toggling keeps the menu open — labels are multi-select */}
+          {/* raw items so toggling keeps the menu open, since labels are multi-select */}
           {shown.map(l => {
             const on = issues.every(i => i.labelIds.includes(l.id));
             const some = !on && issues.some(i => i.labelIds.includes(l.id));

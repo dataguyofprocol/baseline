@@ -1,5 +1,5 @@
 // Hand-off prompt rendering: turns an issue into a ready-to-paste prompt + branch name.
-// Pure functions — no db access; Store.handoffFor assembles the inputs.
+// Pure functions with no db access; Store.handoffFor assembles the inputs.
 
 import { issueKey, PRIORITY_SHORT } from './types.js';
 import type { Handoff, Issue, Label, Priority, Project, Team, WorkflowState } from './types.js';
@@ -40,7 +40,7 @@ export const PROMPT_TEMPLATE_VARS = [
   ['{{tracking}}', 'how the agent keeps the issue current: its MCP tools and `baseline agent` commands'],
 ] as const;
 
-/** Filler words that carry no meaning in a branch name — dropped before the length cap
+/** Filler words that carry no meaning in a branch name, dropped before the length cap
  *  so the words that identify the work survive ("fix", "add", nouns) rather than "the-issue-with". */
 const BRANCH_STOPWORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'of', 'for', 'to', 'in', 'into', 'on', 'onto', 'at',
@@ -53,7 +53,7 @@ const BRANCH_STOPWORDS = new Set([
 const BRANCH_MAX_WORDS = 4;
 const BRANCH_MAX_CHARS = 28;
 
-/** Lowercase, hyphenated slug that stops on a word boundary — never mid-word.
+/** Lowercase, hyphenated slug that stops on a word boundary, never mid-word.
  *  Titles are often a whole sentence, so this keeps the first few meaningful words
  *  instead of truncating the sentence into an unreadable stub. */
 export function slugify(text: string, maxChars = BRANCH_MAX_CHARS, maxWords = BRANCH_MAX_WORDS): string {
@@ -121,7 +121,7 @@ export function buildHandoff(
   const vars: Record<string, string> = {
     key,
     title: issue.title,
-    // mention tokens read back as "@Name" — the agent needs the person, not their id
+    // mention tokens read back as "@Name" because the agent needs the person, not their id
     description: plainMentions(issue.description),
     branch,
     url: `${base}/#/issue/${key}`,

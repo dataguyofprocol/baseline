@@ -127,7 +127,7 @@ export class Automation {
     this.db.prepare('INSERT INTO team_subscriptions (team_id, user_id, issue_added, issue_closed, triage) VALUES (?, ?, ?, ?, ?) ON CONFLICT(team_id, user_id) DO UPDATE SET issue_added = excluded.issue_added, issue_closed = excluded.issue_closed, triage = excluded.triage')
       .run(teamId, userId, v.issueAdded ? 1 : 0, v.issueClosed ? 1 : 0, v.triage ? 1 : 0);
   }
-  /** each person with the team's bell on hears about the events they chose — never their own */
+  /** each person with the team's bell on hears about the events they chose, but never about their own */
   private notifyTeam(before: Issue | null, after: Issue, actorId?: string): void {
     const type = this.stateType(after.stateId);
     const key = this.store.keyOf(after);

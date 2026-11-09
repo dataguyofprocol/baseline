@@ -113,7 +113,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Recurring issues per team (daily / weekly / every 2 weeks / monthly); any issue converts to one, or to a template, or to a project
 - ✅ Preferences: Underline links, Auto-assign to self (off by default, as in Linear), On move to started status assign to yourself
 - ✅ Profile: picture upload, title, username (feeds `{username}` in branch names)
-- ✅ Notifications: Priority inbox + which kinds count as priority; Desktop push by category through browser notifications (also from a background tab); reaction and document-change notifications
+- ✅ Notifications: Priority inbox + which kinds count as priority; Browser push by category (also from a background tab); reaction and document-change notifications
 - ✅ Team settings hub (Linear's layout): General (name, identifier, description, estimates with zero / extended / count-unestimated), Members, Issue labels, Templates, Recurring issues, Issue statuses, Workflows & automations (PR automations, auto-close parent / sub-issues / stale issues, auto-archive, re-order on status change), Triage, Cycles, Danger zone
 - ✅ Security & access: personal API keys (name, permissions, team limits, shown once, last used, revoke); Administration › API: who may create keys, every issued key, require a key from other devices
 - ✅ Per-team page: triage, estimate scale (none / exponential / fibonacci / linear / t-shirt), cycle automation (length, cooldown, upcoming, rollover), workflow, cycles

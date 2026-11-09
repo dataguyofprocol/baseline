@@ -2,8 +2,8 @@
 //
 // Writes come from two places: this server's own requests and timer, and other processes on the
 // same file (agents and people using the CLI write to SQLite directly). SQLite reports both
-// cheaply — total_changes() counts rows this connection changed, PRAGMA data_version moves when
-// another connection commits — so a twice-a-second look at the pair catches everything.
+// cheaply. total_changes() counts rows this connection changed, and PRAGMA data_version moves when
+// another connection commits, so a twice-a-second look at the pair catches everything.
 import type { DatabaseSync } from 'node:sqlite';
 import type { Store } from '../core/store.js';
 

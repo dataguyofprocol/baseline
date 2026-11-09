@@ -63,7 +63,7 @@ export function SettingsLayout() {
         <Link to="/" className="back"><IconBack size={14} /> Back to app</Link>
         <div className="settings-search"><IconSearch size={13} /><input placeholder="Search…" value={q} onChange={e => setQ(e.target.value)} /></div>
         {SETTINGS_NAV.map(g => {
-          // workspace Security is who may sign in — only a hosted workspace has sign-in
+          // workspace Security sets who may sign in, and only a hosted workspace has sign-in
           const items = g.items.filter(([label, key]) => match(label, g.sec) && (key !== 'workspace-security' || snap.workspace.auth === 'hosted'));
           if (!items.length) return null;
           return (
@@ -144,7 +144,7 @@ function WorkspaceSettings() {
         <span style={{ color: 'var(--text-secondary)' }}>{snap.users.map(u => u.name).join(', ')}</span>
       </div>
       <div className="field-row">
-        <div><div className="field-label">Agents</div><div className="field-help">Coding agents drive this workspace through the baseline CLI — the repo ships a skill (<code>skills/baseline/SKILL.md</code>) that teaches them the commands.</div></div>
+        <div><div className="field-label">Agents</div><div className="field-help">Coding agents drive this workspace through the baseline CLI. The repo ships a skill (<code>skills/baseline/SKILL.md</code>) that teaches them the commands.</div></div>
         <code className="cli-chip">node bin/baseline.js --help</code>
       </div>
     </div>
@@ -220,7 +220,7 @@ function NewTeamSettings() {
           <input className="text-input" autoFocus placeholder="e.g. Engineering" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create(); }} />
         </div>
         <div className="field-row">
-          <div><div className="field-label">Identifier</div><div className="field-help">Used in issue IDs — {ident || 'KEY'}-123.{taken && <span style={{ color: 'var(--danger, #e5484d)' }}> Already in use.</span>}</div></div>
+          <div><div className="field-label">Identifier</div><div className="field-help">Used in issue IDs, like {ident || 'KEY'}-123.{taken && <span style={{ color: 'var(--danger, #e5484d)' }}> Already in use.</span>}</div></div>
           <input className="text-input" style={{ width: 100 }} placeholder="KEY" value={ident} onChange={e => { setKeyTouched(true); setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7)); }} onKeyDown={e => { if (e.key === 'Enter') void create(); }} />
         </div>
       </div>
@@ -416,7 +416,7 @@ function RecurringIssues(props: { teamId: string }) {
   };
   return (
     <div className="card" style={{ padding: '6px 10px' }}>
-      <div className="field-help" style={{ padding: '4px 0 8px' }}>Issues that file themselves on a schedule — a weekly dependency bump, a monthly review. Any issue can become one from its menu (Convert to ▸ Recurring issue).</div>
+      <div className="field-help" style={{ padding: '4px 0 8px' }}>Issues that file themselves on a schedule, like a weekly dependency bump or a monthly review. Any issue can become one from its menu (Convert to ▸ Recurring issue).</div>
       {list.map(r => (
         <div key={r.id} className="recurring-row group">
           <span className="rr-title">{r.title}</span>
@@ -608,22 +608,22 @@ function NotificationSettings() {
       {catRows(c => priorityCats.includes(c), (c, v) => patchInbox({ priorityCats: v ? [...priorityCats, c] : priorityCats.filter(x => x !== c) }))}
     </div>
   );
-  if (sub === 'desktop') return (
+  if (sub === 'browser') return (
     <div className="settings-card">
       {back}
-      <h1>Desktop</h1>
+      <h1>Browser</h1>
       <div className="field-help" style={{ marginBottom: 16 }}>Notifications from this browser while Baseline is open in a tab, even in the background</div>
       <div className="card set-list">
         <div className="set-row notif-row">
-          <div style={{ flex: 1 }}><div className="field-label">Enable desktop notifications</div><div className="field-help">{perm === 'unsupported' ? 'This browser doesn’t support notifications.' : perm === 'denied' ? 'Notifications are blocked for this site — allow them in your browser’s site settings.' : perm === 'granted' ? 'Allowed in this browser.' : 'Your browser will ask for permission.'}</div></div>
-          <SettingSwitch on={push.desktop && perm === 'granted'} onChange={async v => {
+          <div style={{ flex: 1 }}><div className="field-label">Enable browser notifications</div><div className="field-help">{perm === 'unsupported' ? 'This browser doesn’t support notifications.' : perm === 'denied' ? 'Notifications are blocked for this site. Allow them in your browser’s site settings.' : perm === 'granted' ? 'Allowed in this browser.' : 'Your browser will ask for permission.'}</div></div>
+          <SettingSwitch on={push.browser && perm === 'granted'} onChange={async v => {
             if (v && perm !== 'granted' && typeof Notification !== 'undefined') { const r = await Notification.requestPermission(); setPerm(r); if (r !== 'granted') return; }
-            await savePush({ desktop: v });
+            await savePush({ browser: v });
           }} />
         </div>
       </div>
       <div className="settings-h2">General notifications</div>
-      {catRows(c => push.types[c], (c, v) => void savePush({ types: { ...push.types, [c]: v } }), !push.desktop)}
+      {catRows(c => push.types[c], (c, v) => void savePush({ types: { ...push.types, [c]: v } }), !push.browser)}
     </div>
   );
   const enabledCount = Object.values(push.types).filter(Boolean).length;
@@ -653,9 +653,9 @@ function NotificationSettings() {
       <div className="settings-h2">Push notifications</div>
       <div className="field-help" style={{ marginBottom: 8 }}>Choose which notifications are pushed to your devices. All notifications will still appear in your inbox.</div>
       <div className="card set-list">
-        <button className="set-row notif-row notif-link" onClick={() => navigate('/settings/notifications/desktop')}>
+        <button className="set-row notif-row notif-link" onClick={() => navigate('/settings/notifications/browser')}>
           <span className="notif-icon"><IconPanel size={14} /></span>
-          <div style={{ flex: 1, textAlign: 'left' }}><div className="field-label">Desktop</div><div className="field-help"><span className={`notif-dot${push.desktop && perm === 'granted' ? ' on' : ''}`} />{push.desktop && perm === 'granted' ? (enabledCount === NOTIFY_CATEGORIES.length ? 'Enabled for all notifications' : `Enabled for ${enabledCount} types`) : 'Disabled'}</div></div>
+          <div style={{ flex: 1, textAlign: 'left' }}><div className="field-label">Browser</div><div className="field-help"><span className={`notif-dot${push.browser && perm === 'granted' ? ' on' : ''}`} />{push.browser && perm === 'granted' ? (enabledCount === NOTIFY_CATEGORIES.length ? 'Enabled for all notifications' : `Enabled for ${enabledCount} types`) : 'Disabled'}</div></div>
           <IconChevronRight size={12} />
         </button>
       </div>
@@ -820,7 +820,7 @@ export function NewCycleModal(props: { teamId: string; number: number; onClose: 
   });
 
   // ⌘/Ctrl+Enter creates from anywhere in the modal (menus portal outside this
-  // wrapper, but their React events still bubble here — so exclude them)
+  // wrapper, but their React events still bubble here, so exclude them)
   const onKeyDown = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest?.('.menu')) return;
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -1015,7 +1015,7 @@ function GithubLoginInput(props: { userId: string; value: string }) {
   const [draft, setDraft] = useState(props.value);
   useEffect(() => { setDraft(props.value); }, [props.value]);
   return (
-    <input className="text-input" style={{ width: 130, height: 24, fontSize: 12 }} aria-label="GitHub username" title="GitHub username — links their pull requests to them" placeholder="GitHub username" spellCheck={false}
+    <input className="text-input" style={{ width: 130, height: 24, fontSize: 12 }} aria-label="GitHub username" title="GitHub username, which links their pull requests to them" placeholder="GitHub username" spellCheck={false}
       value={draft} onChange={e => setDraft(e.target.value.replace(/\s+/g, ''))}
       onBlur={async () => { if (draft !== props.value) { await api.updateUser(props.userId, { githubUsername: draft.replace(/^@/, '') }); await useApp.getState().bootstrap(); } }}
       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
@@ -1143,7 +1143,7 @@ function HandoffSettings() {
         an interactive session in a terminal window, in the issue's location. Every issue works in exactly one location; nothing runs without one.
       </div>
       <LocationsSettings />
-      {/* the terminal Claude Code opens in is this machine's — hosted, that's the companion's to know */}
+      {/* the terminal Claude Code opens in belongs to this machine; a hosted workspace leaves that to the companion */}
       {snap.workspace.auth !== 'hosted' && <ClaudeCodeSettings />}
       <h2 className="settings-h2">Prompt template</h2>
       <div className="field-help" style={{ marginBottom: 10 }}>
@@ -1171,7 +1171,7 @@ function HandoffSettings() {
       </div>
       {preview && (
         <div className="field-row" style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 14, display: 'block' }}>
-          <div className="field-label" style={{ marginBottom: 8 }}>Preview — {preview.key}</div>
+          <div className="field-label" style={{ marginBottom: 8 }}>Preview: {preview.key}</div>
           <pre style={{ margin: 0, padding: '10px 12px', background: 'var(--bg-secondary, #141414)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--font-mono, monospace)', fontSize: 12, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{preview.prompt}</pre>
           <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 6 }}>branch: <code>{preview.branchName}</code></div>
         </div>

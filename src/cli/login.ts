@@ -31,7 +31,7 @@ async function browserCode(server: URL, device: string, opts: { browser: boolean
   if (opts.browser) openBrowser(authorize.toString());
   try {
     return await new Promise((ok, bad) => {
-      const timer = setTimeout(() => bad(new TargetError('Timed out waiting for the browser — run `baseline login` again')), LOGIN_TIMEOUT_MS);
+      const timer = setTimeout(() => bad(new TargetError('Timed out waiting for the browser. Run `baseline login` again.')), LOGIN_TIMEOUT_MS);
       http.on('request', (req, res) => {
         const u = new URL(req.url ?? '/', 'http://127.0.0.1');
         if (u.pathname !== '/cb' || u.searchParams.get('state') !== state) { res.writeHead(404).end(); return; }
@@ -63,7 +63,7 @@ async function exchange(server: URL, code: string, verifier: string): Promise<Cl
 async function retire(previous: CliConfig, now: CliConfig): Promise<void> {
   if (previous.server !== now.server || previous.keyId === now.keyId) return;
   await connectTo(new URL(previous.server), previous.token).revokeOwnKey()
-    .catch((e: Error) => console.error(`note: couldn't revoke the previous CLI key (${e.message}) — revoke it in Settings › Security & access`));
+    .catch((e: Error) => console.error(`note: couldn't revoke the previous CLI key (${e.message}). Revoke it in Settings › Security & access.`));
 }
 
 async function readStdin(): Promise<string> {
@@ -106,7 +106,7 @@ export function mountAccountCommands(program: Command): void {
       if (c.kind === 'absent') { console.log('Not logged in'); process.exit(0); }
       if (c.kind === 'ok') {
         await connectTo(new URL(c.config.server), c.config.token).revokeOwnKey()
-          .catch((e: Error) => console.error(`note: couldn't revoke the key on ${c.config.server} (${e.message}) — it stays valid until revoked in Settings › Security & access`));
+          .catch((e: Error) => console.error(`note: couldn't revoke the key on ${c.config.server} (${e.message}). It stays valid until revoked in Settings › Security & access.`));
       }
       removeConfig();
       console.log(c.kind === 'ok' ? `Logged out of ${c.config.server}` : `Removed ${CONFIG_PATH}`);
