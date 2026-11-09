@@ -260,6 +260,14 @@ class FakeStdin extends EventEmitter {
   const created = (await fresh.listIssues({ query: 'Filed from the TUI test' }))[0];
   check('c → enter creates the issue, assigned to me from My Issues', !!created && created.assigneeId === data.currentUser.id);
 
+  const second = selectableIds({ kind: 'my' }, data, defaultExpanded, now)[1];
+  const secondTitle = (await fresh.getIssue(second))!.title;
+  stdin.press('gj\r');
+  await waitFor('burst opens the second issue', f => f.includes('Description') && f.includes(secondTitle));
+  check('a burst of keys in one chunk (tmux send-keys) acts as separate presses', stdout.last.includes(secondTitle));
+  stdin.press('\x1b');
+  await waitFor('back to the list again', f => f.includes('My Issues') && !f.includes('Description'));
+
   stdin.press('q');
   const exited = await Promise.race([app.waitUntilExit().then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);
   check('q on a top-level screen exits', exited === true);

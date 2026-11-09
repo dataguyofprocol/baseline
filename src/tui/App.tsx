@@ -1,5 +1,5 @@
 // The root component: owns the reducer, the poll loop and the single input handler.
-import { Box, Text, useApp, useInput, useWindowSize } from 'ink';
+import { Box, Text, useApp, useInput, useWindowSize, type Key } from 'ink';
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import type { Baseline } from '../client/index.js';
 import { errorText, runCommand, toast, type Ctx, type Layout } from './commands.js';
@@ -142,7 +142,7 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
   const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, sidebarVisible };
   const contexts = contextsFor(state, sidebarVisible);
 
-  useInput((input, key) => {
+  const handleKey = (input: string, key: Key) => {
     if (suspended.current) return;
     const s = stateRef.current;
     const name = keyName(input, key);
@@ -170,6 +170,13 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
     const field = takesText(s) ? currentField(s) : null;
     const next = field ? editField(field, name, input) : null;
     if (next) dispatch({ type: 'editInput', input: next });
+  };
+
+  // tmux/cmux `send-keys jj` and fast key macros arrive as one chunk; outside a text field each
+  // character is its own keypress, replayed a frame apart so each sees the state the last produced
+  useInput((input, key) => {
+    if (input.length < 2 || key.ctrl || key.meta || takesText(stateRef.current)) return handleKey(input, key);
+    [...input].forEach((ch, i) => setTimeout(() => handleKey(ch, { ...key, return: ch === '\r' }), i * 16));
   });
 
   if (!data) {
