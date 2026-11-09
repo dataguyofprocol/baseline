@@ -106,9 +106,9 @@ This follows Linear's split. Admins set up the workspace and its teams. Members 
 ### Deployment (GCP)
 - An e2-small VM running Debian, with a persistent disk at `/var/lib/baseline` for the db and attachments. Node 22 runs under systemd and Caddy terminates TLS.
 - Config is env vars in `/etc/baseline.env`: `BASELINE_PUBLIC_URL`, `BASELINE_DB`, `BASELINE_OWNER_EMAIL`, `GOOGLE_CLIENT_ID`/`SECRET`, `SMTP_*`, `GITHUB_APP_*`, `SESSION_SECRET`.
-- Backups: a nightly `VACUUM INTO` snapshot plus the attachments directory, synced to a GCS bucket, keeping 30 days. A `deploy.sh` does a git pull, `npm ci`, build and restart, mirroring `app.sh update` in OPERATIONS.md.
+- Backups: a nightly `VACUUM INTO` snapshot plus the attachments directory, synced to a GCS bucket, keeping 30 days. A `deploy.sh` does a git pull, `npm ci`, build and restart.
 - Moving your data: export from your laptop instance, import on the server, then sign in with Google. The match-by-email rule links your existing user row.
-- Update SECURITY.md (its bind-address section is stale today), OPERATIONS.md and README.
+- Update SECURITY.md (its bind-address section is stale today) and README.
 
 **Done when:** a teammate you invite gets the email, signs in with Google, and sees their own inbox and favorites. Someone at an approved domain joins without an invite, and a stranger is turned away. Nightly backups land in GCS.
 
