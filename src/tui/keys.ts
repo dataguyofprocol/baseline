@@ -28,8 +28,10 @@ export interface Binding {
   command: CommandId;
   /** help overlay section */
   group: string;
-  /** shown in the footer for its contexts, under this text if given */
+  /** shown in the footer for its contexts */
   hint?: boolean;
+  /** the footer's shorter label */
+  short?: string;
   /** offered in the command palette (default: true for the main contexts) */
   palette?: boolean;
   /** the help overlay shows it through the row above (j/k, g/G, [ ]) */
@@ -51,7 +53,7 @@ export const BINDINGS: Binding[] = [
   { keys: ['space'], label: 'page down', when: ['detail'], command: 'pageDown', group: 'Navigate', palette: false },
   { keys: ['ctrl+u', 'ctrl+b', 'pageup'], label: 'half page up', when: [...NAV, 'detail'], command: 'pageUp', group: 'Navigate', palette: false, partner: true },
   { keys: ['enter'], label: 'open', when: ['list', 'projects', 'sidebar'], command: 'open', group: 'Navigate', hint: true, palette: false },
-  { keys: ['enter'], label: 'open + mark read', when: ['inbox'], command: 'open', group: 'Inbox', hint: true, palette: false },
+  { keys: ['enter'], label: 'open + mark read', short: 'open', when: ['inbox'], command: 'open', group: 'Inbox', hint: true, palette: false },
 
   { keys: ['s'], label: 'status', when: ISSUE, command: 'setState', group: 'Issue', hint: true },
   { keys: ['p'], label: 'priority', when: ISSUE, command: 'setPriority', group: 'Issue', hint: true },
@@ -63,7 +65,7 @@ export const BINDINGS: Binding[] = [
   { keys: ['e'], label: 'edit title', when: ['detail'], command: 'editTitle', group: 'Issue' },
   { keys: ['E'], label: 'edit description in $EDITOR', when: ['detail'], command: 'editDescription', group: 'Issue' },
 
-  { keys: ['A'], label: 'start agent here', when: ISSUE, command: 'startAgent', group: 'Agent', hint: true },
+  { keys: ['A'], label: 'start agent here', short: 'agent', when: ISSUE, command: 'startAgent', group: 'Agent', hint: true },
   { keys: ['H'], label: 'copy agent prompt', when: ISSUE, command: 'copyPrompt', group: 'Agent' },
   { keys: ['Y'], label: 'copy branch name', when: ISSUE, command: 'copyBranch', group: 'Agent' },
   { keys: ['y'], label: 'copy issue key', when: ISSUE, command: 'copyKey', group: 'Agent' },
@@ -177,7 +179,7 @@ export function hintsFor(contexts: readonly Context[]): Array<{ key: string; lab
     for (const b of BINDINGS) {
       if (!b.hint || !b.when.includes(ctx) || seen.has(b.command)) continue;
       seen.add(b.command);
-      out.push({ key: keyLabel(b), label: b.label });
+      out.push({ key: keyLabel(b), label: b.short ?? b.label });
     }
   }
   return out;

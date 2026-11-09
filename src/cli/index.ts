@@ -1427,6 +1427,16 @@ withDb(location.command('remove <name>')).description('Unregister a location (pr
   process.exit(0);
 });
 
+// ---------- terminal UI ----------
+withAs(withDb(program.command('tui [issue]'))).description('Open the workspace in a full-screen terminal UI (optionally straight to an issue key)')
+  .action(async (issueKey: string | undefined, opts: { db?: string; as?: string }) => {
+    if (!process.stdout.isTTY || !process.stdin.isTTY) fail('`baseline tui` needs an interactive terminal, and stdout or stdin isn\'t one. In scripts, use `baseline issue list` and the other commands.');
+    // loaded here so no other command pays for React and Ink
+    const { runTui } = await import('../tui/index.js');
+    await runTui({ db: opts.db, as: opts.as, issue: issueKey });
+    process.exit(0);
+  });
+
 mountAccountCommands(program);
 mountConnectCommand(program);
 mountWorkflowCommands(program);

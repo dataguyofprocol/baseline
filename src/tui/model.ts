@@ -7,7 +7,7 @@ import type { Route } from './state.js';
 
 // ---------- text ----------
 
-export interface Seg { text: string; color?: string; bold?: boolean; dim?: boolean; italic?: boolean; underline?: boolean; strike?: boolean }
+export interface Seg { text: string; color?: string; bold?: boolean; dim?: boolean; italic?: boolean; underline?: boolean; strike?: boolean; inverse?: boolean }
 export type Line = Seg[];
 
 function charWidth(cp: number): number {
@@ -53,7 +53,7 @@ export const lineWidth = (line: Line) => line.reduce((n, s) => n + displayWidth(
 export function wrapSegs(segs: Line, width: number, indent = ''): Line[] {
   const lines: Line[] = [];
   const room = Math.max(1, width);
-  let cur: Line = [], w = 0;
+  let cur: Line = [], w = 0, lineStart = 0;
   const push = (seg: Seg) => {
     const last = cur[cur.length - 1];
     if (last && sameStyle(last, seg)) last.text += seg.text; else cur.push({ ...seg });
@@ -65,15 +65,15 @@ export function wrapSegs(segs: Line, width: number, indent = ''): Line[] {
     if (lastSeg) lastSeg.text = lastSeg.text.replace(/\s+$/, '');
     lines.push(cur);
     cur = indent ? [{ text: indent }] : [];
-    w = displayWidth(indent);
+    w = lineStart = displayWidth(indent);
   };
   for (const seg of segs) {
     for (const part of seg.text.split(/(\n)/)) {
       if (part === '\n') { newline(); continue; }
       for (const word of part.split(/(\s+)/).filter(Boolean)) {
         const ww = displayWidth(word);
-        if (/^\s+$/.test(word)) { if (w > displayWidth(indent) && w + ww <= room) push({ ...seg, text: ' ' }); continue; }
-        if (w + ww > room && w > displayWidth(indent)) newline();
+        if (/^\s+$/.test(word)) { if (w > lineStart && w + ww <= room) push({ ...seg, text: ' ' }); continue; }
+        if (w + ww > room && w > lineStart) newline();
         if (ww > room - w) {
           let chunk = '';
           for (const ch of word) {
@@ -90,7 +90,7 @@ export function wrapSegs(segs: Line, width: number, indent = ''): Line[] {
 }
 
 const sameStyle = (a: Seg, b: Seg) =>
-  a.color === b.color && !!a.bold === !!b.bold && !!a.dim === !!b.dim && !!a.italic === !!b.italic && !!a.underline === !!b.underline && !!a.strike === !!b.strike;
+  a.color === b.color && !!a.bold === !!b.bold && !!a.dim === !!b.dim && !!a.italic === !!b.italic && !!a.underline === !!b.underline && !!a.strike === !!b.strike && !!a.inverse === !!b.inverse;
 
 export const wrap = (text: string, width: number, style: Omit<Seg, 'text'> = {}): Line[] => wrapSegs([{ ...style, text }], width);
 
@@ -184,7 +184,7 @@ const VERBS: Record<NotificationType, string> = {
   projectIssueAdded: 'added to project', projectIssueClosed: 'closed in project', projectChanged: 'changed project',
   initiativeUpdateReminder: 'update due', projectUpdateReminder: 'update due', updatesDigest: 'updates digest',
   slaBreached: 'SLA breached', prActivity: 'pull request', loopFailed: 'loop failed', teamActivity: 'team activity',
-  teamMemberAdded: 'added you to a team', commentReacted: 'reacted', docChanged: 'changed a doc', systemUpdate: 'Baseline',
+  teamMemberAdded: 'added you to a team', commentReacted: 'reacted', docChanged: 'changed a doc', systemUpdate: 'update',
 };
 const BODY_HAS_ID: ReadonlySet<NotificationType> = new Set(['initiativeUpdateReminder', 'teamMemberAdded', 'docChanged']);
 
@@ -372,6 +372,13 @@ export function activityText(a: ActivityItem, data: TuiData): string {
     case 'prLinked': return 'linked a pull request';
     case 'prStateMoved': return 'moved by a pull request';
     case 'commitLinked': return 'linked a commit';
+    case 'related': { const o = data.issueById.get(String(d.relatedId)); return `marked ${String(d.type ?? 'related').replace('_', ' ')} ${o ? data.keyOf(o) : 'another issue'}`; }
+    case 'unrelated': return 'removed a relation';
+    case 'slaApplied': return 'started an SLA clock';
+    case 'slaBreached': return 'breached its SLA';
+    case 'cycleChanged': return 'changed the cycle';
+    case 'milestoneChanged': return 'changed the milestone';
+    case 'locationChanged': return 'changed the location';
     default: return a.type.replace(/([A-Z])/g, ' $1').toLowerCase();
   }
 }
@@ -398,13 +405,37 @@ function inlineSegs(text: string, base: Omit<Seg, 'text'> = {}): Seg[] {
   return segs;
 }
 
+/** a pipe table with aligned columns; the header row bold, cells cut to fit */
+function tableLines(block: string[], width: number): Line[] {
+  const rows = block.map(l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()))
+    .filter(cells => !cells.every(c => /^:?-{2,}:?$/.test(c)));
+  const n = Math.max(...rows.map(r => r.length));
+  const natural = Array.from({ length: n }, (_, i) => Math.max(...rows.map(r => displayWidth(r[i] ?? ''))));
+  const room = width - 3 * (n - 1);
+  const total = natural.reduce((a, b) => a + b, 0);
+  const widths = total <= room ? natural : natural.map(w => Math.max(3, Math.floor((w / total) * room)));
+  return rows.map((r, ri) => widths.flatMap((w, i): Seg[] => [
+    ...(i ? [{ text: ' │ ', dim: true }] : []),
+    { text: padEnd(r[i] ?? '', w), bold: ri === 0 },
+  ]));
+}
+
 /** Markdown as terminal lines: headings bold, bullets and quotes indented, code dim; links keep their url */
 export function markdownLines(md: string, width: number): Line[] {
   const out: Line[] = [];
   let fence = false;
   const blank = () => { if (out.length && out[out.length - 1].length) out.push([]); };
-  for (const raw of plainMentions(md).replace(/\r/g, '').split('\n')) {
+  const src = plainMentions(md).replace(/\r/g, '').split('\n');
+  for (let n = 0; n < src.length; n++) {
+    const raw = src[n];
     if (/^\s*(```|~~~)/.test(raw)) { fence = !fence; continue; }
+    if (!fence && /^\s*\|.*\|\s*$/.test(raw)) {
+      const block: string[] = [];
+      while (n < src.length && /^\s*\|.*\|\s*$/.test(src[n])) block.push(src[n++]);
+      n--;
+      out.push(...tableLines(block, width));
+      continue;
+    }
     if (fence) { out.push([{ text: `  ${truncate(raw.replace(/\t/g, '  '), width - 2)}`, dim: true }]); continue; }
     const line = raw.replace(/\s+$/, '');
     if (!line.trim()) { blank(); continue; }
