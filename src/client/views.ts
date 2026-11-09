@@ -3,7 +3,7 @@
 import { issueKey, PRIORITY_SHORT, type Issue, type RelationType, type Snapshot, type SnapshotSection } from '../core/types.js';
 
 export const ISSUE_JSON_SECTIONS = ['teams', 'states', 'users', 'projects', 'labels', 'locations', 'cycles', 'milestones'] as const satisfies readonly SnapshotSection[];
-export const ISSUE_DETAIL_SECTIONS = [...ISSUE_JSON_SECTIONS, 'comments', 'subscriptions', 'attachments', 'activity', 'issues', 'relations', 'customerRequests', 'customers'] as const satisfies readonly SnapshotSection[];
+export const ISSUE_DETAIL_SECTIONS = [...ISSUE_JSON_SECTIONS, 'comments', 'subscriptions', 'attachments', 'activity', 'issues', 'relations'] as const satisfies readonly SnapshotSection[];
 export type IssueJsonContext = Pick<Snapshot, typeof ISSUE_JSON_SECTIONS[number]>;
 export type IssueDetailContext = Pick<Snapshot, typeof ISSUE_DETAIL_SECTIONS[number]>;
 
@@ -58,6 +58,5 @@ export function issueDetail(i: Issue, snap: IssueDetailContext, index: IssueInde
     type: r.issueId === i.id ? r.type : invertRelation(r.type),
     issue: (() => { const o = snap.issues.find(x => x.id === (r.issueId === i.id ? r.relatedIssueId : r.issueId)); return o ? issueKey(o, snap.teams) : null; })(),
   }));
-  const customerRequests = snap.customerRequests.filter(r => r.issueId === i.id).map(r => ({ customer: snap.customers.find(c => c.id === r.customerId)?.name ?? null, body: r.body, important: r.important, createdAt: r.createdAt }));
-  return { ...issueJson(i, snap, index), comments, activity, subIssues: children, relations, subscribers, links, customerRequests };
+  return { ...issueJson(i, snap, index), comments, activity, subIssues: children, relations, subscribers, links };
 }

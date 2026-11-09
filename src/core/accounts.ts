@@ -12,7 +12,7 @@ const DAY = 86400_000;
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 /** a Google identity whose ID token has been verified (aud, iss, nonce, expiry, verified email).
- *  `hd` is the Google Workspace domain the account is managed by — absent for personal accounts. */
+ *  `hd` is the Google Workspace domain that manages the account; personal accounts have none. */
 export interface GoogleIdentity { sub: string; email: string; name: string; picture: string; hd?: string }
 
 export type SignInError = 'not-invited' | 'suspended' | 'invite-mismatch' | 'invite-expired';
@@ -91,10 +91,10 @@ export class Accounts {
 
   /** Who a verified Google identity signs in as, in order:
    *  1. the person already linked to this Google account;
-   *  2. a person with the same email who has never signed in (seeded or imported data) — linked now;
-   *  3. the workspace owner (BASELINE_OWNER_EMAIL) — created as admin;
-   *  4. someone with a pending invite for this email — created with the invite's role and teams;
-   *  5. an account managed by an approved Google Workspace domain — created as a member.
+   *  2. a person with the same email who has never signed in (seeded or imported data), linked now;
+   *  3. the workspace owner (BASELINE_OWNER_EMAIL), created as admin;
+   *  4. someone with a pending invite for this email, created with the invite's role and teams;
+   *  5. an account managed by an approved Google Workspace domain, created as a member.
    *  Anyone else is turned away. Arriving through an invite link that was sent to a different
    *  address, or one that's no longer valid, says so instead of a bare "not invited". */
   signInWithGoogle(g: GoogleIdentity, opts: { ownerEmail?: string; inviteCode?: string } = {}): SignInResult {
@@ -269,7 +269,7 @@ export class Accounts {
       .run(row.id, row.email, row.admin, row.team_ids, row.invited_by, row.code, row.created_at, row.expires_at);
     return row;
   }
-  /** open invites (not accepted or revoked), newest first — expired ones included so they can be renewed */
+  /** open invites (not accepted or revoked), newest first, including expired ones so they can be renewed */
   openInvites(): InviteRow[] {
     return this.db.prepare('SELECT * FROM invites WHERE accepted_at IS NULL AND revoked_at IS NULL ORDER BY created_at DESC').all() as unknown as InviteRow[];
   }

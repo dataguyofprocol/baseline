@@ -1,14 +1,13 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from './store.js';
 import { api } from './api.js';
-import { ConfirmButton, useCanConfigure } from './ui.js';
 import { IconPlus, IconTrash, IconSearch } from './icons.js';
 import { ProjectStatusIcon, PROJECT_STATUS } from './Projects.js';
 import { UPDATE_CADENCE_LABELS, type UpdateCadence, type WorkspaceFeatures } from '../../src/core/types.js';
 
 /* Settings pages Linear keeps under Projects (Labels, Statuses, Updates) and Features
-   (Documents, Customer requests, Pulse, Emojis). */
+   (Initiatives). */
 
 const COLORS = ['#eb5757', '#f2994a', '#f2c94c', '#4cb782', '#3b82f6', '#5e6ad2', '#a78bfa', '#c770f4', '#8a8f98'];
 const nextColor = (c: string) => COLORS[(COLORS.indexOf(c) + 1) % COLORS.length];
@@ -216,161 +215,6 @@ export function ProjectUpdatesSettings() {
         </select>
       </div>
       {overrides > 0 && <div className="field-help" style={{ marginTop: 8 }}>{overrides} project{overrides === 1 ? ' has its' : 's have their'} own schedule (the bell on the project page).</div>}
-    </div>
-  );
-}
-
-/* ---------------- documents (templates) ---------------- */
-export function DocumentsSettings() {
-  const snap = useApp(s => s.snap)!;
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ name: '', title: '', content: '' });
-  const startNew = async () => {
-    const { template } = await api.createDocTemplate({ name: 'New template' });
-    await refresh();
-    setEditing(template.id); setDraft({ name: 'New template', title: '', content: '' });
-  };
-  return (
-    <div className="settings-card">
-      <div className="set-head"><h1>Documents</h1></div>
-      <div className="settings-h2" style={{ marginTop: 0 }}>Templates</div>
-      <div className="field-help" style={{ marginBottom: 8 }}>Offered when you create a document from a project's or team's resources.</div>
-      <div className="card set-list">
-        {snap.docTemplates.map(t => editing === t.id ? (
-          <div key={t.id} className="ptpl-edit">
-            <input className="text-input" placeholder="Template name" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} />
-            <input className="text-input" placeholder="Document title (optional)" value={draft.title} onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} />
-            <textarea className="text-input" style={{ minHeight: 120 }} placeholder="Content (Markdown)" value={draft.content} onChange={e => setDraft(d => ({ ...d, content: e.target.value }))} />
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn primary sm" onClick={async () => { await api.updateDocTemplate(t.id, draft); setEditing(null); await refresh(); }}>Save</button>
-              <button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <div key={t.id} className="set-row group">
-            <span style={{ flex: 1 }}>{t.name}{t.content && <span className="set-meta"> — {t.content.replace(/\s+/g, ' ').slice(0, 60)}</span>}</span>
-            <button className="icon-btn hover-only" title="Edit template" onClick={() => { setEditing(t.id); setDraft({ name: t.name, title: t.title, content: t.content }); }}><span style={{ fontSize: 11 }}>✎</span></button>
-            <button className="icon-btn hover-only" title="Delete template" onClick={async () => { await api.deleteDocTemplate(t.id); await refresh(); }}><IconTrash size={13} /></button>
-          </div>
-        ))}
-        {!snap.docTemplates.length && <div className="set-empty">No document templates</div>}
-        <div className="set-row"><button className="btn secondary sm" onClick={startNew}><IconPlus size={12} /> New template</button></div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- customer requests ---------------- */
-export function CustomerRequestsSettings() {
-  const snap = useApp(s => s.snap)!;
-  const f = snap.workspace.features;
-  return (
-    <div className="settings-card">
-      <h1>Customer requests</h1>
-      <div className="field-help" style={{ marginBottom: 16 }}>Associate customers with projects and issues to align work with real user needs, and track what each customer asked for.</div>
-      <div className="field-row">
-        <div><div className="field-label">Enable Customer requests</div><div className="field-help">Adds Customers to the sidebar, and customer requests to issues and projects.</div></div>
-        <Switch on={f.customerRequestsEnabled} label="Enable customer requests" onChange={v => void setFeatures({ customerRequestsEnabled: v })} />
-      </div>
-      <div className="field-row">
-        <div><div className="field-label">Manage customers</div><div className="field-help">{snap.customers.length ? `${snap.customers.length} customer${snap.customers.length === 1 ? '' : 's'}` : 'No customers'}</div></div>
-        <Link className="btn secondary sm" to="/customers">Open customers</Link>
-      </div>
-      <div className="field-row">
-        <div><div className="field-label">Default team for customer requests</div><div className="field-help">New issues created from a customer page go to this team's triage (or backlog).</div></div>
-        <select className="text-input" value={f.customerDefaultTeamId ?? ''} onChange={e => void setFeatures({ customerDefaultTeamId: e.target.value || null })}>
-          <option value="">No default team</option>
-          {snap.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
-      </div>
-      <AttrList kind="status" title="Customer statuses" help="Statuses for segmenting customers" items={snap.customerStatuses} />
-      <AttrList kind="tier" title="Customer tiers" help="Tiers for segmenting customers" items={snap.customerTiers} />
-    </div>
-  );
-}
-
-function AttrList(props: { kind: 'status' | 'tier'; title: string; help: string; items: Array<{ id: string; name: string; color: string }> }) {
-  const [name, setName] = useState('');
-  const add = async () => { if (!name.trim()) return; await api.createCustomerAttr(props.kind, { name: name.trim(), color: COLORS[props.items.length % COLORS.length] }); setName(''); await refresh(); };
-  return (
-    <>
-      <div className="settings-h2">{props.title}</div>
-      <div className="field-help" style={{ marginBottom: 8 }}>{props.help} — {props.items.length ? `${props.items.length} ${props.kind === 'status' ? 'customer statuses' : 'customer tiers'}` : `no ${props.kind === 'status' ? 'customer statuses' : 'customer tiers'}`}</div>
-      <div className="card set-list">
-        {props.items.map(x => (
-          <div key={x.id} className="set-row group">
-            <button className="label-dot" style={{ background: x.color, width: 12, height: 12 }} title="Change colour" onClick={async () => { await api.updateCustomerAttr(props.kind, x.id, { color: nextColor(x.color) }); await refresh(); }} />
-            <EditableName value={x.name} onSave={async v => { await api.updateCustomerAttr(props.kind, x.id, { name: v }); await refresh(); }} />
-            <span style={{ flex: 1 }} />
-            <button className="icon-btn hover-only" title="Delete" onClick={async () => { await api.deleteCustomerAttr(props.kind, x.id); await refresh(); }}><IconTrash size={13} /></button>
-          </div>
-        ))}
-        <div className="set-row">
-          <input className="text-input" placeholder={props.kind === 'status' ? 'New status…' : 'New tier…'} value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void add(); }} />
-          <button className="btn secondary sm" disabled={!name.trim()} onClick={add}>Add</button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-/* ---------------- pulse ---------------- */
-export function PulseSettings() {
-  const snap = useApp(s => s.snap)!;
-  const f = snap.workspace.features;
-  return (
-    <div className="settings-card">
-      <h1>Pulse</h1>
-      <div className="field-help" style={{ marginBottom: 16 }}>Pulse puts every project update into one feed. You can also get a summary in your inbox each morning or week.</div>
-      <div className="field-row">
-        <div><div className="field-label">Enable Pulse</div><div className="field-help">Workspace-wide feed of updates, in the sidebar under Workspace.</div></div>
-        <Switch on={f.pulseEnabled} label="Enable Pulse" onChange={v => void setFeatures({ pulseEnabled: v })} />
-      </div>
-      <div className="field-row">
-        <div><div className="field-label">Summary notifications</div><div className="field-help">A summary of new updates lands in your inbox on this schedule.</div></div>
-        <select className="text-input" aria-label="Pulse summary schedule" disabled={!f.pulseEnabled} value={f.pulseSchedule} onChange={e => void setFeatures({ pulseSchedule: e.target.value as WorkspaceFeatures['pulseSchedule'] })}>
-          <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="never">Never</option>
-        </select>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- emojis ---------------- */
-export function EmojisSettings() {
-  const snap = useApp(s => s.snap)!;
-  // anyone can add an emoji; removing one is admins' (hosted)
-  const canConfigure = useCanConfigure();
-  const [name, setName] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [err, setErr] = useState('');
-  const input = useRef<HTMLInputElement>(null);
-  const upload = async () => {
-    if (!file || !name.trim()) return;
-    try { await api.uploadEmoji(name.trim(), file); setName(''); setFile(null); setErr(''); await refresh(); }
-    catch (e) { setErr((e as Error).message); }
-  };
-  return (
-    <div className="settings-card">
-      <h1>Emojis</h1>
-      <div className="field-help" style={{ marginBottom: 14 }}>Custom emojis work in reactions and as <code>:name:</code> in descriptions and comments.{canConfigure ? '' : ' Only admins can remove one.'}</div>
-      <div className="card set-list">
-        <div className="set-row">
-          <button className="btn secondary sm" onClick={() => input.current?.click()}>{file ? file.name : 'Choose image…'}</button>
-          <input ref={input} type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) { setFile(f); if (!name) setName(f.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9_-]/g, '')); } e.target.value = ''; }} />
-          <input className="text-input" placeholder="name" value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') void upload(); }} />
-          <button className="btn primary sm" disabled={!file || !name.trim()} onClick={upload}>Upload</button>
-        </div>
-        {err && <div className="set-empty" style={{ color: 'var(--danger, #e5484d)' }}>{err}</div>}
-        {snap.emojis.map(e => (
-          <div key={e.id} className="set-row group">
-            <img src={e.url} alt={e.name} width={20} height={20} style={{ objectFit: 'contain' }} />
-            <code style={{ flex: 1 }}>:{e.name}:</code>
-            {canConfigure && <ConfirmButton className="btn ghost sm" label="Delete" confirmLabel="Delete?" onConfirm={async () => { await api.deleteEmoji(e.id); await refresh(); }} />}
-          </div>
-        ))}
-        {!snap.emojis.length && <div className="set-empty">No emojis</div>}
-      </div>
     </div>
   );
 }

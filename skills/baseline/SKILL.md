@@ -122,9 +122,6 @@ baseline project list [--json]
 baseline project show "Name" [--json]         # status, health, progress %, issues, updates, milestones
 baseline project update "Name" --status started --health atRisk -p low --target none --summary "…"   # backlog|planned|started|paused|completed|canceled, onTrack|atRisk|offTrack
 baseline project link "Name" https://figma.com/file/… --title "Designs"   # project resources
-baseline project depend "Mobile" "Design System"     # Mobile is blocked by Design System (--remove to drop)
-baseline project templates                            # list project templates
-baseline project create "Search v2" --template "Feature launch"   # fields + milestones + starter issues
 baseline location list                           # directories agents work in (usually git repos), with the projects using them
 baseline location add ~/code/api -n api -j "Name"  # register one (and link it to a project); a location can serve several projects
 baseline project update "Name" --add-location api  # / --remove-location api
@@ -142,22 +139,17 @@ baseline project statuses                     # named statuses by category
 baseline project status-create started "In Review"
 baseline project update "Name" --status "In Review" --label Infra --remove-label "Q4 bet" --updates weekly   # --updates none|weekly|biweekly|monthly|default
 
-# initiatives & releases
+# initiatives
 baseline initiative list [--json]
 baseline initiative create "Agent-first tracker" --status active --project "Agent Handoff" "Design System" [--parent "…"] [--target 2026-12-01]
 baseline initiative update "Agent-first tracker" --status completed --add-project "Mobile" --remove-project "…"
 baseline initiative update I-3 --priority high --label Growth "Q1 bet" --remove-label Docs --team CORE --updates weekly   # by name or I-12; labels are created if new
 baseline initiative label list | create <name> [--color #hex] | delete <name>
 baseline initiative note "Agent-first tracker" "On track for Q4" --health onTrack
-baseline release list [--json]
-baseline release create v1.5.0 [--target 2026-11-01] [-d "notes"]
-baseline release update v1.5.0 --add CORE-3 CORE-7 --stage released   # planned|started|released|canceled
 
-# SLAs, Asks, Loops
+# SLAs, Loops
 baseline sla list                               # rules + breached issues
 baseline sla create "Urgent in 24h" --hours 24 -p urgent [-t CORE]
-baseline ask list                               # forms and their field ids (* = required)
-baseline ask submit "Bug report" f_title="Export crashes" f_sev=Blocking   # files into the team's triage
 baseline loop list
 baseline loop run "Bug acknowledgement" CORE-12  # run a loop now, optionally on an issue
 
@@ -168,11 +160,6 @@ baseline git webhook [--rotate] [--url https://…] [--off]   # real-time GitHub
 baseline git import-issues owner/repo -t CORE [--follow]    # one-way import of open GitHub issues into a team
 # the integration is read-only: Baseline never comments, labels or pushes on GitHub
 # name branches with the issue key (Copy git branch, ⌘⇧.) and write "Fixes CORE-12" in the PR so it moves on merge
-
-# customers (customer requests)
-baseline customer list [--json]
-baseline customer create "Acme" --domain acme.dev --revenue 240000 --size 120
-baseline customer request "Acme" CORE-12 -b "what they said" [--important]   # or a project name instead of an issue key
 
 # documents (specs, briefs, runbooks on a project or team — Markdown)
 baseline doc list [--project "Name"] [--team CORE] [--json]

@@ -12,7 +12,7 @@ function localUserName(): string {
   try { const n = userInfo().username; return n.charAt(0).toUpperCase() + n.slice(1); } catch { return 'You'; }
 }
 
-/** A workspace with nothing in it but you and the agent — the web app's first run, where
+/** A workspace with nothing in it but you and the agent, for the web app's first run, where
  *  onboarding names the first team and offers the sample data. */
 export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string } = {}): void {
   const store = new Store(db);
@@ -26,8 +26,8 @@ export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string;
   store.setPreferences({ gettingStarted: { onboarding: 'pending', step: 0, since: null, usedPalette: false } });
 }
 
-/** The sample workspace. `into` adds it to the workspace as it stands — your teams, locations
- *  and settings stay, and you are the sample's "me" — instead of wiping first. */
+/** The sample workspace. `into` adds it to the workspace as it stands instead of wiping first.
+ *  Your teams, locations and settings stay, and you are the sample's "me". */
 export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string; into?: boolean } = {}): void {
   const store = new Store(db);
   if (!opts.into) store.wipe();
@@ -80,7 +80,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   });
   const mobile = store.createProject({
     name: 'Mobile Companion', teamId: core.id, summary: 'Triage on the go: inbox, my issues and search on a phone.',
-    description: 'Read-only mobile web app for triaging issues on the go — inbox, my issues and search.',
+    description: 'Read-only mobile web app for triaging issues on the go: inbox, my issues and search.',
     icon: '📱', leadId: ada.id, startDate: iso(3), targetDate: iso(45), priority: 3,
   });
   const design = store.createProject({
@@ -161,8 +161,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.createDoc({ projectId: project.id, title: 'Hand-off spec', content: '## Problem\n\nAgents need to pick up an issue, work it and close it without opening the app.\n\n## Approach\n\n- `baseline issue start` claims the issue and moves it to In Progress\n- the hand-off prompt carries the description, comments and location\n- `baseline issue done` closes it with a summary comment\n\n## Open questions\n\n- [ ] Should agents be able to decline work?\n' }, ada.id);
   store.createDoc({ teamId: core.id, title: 'Release runbook', content: '1. Cut the release branch\n2. Run `npm run build` and the CLI test suite\n3. Tag and publish\n' }, me.id);
   store.addTeamLink(core.id, 'https://github.com/anthropics/claude-code', 'Repository');
-  // the mobile app waits on the design system's tokens
-  store.addProjectDependency(design.id, mobile.id);
   // project labels (one group, whose labels are exclusive), a custom status, an update schedule
   const area = store.createProjectLabel({ name: 'Area', isGroup: true, color: '#8a8f98' });
   const lAgents = store.createProjectLabel({ name: 'Agents', parentId: area.id, color: '#c770f4' });
@@ -171,13 +169,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.updateProject(project.id, { labelIds: [lAgents.id, lQ4.id], updateCadence: 'weekly' });
   store.updateProject(mobile.id, { labelIds: [lApps.id] });
   store.createProjectStatus({ type: 'started', name: 'In Review', color: '#4cb782' });
-  store.setFeatures({ customerRequestsEnabled: true });
-  const acme = store.createCustomer({ name: 'Acme Robotics', domains: ['acme.dev'], revenue: 240000, size: 120, ownerId: ada.id });
-  const north = store.createCustomer({ name: 'Northwind', domains: ['northwind.io'], revenue: 60000, size: 30 });
-  store.addCustomerRequest({ customerId: acme.id, projectId: mobile.id, body: 'Our on-call team triages from phones — need the inbox on mobile.', important: true }, ada.id);
-  const reqIssue = store.listIssues({ teamId: core.id }).find(i => /search/i.test(i.title));
-  if (reqIssue) store.addCustomerRequest({ customerId: north.id, issueId: reqIssue.id, body: 'Search should match comment text too.' }, jun.id);
-  // initiatives, releases, SLAs, asks, loops and a few pull requests
+  // initiatives, SLAs, loops and a few pull requests
   const { planning, automation, git } = store.ext;
   // finished work gets completion times spread over past weeks (initiative graphs and activity read them)
   const finished = store.listIssues({ teamId: core.id, stateType: 'completed' });
@@ -204,49 +196,35 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   planning.addInitiativeUpdate(onTheGo.id, jun.id, 'Waiting on the inbox API; design is ready.', 'atRisk');
   planning.createInitiative({ priority: 3, labelIds: [lGrowth.id], name: 'Developer love', icon: 'glyph:heart', color: '#e255a1', status: 'planned', summary: 'Docs, a CLI people brag about, and one-command self-hosting.', targetDate: yearEnd, targetResolution: 'year' });
   const coreIssues = store.listIssues({ teamId: core.id });
-  const done = coreIssues.filter(i => st(core.id, 'completed') === i.stateId).slice(0, 2);
   const open = coreIssues.filter(i => [st(core.id, 'unstarted'), st(core.id, 'started')].includes(i.stateId)).slice(0, 3);
-  const v09 = planning.createRelease({ name: 'v0.9.0', description: 'Rich editor and triage', stage: 'released' });
-  const v10 = planning.createRelease({ name: 'v1.0.0', description: 'Projects and cycles parity', stage: 'started', targetDate: iso(10).slice(0, 10) });
-  for (const i of done) store.updateIssue(i.id, { releaseId: v09.id });
-  for (const i of open) store.updateIssue(i.id, { releaseId: v10.id });
   automation.createSlaRule({ name: 'Urgent issues', priorities: [1], hours: 24 });
   automation.createSlaRule({ name: 'High-priority bugs', priorities: [2], labelIds: [coreBug.id], hours: 7 * 24 });
-  automation.createAskForm({ name: 'Bug report', teamId: agents.id, description: 'Something broken? Tell us what you saw.', priority: 2,
-    fields: [{ id: 'f_title', label: 'What went wrong?', type: 'text', options: [], required: true }, { id: 'f_steps', label: 'Steps to reproduce', type: 'textarea', options: [], required: false }, { id: 'f_sev', label: 'How bad is it?', type: 'select', options: ['Blocking', 'Annoying', 'Cosmetic'], required: true }] });
-  automation.createLoop({ name: 'Bug acknowledgement', teamId: core.id, trigger: { kind: 'labelAdded', labelId: coreBug.id }, actions: [{ kind: 'comment', body: 'Thanks — {issue.key} is queued for the bug rotation.' }] });
+  automation.createLoop({ name: 'Bug acknowledgement', teamId: core.id, trigger: { kind: 'labelAdded', labelId: coreBug.id }, actions: [{ kind: 'comment', body: 'Thanks for the report. {issue.key} is queued for the bug rotation.' }] });
   if (open[0]) git.ingestPullRequest({ repo: 'example/baseline', number: 41, title: `${store.keyOf(open[0])} ${open[0].title}`, body: '', url: 'https://github.com/example/baseline/pull/41', state: 'open', branch: `parth/${store.keyOf(open[0]).toLowerCase()}`, base: 'main', author: 'parth', reviewDecision: 'review_required', checks: 'success', updatedAt: iso(-0.1), mergedAt: null });
-  store.createDocTemplate({ name: 'Spec', title: 'Spec: ', content: '## Problem\n\n## Proposal\n\n## Open questions\n' });
-  store.createProjectTemplate({
-    name: 'Feature launch', icon: '🚀', summary: 'Ship a feature from spec to rollout.', priority: 2,
-    description: '## Goal\n\n## Scope\n\n## Rollout\n',
-    milestones: ['Spec signed off', 'Beta', 'General availability'],
-    issues: ['Write the spec', 'Build behind a flag', 'Beta feedback round', 'Docs and changelog'],
-  });
 
   // triage on the agent team: two issues an agent filed through the CLI wait for review
   store.updateTeam(agents.id, { triageEnabled: true });
-  store.createIssue({ teamId: agents.id, title: 'Flaky: `issue list --json` drops archived children', description: 'Seen twice while closing out CORE-24 — the JSON output omits sub-issues whose parent was archived.' }, agentId);
+  store.createIssue({ teamId: agents.id, title: 'Flaky: `issue list --json` drops archived children', description: 'Seen twice while closing out CORE-24. The JSON output omits sub-issues whose parent was archived.' }, agentId);
   store.createIssue({ teamId: agents.id, title: 'Expose cycle automation in the CLI', description: '`baseline team update --auto-cycles` would let agents set up a team end to end.' }, agentId);
 
   // comments
   const first = store.listIssues({ teamId: core.id })[0];
   if (first) {
-    store.addComment(first.id, ada.id, 'Token sheet is drafted — light theme needs a second pass before we ship the toggle.');
+    store.addComment(first.id, ada.id, 'Token sheet is drafted, but the light theme needs a second pass before we ship the toggle.');
     store.addComment(first.id, me.id, 'Agreed. Menu surfaces sample `#212122`, modals `#1a1a1b`.');
   }
 
-  // inbox: every notification shape the design calls for — a mention, an assignment
+  // inbox: every notification shape the design calls for: a mention, an assignment
   // with its actor, two actors on one issue (the punched-gap stack), a plain comment,
   // and a system row with no human actor (that one signs with the app's tile).
   const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
   const themeKey = theme.id;
   const cmdk = store.listIssues({ teamId: core.id }).find(i => i.title.startsWith('Cmd+K'));
   const wal = store.listIssues({ teamId: agents.id }).find(i => i.title.startsWith('Concurrent writer'));
-  store.notify('issueMentioned', { userId: me.id, actorId: ada.id, issueId: cmdk?.id ?? themeKey, body: `@${me.name} scroll jumps a row when the list re-scores — can you take it?`, createdAt: hoursAgo(2) });
+  store.notify('issueMentioned', { userId: me.id, actorId: ada.id, issueId: cmdk?.id ?? themeKey, body: `@${me.name} scroll jumps a row when the list re-scores. Can you take it?`, createdAt: hoursAgo(2) });
   store.notify('issueCommented', { userId: me.id, actorId: jun.id, issueId: cmdk?.id ?? themeKey, body: 'Repro is the fuzzy re-rank, not the scroll container.', createdAt: hoursAgo(2.4) });
   store.notify('issueAssignedToYou', { userId: me.id, actorId: jun.id, issueId: wal?.id ?? themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(5) });
-  store.notify('systemUpdate', { userId: me.id, issueId: null, body: `Cycle ${prevCycle.number} closed — 3 issues rolled over into Cycle ${currentCycle.number}`, createdAt: hoursAgo(9) });
+  store.notify('systemUpdate', { userId: me.id, issueId: null, body: `Cycle ${prevCycle.number} closed. 3 issues rolled over into Cycle ${currentCycle.number}.`, createdAt: hoursAgo(9) });
   store.notify('issueCommented', { userId: me.id, actorId: ada.id, issueId: themeKey, body: 'Light theme needs a second pass before the toggle ships.', createdAt: hoursAgo(27) });
   store.notify('issueAssignedToYou', { userId: me.id, actorId: ada.id, issueId: themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(74) });
 

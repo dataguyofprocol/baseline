@@ -16,7 +16,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Search page (`/`), Trash page, team Archive page; ⌘Z undo for every issue change; `[` toggles the sidebar
 - ✅ Team Home (team "…" › Team overview): Overview (icon, name, description, team resources), Documents, Members; right rail with members and Go to links
 - ✅ "+" beside Your teams opens Create a new team (name, identifier derived from it)
-- ✅ Team sub-items start with Home; Workspace adds Pulse and Customers (when on); Drafts shows when you have drafts
+- ✅ Team sub-items start with Home; Workspace has Initiatives, Projects and Views; Drafts shows when you have drafts
 - ✅ Customize sidebar (More › Customize sidebar): badge style (count / dot / none) and per-item Always show / Show when badged / Don't show — hidden items live in More
 - ✅ Teams and Members directory pages; Drafts page
 
@@ -81,21 +81,16 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Overview: editable name/summary (click to edit), property chips (Status, Health, Priority, Lead, Target), project updates (health-tagged composer + feed), milestones (add/advance-status/delete, target dates), editable description (markdown)
 - ✅ Right rail: Status, Lead, Members (multi-pick), Dates, Progress, Activity feed
 - ✅ Issues tab: full grouped list with filters/display options, "New issue" and "Add existing issue" pickers
-- ✅ Projects list: filters (status, priority, lead, members, health, team, target, text), grouping, ordering, closed-projects window, display properties; Board and draggable Timeline layouts
+- ✅ Projects list: filters (status, priority, lead, members, health, team, target, text), grouping, ordering, closed-projects window, display properties; List and Board layouts
 - ✅ Project statuses Backlog / Planned / In Progress / Paused / Completed / Canceled; summary; resources (links); Overview · Activity · Issues tabs; details panel (⌘I) with milestones and progress breakdown
 - ✅ Issues belong to milestones (rail, filter, grouping, CLI `--milestone`), milestone progress
-- ✅ Project templates (Settings › Templates; pick one in New project) and project dependencies (blocked by / blocking, arrows on the timeline)
 - ✅ Documents: "Add document or link…" in project and team resources; document page with the rich editor; `baseline doc`
 - ✅ Project labels (Settings › Projects › Labels) with groups whose labels are exclusive; Labels in the properties "…" menu (P then L), list chips, filter and display property
 - ✅ Named project statuses (Settings › Projects › Statuses): add, rename, recolour or delete statuses inside each category
 - ✅ Project bell: choose which project events reach your inbox (issue added, issue completed/canceled, description changes, new update) and the project's update schedule
 - ✅ Update schedule (Settings › Projects › Updates, or per project): next-due hint under the update card; leads get an inbox reminder when an update is due
-- ✅ Pulse: one feed of every project update (All / Following / My projects) and an optional daily or weekly summary in the inbox
-- ✅ Customer requests (Settings › Customer requests): customers with status, tier, revenue, size, owner and domains; requests on issues and projects; New issue from a customer page goes to the default team
-- ✅ Document templates (Settings › Documents) offered in "Add document or link…"
-- ✅ Custom emojis (Settings › Emojis): reactions and :name: in Markdown
+- ✅ Project updates summary in the inbox: daily / weekly (default) / off per person in Settings › Notifications; counts new updates on projects you lead, are a member of, or follow; the preview lists each update
 - ✅ Initiatives (sidebar, G then N): Active / Planned / All, owner, target, health from updates, projects and sub-initiatives, progress across their projects; a project's properties show its initiatives
-- ✅ Releases: stages Planned / In progress / Released / Canceled, issues per release, Release on the issue rail, Release filter
 - ✅ Project saved views: Views has Issues | Projects tabs; a project view keeps filters, grouping, ordering, layout and properties; ⌥V saves whatever list is on screen
 
 ## 7. Command palette (⌘K)
@@ -118,7 +113,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Recurring issues per team (daily / weekly / every 2 weeks / monthly); any issue converts to one, or to a template, or to a project
 - ✅ Preferences: Underline links, Auto-assign to self (off by default, as in Linear), On move to started status assign to yourself
 - ✅ Profile: picture upload, title, username (feeds `{username}` in branch names)
-- ✅ Notifications: Priority inbox + which kinds count as priority; Desktop push by category through browser notifications (also from a background tab); reaction and document-change notifications
+- ✅ Notifications: Priority inbox + which kinds count as priority; Browser push by category (also from a background tab); reaction and document-change notifications
 - ✅ Team settings hub (Linear's layout): General (name, identifier, description, estimates with zero / extended / count-unestimated), Members, Issue labels, Templates, Recurring issues, Issue statuses, Workflows & automations (PR automations, auto-close parent / sub-issues / stale issues, auto-archive, re-order on status change), Triage, Cycles, Danger zone
 - ✅ Security & access: personal API keys (name, permissions, team limits, shown once, last used, revoke); Administration › API: who may create keys, every issued key, require a key from other devices
 - ✅ Per-team page: triage, estimate scale (none / exponential / fibonacci / linear / t-shirt), cycle automation (length, cooldown, upcoming, rollover), workflow, cycles
@@ -132,7 +127,6 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Notifications follow subscriptions: status changes (e.g. an agent finishing), comments, replies, mentions, assignment, reminders
 - ✅ Priority inbox (assignments, mentions, replies and reminders first) and grouping by Focus
 - ✅ SLAs (Settings › Issues › SLAs): rules by priority, label and team give issues a deadline; badges on rows and the rail, SLA filter, breach notifications
-- ✅ Asks (sidebar › Asks, Settings › Asks): intake forms with fields; submissions land in the team's triage
 - ✅ Loops (Settings › Loops): on issue created / label added / status changed / a schedule → comment, assign, label, move, file an issue, open in Claude Code; run log and Run now
 - ✅ GitHub (Settings › Integrations › GitHub): Linear's linking rules and magic words, per-team PR automations with branch rules, In Review state, PR and commit rows on issues, PR icon and filter, branch-name format. **Read-only by design**: nothing is ever written to GitHub (an allowlist in `git.ts` lets only read commands reach `gh` / `git`). Data comes from `gh` + `git log` for the tracked repos (picked in settings, plus a laptop's locations; polled every 2 min) and from **signed GitHub webhooks** (real time, no token: HMAC-verified, repeat deliveries dropped, delivery log in settings). A hosted server reads with an admin-pasted **read-only token** (a fine-grained token with Read-only permissions; a classic token with any write scope is refused, and the token never reaches the browser) and syncs the same way. One-way **GitHub Issues import** into a team's triage, optionally following new issues
 - ✅ Team bell: inbox notifications when issues are added to a team, closed, or land in its triage

@@ -10,7 +10,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 ## 1. Find my way around (shell & navigation)
 | Journey | Status | Check | How it works |
 |---|---|---|---|
-| Sidebar: Inbox, My issues, Drafts (when you have some), Workspace (Projects, Views, Pulse, Customers, More), Favorites, Your teams | ✅ | 1.1 | |
+| Sidebar: Inbox, My issues, Drafts (when you have some), Workspace (Projects, Views, More), Favorites, Your teams | ✅ | 1.1 | |
 | Team sub-items: Home, Triage (count), Issues, Cycles › Current / Upcoming, Projects, Views | ✅ | 1.2, 1.4 | |
 | Team row "…" menu | ✅ | 1.3 | Team overview, Issues, Cycles, Triage, Archive, Team settings, Copy link |
 | Team Home: Overview (description, team resources), Documents, Members, Go to | ✅ | 1.5 | |
@@ -50,7 +50,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | I, ⇧S, ⌥F, ⇧R, ⌘⇧O | ✅ | 4.3 | |
 | Property menus: filter field and number keys | ✅ | 4.4 | |
 | One activity timeline | ✅ | 4.5 | |
-| Comment threads: post, react, reply, resolve, edit, delete | ✅ | 4.6 | custom emojis in reactions (9.8) |
+| Comment threads: post, react, reply, resolve, edit, delete | ✅ | 4.6 | |
 | Subscribe / unsubscribe | ✅ | 4.7 | |
 | @mentions notify; issue keys link | ✅ | 4.8 | |
 | Links (⌃L) | ✅ | 4.9 | |
@@ -63,7 +63,6 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Create related (sub-issue, parent, blocked, blocking) | ✅ | 4.16 | |
 | Convert to project | ✅ | 4.17 | |
 | Convert to template / recurring issue | ✅ | 4.18 | |
-| Customer requests on the issue | ✅ | 4.19 | |
 
 ## 5. Slice the backlog (lists, boards, filters, views)
 | Journey | Status | Check | How it works |
@@ -84,20 +83,16 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 |---|---|---|---|
 | Projects list: health, priority, lead, target, issues, status %, labels | ✅ | 6.1 | |
 | Projects filters (incl. labels) and display | ✅ | 6.2 | |
-| Board and Timeline | ✅ | 6.3 | |
+| Board layout | ✅ | 6.3 | the Timeline layout was removed from the Projects list |
 | Named project statuses, custom ones per category | ✅ | 6.4, 9.3 | Settings › Projects › Statuses |
 | Project page tabs, details panel (⌘I) | ✅ | 6.5 | |
-| Overview: hero, properties, resources, update, description, milestones, customer requests | ✅ | 6.6 | |
-| Documents from resources (blank or template), editor page, team Documents tab | ✅ | 6.7 | templates in Settings › Documents (9.5) |
+| Overview: hero, properties, resources, update, description, milestones | ✅ | 6.6 | |
+| Documents from resources, editor page, team Documents tab | ✅ | 6.7 | |
 | Milestones with progress | ✅ | 6.8 | |
 | Updates with health; Activity tab | ✅ | 6.9 | |
-| Project templates | ✅ | 6.10 | |
-| Dependencies from the properties "…" menu | ✅ | 6.11 | |
 | Project labels with groups (P then L) | ✅ | 6.12 | Settings › Projects › Labels |
 | Project bell: per-project inbox notifications + update schedule | ✅ | 6.13 | |
 | Update schedule: due hint, lead reminders | ✅ | 6.14, 9.4 | reminder timing also checked against the store on a scratch database |
-| Customer requests on a project | ✅ | 6.15 | |
-| Pulse: feed of project updates, daily / weekly summary | ✅ | 9.7 | |
 
 ## 7. Run iterations (cycles)
 | Journey | Status | Check | How it works |
@@ -111,17 +106,16 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 |---|---|---|---|
 | Inbox: U, ⌫, H, row menu | ✅ | 8.1 | |
 | Inbox filters (incl. project kinds) and display | ✅ | 8.2 | |
-| Project and Pulse notifications with a preview | ✅ | 8.3 | |
+| Project notifications with a preview | ✅ | 8.3 | |
 | My issues: Assigned / Created / Subscribed / Activity | ✅ | 8.4 | |
 | Priority inbox, Focus grouping | ✅ | 8.5 | |
+| Project updates summary: daily / weekly / off per person (Settings › Notifications); counts updates on projects you lead, are a member of, or follow; the preview lists each update with an Open project button | ✅ | 8.6 | `npm run test:summaries` checks the scoping and schedule on a scratch database |
 
 ## 9. Configure (settings)
 | Journey | Status | Check | How it works |
 |---|---|---|---|
 | Settings nav: Account · Issues · Projects · Features · Administration · Your teams | ✅ | 9.1 | |
 | Account: Preferences, Profile, Notifications | ✅ | 9.2 | |
-| Customer requests settings, customers, customer page, New issue from a customer | ✅ | 9.6, 9.9 | |
-| Custom emojis | ✅ | 9.8 | |
 | Administration pages | ✅ | 9.12 | |
 | Per-team settings | ✅ | 9.13 | |
 | Keyboard shortcuts reference, searchable | ✅ | 9.14 | |
@@ -132,9 +126,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Journey | Status | Check | How it works |
 |---|---|---|---|
 | Initiatives: Active / Planned / All, owner, target, health from updates, projects, sub-initiatives, G then N | ✅ | 11.1, 11.2 | brought back at your request; a project's properties list its initiatives |
-| Releases: Planned → In progress → Released, issues per release, Release on the issue, filter | ✅ | 11.3 | |
 | SLAs: rules by priority / label / team, deadline badges, SLA filter, breach notifications | ✅ | 11.4 | breach timing also checked on a scratch database |
-| Asks: intake forms with fields and validation; submissions land in triage | ✅ | 11.5 | |
 | Loops: issue created / label added / status changed / schedule → comment, assign, label, move, file an issue, Claude Code | ✅ | 11.6 | actions run as the Automation agent |
 | GitHub: Linear's linking rules and magic words, per-team PR automations with branch rules, In Review, PR + commit rows, PR filter, branch format | ✅ | 11.7 | also run for real: `gh` pulled 50 PRs from `cli/cli` (all four states) and `git log` 225 commits |
 | Team bell: notify on issues added, closed, or sent to triage | ✅ | 11.8 | |
@@ -149,12 +141,12 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Display options: pill chips, ordering direction | ✅ | — | checked by eye side by side |
 | Preferences: Underline links, Auto-assign to self, On move to started status assign to yourself | ✅ | 12.4 | assign-on-start checked on a scratch database |
 | Profile: picture upload, Title, Username (used by `{username}` in branch names) | ✅ | 12.4 | |
-| Notifications: Priority inbox + Priority notifications, Desktop push by category (browser notifications, also from a background tab) | ✅ | 12.4 | reaction and document-change notifications added so every category has a source |
+| Notifications: Priority inbox + Priority notifications, Browser push by category (also from a background tab) | ✅ | 12.4 | reaction and document-change notifications added so every category has a source |
 | Team settings: hub with General (name, identifier, description, estimates incl. zero / extended / count unestimated), Members, Issue labels, Templates, Recurring issues, Issue statuses, Workflows & automations, Triage, Cycles, Danger zone | ✅ | 12.5 | |
 | Workflows & automations: auto-close parent / sub-issues, auto-close stale issues, auto-archive closed issues, re-order on status change | ✅ | 12.6 | stale + archive sweeps checked on a scratch database |
 | `?` help menu, ⌘/ keyboard-shortcuts drawer with Linear's groups | ✅ | 9.14 | |
 | Team archive: Issues · Cycles · Recently deleted issues; Not found page | ✅ | 12.8 | |
-| Project board cards (status · priority · lead, issue count, + per column) and timeline (caps months, day ticks, today pill, Today / zoom incl. Year) | ✅ | 12.9 | |
+| Project board cards (status · priority · lead, issue count, + per column); an initiative's Projects tab timeline (caps months, day ticks, today pill, Today / zoom incl. Year) | ✅ | 12.9 | |
 
 ## Side-by-side with Linear
 Each main page was screenshotted in the live Linear workspace and in Baseline at the same
@@ -164,7 +156,7 @@ window size, and every difference that showed was fixed:
 |---|---|---|
 | Team issues | team picker and a Cycles tab in the tab row; three-level breadcrumb; underlined tabs | Active · Backlog · All issues pills + new-view icon; `Team › Issues`; team bell |
 | Cycles | team tabs in the header, outlined coloured badges, "— capacity", date ranges | header is just "Cycles"; flat grey badges; capacity / success rings; dates only on the timeline |
-| Issue page | "…" at the far edge, bold title crumb, bordered rail, clock-shaped estimate and arrow-shaped cycle icons, bold activity names, customer-requests section always shown | "…" beside the title; Linear's triangle and play-circle icons; muted activity; send button on the composer; customer requests from the toolbar icon |
+| Issue page | "…" at the far edge, bold title crumb, bordered rail, clock-shaped estimate and arrow-shaped cycle icons, bold activity names | "…" beside the title; Linear's triangle and play-circle icons; muted activity; send button on the composer |
 | Projects / project page | bordered "New project", "…" on list pages, monospace dates, bold names, "Projects ›" crumb, details panel open by default | Linear's text button, figures in the UI font, single crumb, panel closed until ⌘I |
 | My issues / lists | rule-line group headers, wrapping issue keys | filled group bands, keys on one line |
 | Sidebar | underline on the current page | filled row |
@@ -173,12 +165,11 @@ window size, and every difference that showed was fixed:
 | Create modal | heavy blurred backdrop, team name chip, filled square chips, assignee preset, grey disabled button with ⌘↵ | no backdrop, `CORE` chip, outlined pills, cycle as an icon chip, unassigned by default, purple-style pill button |
 | ⌘K palette | recent issues first, search icon, footer bar, 32px rows, Linear's commands missing | Linear's command list and grouping, multi-key hints (`N then P`), 46px rows, no footer; issues and projects appear as you type |
 | Filter / display / context menus | filter menu jumped above the button; dates as three items; bordered property chips; context menu at the row's edge with Milestone, Subscribe and Move to team at top level | below the button; Dates submenu; pill chips + ordering arrow; at the pointer, Linear's items and order |
-| Preferences, Profile, Notifications | three automation prefs, picture / title / username, the Inbox + Desktop structure were missing; four inbox-type toggles Linear doesn't have | added; inbox gets everything, as Linear says; push categories decide what reaches the desktop |
+| Preferences, Profile, Notifications | three automation prefs, picture / title / username, the Inbox + Browser structure were missing; four inbox-type toggles Linear doesn't have | added; inbox gets everything, as Linear says; push categories decide what the browser shows |
 | Team settings | one long page | hub + subpages, as Linear |
 | Search, shortcuts, archive, drafts, members, teams | issue-only search under a "Search" crumb; centered shortcuts modal on `?`; archive without tabs; serif empty-state titles; pills for Joined / teams | query in the header with tabs; `?` help menu + ⌘/ drawer; archive tabs; plain empty-state titles; plain Joined, team icons, cycle / project counts |
 | Project board and timeline | progress chip, "No projects" placeholders; red Today line, segmented zoom on the left | Linear's card props + issue count, + per column; brand Today pill, Today button and zoom select on the right |
 | Initiatives | no filter or display options | filter by health / owner; ordering; nest sub-initiatives |
-| Releases | — | Linear's workspace has no Releases page (it returns Not found), so there was nothing to compare against |
 | Security & access, Create API key, Administration › API | page was missing | same sections, form, permission list and team limits; Linear's Passkeys, Commit signing key and Authorized applications sections are left out (no sign-in, no OAuth apps) |
 
 ## Not built

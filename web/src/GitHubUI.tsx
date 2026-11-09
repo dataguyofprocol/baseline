@@ -90,7 +90,7 @@ export function GitHubSettings() {
       <div className="gh-readonly">
         <IconShieldUser size={16} />
         <div>
-          <b>Read-only by design.</b> Baseline never writes to GitHub — no comments, status checks, labels, branches or pushes.{' '}
+          <b>Read-only by design.</b> Baseline never writes to GitHub: no comments, status checks, labels, branches or pushes.{' '}
           It reads pull requests, reviews, checks, commits and issues with {hosted ? 'a read-only token' : <>your <code>gh</code> sign-in, limited in code to read commands, or a read-only token</>}, which
           GitHub itself refuses to write with, and from signed webhooks GitHub sends here, which need no token at all.
         </div>
@@ -101,7 +101,7 @@ export function GitHubSettings() {
       </div>
       {!hosted && (
         <div className="field-row">
-          <div><div className="field-label">GitHub CLI</div><div className="field-help">{!status ? 'Checking…' : !status.ghInstalled ? 'Not found — install it with `brew install gh`, then `gh auth login`.' : status.ghUser ? `Signed in as ${status.ghUser}` : 'Installed, not signed in — run `gh auth login`.'}</div></div>
+          <div><div className="field-label">GitHub CLI</div><div className="field-help">{!status ? 'Checking…' : !status.ghInstalled ? 'Not found. Install it with `brew install gh`, then run `gh auth login`.' : status.ghUser ? `Signed in as ${status.ghUser}` : 'Installed, not signed in. Run `gh auth login`.'}</div></div>
           {syncButton}
         </div>
       )}
@@ -117,7 +117,7 @@ export function GitHubSettings() {
       <div className="field-help">A PR whose author matches a member's GitHub username (Settings › Profile, or Members) is theirs: its activity shows under their name, and an unassigned issue it closes is assigned to them. {(() => { const n = snap.users.filter(u => u.kind === 'human' && u.githubUsername).length; return n ? `${n} member${n === 1 ? ' has' : 's have'} a GitHub username.` : 'No member has a GitHub username yet.'; })()}</div>
       <div className="settings-h2">Branch format</div>
       <div className="field-row">
-        <div><div className="field-label">Copy git branch (⌘⇧.)</div><div className="field-help">Variables: <code>{'{username}'}</code> <code>{'{issueIdentifier}'}</code> <code>{'{issueTitle}'}</code> — e.g. <code>{branchName(sampleKey, sample?.title ?? 'Fix login redirect', format, snap.currentUser.username || snap.currentUser.name)}</code></div></div>
+        <div><div className="field-label">Copy git branch (⌘⇧.)</div><div className="field-help">Variables: <code>{'{username}'}</code> <code>{'{issueIdentifier}'}</code> <code>{'{issueTitle}'}</code>, e.g. <code>{branchName(sampleKey, sample?.title ?? 'Fix login redirect', format, snap.currentUser.username || snap.currentUser.name)}</code></div></div>
         <input className="text-input" style={{ width: 300 }} aria-label="Branch format" value={format} onChange={e => setFormat(e.target.value)} onBlur={async () => { if (format !== f.branchFormat) { await api.setFeatures({ branchFormat: format }); await refresh(); } }} />
       </div>
       <div className="field-help" style={{ marginTop: 12 }}>Pull request automations are per team: Settings › your team › Pull request automations.</div>
@@ -275,7 +275,7 @@ function WebhookSettings({ polls }: { polls: boolean }) {
       </div>
       {secret && (
         <div className="gh-secret">
-          <div className="field-help">Your webhook secret — copy it into GitHub now; it won't be shown again.</div>
+          <div className="field-help">Your webhook secret. Copy it into GitHub now; it won't be shown again.</div>
           <div className="gh-copy-row"><code>{secret}</code><button className="btn secondary sm" onClick={() => void copy(secret, 'secret')}><IconCopy size={13} /> Copy</button></div>
         </div>
       )}
@@ -293,7 +293,7 @@ function WebhookSettings({ polls }: { polls: boolean }) {
           <li>Content type <code>application/json</code>, and the secret above.</li>
           <li>Choose <b>Let me select individual events</b>: {cfg.events.map((e, i) => <span key={e}>{i ? ', ' : ''}<code>{e.replace(/_/g, ' ')}</code></span>)}.</li>
         </ol>
-        <div className="field-help">An organization webhook covers every repository in it. GitHub only needs this webhook — no app, token or OAuth grant.</div>
+        <div className="field-help">An organization webhook covers every repository in it. GitHub only needs this webhook, with no app, token or OAuth grant.</div>
       </div>
       {deliveries.length > 0 && (
         <>

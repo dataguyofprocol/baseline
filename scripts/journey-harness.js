@@ -53,8 +53,8 @@
   /* ================= 1. shell & navigation ================= */
   S('shell', async t => {
     await t.nav('/inbox');
-    await t.run('1.1 Sidebar: Inbox, My issues, Workspace (Projects, Views, Pulse, Customers, More), Favorites, Your teams', () => {
-      const s = t.q('.sidebar').innerText; const miss = ['Inbox', 'My issues', 'Workspace', 'Projects', 'Views', 'Pulse', 'Customers', 'More', 'Favorites', 'Your teams'].filter(n => !s.includes(n));
+    await t.run('1.1 Sidebar: Inbox, My issues, Workspace (Projects, Views, More), Favorites, Your teams', () => {
+      const s = t.q('.sidebar').innerText; const miss = ['Inbox', 'My issues', 'Workspace', 'Projects', 'Views', 'More', 'Favorites', 'Your teams'].filter(n => !s.includes(n));
       if (miss.length) t.fail('missing ' + miss); return 'all present';
     });
     await t.run('1.2 Team sub-items: Home, Triage (count), Issues, Cycles › Current/Upcoming, Projects, Views', async () => {
@@ -314,12 +314,6 @@
       await open(); await t.click(t.menuItem('Template'), 900); await t.closeAll(); await open(); const r = t.menuItem('Recurring'); await t.hover(r); await t.click(r, 400); await t.click(t.menuItem('Every week'), 900);
       const s = await t.snap(); if (!s.templates.some(x => x.title === title) || !s.recurring.some(x => x.title === title)) t.fail('missing'); return 'template + weekly recurring';
     });
-    await t.run('4.19 Customer requests on an issue', async () => {
-      await t.nav('/issue/CORE-6', 900); await t.click('[title="Add customer request"]', 500); await t.click(t.menuItem('Acme Robotics'), 400);
-      await t.type(t.q('.creq-form textarea'), 'Harness: they need this by Q1', 200); await t.click(t.byText('Add request'), 900);
-      const id = (await t.issue('CORE-6')).id; const r = (await t.snap()).customerRequests.find(x => x.issueId === id && x.body.includes('Harness')); if (!r) t.fail('not saved');
-      if (!t.q('[data-customer-requests]')?.innerText.includes('Acme Robotics')) t.fail('section not shown after adding'); return 'added from the toolbar icon; section appears with Acme Robotics';
-    });
   });
 
   /* ================= 5. lists, filters, views ================= */
@@ -402,9 +396,9 @@
       const fmiss = ['Status', 'Priority', 'Lead', 'Members', 'Health', 'Team', 'Labels', 'Target date'].filter(x => !fm.includes(x)); const dmiss = ['Grouping', 'Ordering', 'closed', 'Labels'].filter(x => !new RegExp(x, 'i').test(dm));
       if (fmiss.length || dmiss.length || n1 >= n0) t.fail(`f ${fmiss} d ${dmiss} rows ${n0}→${n1}`); return `labels filter ${n0}→${n1}; display ok`;
     });
-    await t.run('6.3 Board and Timeline layouts', async () => {
-      await t.nav('/projects', 900); await t.openMenu('[title="Display options"]'); await t.click(t.byText('Board'), 600); const b = !!t.q('[class*=board]'); await t.click(t.byText('Timeline'), 700); const tl = !!t.q('[class*=timeline]'); await t.click(t.byText('List'), 500);
-      if (!b || !tl) t.fail(`board ${b} timeline ${tl}`); return 'both render';
+    await t.run('6.3 Board layout (List and Board only)', async () => {
+      await t.nav('/projects', 900); await t.openMenu('[title="Display options"]'); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.byText('Board'), 600); const b = !!t.q('[class*=board]'); await t.click(t.byText('List'), 500); await t.closeAll();
+      if (!b || /Timeline/.test(m)) t.fail(`board ${b} menu ${m.slice(0, 80)}`); return 'board renders; no Timeline layout';
     });
     await t.run('6.4 Named project statuses (incl. custom "In Review") in the status menu', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click('[data-pprop="status"]', 500); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('In Review'), 900);
@@ -415,14 +409,15 @@
       const p = await P(); await t.nav('/projects/' + p.id, 900); const tabs = t.q('.subnav').innerText; const d0 = !!t.q('.proj-details'); await t.press('i', { meta: true }, 500); const d1 = !!t.q('.proj-details'); await t.press('i', { meta: true }, 500);
       await t.nav(`/projects/${p.id}/issues`, 800); const n = t.rows(); if (!/Overview/.test(tabs) || !/Activity/.test(tabs) || d0 === d1 || !n) t.fail(`tabs ${tabs} details ${d0}/${d1} ${n}`); return `Overview · Activity · Issues (${n}); ⌘I toggles details`;
     });
-    await t.run('6.6 Overview: hero, properties, resources, update, description, milestones, customer requests', async () => {
+    await t.run('6.6 Overview: hero, properties, resources, update, description, milestones', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); const txt = t.text(); const miss = ['Properties', 'Resources', 'Description'].filter(x => !txt.includes(x));
-      if (miss.length || !t.q('.proj-hero-icon') || !t.q('.res-chip') || !t.q('[title="Add customer request"]')) t.fail('missing ' + miss); return 'hero, properties, resources (+ customer request), update, description';
+      if (miss.length || !t.q('.proj-hero-icon') || !t.q('.res-chip')) t.fail('missing ' + miss); return 'hero, properties, resources, update, description';
     });
-    await t.run('6.7 Documents: from template via resources; editor page; team Documents tab', async () => {
-      const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click(t.byText('Add document or link…'), 500); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Spec'), 1300);
-      const title = t.q('.doc-title')?.value; const body = t.q('.doc-page .ProseMirror')?.innerText ?? ''; await t.nav('/team/CORE/overview/documents', 800); const listed = t.text().includes('Spec:');
-      if (!m.includes('New document') || !m.includes('Add link') || title !== 'Spec: ' || !body.includes('Problem') || !listed) t.fail(`title "${title}" listed ${listed}`); return 'template applied; listed under the team';
+    await t.run('6.7 Documents: new document via resources; editor page; team Documents tab', async () => {
+      const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click(t.byText('Add document or link…'), 500); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('New document'), 1300);
+      const title = t.q('.doc-title'); if (!title) t.fail('no document page'); await t.type(title, 'Harness doc', 200); title.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); await sleep(500); t.key('Enter'); await t.write(t.q('.doc-page .ProseMirror'), 'Problem statement'); await sleep(900);
+      const d = (await t.snap()).docs.find(x => x.title === 'Harness doc'); await t.nav('/team/CORE/overview/documents', 800); const listed = t.text().includes('Harness doc');
+      if (!m.includes('New document') || !m.includes('Add link') || /From template/.test(m) || !d || d.projectId !== p.id || !d.content.includes('Problem') || !listed) t.fail(`menu ${m.replace(/\n/g, ', ')} doc ${!!d} listed ${listed}`); return 'created from resources, saved, listed under the team';
     });
     await t.run('6.8 Milestones with progress', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); const txt = t.text(); if (!/Alpha/.test(txt) || !/\d+%/.test(txt)) t.fail('milestones'); return 'Alpha / Beta with %';
@@ -432,15 +427,6 @@
       const pick = t.qa('.health-pick').find(b => b.innerText.includes('At risk')); if (pick) await t.click(pick, 200); await t.write(t.qa('.update-card .ProseMirror').pop(), 'Harness weekly update'); await t.click(t.byText('Post update'), 1100);
       const u = (await t.snap()).projectUpdates.find(x => x.body.includes('Harness weekly update')); await t.nav(`/projects/${p.id}/activity`, 800);
       if (!u || u.health !== 'atRisk') t.fail(`update ${!!u} ${u?.health}`); return 'posted (at risk); activity tab renders';
-    });
-    await t.run('6.10 Project templates', async () => {
-      await t.nav('/projects', 800); await t.click(t.byText('New project'), 700); const b = t.qa('.modal button').find(x => /template/i.test(x.textContent)); await t.click(b, 500); const m = t.q('.menu:not(.closing)')?.innerText ?? ''; await t.closeAll();
-      await t.nav('/settings/project-templates', 700); if (!m.includes('Feature launch') || !t.text().includes('Feature launch')) t.fail('template'); return 'offered in New project; managed in Settings › Projects › Templates';
-    });
-    await t.run('6.11 Dependencies from the properties "…" menu', async () => {
-      const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click('[data-pprop="more"]', 500); const m = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Dependencies'), 500);
-      const target = t.qa('.menu:not(.closing) .menu-item').find(e => /Design System/.test(e.innerText)); if (target) await t.click(target, 900); const rel = (await t.snap()).projectRelations.find(r => r.relatedProjectId === p.id);
-      if (!m.includes('Start date') || !m.includes('Labels') || !rel) t.fail(`menu ${m} rel ${!!rel}`); return '… menu: Start date, Dependencies, Labels; dependency added';
     });
     await t.run('6.12 Project labels: P then L, group exclusivity, settings page', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); await t.press('p', {}, 120); await t.press('l', {}, 650); const m = t.q('.menu:not(.closing)')?.innerText ?? '';
@@ -460,10 +446,6 @@
       const s = await t.snap(); const lead = s.projects.find(x => x.leadId === s.currentUser.id && x.status !== 'completed'); await t.post(`/api/projects/${lead.id}`, { updateCadence: 'weekly' }, 'PATCH');
       await fetch('/api/bootstrap'); const r = (await t.snap()).notifications.filter(x => x.type === 'projectUpdateReminder');
       if (!hint) t.fail('no due hint'); return `hint: "${hint}"; reminders in inbox: ${r.length}`;
-    });
-    await t.run('6.15 Customer requests on a project', async () => {
-      const s = await t.snap(); const m = s.projects.find(x => x.name === 'Mobile Companion'); await t.nav('/projects/' + m.id, 900); const txt = t.q('[data-customer-requests]')?.innerText ?? '';
-      if (!txt.includes('Acme Robotics')) t.fail(txt.slice(0, 60)); return 'Acme Robotics request shown';
     });
   });
 
@@ -513,16 +495,27 @@
       await t.openMenu('[title="Display options"]'); await t.click(t.rowSwitch('Enable priority inbox'), 400); await t.click(t.menuItem('No grouping'), 400); await t.closeAll();
       if (!h.length || !f.length) t.fail(`priority ${h} focus ${f}`); return 'priority: ' + [...new Set(h)].join(', ') + ' · focus: ' + [...new Set(f)].join(', ');
     });
+    await t.run('8.6 Project updates summary: schedule in Settings › Notifications; the preview lists the updates', async () => {
+      await t.nav('/settings/notifications', 800); const sel = t.q('select[aria-label="Project updates summary"]'); if (!sel) t.fail('no schedule select');
+      const pick = async v => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(sel, v); sel.dispatchEvent(new Event('change', { bubbles: true })); await sleep(700); };
+      await pick('daily'); const daily = (await t.snap()).workspace.preferences.updatesSummary; await pick('weekly');
+      if (daily !== 'daily' || (await t.snap()).workspace.preferences.updatesSummary !== 'weekly') t.fail(`schedule not saved (${daily})`);
+      await t.nav('/inbox', 900); const row = t.qa('.inbox-row').find(r => /Project updates summary/.test(r.innerText)); if (!row) t.fail('no summary row');
+      await t.click(row, 700); const cards = t.qa('[data-summary-update]'); const prev = t.q('.proj-notice')?.innerText ?? '';
+      const n = Number((prev.match(/(\d+) project updates? since/) ?? [])[1]);
+      if (!cards.length || cards.length !== n || !cards.every(c => /Open project/.test(c.innerText)) || /Pulse/.test(prev)) t.fail(`cards ${cards.length} of ${n}: ${prev.slice(0, 120)}`);
+      return `${cards.length} update(s) listed: ` + cards.map(c => c.querySelector('.summary-proj').innerText.trim()).join(', ');
+    });
   });
 
   /* ================= 9. settings & workspace pages ================= */
   S('settings', async t => {
     await t.run('9.1 Settings nav mirrors Linear: Account · Issues · Projects · Features · Administration · Your teams', async () => {
-      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Documents', 'Customer requests', 'Pulse', 'Emojis', 'Security & access', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
+      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Security & access', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
       if (miss.length) t.fail('missing ' + miss); return 'all sections';
     });
     await t.run('9.2 Account pages: Preferences, Profile, Notifications', async () => {
-      await t.nav('/settings/preferences', 700); const a = /home|week/i.test(t.text()); await t.nav('/settings/profile', 700); const b = /Name|Email/i.test(t.text()); await t.nav('/settings/notifications', 700); const c = /Priority inbox/.test(t.text()) && /Desktop/.test(t.text());
+      await t.nav('/settings/preferences', 700); const a = /home|week/i.test(t.text()); await t.nav('/settings/profile', 700); const b = /Name|Email/i.test(t.text()); await t.nav('/settings/notifications', 700); const c = /Priority inbox/.test(t.text()) && /Browser/.test(t.text());
       if (!a || !b || !c) t.fail(`${a} ${b} ${c}`); return 'all three render with their fields';
     });
     await t.run('9.3 Project statuses settings: add, rename, delete a custom status', async () => {
@@ -534,42 +527,15 @@
       await t.nav('/settings/project-updates', 800); const sel = t.q('select[aria-label="Update schedule"]'); await t.type(sel, 'biweekly', 800); const f = (await t.snap()).workspace.features.updateCadence; await t.type(t.q('select[aria-label="Update schedule"]'), 'none', 600);
       if (f !== 'biweekly') t.fail('saved ' + f); return 'schedule saved';
     });
-    await t.run('9.5 Documents settings: document templates', async () => {
-      await t.nav('/settings/documents', 800); if (!t.text().includes('Spec')) t.fail('no template'); return 'template listed (used in 6.7)';
-    });
-    await t.run('9.6 Customer requests settings: enable, default team, statuses, tiers', async () => {
-      await t.nav('/settings/customer-requests', 800); const txt = t.text(); const miss = ['Enable Customer requests', 'Default team', 'Customer statuses', 'Customer tiers', 'Active', 'Prospect'].filter(x => !txt.includes(x));
-      await t.type(t.qa('.settings-content input').find(i => /New tier/.test(i.placeholder)), 'Enterprise', 200); t.key('Enter'); await sleep(800); const tier = (await t.snap()).customerTiers.find(x => x.name === 'Enterprise');
-      if (miss.length || !tier) t.fail(`missing ${miss} tier ${!!tier}`); return 'all fields; tier added';
-    });
-    await t.run('9.7 Pulse settings and Pulse feed', async () => {
-      await t.nav('/settings/pulse', 800); await t.type(t.q('select[aria-label="Pulse summary schedule"]'), 'daily', 700); const f = (await t.snap()).workspace.features;
-      await t.nav('/pulse', 900); const cards = t.qa('.pulse-card').length; if (!f.pulseEnabled || f.pulseSchedule !== 'daily' || !cards) t.fail(`${f.pulseEnabled} ${f.pulseSchedule} cards ${cards}`);
-      await fetch('/api/bootstrap'); const dig = (await t.snap()).notifications.some(x => x.type === 'pulseDigest'); return `${cards} updates in the feed; daily summary ${dig ? 'delivered to inbox' : 'scheduled'}`;
-    });
-    await t.run('9.8 Custom emojis: upload, react with it, :name: renders', async () => {
-      await t.nav('/settings/emojis', 800); const svg = new File([`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#5e6ad2"/></svg>`], 'shipit.svg', { type: 'image/svg+xml' });
-      const inp = t.q('.settings-content input[type=file]'); const dt = new DataTransfer(); dt.items.add(svg); inp.files = dt.files; inp.dispatchEvent(new Event('change', { bubbles: true })); await sleep(300); await t.click(t.byText('Upload'), 1000);
-      const e = (await t.snap()).emojis.find(x => x.name === 'shipit'); if (!e) t.fail('not uploaded');
-      const id = (await t.issue('CORE-5')).id; await t.post(`/api/issues/${id}/comments`, { body: 'Harness :shipit:' }); await t.sync(); await t.nav('/issue/CORE-5', 900);
-      const img = t.qa('.cmt img.custom-emoji').length; const c = t.qa('.cmt').find(x => x.innerText.includes('Harness')); await t.click(c.querySelector('[title="Add reaction"]'), 400); const inPicker = !!t.q('.menu:not(.closing) img.custom-emoji'); await t.closeAll();
-      if (!img || !inPicker) t.fail(`rendered ${img} picker ${inPicker}`); return ':shipit: uploaded, rendered in a comment, offered in the reaction picker';
-    });
-    await t.run('9.9 Customers page, customer page, new issue from a customer', async () => {
-      await t.nav('/customers', 900); const rows = t.qa('.wt-row').length; await t.click(t.qa('.wt-row').find(r => r.innerText.includes('Acme')), 800);
-      const txt = t.text(); if (!txt.includes('Requests') || !txt.includes('Mobile Companion')) t.fail('customer page');
-      await t.click(t.byText('New issue'), 700); await t.type(t.q('.cm-root input, .cm-root textarea'), 'Harness: asked for by Acme', 200); t.key('Enter', { meta: true }); await sleep(1600);
-      const s = await t.snap(); const iss = s.issues.find(i => i.title === 'Harness: asked for by Acme'); const req = iss && s.customerRequests.find(r => r.issueId === iss.id);
-      if (!req) t.fail('new issue not linked to the customer'); return `${rows} customers; Acme page lists requests; New issue → linked request`;
-    });
     await t.run('9.10 Teams page and Members page', async () => {
       await t.nav('/teams', 800); const tt = t.q('.wt-head')?.innerText ?? ''; const tr = t.qa('.wt-row').length; await t.nav('/members', 800); const mt = t.q('.wt-head')?.innerText ?? ''; const mr = t.qa('.wt-row').length;
       if (!/Membership/.test(tt) || !/Last seen/.test(mt) || !tr || !mr) t.fail(`${tt} ${mt}`); return `${tr} teams (${tt.replace(/\n/g, ' · ')}); ${mr} members`;
     });
     await t.run('9.11 Customize sidebar: badge style and per-item visibility (hidden items move to More)', async () => {
       await t.nav('/inbox', 700); const more = t.qa('.sidebar .nav-item').find(b => b.innerText.trim() === 'More'); await t.click(more, 400); const mm = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Customize sidebar'), 700);
-      await t.type(t.q('select[aria-label="Teams visibility"]'), 'show', 800); const shown = t.q('.sidebar').innerText.includes('Teams'); await t.type(t.q('select[aria-label="Default badge style"]'), 'dot', 700); const dot = !!t.q('.nav-dot');
-      await t.type(t.q('select[aria-label="Teams visibility"]'), 'hide', 600); await t.type(t.q('select[aria-label="Default badge style"]'), 'count', 600);
+      const pick = async (label, item) => { await t.click(t.q(`button[aria-label="${label}"]`), 400); await t.click(t.menuItem(item), 700); };
+      await pick('Teams visibility', 'Always show'); const shown = t.q('.sidebar').innerText.includes('Teams'); await pick('Default badge style', 'Dot'); const dot = !!t.q('.nav-dot');
+      await pick('Teams visibility', "Don't show"); await pick('Default badge style', 'Count'); await t.closeAll();
       if (!mm.includes('Members') || !mm.includes('Teams') || !shown) t.fail(`more ${mm} shown ${shown}`); return `More: ${mm.replace(/\n/g, ', ')}; Teams shown when set; dot badges ${dot}`;
     });
     await t.run('9.12 Workspace settings: General, Teams, Members, Labels, Templates, Coding tools, Import & export', async () => {
@@ -600,15 +566,16 @@
     });
   });
 
-  /* ================= 11. initiatives, releases, SLAs, asks, loops, GitHub ================= */
+  /* ================= 11. initiatives, SLAs, loops, GitHub ================= */
   S('more', async t => {
     await t.run('11.1 Initiatives: sidebar, G then N, create, add project, post update, status', async () => {
       await t.nav('/inbox', 500); if (!t.q('.sidebar').innerText.includes('Initiatives')) t.fail('no sidebar item');
       await t.press('g', {}, 120); await t.press('n', {}, 600); if (location.hash !== '#/initiatives') t.fail('G then N → ' + location.hash);
-      await t.click(t.byText('New initiative'), 600); await t.type(t.q('.small-modal input'), 'Harness initiative', 200); await t.click(t.byText('Create initiative'), 1000);
+      await t.click(t.byText('New initiative'), 600); await t.type(t.q('.ini-modal-name'), 'Harness initiative', 200); await t.click(t.byText('Create initiative'), 1000);
       if (!location.hash.startsWith('#/initiatives/in_')) t.fail('not on the page: ' + location.hash);
-      await t.click(t.byText('Add project…'), 500); await t.click(t.qa('.menu:not(.closing) .menu-item')[0], 800); await t.closeAll();
-      await t.click(t.byText('Write an initiative update'), 400); await t.type(t.q('.ini-update-input'), 'Harness: kicking off', 200); await t.click(t.byText('Post update'), 900);
+      await t.click(t.byText('Add project'), 500); await t.click(t.qa('.menu:not(.closing) .menu-item')[0], 800); await t.closeAll();
+      await t.click(t.byText('Write the first initiative update'), 500); const post = t.byText('Post update'); let box = post; while (box && !box.querySelector('.ProseMirror')) box = box.parentElement;
+      await t.write(box.querySelector('.ProseMirror'), 'Harness: kicking off'); await t.click(t.byText('On track'), 300); await t.click(t.byText('Post update'), 900);
       await t.click('[data-iprop="status"]', 400); await t.click(t.menuItem('Active'), 800);
       const ini = (await t.snap()).initiatives.find(i => i.name === 'Harness initiative');
       if (!ini || ini.projectIds.length !== 1 || ini.status !== 'active' || ini.health !== 'onTrack') t.fail(`ini ${!!ini} projects ${ini?.projectIds.length} status ${ini?.status} health ${ini?.health}`);
@@ -618,15 +585,6 @@
       const s = await t.snap(); const p = s.projects.find(x => x.name === 'Agent Handoff'); await t.nav('/projects/' + p.id, 900);
       const chip = t.q('[data-pprop="initiatives"]')?.innerText ?? ''; if (!chip.includes('Agent-first tracker')) t.fail(chip); return 'chip: ' + chip;
     });
-    await t.run('11.3 Releases: create, add issues, issue Release property, ship it', async () => {
-      await t.nav('/releases', 700); await t.type(t.q('.rel-new input'), 'v9.9.9', 150); t.key('Enter'); await sleep(1100);
-      if (!location.hash.startsWith('#/releases/rl_')) t.fail('not on release page');
-      await t.click(t.byText('Add issues'), 500); await t.click(t.qa('.menu:not(.closing) .menu-item')[0], 800); await t.closeAll();
-      const rows = t.rows(); await t.click('[data-rprop="stage"]', 400); await t.click(t.menuItem('Released'), 800);
-      const r = (await t.snap()).releases.find(x => x.name === 'v9.9.9'); const k = await t.keyOf((await t.snap()).issues.find(i => i.releaseId === r.id).id);
-      await t.nav('/issue/' + k, 900); const rail = t.q('[data-prop="release"]')?.innerText;
-      if (!rows || r.stage !== 'released' || !r.releasedAt || rail !== 'v9.9.9') t.fail(`rows ${rows} stage ${r.stage} rail ${rail}`); return `${k} in v9.9.9 (released); rail shows it`;
-    });
     await t.run('11.4 SLAs: add a rule in settings; urgent issues get a deadline badge; SLA filter', async () => {
       await t.nav('/settings/slas', 700); const before = (await t.snap()).slaRules.length;
       await t.type(t.q('.sla-form > input'), 'Harness: high in 48h', 150); await t.click(t.qa('.sla-prios .prop-chip').find(b => b.innerText.includes('High')), 200); await t.type(t.q('input[aria-label="SLA hours"]'), '48', 150); await t.click(t.byText('Add rule'), 900);
@@ -635,13 +593,6 @@
       await t.nav('/issue/' + await t.keyOf(urgent.id), 900); const badge = t.q('.props-rail .sla-badge')?.innerText;
       await t.nav('/team/CORE/all', 800); await t.press('f', {}, 500); await t.click(t.menuItem('SLA status'), 400); await t.click(t.menuItem('Within SLA'), 600); await t.closeAll(); const n = t.rows(); const c = t.byText('Clear'); if (c) await t.click(c, 400);
       if (!badge || !n) t.fail(`badge ${badge} filtered ${n}`); return `rule added; rail: "${badge}"; SLA filter → ${n} rows`;
-    });
-    await t.run('11.5 Asks: open a form, required check, submit → issue in triage', async () => {
-      await t.nav('/asks', 700); await t.click(t.qa('.ask-card')[0], 700); await t.click(t.byText('Submit'), 600); const err = t.q('.ask-error')?.innerText ?? '';
-      const inputs = t.qa('.ask-form .ask-q'); await t.type(inputs[0].querySelector('input'), 'Harness ask: export crashes', 150); const sel = inputs.map(q => q.querySelector('select')).find(Boolean); if (sel) await t.type(sel, sel.options[1].value, 150);
-      await t.click(t.byText('Submit'), 1100); const done = t.q('.ask-done')?.innerText ?? '';
-      const s = await t.snap(); const iss = s.issues.find(i => i.title === 'Harness ask: export crashes'); const st = iss && s.states.find(x => x.id === iss.stateId);
-      if (!err.includes('Required') || !iss || st.type !== 'triage') t.fail(`err "${err}" issue ${!!iss} state ${st?.type}`); return `validation: "${err}"; ${done}`;
     });
     await t.run('11.6 Loops: build one in the editor, it fires on issue create; Run now logs', async () => {
       await t.nav('/settings/loops', 700); await t.click(t.byText('New loop'), 500); await t.type(t.q('.loop-editor input'), 'Harness loop', 150);
@@ -688,9 +639,9 @@
       const miss = ['More properties', 'Create related', 'Mark as', 'Copy', 'Convert to', 'Make a copy', 'Move', 'Open in', 'Favorite', 'Remind me', 'Delete'].filter(x => !cm.includes(x));
       if (!dates || miss.length || !copy || cm.includes('Subscribe')) t.fail(`dates ${dates} missing ${miss} copy ${copy}`); return 'Dates submenu; Linear’s context menu; Make a copy prefills the create modal';
     });
-    await t.run('12.4 Settings: Profile (picture, title, username), Notifications (priority + desktop), Preferences automations', async () => {
-      await t.nav('/settings/profile', 600); const pr = t.text(); await t.nav('/settings/notifications', 600); const no = t.text(); await t.nav('/settings/notifications/desktop', 600); const de = t.text(); await t.nav('/settings/preferences', 600); const pf = t.text();
-      const miss = [['Profile picture', pr], ['Title', pr], ['Username', pr], ['Priority inbox', no], ['Desktop', no], ['Reactions', de], ['Document changes', de], ['Auto-assign to self', pf], ['On move to started status', pf], ['Underline links', pf]].filter(([w, txt]) => !txt.includes(w)).map(([w]) => w);
+    await t.run('12.4 Settings: Profile (picture, title, username), Notifications (priority + browser), Preferences automations', async () => {
+      await t.nav('/settings/profile', 600); const pr = t.text(); await t.nav('/settings/notifications', 600); const no = t.text(); await t.nav('/settings/notifications/browser', 600); const de = t.text(); await t.nav('/settings/preferences', 600); const pf = t.text();
+      const miss = [['Profile picture', pr], ['Title', pr], ['Username', pr], ['Priority inbox', no], ['Browser', no], ['Reactions', de], ['Document changes', de], ['Auto-assign to self', pf], ['On move to started status', pf], ['Underline links', pf]].filter(([w, txt]) => !txt.includes(w)).map(([w]) => w);
       if (miss.length) t.fail('missing ' + miss); return 'all present';
     });
     await t.run('12.5 Team settings hub links to General, Members, labels, templates, recurring, statuses, workflows, triage, cycles', async () => {
@@ -715,12 +666,14 @@
       await t.nav('/team/CORE/archive', 700); const tabs = t.qa('.subnav .seg').map(b => b.innerText.trim()).join(); await t.nav('/no-such-page', 500); const nf = t.text().includes('Not found');
       if (tabs !== 'Issues,Cycles,Recently deleted issues' || !nf) t.fail(`tabs ${tabs} notfound ${nf}`); return 'tabs; Not found page';
     });
-    await t.run('12.9 Project board cards and timeline header follow Linear', async () => {
+    await t.run('12.9 Project board cards follow Linear; the initiative Projects tab keeps its timeline', async () => {
       await t.nav('/projects', 700);
       await t.click(t.q('[title="Display options"]'), 400); await t.click(t.byText('Board'), 500); await t.closeAll(); const card = t.q('.pcard'); const props = !!card?.querySelector('.pcard-props') && /issue/.test(card?.innerText ?? '');
-      await t.click(t.q('[title="Display options"]'), 400); await t.click(t.byText('Timeline'), 600); await t.closeAll(); const today = t.q('.tl-today span')?.innerText ?? ''; const ctl = !!t.q('.tl-controls select');
       await t.click(t.q('[title="Display options"]'), 400); await t.click(t.byText('List'), 500); await t.closeAll();
-      if (!props || !/^[A-Z]{3} \d+$/.test(today) || !ctl) t.fail(`card ${props} today ${today} controls ${ctl}`); return `cards with status/priority/lead + issue count; today pill ${today}`;
+      const ini = (await t.snap()).initiatives.find(i => i.projectIds.length); await t.nav(`/initiatives/${ini.id}/projects`, 900);
+      await t.click(t.qa('.ini-layouts .pill-tab').find(b => b.innerText.includes('Timeline')), 600); const today = t.q('.tl-today span')?.innerText ?? ''; const ctl = !!t.q('.tl-controls select'); const arrows = !!t.q('.tl-deps');
+      await t.click(t.qa('.ini-layouts .pill-tab').find(b => b.innerText.includes('List')), 400);
+      if (!props || !/^[A-Z]{3} \d+$/.test(today) || !ctl || arrows) t.fail(`card ${props} today ${today} controls ${ctl} arrows ${arrows}`); return `cards with status/priority/lead + issue count; initiative timeline today pill ${today}`;
     });
     await t.run('12.10 Resting on a favorite project shows its preview card', async () => {
       await t.nav('/inbox', 500); const link = t.qa('.sidebar a.nav-item').find(a => a.getAttribute('href')?.includes('/projects/') && a.innerText.includes('Agent Handoff')); if (!link) t.fail('no favorite');
@@ -744,10 +697,10 @@
   /* ================= 10. every route renders without errors ================= */
   S('routes', async t => {
     await t.run('10.1 Every route renders without console errors', async () => {
-      const s = await t.snap(); const p = s.projects[0].id; const d = s.docs[0].id; const c = s.customers[0].id; const cyc = s.cycles.find(x => x.teamId === s.teams[0].id).id;
-      const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/pulse', '/customers', `/customers/${c}`, '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`), '/releases', ...s.releases.map(r => `/releases/${r.id}`), '/asks', ...s.askForms.map(f => `/asks/${f.id}`),
+      const s = await t.snap(); const p = s.projects[0].id; const d = s.docs[0].id; const cyc = s.cycles.find(x => x.teamId === s.teams[0].id).id;
+      const routes = ['/inbox', '/my-issues', '/my-issues/created', '/my-issues/subscribed', '/my-issues/activity', '/drafts', '/projects', `/projects/${p}`, `/projects/${p}/activity`, `/projects/${p}/issues`, '/views', '/views/projects', ...s.views.map(v => `/views/${v.id}`), '/teams', '/members', '/initiatives', '/initiatives/view/all', ...s.initiatives.map(i => `/initiatives/${i.id}`),
         '/team/CORE/all', '/team/CORE/active', '/team/CORE/backlog', '/team/CORE/overview', '/team/CORE/overview/documents', '/team/CORE/overview/members', '/team/CORE/cycles', `/team/CORE/cycles/${cyc}`, '/team/CORE/projects', '/team/CORE/views', '/team/CORE/views/projects', '/team/AGO/triage', '/team/CORE/archive', '/trash', '/search', `/docs/${d}`, '/issue/CORE-1',
-        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-templates', 'project-statuses', 'project-updates', 'documents', 'customer-requests', 'pulse', 'emojis', 'slas', 'asks', 'loops', 'github', 'initiatives', 'releases', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
+        ...['preferences', 'profile', 'notifications', 'shortcuts', 'labels', 'templates', 'project-labels', 'project-statuses', 'project-updates', 'slas', 'loops', 'github', 'initiatives', 'workspace', 'teams', 'members', 'security', 'security/new-api-key', 'api', 'handoff', 'data', 'new-team', 'team/CORE', 'team/AGO'].map(x => '/settings/' + x)];
       const errs = []; const orig = console.error; console.error = (...a) => { errs.push(location.hash + ' ' + a.map(String).join(' ').slice(0, 120)); orig(...a); };
       for (const r of routes) { location.hash = '#' + r; await sleep(420); }
       console.error = orig; if (errs.length) t.fail(errs.slice(0, 4).join(' | ')); return routes.length + ' routes, no console errors';

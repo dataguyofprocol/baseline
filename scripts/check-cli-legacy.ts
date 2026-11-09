@@ -16,7 +16,7 @@ const problems: string[] = [];
 const cli = read('src/cli');
 const calls = cli.filter(f => !f.file.endsWith('/legacy.ts')).reduce((n, f) => n + (f.text.match(/\blegacy(Store|App)\(/g)?.length ?? 0), 0);
 const budget = Number(readFileSync(join(root, 'scripts/cli-legacy-budget.txt'), 'utf8').trim());
-if (calls > budget) problems.push(`${calls} legacy database calls in src/cli, budget ${budget}: a command opens the database directly — call it through connect() and the client instead`);
+if (calls > budget) problems.push(`${calls} legacy database calls in src/cli, budget ${budget}: a command opens the database directly; call it through connect() and the client instead`);
 if (calls < budget) problems.push(`${calls} legacy database calls in src/cli, budget ${budget}: lower scripts/cli-legacy-budget.txt to ${calls}`);
 
 for (const f of cli.filter(f => !f.file.endsWith('/legacy.ts'))) {

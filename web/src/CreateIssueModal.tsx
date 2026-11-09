@@ -199,7 +199,7 @@ export function CreateIssueModal() {
     setTimeout(() => titleRef.current?.focus(), 30);
   };
 
-  // after a pill menu closes focus falls back to the page, outside the modal — ⌘↵ still creates
+  // after a pill menu closes, focus falls back to the page outside the modal, and ⌘↵ must still create
   const createRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!state.open) return;
@@ -220,7 +220,7 @@ export function CreateIssueModal() {
   // the guard is what keeps one keystroke from filing two issues
   const create = guard(async (descOverride?: string) => {
     if (!title.trim() || !current) return;
-    // the editor's own content is the truth — its onChange is debounced
+    // read the editor's own content, because its onChange is debounced
     const desc = descOverride ?? (editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : description);
     const { issue } = await api.createIssue({
       teamId: team.id, title: title.trim(), description: desc,
@@ -265,7 +265,7 @@ export function CreateIssueModal() {
   };
 
   // ⌘/Ctrl+Enter creates from anywhere in the modal (menus portal outside this
-  // wrapper, but their React events still bubble here — so exclude them)
+  // wrapper, but their React events still bubble here, so exclude them)
   const onModalKeyDown = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest?.('.menu')) return;
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -411,8 +411,8 @@ export function CreateIssueModal() {
         <button className="prop-chip cm-more-chip" onClick={e => { setMorePhase('root'); moreMenu.open(e); }} title="More properties">
           <IconMore size={13} />
         </button>
-        {/* the title reads like a known label: offer it in place — a dashed chip
-            at the end of the row, so nothing above it moves */}
+        {/* the title reads like a known label, so offer it in place as a dashed chip
+            at the end of the row, where it moves nothing above it */}
         {suggestion && (
           <button
             key={suggestion[1]} className="prop-chip cm-suggest-chip" title="Suggested from the title"
@@ -429,7 +429,7 @@ export function CreateIssueModal() {
       </div>
 
       <div className="cm-footer">
-        {/* always laid out, only shown once there's something to save — no reflow */}
+        {/* always laid out but only shown once there's something to save, so nothing reflows */}
         <button className="cm-link" style={{ visibility: title.trim() ? 'visible' : 'hidden' }} onClick={saveDraft}>Save draft</button>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           <button className="cm-more" role="switch" aria-checked={createMore} onClick={() => setCreateMore(v => !v)}>
@@ -520,7 +520,7 @@ export function CreateIssueModal() {
             <button className="btn" style={{ height: 26, fontSize: 12, flex: 'none' }} disabled={!newLabelName.trim()} onClick={() => void createLabelInline()}>Add</button>
           </div>
           {teamLabels.length > 0 && <MenuSep />}
-          {/* raw menu-item buttons (not MenuItem) so a toggle doesn't auto-close — multi-select stays open */}
+          {/* raw menu-item buttons (not MenuItem) so a toggle doesn't auto-close and multi-select stays open */}
           {teamLabels.map(l => {
             const on = labelIds.includes(l.id);
             return (
@@ -655,7 +655,7 @@ function MorePropsMenu(props: {
   return (
     <Menu key={phase} anchor={props.anchor} onClose={props.onClose} width={220}>
       <div className="menu-header"><span>More properties</span></div>
-      {/* raw menu-item buttons (not MenuItem) — MenuItem auto-closes the menu on
+      {/* raw menu-item buttons (not MenuItem), because MenuItem auto-closes the menu on
           click, which would unmount it before the due/estimate phase can render */}
       <button className="menu-item" onClick={() => setPhase('due')}>
         <span className="mi-icon"><IconCalendar size={14} /></span>

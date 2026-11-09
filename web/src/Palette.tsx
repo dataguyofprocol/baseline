@@ -16,7 +16,7 @@ import {
   IconSearch, IconPlus, IconSettings, IconInbox, IconBox, IconViews, IconMyIssues,
   IconCycle, IconTeam, IconMoon, IconSun, IconHandoff, IconSpark, IconPanel, IconCopyId,
   IconArchive, IconBack, IconCalendar, IconCheck, IconClose, IconEstimate, IconTag, IconTrash, IconUser,
-  IconDoc, IconFilter, IconStar, IconIssues, IconDrafts, IconTriage, IconInitiative, IconUsers, IconRelease, IconAsk, IconPulse, IconCustomers, IconKeyboard,
+  IconDoc, IconFilter, IconStar, IconIssues, IconDrafts, IconTriage, IconInitiative, IconUsers, IconKeyboard,
 } from './icons.js';
 import { teamScale, type Issue, type Priority } from '../../src/core/types.js';
 
@@ -32,7 +32,7 @@ interface PaletteItem {
   keepOpen?: boolean;
   /** render the label in the danger color */
   danger?: boolean;
-  /** check mark on the right — this value is shared by every selected issue */
+  /** check mark on the right, shown when every selected issue shares this value */
   checked?: boolean;
   /** leading chars of the label drawn as a mono key ("CORE-12 …") */
   prefixLen?: number;
@@ -44,7 +44,7 @@ interface PaletteItem {
   verb?: string;
 }
 
-/* issues opened recently, newest first — the palette's empty state leads with them */
+/* issues opened recently, newest first; the palette's empty state lists them first */
 const RECENT_KEY = 'baseline:recentIssues';
 export function recordRecentIssue(key: string) {
   try {
@@ -78,15 +78,15 @@ function Highlighted({ text, indices }: { text: string; indices: number[] }) {
 }
 
 /* ================= bulk actions =================
-   The palette reads the selection store directly, so any surface that fills
+   The palette reads the selection store directly, so anything that fills
    useSelection (row checkboxes, X key) instantly gets the bulk section here.
    Everything is resolved from getState() at call time so sub-page builders
    stay fresh across snapshot refreshes and selection edits. */
 
 interface SubPage { title: string; build: () => PaletteItem[]; calendar?: boolean }
 
-/* The issues the palette acts on: the selection, or — with nothing selected — the issue
-   you're on (open page, peek, or the row under the cursor), captured when it opened. */
+/* The issues the palette acts on, captured when it opened. That is the selection, or, if
+   nothing is selected, the issue you're on (open page, peek, or the row under the cursor). */
 let ctxIds: string[] = [];
 let ctxIsSelection = false;
 function selIds() {
@@ -145,7 +145,7 @@ async function toggleBulkLabel(labelId: string) {
   let changed = 0;
   for (const id of ids) {
     const issue = snap.issues.find(i => i.id === id);
-    // already in the target state (has it when removing / lacks it when adding) — skip
+    // skip an issue already in the target state (lacks it when removing / has it when adding)
     if (!issue || issue.labelIds.includes(labelId) !== allHave) continue;
     const labelIds = allHave ? issue.labelIds.filter(l => l !== labelId) : [...issue.labelIds, labelId];
     await api.updateIssue(id, { labelIds });
@@ -430,8 +430,6 @@ export function CommandPalette() {
       { id: 'nav-search', icon: <IconSearch size={14} />, label: 'Search workspace…', section: 'Filter', hint: '/', keywords: 'find look up', action: () => navigate('/search') },
       { id: 'act-filter', icon: <IconFilter size={14} />, label: 'Add filter…', section: 'Filter', hint: 'F', keywords: 'filter narrow', action: () => setTimeout(() => window.dispatchEvent(new CustomEvent('baseline:focus-filter')), 50) },
       { id: 'act-tpl-issue', icon: <IconDoc size={14} />, label: 'Create new issue template…', section: 'Templates', keywords: 'template', action: () => navigate('/settings/templates') },
-      { id: 'act-tpl-doc', icon: <IconDoc size={14} />, label: 'Create new document template…', section: 'Templates', keywords: 'template', action: () => navigate('/settings/documents') },
-      { id: 'act-tpl-project', icon: <IconDoc size={14} />, label: 'Create new project template…', section: 'Templates', keywords: 'template', action: () => navigate('/settings/project-templates') },
       { id: 'act-favorite', icon: <IconStar size={14} />, label: 'Favorite page', section: 'Favorite', hint: '⌥F', keywords: 'star favorite pin', action: () => { const b = document.querySelector<HTMLButtonElement>('[data-favorite-star]'); if (b) b.click(); else useApp.getState().toast({ title: 'This page can’t be a favorite' }); } },
       { id: 'pick-issue', icon: <IconIssues size={14} />, label: 'Open issue…', section: 'Navigation', hint: 'O then I', keepOpen: true, action: pick('issue') },
       { id: 'nav-archive', icon: <IconArchive size={14} />, label: 'Open team archive…', section: 'Navigation', hint: 'G then X', keywords: 'archived', action: () => navigate(`/team/${tk}/archive`) },
@@ -458,10 +456,6 @@ export function CommandPalette() {
       { id: 'nav-views', icon: <IconViews size={14} />, label: 'Go to views', section: 'Navigation', hint: 'G then U', action: () => navigate('/views') },
       { id: 'nav-teams', icon: <IconTeam size={14} />, label: 'Go to teams', section: 'Navigation', action: () => navigate('/teams') },
       { id: 'nav-members', icon: <IconUsers size={14} />, label: 'Go to members', section: 'Navigation', action: () => navigate('/members') },
-      { id: 'nav-releases', icon: <IconRelease size={14} />, label: 'Go to releases', section: 'Navigation', keywords: 'versions ship', action: () => navigate('/releases') },
-      { id: 'nav-asks', icon: <IconAsk size={14} />, label: 'Go to asks', section: 'Navigation', keywords: 'intake forms requests', action: () => navigate('/asks') },
-      { id: 'nav-pulse', icon: <IconPulse size={14} />, label: 'Go to Pulse', section: 'Navigation', keywords: 'updates feed', action: () => navigate('/pulse') },
-      { id: 'nav-customers', icon: <IconCustomers size={14} />, label: 'Go to customers', section: 'Navigation', keywords: 'customer requests', action: () => navigate('/customers') },
       { id: 'nav-trash', icon: <IconTrash size={14} />, label: 'Go to recently deleted issues', section: 'Navigation', keywords: 'trash deleted restore', action: () => navigate('/trash') },
       { id: 'nav-settings', icon: <IconSettings size={14} />, label: 'Go to settings', section: 'Navigation', hint: 'G then S', action: () => navigate('/settings/workspace') },
       { id: 'pick-settings', icon: <IconSettings size={14} />, label: 'Open settings…', section: 'Navigation', hint: 'O then S', keepOpen: true, action: pick('settings') },
@@ -544,7 +538,7 @@ export function CommandPalette() {
       .slice(0, 24)
       .map(({ i, s }) => ({ item: i, match: s!.match }));
     if (sub) return hits;
-    // whatever you typed can always become an issue — last, unless nothing matched
+    // whatever you typed can always become an issue. It goes last, unless nothing matched
     const title = q.trim();
     return [...hits, { item: {
       id: 'act-create-from-query', icon: <IconPlus size={14} />, label: `Create issue “${title}”`,
@@ -707,7 +701,7 @@ export function CommandPalette() {
 }
 
 /* ---------------- keyboard shortcuts overlay ---------------- */
-/** every shortcut, grouped as Linear's cheatsheet groups them — the overlay and Settings both read this */
+/** every shortcut, grouped as Linear's cheatsheet groups them; the overlay and Settings both read this */
 export const SHORTCUT_GROUPS: Array<[string, Array<[string, string]>]> = [
   ['General', [
     ['⌘ K', 'Open command menu'], ['⌘ ↵', 'Save or submit'], ['↵', 'Send comment'], ['Esc', 'Back'], ['/', 'Open search'],

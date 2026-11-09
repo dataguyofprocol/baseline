@@ -1,11 +1,11 @@
 // `baseline mcp` over the real protocol: spawns the CLI's MCP server on a scratch database, runs
 // initialize, tools/list and tools/call through the SDK's client, then re-reads the database.
 // Checks that every op is a tool with its schemas and annotations, that any client writes as the
-// workspace's "Agent via <person>" (BASELINE_AS picks another agent user), that repeated progress converges on one living
-// comment, that errors are tool errors listing valid values, and that stdout carries only protocol.
+// workspace's "Agent via <person>" (BASELINE_AS picks another agent user), that repeated progress converges on one comment
+// edited in place, that errors are tool errors listing valid values, and that stdout has only protocol messages.
 // Then the hosted endpoint, /mcp over Streamable HTTP: keys only, the same tools, a key's scopes and
-// teams holding through every tool, and the whole work loop re-read from the database.
-// Throwaway database — never touches ~/.baseline.
+// teams enforced by every tool, and the whole work loop re-read from the database.
+// Runs against a throwaway database and never touches ~/.baseline.
 //
 //   npx tsx scripts/test-mcp.ts
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -194,7 +194,7 @@ const pp = await call(pc, 'post_progress', { issue: HK, did: 'Reviewer Bot check
 check('a Baseline-As header writes as that agent user: "Reviewer Bot via Ada Owner"', pp.structuredContent?.attributed_to === 'Reviewer Bot via Ada Owner', pp);
 await pc.close();
 
-// ---------- a key's limits hold through the tools ----------
+// ---------- a key's limits apply to every tool ----------
 const { client: tc } = await httpSession('codex-mcp-client', teamKey.token);
 const tl = await call(tc, 'list_issues', { assignee: 'any', state: 'all' });
 const ts = await call(tc, 'start_issue', { issue: OK });

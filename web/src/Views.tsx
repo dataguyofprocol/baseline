@@ -27,7 +27,7 @@ export const TEAM_DEFAULT_OPTS: ViewOptions = { ...DEFAULT_VIEW_OPTIONS, filters
 
 /* ================= shared issue-list page body =================
    Every issue list (team, my issues, views, project, cycle) is the same thing: filter
-   pills over a list or board, with display options. ⌘B flips list ↔ board. */
+   pills over a list or board, with display options. ⌘B switches between list and board. */
 export function useListLayoutToggle(opts: ViewOptions, patch: (p: Partial<ViewOptions>) => void) {
   const ref = useRef(opts.layout);
   ref.current = opts.layout;
@@ -173,7 +173,7 @@ function teamStates(states: Array<{ id: string; teamId: string; type: string }>,
 }
 
 /** A stale team route (pre-reset URL left in the tab, an old localStorage key) should
- *  fall back to the first team instead of dead-ending on "Team not found". */
+ *  fall back to the first team instead of stopping at "Team not found". */
 export function TeamMissingRedirect() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -273,7 +273,7 @@ export function MyIssuesPage() {
   const empty: Record<Exclude<MyTab, 'activity'>, { title: string; desc: string }> = {
     assigned: { title: 'No issues assigned to you', desc: 'Issues assigned to you will show up here.' },
     created: { title: 'No issues created by you', desc: 'Issues you create will show up here.' },
-    subscribed: { title: 'No subscriptions', desc: 'Issues you subscribe to — and the ones you create, are assigned or comment on — show up here.' },
+    subscribed: { title: 'No subscriptions', desc: 'Issues you subscribe to show up here, along with the ones you create, are assigned or comment on.' },
   };
 
   return (
@@ -298,7 +298,7 @@ export function MyIssuesPage() {
   );
 }
 
-/** everything you did, newest first, grouped by day — Linear's My issues › Activity */
+/** everything you did, newest first, grouped by day, like Linear's My issues › Activity */
 function MyActivity() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -378,7 +378,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const renameRef = useRef<HTMLInputElement | null>(null);
-  // select after mount — a focus-event select() loses to the caret's default placement
+  // select after mount, because the caret's default placement undoes a focus-event select()
   useEffect(() => { if (renaming) renameRef.current?.select(); }, [renaming]);
 
   // each active filter becomes one chip: what it filters on, and the values
@@ -403,7 +403,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
       ? { name: 'New view', kind: 'projects', projectOptions: {}, filters: {}, icon: '📁', teamId: team?.id ?? null }
       : { name: 'New view', filters: {}, icon: '🗂', teamId: team?.id ?? null });
     await useApp.getState().bootstrap();
-    // land inside the fresh view with its name selected — naming it is the next natural step
+    // open the new view with its name selected, since naming it is the likely next step
     navigate(`/views/${view.id}`, { state: { rename: true } });
   };
 
@@ -422,7 +422,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
           <div className="empty-state">
             <Illustration name="views" />
             <div className="empty-title">Views</div>
-            <div className="empty-desc">{kind === 'projects' ? 'Save project filters, groupings and layouts — a roadmap, a team’s portfolio, at-risk work — and come back to them.' : 'Create views to save filters and groupings you return to.'}</div>
+            <div className="empty-desc">{kind === 'projects' ? 'Save project filters, groupings and layouts, like a roadmap, a team’s portfolio or at-risk work, and come back to them.' : 'Create views to save filters and groupings you return to.'}</div>
             <div className="empty-actions">
               <button className="btn primary" onClick={createView}>New view</button>
             </div>
@@ -503,13 +503,13 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
   );
 }
 
-/** the view's name rendered as the subnav tab — click it (or arrive from "New view") to rename in place */
+/** the view's name rendered as the subnav tab. Click it (or arrive from "New view") to rename in place */
 export function ViewNameSeg(props: { view: SavedView; startEditing?: boolean }) {
   const [editing, setEditing] = useState(props.startEditing ?? false);
   const [name, setName] = useState(props.view.name);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { setName(props.view.name); }, [props.view.name]);
-  // select after mount — a focus-event select() loses to the caret's default placement
+  // select after mount, because the caret's default placement undoes a focus-event select()
   useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
   const save = async () => {
     setEditing(false);

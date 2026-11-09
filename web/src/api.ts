@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, DocTemplate, CustomEmoji, Customer, CustomerRequest, Initiative, Release, SlaRule, AskForm, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, GitStatus, GithubTokenInfo, TrackedRepo, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, GitStatus, GithubTokenInfo, TrackedRepo, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -59,7 +59,7 @@ export const api = {
   moveIssue: (id: string, beforeId: string | null, afterId: string | null) => req<{ ok: true }>('POST', `/api/issues/${id}/move`, { beforeId, afterId }),
   startIssue: (id: string) => req<{ moved: boolean; assigned: boolean; stateName?: string }>('POST', `/api/issues/${id}/start`, {}),
   getHandoff: (id: string) => req<{ handoff: Handoff }>('GET', `/api/issues/${id}/handoff`),
-  /** errors come back as values — the caller reacts to `code` (e.g. no-directory → open the picker) */
+  /** errors come back as values, and the caller reacts to `code` (e.g. no-directory opens the picker) */
   openClaude: async (id: string, b: { locationId?: string; directory?: string }) => {
     const res = await fetch(`/api/issues/${id}/open-claude`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
     return res.json().catch(() => ({ error: `Server error (${res.status})`, code: 'server' })) as Promise<{ key: string; directory: string; location: { id: string; name: string }; pinned: boolean; error?: undefined } | { error: string; code: string }>;
@@ -85,12 +85,6 @@ export const api = {
   deleteDoc: (id: string) => req<{ ok: true }>('DELETE', `/api/docs/${id}`),
   addTeamLink: (teamId: string, url: string, title?: string) => req<{ ok: true }>('POST', `/api/teams/${teamId}/links`, { url, title }),
   deleteTeamLink: (id: string) => req<{ ok: true }>('DELETE', `/api/team-links/${id}`),
-  createProjectTemplate: (b: Record<string, unknown>) => req<{ template: { id: string } }>('POST', '/api/project-templates', b),
-  updateProjectTemplate: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/project-templates/${id}`, patch),
-  deleteProjectTemplate: (id: string) => req<{ ok: true }>('DELETE', `/api/project-templates/${id}`),
-  applyProjectTemplate: (projectId: string, templateId: string) => req<{ ok: true }>('POST', `/api/projects/${projectId}/apply-template`, { templateId }),
-  addProjectDependency: (projectId: string, b: { blocks?: string; blockedBy?: string }) => req<{ ok: true }>('POST', `/api/projects/${projectId}/dependencies`, b),
-  removeProjectDependency: (id: string) => req<{ ok: true }>('DELETE', `/api/project-dependencies/${id}`),
   createRecurring: (b: Record<string, unknown>) => req<{ recurring: { id: string } }>('POST', '/api/recurring', b),
   updateRecurring: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/recurring/${id}`, patch),
   deleteRecurring: (id: string) => req<{ ok: true }>('DELETE', `/api/recurring/${id}`),
@@ -147,16 +141,9 @@ export const api = {
   createInitiativeLabel: (b: Record<string, unknown>) => req<{ ok: true }>('POST', '/api/initiative-labels', b),
   updateInitiativeLabel: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/initiative-labels/${id}`, b),
   deleteInitiativeLabel: (id: string) => req<{ ok: true }>('DELETE', `/api/initiative-labels/${id}`),
-  createRelease: (b: Record<string, unknown>) => req<{ release: Release }>('POST', '/api/releases', b),
-  updateRelease: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/releases/${id}`, b),
-  deleteRelease: (id: string) => req<{ ok: true }>('DELETE', `/api/releases/${id}`),
   createSlaRule: (b: Record<string, unknown>) => req<{ rule: SlaRule }>('POST', '/api/sla-rules', b),
   updateSlaRule: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/sla-rules/${id}`, b),
   deleteSlaRule: (id: string) => req<{ ok: true }>('DELETE', `/api/sla-rules/${id}`),
-  createAskForm: (b: Record<string, unknown>) => req<{ form: AskForm }>('POST', '/api/asks', b),
-  updateAskForm: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/asks/${id}`, b),
-  deleteAskForm: (id: string) => req<{ ok: true }>('DELETE', `/api/asks/${id}`),
-  submitAsk: (id: string, values: Record<string, string>) => req<{ issue: Issue }>('POST', `/api/asks/${id}/submit`, { values }),
   createLoop: (b: Record<string, unknown>) => req<{ loop: Loop }>('POST', '/api/loops', b),
   updateLoop: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/loops/${id}`, b),
   deleteLoop: (id: string) => req<{ ok: true }>('DELETE', `/api/loops/${id}`),
@@ -191,29 +178,11 @@ export const api = {
   updateProjectStatus: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/project-statuses/${id}`, b),
   deleteProjectStatus: (id: string) => req<{ ok: true }>('DELETE', `/api/project-statuses/${id}`),
   setProjectSubscription: (projectId: string, flags: Record<string, boolean>) => req<{ ok: true }>('PUT', `/api/projects/${projectId}/subscription`, flags),
-  createDocTemplate: (b: Record<string, unknown>) => req<{ template: DocTemplate }>('POST', '/api/doc-templates', b),
-  updateDocTemplate: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/doc-templates/${id}`, b),
-  deleteDocTemplate: (id: string) => req<{ ok: true }>('DELETE', `/api/doc-templates/${id}`),
-  uploadEmoji: async (name: string, file: File) => {
-    const res = await fetch(`/api/emojis?name=${encodeURIComponent(name)}&file=${encodeURIComponent(file.name || 'emoji.png')}`, { method: 'POST', headers: { 'Content-Type': file.type || 'image/png' }, body: file });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
-    return res.json() as Promise<{ emoji: CustomEmoji }>;
-  },
   uploadAvatar: async (userId: string, file: File | null) => {
     const res = await fetch(`/api/users/${userId}/avatar${file ? `?file=${encodeURIComponent(file.name || 'avatar.png')}` : ''}`, { method: 'POST', headers: { 'Content-Type': file?.type || 'image/png' }, body: file ?? '' });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
     return res.json() as Promise<{ avatarUrl: string | null }>;
   },
-  deleteEmoji: (id: string) => req<{ ok: true }>('DELETE', `/api/emojis/${id}`),
-  createCustomer: (b: Record<string, unknown>) => req<{ customer: Customer }>('POST', '/api/customers', b),
-  updateCustomer: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/customers/${id}`, b),
-  deleteCustomer: (id: string) => req<{ ok: true }>('DELETE', `/api/customers/${id}`),
-  createCustomerAttr: (kind: 'status' | 'tier', b: Record<string, unknown>) => req<{ id: string }>('POST', `/api/customer-attrs/${kind}`, b),
-  updateCustomerAttr: (kind: 'status' | 'tier', id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/customer-attrs/${kind}/${id}`, b),
-  deleteCustomerAttr: (kind: 'status' | 'tier', id: string) => req<{ ok: true }>('DELETE', `/api/customer-attrs/${kind}/${id}`),
-  addCustomerRequest: (b: Record<string, unknown>) => req<{ request: CustomerRequest }>('POST', '/api/customer-requests', b),
-  updateCustomerRequest: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/customer-requests/${id}`, b),
-  deleteCustomerRequest: (id: string) => req<{ ok: true }>('DELETE', `/api/customer-requests/${id}`),
   createTeam: (b: Record<string, unknown>) => req<{ team: Team }>('POST', '/api/teams', b),
   updateTeam: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/teams/${id}`, patch),
   deleteTeam: (id: string) => req<{ ok: true }>('DELETE', `/api/teams/${id}`),
@@ -261,7 +230,7 @@ export const authApi = {
   },
   post: async (path: string, body: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string; code?: string }> => {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
-    if (!res) return { ok: false, error: 'Can’t reach the server — check your connection and try again.' };
+    if (!res) return { ok: false, error: 'Can’t reach the server. Check your connection and try again.' };
     if (res.ok) return { ok: true };
     const j = await res.json().catch(() => ({})) as { error?: string; code?: string };
     return { ok: false, error: j.error ?? `Something went wrong (${res.status})`, code: j.code };

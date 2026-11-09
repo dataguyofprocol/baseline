@@ -18,7 +18,7 @@ export interface Toast {
 interface AppState {
   snap: Snapshot | null;
   loaded: boolean;
-  /** hosted mode: the server answered 401 — show the sign-in screen instead of the app */
+  /** hosted mode: the server answered 401, so show the sign-in screen instead of the app */
   signedOut: boolean;
   theme: ThemePref;
   /** theme with 'system' resolved to the dark/light actually applied */
@@ -62,7 +62,7 @@ export function resolveTheme(p: ThemePref): 'dark' | 'light' {
 
 let toastSeq = 1;
 
-/** a narrow window hides the nav on its own (the saved preference is left alone) so the page keeps its room */
+/** a narrow window hides the nav on its own (the saved preference is left alone) so the page keeps its width */
 const narrowNav = window.matchMedia('(max-width: 760px)');
 const savedCollapsed = () => localStorage.getItem('baseline:sidebarCollapsed') === '1';
 
@@ -131,7 +131,7 @@ export const useApp = create<AppState>((set, get) => ({
 narrowNav.addEventListener('change', (e) => { useApp.setState({ sidebarCollapsed: e.matches || savedCollapsed() }); });
 
 // while the preference is 'system', follow the OS/browser appearance live;
-// e.matches is that change's own verdict, so no re-query race
+// e.matches is the new value, so nothing is re-queried and nothing can race
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   if (useApp.getState().theme !== 'system') return;
   const resolved = e.matches ? 'dark' : 'light';
@@ -244,7 +244,7 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** first-run progress and the Getting started checklist: applied here at once, saved behind */
+/** first-run progress and the Getting started checklist: applied here at once, saved in the background */
 export function setGettingStarted(patch: Partial<GettingStarted>): Promise<unknown> {
   const s = useApp.getState().snap;
   if (s) {
@@ -258,20 +258,20 @@ export async function refresh() {
   await useApp.getState().bootstrap();
 }
 
-// Live updates. The server announces a new version whenever anything changes — a teammate, an
-// agent writing through the CLI, the workspace's own clock — and the tab refetches its snapshot,
-// swapping it in only when something it shows actually moved. A hidden tab waits until it's seen
-// (unless desktop notifications are on).
+// Live updates. The server announces a new version whenever anything changes, whether from a
+// teammate, an agent writing through the CLI or the workspace's own clock. The tab refetches its
+// snapshot and swaps it in only when something it shows has changed. A hidden tab waits until it's seen
+// (unless browser notifications are on).
 let lastSnapJson = '';
-/* Settings › Notifications › Desktop: new inbox notifications become browser notifications
+/* Settings › Notifications › Browser: new inbox notifications become browser notifications
    (the kinds you chose), also while the tab is in the background */
 let seenNotifications: Set<string> | null = null;
-function pushDesktop(snap: Snapshot) {
+function pushBrowser(snap: Snapshot) {
   const ids = new Set(snap.notifications.map(n => n.id));
   const before = seenNotifications;
   seenNotifications = ids;
   const push = snap.workspace.preferences.push;
-  if (!before || !push?.desktop || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if (!before || !push?.browser || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   for (const n of snap.notifications) {
     if (before.has(n.id) || n.readAt || (n.snoozedUntil && n.snoozedUntil > new Date().toISOString())) continue;
     const cat = notifyCategory(n.type, n.body);
@@ -294,20 +294,20 @@ async function refreshSnapshot() {
   fetching = true;
   try {
     const snap = await api.bootstrap();
-    pushDesktop(snap);
+    pushBrowser(snap);
     const json = JSON.stringify(snap);
     if (json !== lastSnapJson) useApp.setState({ snap });
     lastSnapJson = json;
-  } catch { /* server restarting — the next announcement retries */ }
+  } catch { /* the server is restarting; the next announcement retries */ }
   finally {
     fetching = false;
     if (fetchAgain) { fetchAgain = false; void refreshSnapshot(); }
   }
 }
 function catchUp() {
-  // a hidden tab waits, unless it has desktop notifications to show
+  // a hidden tab waits, unless it has browser notifications to show
   const background = document.visibilityState !== 'visible';
-  if ((background && !useApp.getState().snap?.workspace.preferences.push?.desktop) || announced === applied) return;
+  if ((background && !useApp.getState().snap?.workspace.preferences.push?.browser) || announced === applied) return;
   applied = announced;
   void refreshSnapshot();
 }
@@ -317,7 +317,7 @@ function connectLive() {
   live = new EventSource('/api/events');
   live.addEventListener('version', e => { announced = (JSON.parse((e as MessageEvent).data) as { v: number }).v; catchUp(); });
   live.onerror = () => {
-    // a dropped connection reconnects by itself; a refused one (CLOSED — e.g. the session ended)
+    // a dropped connection reconnects by itself; a refused one (CLOSED, e.g. the session ended)
     // doesn't: ask the API, which shows the sign-in screen on 401, and try again in a while
     if (live?.readyState !== EventSource.CLOSED) return;
     live = null;

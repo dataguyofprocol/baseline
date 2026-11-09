@@ -34,14 +34,14 @@ export function mountCliAuth(app: Hono, d: { db: DatabaseSync; store: Store; acc
 
   // the page the CLI opens; it asks /api/me who is signed in, so it needs no server-side session code
   app.get('/cli/authorize', (c) => {
-    if (!parseCliRequest(c.req.query())) return c.text('This sign-in link is incomplete — run `baseline login` again.', 400);
+    if (!parseCliRequest(c.req.query())) return c.text('This sign-in link is incomplete. Run `baseline login` again.', 400);
     return c.html(AUTHORIZE_PAGE, 200, { 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'" });
   });
 
   // behind authenticate like every /api route: a signed-in person (or this machine), never a key
   app.post('/api/cli-auth/approve', async (c) => {
     const r = parseCliRequest(await c.req.json().catch(() => ({})));
-    if (!r) return c.json({ error: 'This sign-in link is incomplete — run `baseline login` again', code: 'invalid' }, 400);
+    if (!r) return c.json({ error: 'This sign-in link is incomplete. Run `baseline login` again.', code: 'invalid' }, 400);
     const userId = principalUser(c, d.store);
     if (d.store.getFeatures().apiKeyCreation === 'admins' && !d.accounts.isAdmin(userId)) {
       return c.json({ error: 'Only admins can create API keys in this workspace, and the CLI signs in with one', code: 'forbidden' }, 403);
@@ -57,9 +57,9 @@ export function mountCliAuth(app: Hono, d: { db: DatabaseSync; store: Store; acc
 
   // outside /api: the code and the PKCE verifier are the credential
   app.post('/auth/cli/token', async (c) => {
-    if (!tokenLimit.take(clientIp(c))) return c.json({ error: 'Too many sign-in attempts — try again in a few minutes', code: 'rate-limited' }, 429);
+    if (!tokenLimit.take(clientIp(c))) return c.json({ error: 'Too many sign-in attempts. Try again in a few minutes.', code: 'rate-limited' }, 429);
     const b = await c.req.json().catch(() => ({})) as { code?: unknown; verifier?: unknown };
-    const refused = () => c.json({ error: 'This sign-in expired or was already used — run `baseline login` again', code: 'invalid' }, 400);
+    const refused = () => c.json({ error: 'This sign-in expired or was already used. Run `baseline login` again.', code: 'invalid' }, 400);
     if (typeof b.code !== 'string' || typeof b.verifier !== 'string') return refused();
     const grant = d.db.prepare('SELECT * FROM cli_grants WHERE code_hash = ?').get(sha256(b.code)) as
       { code_hash: string; user_id: string; challenge: string; device: string; expires_at: string; used_at: string | null } | undefined;
@@ -97,7 +97,7 @@ const AUTHORIZE_PAGE = `<!doctype html>
   fetch('/api/me', { credentials: 'same-origin' }).then(async (r) => {
     // signed out: the app's sign-in screen (password or Google) brings the browser back here
     if (r.status === 401) { location.href = '/?next=' + encodeURIComponent(location.pathname + location.search); return; }
-    if (!r.ok) { say([['Couldn\\'t check who you are — reload to try again.']]); return; }
+    if (!r.ok) { say([['Couldn\\'t check who you are. Reload to try again.']]); return; }
     const me = await r.json();
     say([['Allow the Baseline CLI on '], [q.device, true], [' to read and change issues in '], [me.workspace.name, true], [' as '], [me.user.name, true], [' (' + me.user.email + ')? It gets a personal API key, which you can revoke in Settings › Security & access.']]);
     actions.hidden = false;

@@ -27,7 +27,7 @@ function teamFromKey(teamKey: string) {
 /* ================= triage =================
    Issues filed into the team from outside (agents, the CLI, other people) wait here.
    Left: the queue, oldest first. Right: the issue. 1 accepts, 2 marks a duplicate,
-   3 declines — the decision moves the cursor to the next one. */
+   3 declines. Each decision moves the cursor to the next one. */
 export function TriagePage() {
   const { teamKey = '' } = useParams();
   const snap = useApp(s => s.snap)!;
@@ -48,7 +48,7 @@ export function TriagePage() {
   }, [snap.issues, triageState, prefs.filters, prefs.orderBy]);
   const pool = useMemo(() => triageState ? snap.issues.filter(i => i.stateId === triageState.id) : [], [snap.issues, triageState]);
   const snoozedCount = all.filter(i => i.snoozedUntil && i.snoozedUntil > nowIso).length;
-  // snoozed issues leave the queue until their time comes back round
+  // snoozed issues leave the queue until their snooze time passes
   const queue = useMemo(() => showSnoozed ? all : all.filter(i => !i.snoozedUntil || i.snoozedUntil <= nowIso), [all, showSnoozed, nowIso]);
   const snoozeMenu = useMenu();
   const createTriage = () => team && triageState && useApp.getState().openCreate({ teamId: team.id, stateId: triageState.id });
@@ -62,7 +62,7 @@ export function TriagePage() {
   const accept = (i: Issue) => { const s = stateOf('unstarted') ?? stateOf('backlog'); if (s) void setIssueProps([i.id], { stateId: s.id }); };
   const decline = (i: Issue) => { const s = stateOf('canceled'); if (s) void setIssueProps([i.id], { stateId: s.id }); };
 
-  // the triage keys win over the global 1–9 status shortcuts while this page is up
+  // the triage keys take precedence over the global 1-9 status shortcuts while this page is up
   const currentRef = useRef(current);
   currentRef.current = current;
   useEffect(() => {
@@ -250,7 +250,7 @@ export function ArchivePage() {
       </div>
       <div className="content">
         {tab === 'issues' && (issues === null ? null : issues.length === 0 ? (
-          <div className="empty-state"><Illustration name="archive" /><div className="empty-title">No archived issues</div><div className="empty-desc">Issues you archive in {team.name} (E) — and closed issues the team’s auto-archive picks up — are kept here and can be brought back at any time.</div></div>
+          <div className="empty-state"><Illustration name="archive" /><div className="empty-title">No archived issues</div><div className="empty-desc">Issues you archive in {team.name} (E) and closed issues the team’s auto-archive picks up are kept here. You can bring them back at any time.</div></div>
         ) : (
           <div className="static-list">
             {issues.map(i => (

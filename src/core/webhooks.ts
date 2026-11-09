@@ -63,7 +63,7 @@ export class GitHubWebhooks {
       events: WEBHOOK_EVENTS, lastDelivery: this.deliveries(1)[0] ?? null, received: n('processed') + n('ignored'), rejected: n('rejected'), imports: this.imports(),
     };
   }
-  /** a new secret, shown once (like an API key) — the old one stops working immediately */
+  /** a new secret, shown once (like an API key); the old one stops working immediately */
   rotateSecret(): string {
     const s = randomBytes(32).toString('hex');
     setMeta(this.db, 'githubWebhookSecret', s);
@@ -101,7 +101,7 @@ export class GitHubWebhooks {
       return { status: 200, body: { ok: true, duplicate: true } };
     }
     let p: Json;
-    try { p = JSON.parse(raw); } catch { return { status: 400, body: { error: 'Body is not JSON — set the webhook content type to application/json' } }; }
+    try { p = JSON.parse(raw); } catch { return { status: 400, body: { error: 'Body is not JSON. Set the webhook content type to application/json.' } }; }
     const repo: string | null = p.repository?.full_name ?? null;
     const action: string | null = typeof p.action === 'string' ? p.action : null;
     try {
@@ -118,7 +118,7 @@ export class GitHubWebhooks {
   private apply(event: string, p: Json): string | null {
     const repo: string = p.repository?.full_name ?? '';
     switch (event) {
-      case 'ping': return `ping — ${p.zen ?? 'hello'}`;
+      case 'ping': return `ping: ${p.zen ?? 'hello'}`;
       case 'pull_request': {
         const pr = p.pull_request; if (!pr) return null;
         const prev = this.stored(repo, pr.number);

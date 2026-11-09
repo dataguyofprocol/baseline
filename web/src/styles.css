@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 /* Linear's faces (OFL, self-hosted so the app keeps working offline):
-   Inter Variable with the optical-size axis = everything (text cut at UI sizes, display cut on titles),
-   with Linear's cv01 + ss03 features. Code is Berkeley Mono on Linear (commercial) — used when installed,
+   Inter Variable with the optical-size axis on everything (text cut at UI sizes, display cut on titles),
+   with Linear's cv01 + ss03 features. Code is Berkeley Mono on Linear (commercial), used when installed,
    otherwise JetBrains Mono. */
 @import '@fontsource-variable/inter/opsz.css';
 @import '@fontsource-variable/jetbrains-mono';
@@ -22,7 +22,7 @@
   --font-mono: inherit;
   --font-code: 'Berkeley Mono', 'JetBrains Mono Variable', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
 
-  /* ---------- brand grounds (constant across themes — these ARE the brand) ---------- */
+  /* ---------- brand grounds (constant across themes, because these ARE the brand) ---------- */
   --brand-ink: #14151a;
   --brand-paper: #f3f1ec;
   --brand-register: #5e6ad2;   /* same value as --brand */
@@ -30,7 +30,7 @@
   --register-w: 2px;
 }
 
-/* ---------- theme tokens (dark default — values sampled from reference) ---------- */
+/* ---------- theme tokens (dark is the default; values sampled from reference) ---------- */
 :root, :root[data-theme='dark'] {
   --bg-main: #121213;
   --bg-sidebar: #09090a;
@@ -222,7 +222,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .st-fill { transform-origin: 7.5px 7.5px; animation: bl-fill 260ms var(--ease) both; }
 .st-check { stroke-dasharray: 14; animation: bl-check 240ms var(--ease) 170ms both; }
 
-/* every interactive surface eases its state changes instead of snapping (110ms) */
+/* every interactive element eases its state changes instead of snapping (110ms) */
 .nav-item, .seg, .tab, .icon-btn, .btn, .pill, .prop-chip, .prop-line, .menu-item,
 .cal-day, .proj-chip, .rail-kv, .ms-row, .ws-switch, .filter-pill, .gh-chevron,
 .reaction-chip, .update-compose, .cm-team, .due-chip, .empty-actions .btn {
@@ -266,7 +266,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .sidebar-main { flex: 1; overflow-y: auto; padding: 10px 10px 16px 12px; }
 .ws-row { display: flex; align-items: center; gap: 4px; margin-bottom: 12px; }
 .ws-row .ws-actions { display: flex; align-items: center; gap: 4px; }
-/* the collapse toggle only surfaces while the pointer is in the header row */
+/* the collapse toggle only appears while the pointer is in the header row */
 .ws-row .ws-collapse { opacity: 0; transition: opacity 110ms ease; }
 .ws-row:hover .ws-collapse, .ws-row .ws-collapse:focus-visible { opacity: 1; }
 .ws-new {
@@ -315,7 +315,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .nav-item > svg { flex: none; color: var(--text-secondary); }
 .nav-item.active > svg { color: var(--text-primary); }
 .nav-item:hover { background: var(--bg-hover); }
-/* Active state is a register line UNDER the label — never a filled pill or an
+/* Active state is a register line UNDER the label, never a filled pill or an
    inset rail. The line is the width of the label, not the row. */
 .nav-item.active { background: none; color: var(--text-primary); font-weight: 590; letter-spacing: -0.015em; }
 .nav-item .nav-label { flex: 1; min-width: 0; }
@@ -420,8 +420,8 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .label-dot { width: 7px; height: 7px; border-radius: 999px; }
 
 /* ---------- issue list ---------- */
-/* The label and count CUT a rule that runs to the right edge — no band, no
-   extra surface colour — the group-header band token is gone entirely. */
+/* The label and count CUT a rule that runs to the right edge. There is no band
+   and no extra surface colour; the group-header band token is gone entirely. */
 .group-header {
   display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px;
   background: var(--bg-main);
@@ -448,23 +448,23 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   cursor: default; position: relative;
 }
 .issue-row:hover { background: var(--bg-hover); }
-/* Bulk selection INVERTS to paper — unmistakable, and it costs no new colour. */
+/* Bulk selection INVERTS to paper. It is easy to see and needs no new colour. */
 .issue-row.selected { background: var(--brand-paper); color: var(--brand-ink); }
 .issue-row.selected .row-title { color: var(--brand-ink); font-weight: 590; letter-spacing: -0.015em; }
 .issue-row.selected .issue-key, .issue-row.selected .row-date { color: var(--brand-graphite); }
 .issue-row.selected .label-pill { color: var(--brand-ink); }
 .issue-row.selected .due-chip { background: rgba(20, 21, 26, 0.07); color: var(--brand-graphite); }
-/* keyboard cursor + focus render as a 2px brand rail, not a full inset ring —
-   much quieter during fast J/K travel */
+/* keyboard cursor + focus render as a 2px brand rail, not a full inset ring,
+   because the rail is much quieter during fast J/K travel */
 .issue-row.focused, .issue-row.cursor { box-shadow: inset 2px 0 0 var(--brand); }
-/* optimistic reflow landing: row expands into its new group, one brand flash
-   so the eye can follow where it landed */
+/* optimistic reflow: the row expands into its new group with one brand flash,
+   so the eye can follow where it moved */
 .issue-row.just-moved {
   overflow: hidden;
   animation: bl-enter 340ms var(--ease) both, bl-flash 900ms ease 220ms both;
 }
-/* fresh create lands the same way — the row is new, not moved, so it enters
-   from the same 340ms and takes the same single flash */
+/* a new issue animates the same way. The row is new, not moved, so it enters
+   over the same 340ms and gets the same single flash */
 .issue-row.leaving {
   overflow: hidden;
   pointer-events: none;
@@ -524,7 +524,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   font-size: 8.5px; font-weight: 590; color: #fff;
 }
 .avatar.placeholder { color: var(--text-dim); }
-/* agent identity: neutral tinted square, brand-tinted glyph — no colour-coded disc */
+/* agent identity is a neutral tinted square with a brand-tinted glyph, not a colour-coded disc */
 .avatar.agent {
   background: var(--bg-pill); color: var(--text-secondary);
   box-shadow: inset 0 0 0 1px var(--border);
@@ -541,8 +541,8 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .btn:disabled { opacity: 0.4; cursor: default; }
 .btn:disabled:hover { background: var(--bg-pill); }
 .btn.primary:disabled:hover { background: var(--action-bg); }
-/* Paper is the primary action — one per surface. Indigo stops being a button
-   colour and stays a signal. */
+/* Paper marks the primary action, one per surface. Indigo is not a button
+   colour; it stays a signal. */
 .btn.primary {
   background: var(--action-bg); border-color: transparent; color: var(--action-fg);
   font-weight: 590; letter-spacing: -0.01em; border-radius: 7px;
@@ -552,12 +552,12 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .btn.secondary { background: transparent; border-color: var(--border-strong); color: var(--text-secondary); border-radius: 7px; }
 .btn.secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
 .btn .btn-kbd { margin-left: 2px; opacity: 0.7; }
-/* a chord as separate caps (⌘ ↵), same as tooltips and the palette footer —
-   one cap holding two glyphs reads as a smudge */
+/* a chord as separate caps (⌘ ↵), same as tooltips and the palette footer.
+   One cap holding two glyphs is hard to read */
 .btn .btn-keys { display: inline-flex; gap: 3px; margin-left: 4px; }
 .btn .btn-keys .kbd { min-width: 18px; height: 18px; padding: 0 3px; font-size: 11.5px; font-family: -apple-system, system-ui, sans-serif; }
-/* keyboard hint on the paper button: graphite on paper — the ground already
-   carries enough contrast, so the chip loses its fill */
+/* keyboard hint on the paper button: graphite on paper. The ground already
+   gives enough contrast, so the chip has no fill */
 .btn.primary .kbd {
   color: var(--action-key-fg);
   background: transparent;
@@ -638,7 +638,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .cm-root { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .cm-header { display: flex; align-items: center; gap: 6px; padding: 14px 16px 0; color: var(--text-secondary); font-size: 13px; }
 .cm-title { padding: 12px 18px 0; }
-/* the title is the loudest thing in the modal — well clear of the description */
+/* the title is the most prominent text in the modal and sits well clear of the description */
 .cm-title input { width: 100%; font-size: 19px; font-weight: 590; letter-spacing: -0.022em; line-height: 26px; }
 .cm-title input::placeholder { color: var(--text-dim); }
 /* description is content-height (JS auto-grow) so the modal stays compact like
@@ -649,13 +649,13 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .modal-create.expanded .cm-desc { flex: 1 1 0%; }
 .modal-create.expanded .cm-desc textarea { height: 100%; max-height: none; }
 .cm-pills { display: flex; align-items: center; gap: 6px; padding: 8px 18px 14px; flex-wrap: wrap; }
-/* borderless filled chips (Linear create-modal style) — scoped here, other views keep .boxed */
+/* borderless filled chips (Linear create-modal style), scoped here so other views keep .boxed */
 .cm-pills .prop-chip {
   height: 28px; padding: 0 10px; border-radius: 7px;
   background: var(--bg-pill); border: 1px solid transparent;
 }
 .cm-pills .prop-chip:hover { background: var(--bg-active); color: var(--text-primary); }
-/* chosen values read as content; empty chips stay prompts */
+/* chosen values look like content; empty chips look like prompts */
 .cm-pills .prop-chip.set { color: var(--text-primary); }
 .cm-pills .prop-chip { max-width: 220px; }
 .cm-pills .prop-chip > svg, .cm-pills .prop-chip > .avatar, .cm-pills .prop-chip > .proj-icon { flex: none; }
@@ -772,7 +772,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .tb-split:hover { border-color: var(--border-strong); }
 .tb-split.open .tb-caret { background: var(--bg-hover); color: var(--text-primary); }
 
-/* flyout menus (MenuSub) live outside their parent menu, so hover drives their highlight */
+/* flyout menus (MenuSub) render outside their parent menu, so hover drives their highlight */
 .menu.submenu .menu-item:hover { background: var(--bg-hover); }
 .menu-item.sub-open { background: var(--bg-hover); }
 
@@ -887,8 +887,8 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 
 /* ---------- board ----------
    Fixed-width lanes on the canvas, no divider rules: the lane surface itself is
-   the column (and the drop zone). Cards are flat — a hairline, no resting shadow;
-   lift and shadow are kept for the one card in your hand. */
+   the column (and the drop zone). Cards are flat, with a hairline and no resting shadow;
+   lift and shadow are kept for the one card being dragged. */
 .board {
   --lane-w: 304px;
   --lane-bg: color-mix(in srgb, var(--text-primary) 2.6%, var(--bg-main));
@@ -903,7 +903,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   box-shadow: inset 0 0 0 1px transparent;
   transition: box-shadow 140ms ease, background 140ms ease;
 }
-/* the live drop target: the lane takes a brand hairline and a trace of tint */
+/* the live drop target: the lane takes a brand hairline and a faint tint */
 .board-col.drop-active {
   background: color-mix(in srgb, var(--brand) 5%, var(--lane-bg));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 45%, transparent);
@@ -961,7 +961,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   transition: background 110ms ease, color 110ms ease, opacity 120ms ease;
 }
 .lane-add:hover { background: var(--bg-hover); color: var(--text-primary); }
-/* the trailing add row only surfaces while you're in the lane */
+/* the trailing add row only appears while the pointer is in the lane */
 .lane-add.trailing { justify-content: flex-start; width: 100%; height: 30px; padding: 0 8px; opacity: 0; }
 .board-col:hover .lane-add.trailing, .lane-add.trailing:focus-visible { opacity: 1; }
 
@@ -1007,7 +1007,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .board-card .bc-chip.overdue { color: #eb5757; border-color: color-mix(in srgb, #eb5757 35%, var(--border)); }
 .board-card .bc-created { font-size: 12px; color: var(--text-dim); }
 /* editable properties: each chip, the status icon and the avatar open their picker in place.
-   They answer the pointer with the row-hover tint, like Linear's card chips. */
+   On hover they take the row-hover tint, like Linear's card chips. */
 .board-card .bc-menus { display: contents; }
 .board-card .bc-status { display: inline-flex; flex: none; margin-top: 2px; }
 .board-card .bc-status.editable { margin: -1px -3px 0; padding: 3px; border-radius: 5px; }
@@ -1021,19 +1021,19 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .board-card .bc-avatar.unassigned { opacity: 0; }
 .board-card:hover .bc-avatar.unassigned, .board-card.cursor .bc-avatar.unassigned { opacity: 1; }
 
-/* finished work recedes — it stays readable, it just stops asking for attention */
+/* finished work is dimmed, so it stays readable but draws less attention */
 .board-card.is-done .bc-title, .board-card.is-canceled .bc-title { color: var(--text-secondary); }
 .board-card.is-canceled .bc-title { text-decoration: line-through; text-decoration-color: var(--text-dim); }
 .board-card.is-done .bc-avatar, .board-card.is-canceled .bc-avatar { opacity: 0.6; }
 
 /* while a card is dragged the sortable strategy closes its source slot and opens
-   one at the drop index — that slot is drawn as a dashed outline */
+   one at the drop index, and that slot is drawn as a dashed outline */
 .board-card.source-hidden {
   background: transparent; border: 1px dashed var(--border-strong);
 }
 .board-card.source-hidden > * { visibility: hidden; }
 /* picked up: the card lifts off the board (scale + a slight tilt), then settles
-   back flat as the drop animation carries it home */
+   back flat as the drop animation moves it into its slot */
 .board-card.overlay-card {
   cursor: grabbing; border-color: var(--border-strong);
   box-shadow: 0 16px 36px -8px rgba(9, 9, 10, 0.32), 0 2px 6px rgba(9, 9, 10, 0.12);
@@ -1066,7 +1066,7 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .proj-grid .dim { color: var(--text-dim); }
 .proj-grid .overdue { color: #eb5757; }
 .health-dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
-/* progress: a register-width bar that fills — the same 2px line as the tabs */
+/* progress: a register-width bar that fills, using the same 2px line as the tabs */
 .proj-bar { width: 56px; height: 3px; background: var(--border-strong); overflow: hidden; flex: none; }
 .proj-bar > span { display: block; height: 100%; background: var(--brand-register); transition: width 900ms var(--ease); }
 /* views index: same table language as projects */
@@ -1158,9 +1158,9 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .rail-activity { display: flex; gap: 8px; padding: 5px 6px; align-items: flex-start; }
 
 /* ---------- print / export card ----------
-   On paper the app is an object: the paper cut of the tile, the serif wordmark,
+   In print the page shows the tile's paper cut, the serif wordmark,
    the key in mono, and one ink rule under the header. Everything interactive
-   comes out. */
+   is hidden. */
 .print-head { display: none; }
 @media print {
   :root { color-scheme: light; }
@@ -1227,7 +1227,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .inbox-row:hover { background: var(--bg-hover); }
 .inbox-row.selected { background: var(--bg-active); box-shadow: inset 2px 0 0 var(--brand); }
 .inbox-row.static { cursor: default; }
-/* unread: a paper node in the left gutter — no wash, no rail */
+/* unread: a paper node in the left gutter, with no wash and no rail */
 .inbox-row::before {
   content: ''; position: absolute; left: 9px; top: 17px;
   width: 5px; height: 5px; border-radius: 999px; background: transparent;
@@ -1307,14 +1307,14 @@ button.rail-kv:hover { background: var(--bg-hover); }
 }
 .swatch { width: 16px; height: 16px; border-radius: 4px; }
 
-/* empty states — fade up with staggered icon tiles */
+/* empty states fade up with staggered icon tiles */
 .empty-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; animation: bl-fade-up 320ms var(--ease) both; }
 .empty-icons { display: grid; grid-template-columns: repeat(2, 34px); gap: 8px 10px; margin-bottom: 18px; }
 .empty-icons span { display: flex; align-items: center; justify-content: center; animation: bl-fade-up 340ms var(--ease) both; }
 .empty-icons span:nth-child(2) { animation-delay: 45ms; }
 .empty-icons span:nth-child(3) { animation-delay: 90ms; }
 .empty-icons span:nth-child(4) { animation-delay: 135ms; }
-/* Empty states read like Linear's: a plain title in the UI font under the mark. */
+/* Empty states look like Linear's: a plain title in the UI font under the mark. */
 .empty-title {
   font-family: var(--font-ui); font-size: 14px; line-height: 1.3; font-weight: 510;
   letter-spacing: -0.005em; margin-bottom: 6px; color: var(--text-primary);
@@ -1324,7 +1324,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .empty-desc { color: var(--text-secondary); max-width: 340px; margin-bottom: 16px; animation: bl-fade-up 340ms var(--ease) 165ms both; }
 .empty-actions { display: flex; gap: 8px; animation: bl-fade-up 340ms var(--ease) 210ms both; }
 
-/* loading shimmer — bars at real row height so the list never jumps when data lands */
+/* loading shimmer: bars at real row height so the list never jumps when data arrives */
 .skeleton-bar {
   height: 9px; border-radius: 0;
   background-image: linear-gradient(90deg, var(--skel) 0%, var(--skel-hi) 50%, var(--skel) 100%);
@@ -1337,7 +1337,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .group:hover .hover-only, .issue-row:hover .hover-only,
 .inbox-row:hover .hover-only, .prop-row:hover .hover-only { opacity: 1; pointer-events: auto; }
 
-/* cursor (J/K) — quiet 2px brand rail (see .issue-row.cursor above) */
+/* the J/K cursor is a quiet 2px brand rail (see .issue-row.cursor above) */
 
 /* nested sub-issue rows */
 .issue-row.nested { padding-left: 44px; }
@@ -1376,13 +1376,13 @@ button.rail-kv:hover { background: var(--bg-hover); }
 }
 .due-chip.overdue { color: #eb5757; }
 
-/* selection pill (Linear-style) — mutates live in the command palette's bulk section */
+/* selection pill (Linear-style), which updates live in the command palette's bulk section */
 .bulk-bar {
   position: fixed; bottom: 20px; left: 0; right: 0; margin: 0 auto; width: fit-content; z-index: 80;
   display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 18px;
   background: var(--bg-menu); border-radius: 8px;
   box-shadow: var(--shadow-menu), 0 10px 32px rgba(0, 0, 0, 0.22);
-  /* centered without a static `transform` — a transformed ancestor would become
+  /* centered without a static `transform`, because a transformed ancestor would become
      the containing block for fixed-position overlays. Framer's enter/exit
      transform is transient and resolves to none. */
 }
@@ -1417,7 +1417,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .reaction-chip:hover { border-color: var(--border-strong); }
 .reaction-chip.mine { background: var(--brand-dim); border-color: var(--brand); color: var(--text-primary); }
 
-/* progress tracks (sub-issue summary, cycles) — 900ms ease so progress reads as movement */
+/* progress tracks (sub-issue summary, cycles) use a 900ms ease so progress shows as movement */
 /* Butt terminals: 3px square bars, no pill radius. */
 .progress-track { flex: 1; height: 3px; border-radius: 0; background: var(--bg-active); overflow: hidden; display: block; }
 .progress-fill { display: block; height: 100%; border-radius: 0; background: var(--brand-register); transition: width 900ms var(--ease); }
@@ -1439,7 +1439,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 
 /* ---------- brand surfaces: sign-in, first run, marketing ----------
    Ink ground, serif lockup, paper button. These are the only places the
-   product speaks in the brand voice, and the only places --brand-ink appears
+   product uses the brand voice, and the only places --brand-ink appears
    as a page ground (it is NOT a replacement for --bg-main). */
 .on-ink { background: var(--brand-ink); color: var(--brand-paper); }
 .on-ink .card { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.10); }
@@ -1502,7 +1502,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .tooltip-then { color: var(--text-dim); font-size: 11px; }
 
 /* ---------- keyboard focus ----------
-   Mouse clicks never draw a ring; Tab does, so keyboard travel is always legible. */
+   Mouse clicks never draw a ring; Tab does, so keyboard focus is always visible. */
 :where(button, a, [role="button"], [tabindex], summary, input[type="checkbox"]):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--brand) 75%, transparent);
   outline-offset: 1px;
@@ -1510,7 +1510,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .menu-item:focus-visible, .issue-row:focus-visible { outline: none; }
 
 /* ---------- press feedback ----------
-   A 1–4% dip on press: enough to feel the click land, too small to read as motion. */
+   A 1-4% dip on press. It is enough to register the click but too small to be seen as motion. */
 .btn, .icon-btn, .seg, .pill, .prop-chip, .filter-pill, .bulk-actions-btn, .reaction-chip, .cm-team, .ws-switch, .nav-item, .tab {
   transition-property: background, color, border-color, box-shadow, transform;
 }
@@ -1531,8 +1531,8 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .view-name .row-title { flex: 0 1 auto; }
 
 /* ---------- cycles ----------
-   The running cycle is the page: a hero with time left, a segmented bar (done /
-   in progress / rest) carrying a "today" tick, and its issues. Upcoming and past
+   The running cycle fills the page: a hero with time left, a segmented bar (done /
+   in progress / rest) with a "today" tick, and its issues. Upcoming and past
    cycles are single rows that open in place. */
 .cy-page { padding: 12px 24px 48px; max-width: 920px; display: flex; flex-direction: column; gap: 28px; }
 .cy-section { color: var(--text-dim); font-size: 12px; font-weight: 510; padding: 0 0 6px 4px; }
@@ -1600,7 +1600,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
   transform: scale(0); transition: transform 160ms var(--ease);
 }
 .md input[type="checkbox"]:checked::after, .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked::after { transform: scale(1); }
-/* a finished task reads as done */
+/* a finished task is dimmed and struck through */
 .md li.task-list-item:has(> input:checked) { color: var(--text-secondary); text-decoration: line-through; text-decoration-color: var(--text-dim); }
 
 /* =====================================================================
@@ -1967,7 +1967,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .pcard .proj-icon { width: 20px; height: 20px; font-size: 12px; background: var(--bg-hover); border-radius: 5px; flex: none; }
 .pcard .bc-title { flex: 1; font-weight: 590; }
 .pcard-summary { font-size: 12.5px; color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.dopts-layout.three { grid-template-columns: 1fr 1fr 1fr; }
 .dd-select { height: 26px; min-width: 140px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-main); color: var(--text-primary); font: inherit; font-size: 12.5px; }
 .icon-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; padding: 6px; }
 .icon-pick { height: 34px; border-radius: 7px; font-size: 18px; }
@@ -2042,7 +2041,7 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .health-pick.on { border-color: var(--border-strong); background: var(--bg-active); color: var(--text-primary); }
 .update-card .rte { min-height: 60px; }
 .proj-section-label { font-size: 13px; font-weight: 590; color: var(--text-secondary); margin: 28px 0 8px; }
-/* an empty description keeps a click target; a written one hugs its text */
+/* an empty description keeps a click target; a written one is only as tall as its text */
 .proj-desc .rte:has(> .is-editor-empty) { min-height: 60px; }
 .milestones { margin-top: 10px; }
 .ms-item { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 8px; border-radius: 7px; }
@@ -2084,11 +2083,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .rr-title { flex: 1; min-width: 0; font-weight: 510; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rr-next { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .inbox-group .count { margin-left: 6px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); font-weight: 400; }
-.ptpl-edit { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
-.ptpl-edit textarea { min-height: 70px; resize: vertical; font-size: 12.5px; line-height: 1.5; padding: 6px 8px; }
-.tl-deps { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1; color: var(--text-dim); overflow: visible; }
-.tl-dep { fill: none; stroke: var(--text-dim); stroke-width: 1.4; }
-.tl-dep.late { stroke: #eb5757; color: #eb5757; }
 /* advanced filter */
 .adv-backdrop { position: fixed; inset: 0; z-index: 114; }
 .adv-panel { position: fixed; z-index: 115; min-width: 360px; max-width: 560px; padding: 10px; border-radius: 10px; background: var(--bg-menu); box-shadow: var(--shadow-menu); animation: bl-menu-in 130ms var(--ease) both; }
@@ -2184,7 +2178,7 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .bell-sub { font-size: 12px; color: var(--text-secondary); }
 .menu-empty { padding: 8px 10px; font-size: 12px; color: var(--text-dim); }
 
-/* ---------- settings lists (project labels, statuses, documents, customers, emojis) ---------- */
+/* ---------- settings lists (project labels, statuses, documents) ---------- */
 .settings-card.wide { max-width: 860px; }
 .set-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .set-head h1 { margin: 0; }
@@ -2204,26 +2198,14 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .set-name:hover { background: var(--bg-active, var(--bg-hover)); }
 .set-name-input { max-width: 260px; }
 .set-icon { display: inline-flex; padding: 2px; border-radius: 4px; }
-.custom-emoji { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align: -0.25em; display: inline-block; }
 .nav-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); margin-left: auto; margin-right: 4px; flex: none; }
 
-/* ---------- pulse ---------- */
-.pulse-feed { max-width: 760px; margin: 0 auto; padding: 24px 32px 80px; }
-.pulse-day { margin: 18px 0 8px; font-size: 12px; font-weight: 590; color: var(--text-secondary); }
-.pulse-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 10px; background: var(--bg-overlay, var(--bg-main)); }
-.pulse-card header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.pulse-proj { display: inline-flex; align-items: center; gap: 6px; font-weight: 590; color: var(--text-primary); }
-.pulse-proj:hover { text-decoration: underline; }
-.pulse-health { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
-.pulse-meta { font-size: 12px; color: var(--text-secondary); }
-
-/* ---------- workspace tables (customers, teams, members) ---------- */
+/* ---------- workspace tables (teams, members) ---------- */
 .wtable { padding: 0 16px 40px; }
 .wt-head, .wt-row { display: grid; align-items: center; gap: 12px; padding: 0 12px; }
 .wt-head { height: 34px; font-size: 12px; color: var(--text-secondary); border-bottom: 1px solid var(--hairline); }
 .wt-row { min-height: 44px; border-bottom: 1px solid var(--hairline); cursor: pointer; font-size: 13px; }
 .wt-row:hover { background: var(--bg-hover); }
-.wt-cust { grid-template-columns: minmax(200px, 2fr) 120px 110px 80px 90px 70px 60px; }
 .wt-teams { grid-template-columns: minmax(200px, 1.4fr) minmax(120px, 2fr) 100px 120px 70px 110px; }
 .wt-members { grid-template-columns: minmax(220px, 2fr) 100px 100px minmax(100px, 1fr) 110px; }
 .wt-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 510; }
@@ -2239,25 +2221,8 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .team-join.joined:hover { border-color: #eb5757; }
 .online { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
 .online-dot { width: 7px; height: 7px; border-radius: 50%; background: #4cb782; }
-.cust-logo { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 5px; background: var(--bg-hover); color: var(--text-secondary); font-size: 11px; font-weight: 590; flex: none; }
-.cust-logo.big { width: 36px; height: 36px; font-size: 16px; border-radius: 8px; }
-.cust-page { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; display: flex; flex-direction: column; gap: 14px; }
 
-/* ---------- customer requests ---------- */
-.creq-section { margin: 14px 0 6px; }
-.creq { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin: 6px 0; }
-.creq-head { display: flex; align-items: center; gap: 8px; }
-.creq-target { display: inline-flex; align-items: center; gap: 6px; font-weight: 510; color: var(--text-primary); text-align: left; }
-.creq-target:hover { text-decoration: underline; }
-.creq-imp { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: #f2994a; }
-.creq-body { margin-top: 4px; font-size: 13px; color: var(--text-secondary); }
-.creq-edit { width: 100%; min-height: 70px; margin-top: 6px; }
-.creq-form { display: flex; flex-direction: column; gap: 6px; padding: 4px 8px 8px; }
-.creq-form textarea { min-height: 80px; }
-.creq .hover-only { opacity: 0; }
-.creq:hover .hover-only { opacity: 1; }
-
-/* ---------- small modals (new customer, customize sidebar) ---------- */
+/* ---------- small modals (customize sidebar) ---------- */
 .small-modal { width: 420px; max-width: calc(100vw - 32px); }
 .small-modal.wide { width: 480px; }
 .sm-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; font-weight: 590; }
@@ -2287,12 +2252,16 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .proj-notice { display: flex; flex-direction: column; gap: 12px; padding: 28px 32px; max-width: 720px; }
 .pn-title { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 590; }
 .pn-body { color: var(--text-secondary); }
+.summary-update { border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; background: var(--bg-overlay, var(--bg-main)); display: flex; flex-direction: column; gap: 6px; }
+.summary-update header { display: flex; align-items: center; gap: 8px; }
+.summary-proj { display: inline-flex; align-items: center; gap: 6px; font-weight: 590; color: var(--text-primary); }
+.summary-health { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
+.summary-meta { font-size: 12px; color: var(--text-secondary); }
 .update-due { margin: -2px 0 10px; font-size: 12px; color: var(--text-dim); }
 .update-due.overdue { color: #f2994a; }
 
-/* ---------- initiatives & releases ---------- */
+/* ---------- initiatives ---------- */
 .wt-ini { grid-template-columns: minmax(240px, 2fr) 120px 70px 100px 80px 140px; }
-.wt-rel { grid-template-columns: minmax(240px, 2fr) 160px 110px; }
 .ini-prog { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
 .ini-page { max-width: 860px; margin: 0 auto; padding: 40px 32px 100px; display: flex; flex-direction: column; gap: 12px; }
 .ini-icon { font-size: 26px; }
@@ -2304,9 +2273,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .ini-item:hover .hover-only { opacity: 1; }
 .ini-update-input { width: 100%; min-height: 90px; margin: 8px 0; }
 .prop-chip.static { cursor: default; }
-.rel-new { display: flex; align-items: center; gap: 8px; flex: 1; color: var(--text-dim); }
-.rel-new input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--text-primary); font-size: 13px; }
-.rel-head { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--hairline); }
 
 /* ---------- SLAs ---------- */
 .sla-badge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 5px; font-size: 11.5px; font-weight: 510; white-space: nowrap; }
@@ -2318,23 +2284,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .sla-prios { display: flex; gap: 4px; flex-wrap: wrap; }
 .sla-hours { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
 .sla-hours input { width: 70px; height: 28px; }
-
-/* ---------- asks ---------- */
-.asks-page { max-width: 860px; margin: 0 auto; padding: 28px 32px 80px; }
-.ask-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 20px; }
-.ask-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; text-align: left; color: var(--text-primary); }
-.ask-card:hover { background: var(--bg-hover); }
-.ask-card .dim { font-size: 12px; }
-.ask-form { max-width: 620px; margin: 0 auto; padding: 40px 32px 80px; display: flex; flex-direction: column; gap: 14px; }
-.ask-form h1 { margin: 0; font-size: 24px; }
-.ask-q { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 510; }
-.ask-q textarea { min-height: 110px; }
-.ask-star { color: #eb5757; }
-.ask-error { color: #eb5757; font-size: 12.5px; }
-.ask-done { font-size: 13px; color: var(--text-secondary); }
-.ask-field-row { display: flex; align-items: center; gap: 6px; }
-.ask-field-row .text-input { height: 28px; }
-.ask-req { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
 
 /* ---------- loops ---------- */
 .loop-editor { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin-bottom: 12px; }
@@ -2393,7 +2342,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .activity-item { color: var(--text-secondary); }
 .activity-item b { font-weight: 510; color: var(--text-secondary); }
 .activity-item .rel-time { font-family: inherit; font-size: inherit; }
-.creq-btn { display: inline-flex; }
 .cbox-send { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); }
 
 /* ---------- Linear parity: figures, list chrome ---------- */
@@ -2413,7 +2361,7 @@ code, pre, kbd { font-family: var(--font-code); }
 .group-header { height: 36px; margin: 2px 8px; padding: 0 10px; border-radius: 6px; background: var(--bg-group, color-mix(in srgb, var(--text-primary) 4%, var(--bg-main))); font-weight: 510; letter-spacing: 0; }
 .group-header .gh-rule { background: transparent; }
 .issue-key { width: auto; min-width: var(--key-w, 52px); white-space: nowrap; color: var(--text-secondary); }
-/* as a list narrows (small window, inbox, peek) the title keeps its room and the chips step aside */
+/* as a list narrows (small window, inbox, peek) the title keeps its width and some chips are hidden */
 .issue-list { container: issue-list / inline-size; }
 @container issue-list (max-width: 1000px) {
   .issue-row .proj-chip .chip-text { display: none; }
@@ -2584,7 +2532,7 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 :root[data-theme='light'] { --illo-ink: #55575d; --illo-shade: #b7b9bd; --illo-fill: var(--bg-main); }
 .illo { display: block; flex: none; overflow: visible; }
 
-/* empty states read like Linear's: one left-aligned block (art, title, copy, pill buttons) in the middle of the page */
+/* empty states look like Linear's: one left-aligned block (art, title, copy, pill buttons) in the middle of the page */
 .empty-state { align-items: center; text-align: left; gap: 0; padding: 0 16px; }
 .empty-state > * { width: min(360px, 100%); }
 .empty-state > .illo { width: auto; align-self: auto; margin: 0 auto 26px calc((100% - min(360px, 100%)) / 2); animation: bl-fade-up 340ms var(--ease) both; }
@@ -2877,7 +2825,7 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
 .gh-import select.text-input { width: 160px; }
 .gh-follow { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
 
-/* settings a member can read but not change (hosted): disabled, and nothing in them clicks but links */
+/* settings a member can read but not change (hosted): disabled, and only links in them respond to clicks */
 fieldset.admin-locked { border: 0; margin: 0; padding: 0; min-width: 0; pointer-events: none; opacity: .6; }
 fieldset.admin-locked a { pointer-events: auto; }
 .admin-note { margin-bottom: 12px; }

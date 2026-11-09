@@ -2,7 +2,7 @@
 // routes with an API key (the person), writing as the workspace's Agent. Checks that repeats converge
 // (one comment, one follow-up, one state change), that follow-ups are forced into Triage, that undo
 // refuses a field someone changed since, and that a key can draft but never publish a project update.
-// Throwaway database — never touches ~/.baseline.
+// Runs against a throwaway database and never touches ~/.baseline.
 //
 //   npx tsx scripts/test-ops.ts
 import { mkdtempSync, rmSync } from 'node:fs';

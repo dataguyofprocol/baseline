@@ -1,6 +1,6 @@
 // End-to-end tests for hosted mode: Google sign-in (with Google's token endpoint stubbed),
 // sessions, the CSRF and host guards, admin-only routes, and who writes are attributed to.
-// Runs against a throwaway database — never touches ~/.baseline.
+// Runs against a throwaway database and never touches ~/.baseline.
 //
 //   npx tsx scripts/test-auth.ts
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -53,8 +53,8 @@ const cookiesFrom = (res: Response): Record<string, string> => {
   return out;
 };
 
-/** run the whole browser dance: /auth/google → (Google) → /auth/google/callback; returns the final redirect and cookies */
-// each sign-in comes from its own address, so the sign-in rate limit only bites where a test means it to
+/** run the whole browser redirect sequence: /auth/google → (Google) → /auth/google/callback; returns the final redirect and cookies */
+// each sign-in comes from its own address, so the sign-in rate limit only trips in the tests that check it
 let ipSeq = 0;
 async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boolean; next?: string; invite?: string; ip?: string } = {}) {
   const ip = opts.ip ?? `10.0.${Math.floor(++ipSeq / 250)}.${ipSeq % 250}`;
@@ -197,7 +197,6 @@ check('…and so is its activity', created.user_id === ada.id);
   const ids: Record<string, string> = {
     team: team.team.id, doomed: store.createTeam('TMP', 'Temporary').id, label: await idOf(labelRes, 'label'),
     projectLabel: await idOf(projectLabelRes, 'label'), initiativeLabel: await idOf(initiativeLabelRes, 'label'),
-    emoji: store.addEmoji('shipit', '/files/shipit.png').id,
   };
 
   // each route a member is refused and an admin isn't; `save` keeps the id an admin's create returns
@@ -219,18 +218,9 @@ check('…and so is its activity', created.user_id === ada.id);
     { name: 'add an issue template', method: 'POST', path: () => '/api/issue-templates', body: { teamId: ids.team, name: 'Bug report' }, save: ['template', 'issueTemplate'] },
     { name: 'edit an issue template', method: 'PATCH', path: () => `/api/issue-templates/${ids.issueTemplate}`, body: { name: 'Bug' } },
     { name: 'remove an issue template', method: 'DELETE', path: () => `/api/issue-templates/${ids.issueTemplate}` },
-    { name: 'add a project template', method: 'POST', path: () => '/api/project-templates', body: { name: 'Launch' }, save: ['template', 'projectTemplate'] },
-    { name: 'edit a project template', method: 'PATCH', path: () => `/api/project-templates/${ids.projectTemplate}`, body: { name: 'Big launch' } },
-    { name: 'remove a project template', method: 'DELETE', path: () => `/api/project-templates/${ids.projectTemplate}` },
-    { name: 'add a document template', method: 'POST', path: () => '/api/doc-templates', body: { name: 'RFC' }, save: ['template', 'docTemplate'] },
-    { name: 'edit a document template', method: 'PATCH', path: () => `/api/doc-templates/${ids.docTemplate}`, body: { name: 'Design doc' } },
-    { name: 'remove a document template', method: 'DELETE', path: () => `/api/doc-templates/${ids.docTemplate}` },
     { name: 'add an SLA', method: 'POST', path: () => '/api/sla-rules', body: { name: 'Urgent', priorities: [1], hours: 24 }, save: ['rule', 'sla'] },
     { name: 'edit an SLA', method: 'PATCH', path: () => `/api/sla-rules/${ids.sla}`, body: { hours: 12 } },
     { name: 'remove an SLA', method: 'DELETE', path: () => `/api/sla-rules/${ids.sla}` },
-    { name: 'add an Ask form', method: 'POST', path: () => '/api/asks', body: { name: 'IT request', teamId: ids.team }, save: ['form', 'ask'] },
-    { name: 'edit an Ask form', method: 'PATCH', path: () => `/api/asks/${ids.ask}`, body: { name: 'IT help' } },
-    { name: 'remove an Ask form', method: 'DELETE', path: () => `/api/asks/${ids.ask}` },
     { name: 'add a loop', method: 'POST', path: () => '/api/loops', body: { name: 'Triage bot', trigger: { kind: 'labelAdded', labelId: 'none' } }, save: ['loop', 'loop'] },
     { name: 'edit a loop', method: 'PATCH', path: () => `/api/loops/${ids.loop}`, body: { name: 'Triage helper' } },
     { name: 'run a loop', method: 'POST', path: () => `/api/loops/${ids.loop}/run`, body: { issueId: issue.id } },
@@ -249,10 +239,6 @@ check('…and so is its activity', created.user_id === ada.id);
     { name: 'list the repos GitHub can see', method: 'GET', path: () => '/api/github/repos/available', adminStatus: 400 },
     { name: 'pick the repos to sync', method: 'PUT', path: () => '/api/github/repos', body: { repos: ['acme/app'] } },
     { name: 'follow a GitHub repo\'s issues', method: 'PUT', path: () => '/api/github/issues/follow', body: { repo: 'acme/app', teamId: ids.team } },
-    { name: 'remove a custom emoji', method: 'DELETE', path: () => `/api/emojis/${ids.emoji}` },
-    { name: 'add a customer status', method: 'POST', path: () => '/api/customer-attrs/status', body: { name: 'Churned' }, save: ['id', 'customerStatus'] },
-    { name: 'edit a customer status', method: 'PATCH', path: () => `/api/customer-attrs/status/${ids.customerStatus}`, body: { name: 'Lost' } },
-    { name: 'remove a customer status', method: 'DELETE', path: () => `/api/customer-attrs/status/${ids.customerStatus}` },
     { name: 'delete a team', method: 'DELETE', path: () => `/api/teams/${ids.doomed}` },
   ];
   for (const r of routes) {
@@ -987,7 +973,7 @@ type Result = { email: string; status: string; emailed?: string; invite?: { id: 
     check('CLI login is approved from a password session and gets a key as that person', got.token?.startsWith('bl_api_') && got.user.id === tiaId, JSON.stringify(got));
   }
 
-  // suspension still wins over a right password
+  // a suspended account is refused even with the right password
   pw.db.prepare("UPDATE users SET status = 'suspended' WHERE id = ?").run(tiaId);
   const susp = await signInPw('tia@example.com', 'brand new password here');
   check('a suspended person can\'t sign in with the right password', susp.status === 403 && (await errOf(susp)).code === 'suspended' && !sessionOf(susp));
