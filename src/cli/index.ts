@@ -1428,12 +1428,30 @@ withDb(location.command('remove <name>')).description('Unregister a location (pr
 });
 
 // ---------- terminal UI ----------
-withAs(withDb(program.command('tui [issue]'))).description('Open the workspace in a full-screen terminal UI, optionally straight to an issue key (bare `baseline` in a terminal does the same)')
-  .action(async (issueKey: string | undefined, opts: { db?: string; as?: string }) => {
+withAs(withDb(program.command('tui [issue]'))).description('Open the workspace in a full-screen terminal UI, optionally straight to an issue key (bare `baseline` in a terminal does the same); it reopens where you left off in this directory')
+  .option('--fresh', 'start on My Issues instead of where the last session in this directory left off')
+  .action(async (issueKey: string | undefined, opts: { db?: string; as?: string; fresh?: boolean }) => {
     if (!process.stdout.isTTY || !process.stdin.isTTY) fail('`baseline tui` needs an interactive terminal, and stdout or stdin isn\'t one. In scripts, use `baseline issue list` and the other commands.');
     // loaded here so no other command pays for React and Ink
     const { runTui } = await import('../tui/index.js');
-    await runTui({ db: opts.db, as: opts.as, issue: issueKey });
+    await runTui({ db: opts.db, as: opts.as, issue: issueKey, fresh: opts.fresh });
+    process.exit(0);
+  });
+
+withDb(program.command('context')).description('What the terminal UI in this directory shows: the open issue and the list, with the cursor row marked (for an agent in a neighbouring pane resolving "this issue" or "the top three")')
+  .option('--json', 'print the state file as JSON, plus whether that TUI is still open')
+  .action(async (opts: { db?: string; json?: boolean }) => {
+    const { contextMarkdown, findSession, pidAlive, targetId, workspaceDir } = await import('../tui/session.js');
+    let target: string | null = null;
+    try { target = targetId(targetFor({ db: opts.db })); } catch { /* no usable target: match on the directory alone */ }
+    const found = findSession(workspaceDir(), target);
+    if (!found) {
+      console.error('No terminal UI state yet. Run `baseline` in this directory to open the TUI; `baseline context` then shows what it is showing.');
+      process.exit(1);
+    }
+    const alive = pidAlive(found.file.pid);
+    if (opts.json) console.log(JSON.stringify({ ...found.file, open: alive, thisDirectory: found.here, path: found.path }, null, 2));
+    else console.log(contextMarkdown(found.file, { now: Date.now(), alive, here: found.here }));
     process.exit(0);
   });
 

@@ -6,7 +6,9 @@ import { errorText, runCommand, toast, type Ctx, type Layout } from './commands.
 import { fetchData } from './data.js';
 import { detailLines } from './detail.js';
 import { contextsFor, isChordPrefix, keyName, lookup, takesText, type CommandId } from './keys.js';
-import { displayWidth, isListRoute, type Line } from './model.js';
+import { contextOf } from './context.js';
+import { displayWidth, isListRoute, type GroupBy, type Line, type Preset } from './model.js';
+import type { SessionContext } from './session.js';
 import { OverlayView } from './overlay-views.js';
 import { DetailScreen, Footer, headerLine, InboxScreen, ListScreen, PeekPane, ProjectsScreen, scrollLabel, Sidebar, ToastLine } from './screens.js';
 import { initialState, reducer, routeKey, type Action, type Route, type TuiState } from './state.js';
@@ -26,6 +28,10 @@ export interface AppProps {
   actorId?: string;
   route?: Route;
   stack?: Route[];
+  /** list display and cursor to start with (a restored session) */
+  start?: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null };
+  /** told what the screen shows whenever that changes, for `baseline context` */
+  onContext?: (c: SessionContext) => void;
   /** ms between background refetches; agents write to the same database from other processes */
   pollMs?: number;
 }
@@ -73,8 +79,8 @@ function BootScreen({ s, width, height }: { s: TuiState; width: number; height: 
   );
 }
 
-export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
-  const [state, dispatchToReact] = useReducer(reducer, undefined, () => initialState(route, stack));
+export function App({ bl, actorId, route, stack, start, onContext, pollMs = 4000 }: AppProps) {
+  const [state, dispatchToReact] = useReducer(reducer, undefined, () => initialState(route, stack, start));
   const stateRef = useRef(state);
   stateRef.current = state;
   // keys replayed from one chunk can arrive before React renders, so the ref runs the reducer itself
@@ -137,6 +143,12 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
     const t = setTimeout(() => dispatch({ type: 'pending', key: null }), CHORD_MS);
     return () => clearTimeout(t);
   }, [state.pending]);
+
+  const context = useMemo(() => (onContext ? contextOf(state, Date.now()) : null),
+    [onContext, state.data, state.route, state.stack, state.cursor, state.expanded, state.groupBy, state.preset]);
+  // a refetch rebuilds the same context; only a real change is worth a write
+  const contextJson = context ? JSON.stringify(context) : '';
+  useEffect(() => { if (context && onContext) onContext(context); }, [contextJson]);
 
   const sidebarFits = columns >= SIDEBAR_MIN_COLS;
   const sidebarVisible = sidebarFits && !state.sidebarHidden;

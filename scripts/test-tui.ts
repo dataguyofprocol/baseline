@@ -5,7 +5,7 @@
 //   npm run test:tui
 import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
@@ -20,6 +20,8 @@ import { buildData, fetchData, type TuiData } from '../src/tui/data.js';
 import { BINDINGS, contextsFor, helpSections, isChordPrefix, lookup, type Context } from '../src/tui/keys.js';
 import { agentCommand, agentEnv, shellPreview } from '../src/tui/launch.js';
 import { peekLines } from '../src/tui/detail.js';
+import { prepareStart } from '../src/tui/index.js';
+import { sessionPath, sessionWriter, targetId, workspaceDir, type SessionFile } from '../src/tui/session.js';
 import {
   CLOSED_TYPES, DEFAULT_VIEW, defaultExpanded, displayWidth, GROUP_BYS, listRowsFor, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
   markdownLines, selectableIds, sortIssues, truncate, wrap,
@@ -30,6 +32,10 @@ import { editField, emptyField, fieldOf } from '../src/tui/textfield.js';
 
 const work = mkdtempSync(join(tmpdir(), 'baseline-tui-test-'));
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));
+// the TUI's state files go under $HOME/.baseline/tui; never the real one
+const home = join(work, 'home');
+process.env.HOME = home;
+delete process.env.BASELINE_TUI_STATE_DIR;
 const dbPath = join(work, 'tui.db');
 const seedDb = openDb(dbPath);
 seedWorkspace(seedDb);
@@ -386,6 +392,61 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
 {
   const r = cli([], { BASELINE_DB: dbPath });
   check('bare `baseline` without a terminal prints help instead of opening the TUI', `${r.stdout}${r.stderr}`.includes('Usage: baseline') && !`${r.stdout}${r.stderr}`.includes('needs an interactive terminal'), r.stderr.slice(0, 200));
+}
+
+{
+  const stdout = new FakeStdout();
+  stdout.columns = 160;
+  const stdin = new FakeStdin();
+  const workspace = workspaceDir(work);
+  const target = targetId({ kind: 'local', dbPath, source: 'flag' });
+  const path = sessionPath(workspace, target);
+  check('the state file lives under $HOME/.baseline/tui (a temp HOME here)', path.startsWith(join(home, '.baseline', 'tui')), path);
+  const writer = sessionWriter(path, { cwd: work, workspace, target }, 50);
+  const read = (): SessionFile | null => (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as SessionFile : null);
+  const until = async (ok: () => boolean, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end && !ok()) await new Promise(r => setTimeout(r, 25)); return ok(); };
+
+  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, onContext: writer.update }), {
+    stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream, debug: true, exitOnCtrlC: false, patchConsole: false,
+  });
+  await until(() => stdout.last.includes('My Issues'));
+  stdin.press('jj');
+  const live = await fetchData(await connect({ db: dbPath }));
+  const ids = selectableIds({ kind: 'my' }, live, DEFAULT_VIEW, Date.now());
+  const third = live.issueById.get(ids[2])!;
+  const thirdKey = live.keyOf(third);
+  await until(() => read()?.list?.cursorKey === thirdKey);
+  const file = read();
+  check('moving the cursor writes the state file: route, list rows and the cursor key', file?.version === 1 && file.route.kind === 'my' && file.list?.cursorKey === thirdKey && file.list.rows.length > 2 && file.pid === process.pid, JSON.stringify(file?.list?.cursorKey));
+
+  const ctx = cli(['context', '--db', dbPath]);
+  const marked = ctx.stdout.split('\n').filter(l => l.includes('← cursor'));
+  const position = (file?.list?.rows ?? []).findIndex(r => r.key === thirdKey) + 1;
+  check('`baseline context` marks the cursor on the right row of the list', ctx.status === 0 && marked.length === 1 && marked[0].startsWith(`${position}. ${thirdKey} `), ctx.stdout + ctx.stderr);
+  check('`baseline context` says what is showing and that the TUI is open', ctx.stdout.includes('- Showing: My Issues') && ctx.stdout.includes(`pid ${process.pid}, open,`), ctx.stdout.split('\n')[0]);
+  const json = cli(['context', '--json', '--db', dbPath]);
+  check('`baseline context --json` prints the file', json.status === 0 && JSON.parse(json.stdout).list.cursorKey === thirdKey && JSON.parse(json.stdout).open === true);
+
+  stdin.press('D\r');
+  await until(() => read()?.route.kind === 'issue');
+  check('opening an issue records it as the open issue', read()?.openIssue?.key === thirdKey && read()?.display.groupBy === 'assignee', JSON.stringify(read()?.openIssue));
+  app.unmount();
+  writer.flush();
+
+  const bl2 = await connect({ db: dbPath });
+  const start = await prepareStart(bl2, {}, workspace);
+  check('the next start reopens the same issue, grouping and list', start.route?.kind === 'issue' && start.route.issueId === third.id && start.stack?.[0]?.kind === 'my' && start.start?.groupBy === 'assignee');
+  check('--fresh skips the restore', Object.keys(await prepareStart(bl2, { fresh: true }, workspace)).length === 0);
+  const out2 = new FakeStdout();
+  const app2 = render(createElement(App, { bl: bl2, pollMs: 60_000, ...start }), {
+    stdout: out2 as unknown as NodeJS.WriteStream, stdin: new FakeStdin() as unknown as NodeJS.ReadStream, debug: true, exitOnCtrlC: false, patchConsole: false,
+  });
+  check('…and renders that issue page', await until(() => out2.last.includes('Description') && out2.last.includes(third.title)), out2.last.slice(0, 300));
+  app2.unmount();
+
+  rmSync(path);
+  const none = cli(['context', '--db', dbPath]);
+  check('`baseline context` with no state file exits 1 with a hint to run baseline', none.status === 1 && none.stderr.includes('Run `baseline`'), none.stderr);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

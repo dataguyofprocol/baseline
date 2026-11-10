@@ -46,6 +46,8 @@ export interface TuiState {
   expanded: Record<string, boolean>;
   groupBy: GroupBy;
   preset: Preset;
+  /** an issue key to put the list cursor on once data arrives (reopening where the last session left off) */
+  restoreCursor: string | null;
   focus: 'main' | 'sidebar';
   sidebarCursor: number;
   sidebarHidden: boolean;
@@ -72,9 +74,9 @@ export const routeKey = (r: Route): string => {
 
 export const isTopLevel = (r: Route) => r.kind === 'my' || r.kind === 'team' || r.kind === 'inbox' || r.kind === 'projects';
 
-export function initialState(route: Route = { kind: 'my' }, stack: Route[] = []): TuiState {
+export function initialState(route: Route = { kind: 'my' }, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null } = {}): TuiState {
   return {
-    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, groupBy: 'status', preset: 'all', focus: 'main', sidebarCursor: 0, sidebarHidden: false, peek: null, pending: null,
+    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, groupBy: start.groupBy ?? 'status', preset: start.preset ?? 'all', restoreCursor: start.cursorKey ?? null, focus: 'main', sidebarCursor: 0, sidebarHidden: false, peek: null, pending: null,
     toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {},
   };
 }
@@ -204,7 +206,12 @@ export function reducer(s: TuiState, a: Action): TuiState {
   switch (a.type) {
     case 'syncStart': return { ...s, syncing: true };
     case 'loaded': {
-      const next = relist(s, { ...s, data: a.data, status: 'ready', error: null, syncing: false, syncedAt: a.at }, a.at);
+      let next = relist(s, { ...s, data: a.data, status: 'ready', error: null, syncing: false, syncedAt: a.at }, a.at);
+      if (next.restoreCursor) {
+        const issue = a.data.issues.find(i => a.data.keyOf(i) === next.restoreCursor);
+        const listRoute = [next.route, ...[...next.stack].reverse()].find(isListRoute);
+        next = { ...(issue && listRoute ? selectIn(next, listRoute, issue.id) : next), restoreCursor: null };
+      }
       // an issue that vanished (deleted, archived, moved out of reach) can't stay open
       if (next.route.kind === 'issue' && !a.data.issueById.has(next.route.issueId)) {
         const back = reducer(next, { type: 'back' });

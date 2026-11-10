@@ -246,6 +246,17 @@ Each command is described in **Agent loop** below. Prefer them to `issue update`
 - Where sessions open: `baseline agent config --terminal Terminal|iTerm|Ghostty|Warp|kitty|Alacritty|WezTerm`. Session briefs live in `~/.baseline/sessions/` (owner-only, pruned after a week).
 - Template overrides live in the web app under Settings ▸ Coding tools; `issue handoff --json` always reflects the current template.
 
+## Agents beside the terminal UI
+
+The person may be browsing Baseline in its terminal UI (bare `baseline` in a terminal) in a neighbouring pane. To resolve "this issue", "the one I'm on" or "the top three" without asking for keys:
+
+```bash
+baseline context          # what the TUI in this directory shows: the open issue, and the list with "← cursor" on the selected row
+baseline context --json   # the same as data: route, openIssue {key,title}, list {title, groupBy, preset, rows[], cursorKey}, open (is that TUI still running)
+```
+
+"This issue" is the open issue, else the row marked `← cursor`; "the top three" are rows 1-3 of the list as shown. It reads the TUI's own state file (`~/.baseline/tui/`), so it works while the TUI is open or after it closed (the output says which); with no TUI run yet it exits 1. Then act with the usual commands (`issue show KEY`, `agent start-issue KEY`, …).
+
 <!-- agent-loop:start — generated from src/ops/index.ts by `npm run gen:skill`; edit the operations, not this block -->
 ## Agent loop (your work on an issue, as your agent identity)
 
