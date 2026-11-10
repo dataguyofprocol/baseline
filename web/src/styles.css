@@ -1202,56 +1202,135 @@ button.rail-kv:hover { background: var(--bg-hover); }
 }
 
 /* ---------- inbox ----------
-   Split view: a 400px list of two-line rows beside a live preview of the
-   selected issue. Selection is the shared list cursor (J/K), drawn as the same
-   2px brand rail the issue list uses. */
+   Split view: a list of two-line rows beside a live preview of the selected issue. A row is the
+   mark on the left (who, with a small corner mark for the kind; a tile when no person acted, its
+   tone saying whether it waits on you), the key and title, and one sentence of what happened.
+   No tags on the row. Selection is the shared list cursor (J/K), drawn as the register rail. */
 .inbox { display: flex; flex: 1; min-height: 0; }
-.inbox-list { width: 400px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--hairline); }
+.inbox-list { width: 420px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--hairline); }
 .inbox-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; position: relative; }
 .inbox-preview .issue-scroll { padding: 24px 32px 80px 36px; }
 /* a narrow preview gives the text room: the properties rail folds away */
 @media (max-width: 1320px) { .inbox-preview .props-rail { display: none; } }
+@media (max-width: 1100px) { .inbox-list { width: 360px; } }
+
+/* view tabs: All / Needs you / Agents (the app's pill tabs, as on My issues) */
+.inbox-tabs { height: 44px; gap: 2px; padding: 0 12px; }
+.inbox-tabs .seg { gap: 6px; }
+.inbox-tabs .seg-n { font-size: 11px; font-weight: 510; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.inbox-ask-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--prio-urgent); }
+
+/* group headers (day, Priority, Focus) read as a label on a rule */
 .inbox-group {
   position: sticky; top: 0; z-index: 1; background: var(--bg-main);
-  height: 32px; display: flex; align-items: center; padding: 0 16px;
-  color: var(--text-dim); font-size: 12px; font-weight: 510;
+  height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 22px;
+  color: var(--text-secondary); font-size: 11.5px; font-weight: 590; letter-spacing: 0;
 }
+.inbox-group::after { content: ''; order: 1; flex: 1; height: 1px; background: var(--hairline); }
+.inbox-group .count { order: 2; margin-left: 0; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); font-weight: 510; }
+
 .inbox-row {
-  position: relative; display: flex; gap: 10px; align-items: flex-start;
-  padding: 9px 12px 9px 22px; cursor: default;
+  position: relative; display: flex; gap: 11px; align-items: flex-start;
+  padding: 10px 14px 10px 24px; cursor: default;
 }
 .inbox-row:hover { background: var(--bg-hover); }
-.inbox-row.selected { background: var(--bg-active); box-shadow: inset 2px 0 0 var(--brand); }
+.inbox-row.selected { background: var(--bg-active); box-shadow: inset 2px 0 0 var(--brand-register); }
 .inbox-row.static { cursor: default; }
-/* unread: a paper node in the left gutter, with no wash and no rail */
+/* unread: the register dot in the left gutter, no wash */
 .inbox-row::before {
-  content: ''; position: absolute; left: 9px; top: 17px;
-  width: 5px; height: 5px; border-radius: 999px; background: transparent;
+  content: ''; position: absolute; left: 10px; top: 17px;
+  width: 6px; height: 6px; border-radius: 999px; background: transparent;
   transition: background 200ms ease;
 }
-.inbox-row.unread::before { background: var(--brand-paper); }
-:root[data-theme='light'] .inbox-row.unread::before { background: var(--brand); }
+.inbox-row.unread::before { background: var(--brand-register); }
 .inbox-lead { flex: none; display: flex; padding-top: 1px; }
-.inbox-sys {
-  width: 20px; height: 20px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
-  background: var(--bg-pill); color: var(--text-secondary);
+.inbox-av { position: relative; display: flex; }
+.inbox-pair { position: relative; display: block; width: 20px; height: 20px; flex: none; }
+.inbox-pair > :first-child { position: absolute; left: 0; top: 0; }
+.inbox-pair > :last-child { position: absolute; right: -2px; bottom: -2px; box-shadow: 0 0 0 2px var(--bg-main); border-radius: 50%; }
+.inbox-row.selected .inbox-pair > :last-child { box-shadow: 0 0 0 2px var(--bg-active); }
+/* the kind, as a small mark on the avatar's corner */
+.inbox-badge {
+  position: absolute; right: -4px; bottom: -3px; width: 14px; height: 14px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-main); color: var(--text-secondary); box-shadow: 0 0 0 0.5px var(--border);
 }
-.inbox-sys.agent { color: var(--green); }
-.inbox-sys.warn { color: var(--danger); }
-.inbox-count { color: var(--text-dim); }
-.inbox-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.inbox-line1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.inbox-row:hover .inbox-badge { background: color-mix(in srgb, var(--bg-main) 96%, var(--text-primary)); }
+.inbox-row.selected .inbox-badge { background: var(--bg-active); }
+.inbox-badge.mention { color: var(--brand-register); }
+.inbox-badge.done { color: var(--brand-register); }
+.inbox-badge .pr-icon { display: flex; }
+.inbox-sys {
+  position: relative; width: 20px; height: 20px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-pill); color: var(--text-secondary); box-shadow: inset 0 0 0 1px var(--border);
+}
+.inbox-sys.agent { color: var(--text-strong); }
+.inbox-sys.ask, .inbox-sys.urgent { color: var(--prio-urgent); background: color-mix(in srgb, var(--prio-urgent) 14%, transparent); box-shadow: none; }
+.inbox-sys.stop { color: var(--danger); background: color-mix(in srgb, var(--danger) 13%, transparent); box-shadow: none; }
+.inbox-sys .inbox-badge { right: -5px; bottom: -4px; }
+.inbox-count { color: var(--text-secondary); }
+.inbox-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.inbox-line1 { display: flex; align-items: center; gap: 7px; min-width: 0; height: 20px; }
 .inbox-title {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 13px; font-weight: 510; letter-spacing: -0.01em; color: var(--text-secondary);
 }
 .inbox-row.unread .inbox-title { color: var(--text-primary); font-weight: 590; letter-spacing: -0.015em; }
-.inbox-row .rel-time { flex: none; font-size: 11px; color: var(--text-dim); }
-.inbox-line2 { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12px; color: var(--text-secondary); }
-.inbox-key { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+.inbox-row .rel-time { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text-secondary); }
+.inbox-line2 { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12.5px; color: var(--text-secondary); }
+.inbox-key { flex: none; font-family: var(--font-mono); font-size: 11.5px; font-weight: 510; color: var(--text-secondary); opacity: 0.8; }
 .inbox-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inbox-excerpt { color: var(--text-dim); }
+.inbox-what b { font-weight: 510; color: var(--text-strong); }
+.inbox-row:not(.unread) .inbox-what b { color: var(--text-secondary); }
+.inbox-excerpt { color: var(--text-secondary); }
 .inbox-row .hover-only { position: absolute; right: 10px; top: 50%; translate: 0 -50%; background: var(--bg-menu); }
+/* hover: the time steps aside for U, H and ⌫ */
+.inbox-qa {
+  position: absolute; right: 10px; top: 8px; display: none; align-items: center; gap: 1px; padding: 1px;
+  border-radius: 7px; background: var(--bg-menu); box-shadow: var(--shadow-menu);
+}
+.inbox-qa .icon-btn { width: 24px; height: 22px; }
+.inbox-row:hover .inbox-qa { display: flex; }
+.inbox-row:has(.inbox-qa):hover .rel-time { visibility: hidden; }
+@media (hover: none) { .inbox-qa { display: none !important; } .inbox-row:hover .rel-time { visibility: visible; } }
+
+/* the list's keys, always in view */
+.inbox-keys {
+  flex: none; display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 16px;
+  border-top: 1px solid var(--hairline); color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; overflow: hidden;
+}
+.inbox-keys > span { display: inline-flex; align-items: center; gap: 4px; }
+.inbox-keys .kbd { margin-right: 1px; }
+
+/* a nearly empty inbox: what will land here, on the line */
+.inbox-lands { display: flex; flex-direction: column; gap: 6px; padding: 28px 24px 24px; }
+.inbox-lands-line { position: relative; height: 1.5px; background: var(--rule); margin-bottom: 14px; }
+.inbox-lands-line span { position: absolute; left: 0; top: -6px; width: 13px; height: 13px; margin-left: -1px; border-radius: 50%; background: var(--bg-main); }
+.inbox-lands-line span::after { content: ''; position: absolute; inset: 2.5px; border-radius: 50%; background: var(--brand-register); }
+.inbox-lands-title { font-size: 14px; font-weight: 590; letter-spacing: -0.015em; color: var(--text-primary); }
+.inbox-lands-desc { color: var(--text-secondary); margin-bottom: 8px; }
+.inbox-land { display: flex; align-items: center; gap: 10px; height: 34px; font-size: 12.5px; color: var(--text-strong); border-top: 1px solid var(--hairline); }
+.inbox-land:first-of-type { border-top: 0; }
+.inbox-land-on { margin-left: auto; font-size: 11.5px; color: var(--text-secondary); }
+.inbox-lands .btn { margin-top: 10px; }
+
+/* the preview: the notification that brought you here, above the issue, on the line */
+.inbox-why { position: relative; display: flex; gap: 11px; align-items: flex-start; padding: 2px 0 18px; margin-bottom: 22px; }
+.inbox-why::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--rule); }
+.inbox-why::before { content: ''; position: absolute; left: 0; bottom: -0.5px; width: 40px; height: var(--register-w); background: var(--brand-register); z-index: 1; }
+.inbox-why.ask::before { background: var(--prio-urgent); }
+.inbox-why.stop::before { background: var(--danger); }
+.inbox-why-lead { flex: none; display: flex; padding-top: 1px; }
+.inbox-why-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.inbox-why-head { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--text-secondary); min-height: 22px; padding-top: 1px; }
+.inbox-why-what { min-width: 0; }
+.inbox-why-what b { font-weight: 590; color: var(--text-primary); }
+.inbox-why-head .rel-time { flex: none; font-size: 12px; color: var(--text-secondary); }
+.inbox-why-quote {
+  font-size: 13.5px; line-height: 21px; color: var(--text-strong);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.inbox-why-keys { flex: none; display: flex; gap: 2px; margin-top: -2px; }
 
 /* ---------- settings ---------- */
 .settings-layout { display: flex; height: 100%; }
@@ -3293,3 +3372,16 @@ fieldset.admin-locked a { pointer-events: auto; }
 .agent-line.ask { background: color-mix(in srgb, var(--prio-urgent) 13%, transparent); color: var(--prio-urgent); }
 .agent-line.ask i { background: color-mix(in srgb, var(--prio-urgent) 35%, transparent); }
 .agent-line.ask i::after { left: 8px; background: var(--prio-urgent); }
+
+/* inbox previews without an issue (Inbox.tsx ProjectNotice): title, what happened, one action */
+.proj-notice { gap: 14px; padding: 32px 40px; }
+.proj-notice .pn-title { font-size: 20px; font-weight: 620; letter-spacing: -0.025em; line-height: 26px; }
+.proj-notice .pn-body { font-size: 13.5px; line-height: 21px; }
+.pn-code { font-family: var(--font-code); font-size: 12px; padding: 10px 12px; border-radius: 8px; background: var(--bg-input); box-shadow: inset 0 0 0 1px var(--border); color: var(--text-strong); }
+.pn-person { display: flex; align-items: center; gap: 14px; }
+.pn-person .pn-body { font-size: 13px; }
+.pn-facts { display: grid; grid-template-columns: 110px minmax(0, 1fr); row-gap: 10px; column-gap: 16px; margin: 4px 0; padding: 14px 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); font-size: 13px; }
+.pn-facts dt { color: var(--text-secondary); margin: 0; }
+.pn-facts dd { margin: 0; color: var(--text-strong); }
+.inbox-row.snoozed { opacity: 1; }
+.inbox-row.snoozed .inbox-body, .inbox-row.snoozed .inbox-lead { opacity: 0.62; }

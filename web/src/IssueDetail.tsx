@@ -596,7 +596,9 @@ function TriageBanner(props: { issue: Issue }) {
 }
 
 /* ---------------- issue detail body ---------------- */
-export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: boolean; peek?: boolean; hideTriage?: boolean }) {
+export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: boolean; peek?: boolean; hideTriage?: boolean;
+  /** above the title (the inbox puts the notification that brought you here) */
+  banner?: React.ReactNode }) {
   const snap = useApp(s => s.snap)!;
   const issue = props.issue;
   const helpers = useHelpers();
@@ -779,6 +781,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
         <div className="issue-main">
           <div className="issue-scroll">
             <div className="issue-col" style={props.full ? undefined : { maxWidth: 'none' }}>
+              {props.banner}
               {!props.hideTriage && <TriageBanner issue={issue} />}
               <textarea
                 ref={titleRef}

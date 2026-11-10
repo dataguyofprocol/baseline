@@ -6,8 +6,7 @@ import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu, Burst } from './ui.js';
 import { useEarned } from './motion.js';
 import { IssueDetail } from './IssueDetail.js';
-import { Avatar, StateIcon, teamDisplayIcon } from './pickers.js';
-import { AvatarStack } from './AvatarStack.js';
+import { Avatar, teamDisplayIcon } from './pickers.js';
 import { parseReminder } from './propertyMenus.js';
 import { Markdown } from './Markdown.js';
 import { PrIcon, prStateOfNotice } from './GitHubUI.js';
@@ -16,10 +15,10 @@ import { healthColor, healthLabel } from './Projects.js';
 import {
   IconAssignArrow, IconComment, IconMention, IconCycle, IconFilter, IconDisplay, IconCheck, IconTrash,
   IconClock, IconSettings, IconReply, IconBell, IconClose, IconUpdates, IconPlus, IconEdit,
-  IconEmoji, IconDoc, IconExternal, IconLink,
+  IconEmoji, IconDoc, IconExternal, IconLink, IconAgent, IconLoop,
 } from './icons.js';
 import { notifyCategory, type Notification, type NotificationType, type NotifyCategory, type Snapshot } from '../../src/core/types.js';
-import { inboxRows } from '../../src/core/inbox.js';
+import { inboxRows, needsYou } from '../../src/core/inbox.js';
 import { plainText } from '../../src/core/mentions.js';
 import { toggleSubscription } from './actions.js';
 import { EmptyState } from './EmptyState.js';
@@ -29,7 +28,8 @@ import { EmptyState } from './EmptyState.js';
    notifications and reminders stay out of sight until their time. */
 
 type Row = { key: string; lead: Notification; actors: string[]; ids: string[]; unread: boolean; count: number };
-interface InboxPrefs { order: 'newest' | 'oldest'; showSnoozed: boolean; unreadFirst: boolean; types: NotificationType[]; from: string[]; priority: boolean; groupUnreads: 'none' | 'focus'; priorityCats?: NotifyCategory[] }
+type InboxView = 'all' | 'needs' | 'agents';
+interface InboxPrefs { view?: InboxView; order: 'newest' | 'oldest'; showSnoozed: boolean; unreadFirst: boolean; types: NotificationType[]; from: string[]; priority: boolean; groupUnreads: 'none' | 'focus'; priorityCats?: NotifyCategory[] }
 const PREFS_KEY = 'baseline:inboxPrefs';
 /** what Priority inbox lifts to the top (Settings › Notifications › Priority notifications) */
 export const DEFAULT_PRIORITY_CATS: NotifyCategory[] = ['agentWork', 'assignments', 'mentions', 'comments', 'reminders', 'updates'];
@@ -53,6 +53,8 @@ const TYPE_GROUPS: Array<[string, NotificationType[]]> = [
 /* one filter value covers several kinds */
 const TYPE_ALIASES: Partial<Record<NotificationType, NotificationType[]>> = { projectIssueAdded: ['projectIssueAdded', 'projectIssueClosed', 'projectChanged'] };
 
+const VIEW_LABELS: Record<InboxView, string> = { all: 'All', needs: 'Needs you', agents: 'Agents' };
+
 const FOCUS_LABELS: Partial<Record<NotificationType, string>> = {
   agentFinished: 'Agent work', agentBlocked: 'Agent work',
   issueAssignedToYou: 'Assigned to you', issueMentioned: 'Mentions', issueReplied: 'Replies', issueReminder: 'Reminders',
@@ -65,6 +67,21 @@ function snoozeOptions(): Array<[string, Date]> {
   return [['An hour from now', new Date(Date.now() + 3600000)], ['In 3 hours', new Date(Date.now() + 3 * 3600000)], ['Tomorrow', at(9, 1)], ['Next week', nextMon()], ['A month from now', (() => { const d = at(9); d.setMonth(d.getMonth() + 1); return d; })()]];
 }
 const fmt = (d: Date) => d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+/** when a row happened: a reminder counts from the time it was set for */
+const rowAt = (r: { lead: Notification }) => r.lead.snoozedUntil && r.lead.type === 'issueReminder' ? r.lead.snoozedUntil : r.lead.createdAt;
+const isAgent = (t: NotificationType) => t === 'agentFinished' || t === 'agentBlocked';
+/** the day group a row sits under when the inbox isn't grouped some other way */
+function dayLabel(iso: string): string {
+  const day = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
+  const ago = Math.round((day(new Date()) - day(new Date(iso))) / 86400000);
+  return ago <= 0 ? 'Today' : ago === 1 ? 'Yesterday' : ago < 7 ? 'This week' : 'Older';
+}
+/** "X joined <workspace> (<teams>)", the systemUpdate the server sends when someone accepts an invite */
+function parseJoined(n: Notification): { who: string; where: string; teams: string } | null {
+  if (n.type !== 'systemUpdate' || !n.actorId) return null;
+  const m = /^(.+?) joined (.+?)(?: \(([^)]*)\))?$/.exec(n.body);
+  return m ? { who: m[1], where: m[2], teams: m[3] ?? '' } : null;
+}
 
 function SnoozeItems(props: { onPick: (d: Date) => void }) {
   const [q, setQ] = useState('');
@@ -113,12 +130,18 @@ export function InboxPage() {
   /* Everything about one issue is one row (core/inbox.ts, as GET /api/notifications counts
      them): it leads with the newest headline, stacks everyone who acted, and stays unread
      while any part is unread. */
-  const rows = useMemo(() => {
+  const allRows = useMemo(() => {
     const out: Row[] = inboxRows(notifications).map(r => ({ key: r.key, lead: r.lead, actors: r.actorIds, ids: r.ids, unread: r.unread, count: r.count }));
-    const at = (r: Row) => r.lead.snoozedUntil && r.lead.type === 'issueReminder' ? r.lead.snoozedUntil : r.lead.createdAt;
-    out.sort((a, b) => (prefs.unreadFirst ? Number(b.unread) - Number(a.unread) : 0) || (prefs.order === 'newest' ? at(b).localeCompare(at(a)) : at(a).localeCompare(at(b))));
+    out.sort((a, b) => (prefs.unreadFirst ? Number(b.unread) - Number(a.unread) : 0) || (prefs.order === 'newest' ? rowAt(b).localeCompare(rowAt(a)) : rowAt(a).localeCompare(rowAt(b))));
     return out;
   }, [notifications, prefs.order, prefs.unreadFirst]);
+  /* the view tabs: everything, what waits on you (core/inbox.ts needsYou, the same rule as My work
+     and the terminal's Today), and agent reports */
+  const view: InboxView = prefs.view ?? 'all';
+  const inView = (r: Row, v: InboxView) => v === 'all' || (v === 'needs' ? needsYou(r.lead) : isAgent(r.lead.type));
+  const viewCount = { all: allRows.length, needs: allRows.filter(r => inView(r, 'needs')).length, agents: allRows.filter(r => inView(r, 'agents')).length };
+  const needsUnread = allRows.some(r => r.unread && inView(r, 'needs'));
+  const rows = useMemo(() => allRows.filter(r => inView(r, view)), [allRows, view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Priority inbox puts what needs you (assignments, mentions, replies, reminders) above
      everything else; Focus groups the unread ones by kind. Rows are re-ordered to match
@@ -128,10 +151,11 @@ export function InboxPage() {
     // an agent's finished or blocked report is always priority: it's waiting on you
     if (prefs.priority) { const c = notifyCategory(r.lead.type, r.lead.body); return c === 'agentWork' || (c && (prefs.priorityCats ?? DEFAULT_PRIORITY_CATS).includes(c)) ? 'Priority' : 'Other'; }
     if (prefs.groupUnreads === 'focus') return 'Read';
-    return null;
+    // no grouping: the list reads by day (not with unread first, which mixes the days)
+    return prefs.unreadFirst ? null : dayLabel(rowAt(r));
   };
   const sectionRank = (name: string | null) => {
-    if (name === null) return 0;
+    if (name === null || (!prefs.priority && prefs.groupUnreads !== 'focus')) return 0;
     const order = prefs.groupUnreads === 'focus' ? [...Object.values(FOCUS_LABELS), 'Other updates', ...(prefs.priority ? ['Priority', 'Other'] : ['Read'])] : ['Priority', 'Other'];
     const i = order.indexOf(name);
     return i < 0 ? 99 : i;
@@ -227,34 +251,77 @@ export function InboxPage() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const describe = (n: Notification): { icon: React.ReactNode; what: string } => {
+  const describe = (n: Notification, z = 12): { icon: React.ReactNode; what: string } => {
     switch (n.type) {
-      case 'agentFinished': return { icon: <IconCheck size={12} />, what: n.body.startsWith('Ready') ? 'finished, ready for your review' : 'finished' };
-      case 'agentBlocked': return { icon: <IconClose size={12} />, what: n.body.startsWith('Stopped') ? 'stopped before finishing' : 'is blocked' };
-      case 'issueAssignedToYou': return { icon: <IconAssignArrow size={12} />, what: 'assigned the issue to you' };
-      case 'issueCommented': return { icon: <IconComment size={12} />, what: 'commented' };
-      case 'issueReplied': return { icon: <IconReply size={12} />, what: 'replied to your thread' };
-      case 'docChanged': return { icon: <IconDoc size={12} />, what: 'edited your document' };
-      case 'commentReacted': return { icon: <IconEmoji size={12} />, what: `reacted ${n.body.split(' ')[0]} to your comment` };
-      case 'issueMentioned': return { icon: <IconMention size={12} />, what: 'mentioned you' };
-      case 'issueStatusChanged': return { icon: <IconCycle size={12} />, what: n.body ? `changed status to ${n.body}` : 'changed the status' };
-      case 'issueReminder': return { icon: <IconClock size={12} />, what: 'Reminder' };
-      case 'systemUpdate': return { icon: <IconBell size={12} />, what: '' };
-      case 'projectUpdate': return { icon: <IconUpdates size={12} />, what: 'posted a project update' };
-      case 'projectIssueAdded': return { icon: <IconPlus size={12} />, what: 'added an issue to the project' };
-      case 'projectIssueClosed': return { icon: <IconCheck size={12} />, what: n.body.startsWith('Canceled') ? 'canceled an issue in the project' : 'completed an issue in the project' };
-      case 'projectChanged': return { icon: <IconEdit size={12} />, what: 'changed the project description' };
-      case 'projectUpdateReminder': return { icon: <IconClock size={12} />, what: 'Project update due' };
-      case 'initiativeUpdateReminder': return { icon: <IconClock size={12} />, what: 'Initiative update due' };
-      case 'updatesDigest': return { icon: <IconUpdates size={12} />, what: 'Project updates summary' };
-      case 'slaBreached': return { icon: <IconClock size={12} />, what: 'SLA breached' };
-      case 'prActivity': return { icon: <PrIcon state={prStateOfNotice(n.body)} size={14} title="Pull request" />, what: n.body };
-      case 'loopFailed': return { icon: <IconClose size={12} />, what: `loop failed: ${n.body}` };
-      case 'teamActivity': return { icon: <IconBell size={12} />, what: n.body };
-      case 'teamMemberAdded': return { icon: <IconPlus size={12} />, what: 'added you to the team' };
-      case 'accessRequested': return { icon: <IconBell size={12} />, what: `asked you to ${n.body.split('|').slice(1).join('|').replace(/^./, c => c.toLowerCase())}` };
-      default: return { icon: <IconComment size={12} />, what: 'updated the issue' };
+      case 'agentFinished': return { icon: <IconCheck size={z} />, what: n.body.startsWith('Ready') ? 'finished, ready for your review' : 'finished' };
+      case 'agentBlocked': return { icon: <IconClose size={z} />, what: n.body.startsWith('Stopped') ? 'stopped before finishing' : 'needs an answer' };
+      case 'issueAssignedToYou': return { icon: <IconAssignArrow size={z} />, what: 'assigned the issue to you' };
+      case 'issueCommented': return { icon: <IconComment size={z} />, what: 'commented' };
+      case 'issueReplied': return { icon: <IconReply size={z} />, what: 'replied to your thread' };
+      case 'docChanged': return { icon: <IconDoc size={z} />, what: 'edited your document' };
+      case 'commentReacted': return { icon: <IconEmoji size={z} />, what: `reacted ${n.body.split(' ')[0]} to your comment` };
+      case 'issueMentioned': return { icon: <IconMention size={z} />, what: 'mentioned you' };
+      case 'issueStatusChanged': return { icon: <IconCycle size={z} />, what: n.body ? `changed status to ${n.body}` : 'changed the status' };
+      case 'issueReminder': return { icon: <IconClock size={z} />, what: 'Reminder' };
+      case 'systemUpdate': return { icon: parseJoined(n) ? <IconPlus size={z} /> : <IconBell size={z} />, what: '' };
+      case 'projectUpdate': return { icon: <IconUpdates size={z} />, what: 'posted a project update' };
+      case 'projectIssueAdded': return { icon: <IconPlus size={z} />, what: 'added an issue to the project' };
+      case 'projectIssueClosed': return { icon: <IconCheck size={z} />, what: n.body.startsWith('Canceled') ? 'canceled an issue in the project' : 'completed an issue in the project' };
+      case 'projectChanged': return { icon: <IconEdit size={z} />, what: 'changed the project description' };
+      case 'projectUpdateReminder': return { icon: <IconClock size={z} />, what: 'Project update due' };
+      case 'initiativeUpdateReminder': return { icon: <IconClock size={z} />, what: 'Initiative update due' };
+      case 'updatesDigest': return { icon: <IconUpdates size={z} />, what: 'Project updates summary' };
+      case 'slaBreached': return { icon: <IconClock size={z} />, what: 'SLA breached' };
+      case 'prActivity': return { icon: <PrIcon state={prStateOfNotice(n.body)} size={z + 2} title="Pull request" />, what: n.body };
+      case 'loopFailed': return { icon: <IconClose size={z} />, what: `loop failed: ${n.body}` };
+      case 'teamActivity': return { icon: <IconBell size={z} />, what: n.body };
+      case 'teamMemberAdded': return { icon: <IconPlus size={z} />, what: 'added you to the team' };
+      case 'accessRequested': return { icon: <IconBell size={z} />, what: `asked you to ${n.body.split('|').slice(1).join('|').replace(/^./, c => c.toLowerCase())}` };
+      default: return { icon: <IconComment size={z} />, what: 'updated the issue' };
     }
+  };
+  /** the left mark: who acted, with a small mark for the kind; a tile when no person did. The
+   *  tile's tone carries an agent's state (orange: waiting on you, red: stopped), so rows need no tags */
+  const leadOf = (row: Row): React.ReactNode => {
+    const n = row.lead;
+    const actors = row.actors.map(a => snap.users.find(u => u.id === a)).filter(Boolean) as typeof snap.users;
+    if (isAgent(n.type)) {
+      const tone = n.type === 'agentFinished' ? 'agent' : n.body.startsWith('Stopped') ? 'stop' : 'ask';
+      return <span className={`inbox-sys ${tone}`} title={tone === 'agent' ? 'Agent finished' : tone === 'ask' ? 'Agent needs an answer' : 'Agent stopped'}><IconAgent size={14} />{tone === 'agent' && <span className="inbox-badge done"><IconCheck size={8} /></span>}</span>;
+    }
+    const tile = (tone = '') => <span className={`inbox-sys${tone ? ' ' + tone : ''}`}>{describe(n).icon}</span>;
+    if (n.type === 'slaBreached') return tile('urgent');
+    if (n.type === 'loopFailed') return <span className="inbox-sys stop"><IconLoop size={12} /></span>;
+    if (n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'initiativeUpdateReminder' || n.type === 'updatesDigest') return tile();
+    // several people: the newest two, overlapped in the same 20px slot, so every row's text lines up
+    if (actors.length > 1) return <span className="inbox-pair" title={actors.map(a => a.name).join(', ')}><Avatar user={actors[0]} size={15} /><Avatar user={actors[1]} size={15} /></span>;
+    if (actors.length === 1) {
+      const mark = n.type === 'prActivity' ? <PrIcon state={prStateOfNotice(n.body)} size={9} title="Pull request" /> : describe(n, 9).icon;
+      return <span className="inbox-av"><Avatar user={actors[0]} size={20} /><span className={`inbox-badge${n.type === 'issueMentioned' ? ' mention' : ''}`}>{mark}</span></span>;
+    }
+    return tile();
+  };
+  /** line two: who did what, as one sentence */
+  const whoWhat = (row: Row): React.ReactNode => {
+    const n = row.lead;
+    const actors = row.actors.map(a => snap.users.find(u => u.id === a)).filter(Boolean) as typeof snap.users;
+    if (n.type === 'issueReminder') return 'Reminder you set';
+    if (n.type === 'projectUpdateReminder' || n.type === 'updatesDigest') return n.body;
+    if (n.type === 'initiativeUpdateReminder') return n.body.split('|').slice(1).join('|');
+    if (n.type === 'systemUpdate') { const j = parseJoined(n); return j ? `New member${j.teams ? `, added to ${j.teams}` : ''}` : 'Workspace notice'; }
+    if (n.type === 'loopFailed') return n.body;
+    const target = updateTarget(snap, n);
+    if (isAgent(n.type) && !actors.length) return <><b>Agent</b> {describe(n).what}</>;
+    return <>{actors[0] ? <><b>{nameOf(actors[0])}</b>{actors.length === 2 ? <> and <b>{nameOf(actors[1])}</b></> : actors.length > 2 ? ` and ${actors.length - 1} others` : ''} </> : null}{target?.initiative ? 'posted an initiative update' : describe(n).what}</>;
+  };
+  /** what was said, when there's text worth showing (stored previews are plain text; rows written
+   *  before that may still hold markdown) */
+  const excerptOf = (row: Row): string => {
+    const n = row.lead;
+    if (n.type === 'issueCommented' || n.type === 'issueMentioned' || n.type === 'issueReplied') return plainText(n.body);
+    if (isAgent(n.type)) return plainText(n.body.slice(n.body.indexOf(':') + 1));
+    if ((n.type === 'projectIssueAdded' || n.type === 'projectIssueClosed' || n.type === 'projectUpdate') && n.body) { const t = updateTarget(snap, n); return plainText(t ? t.excerpt : n.body.replace(/^(Completed|Canceled): /, '')); }
+    return '';
   };
   const unreadCount = rows.filter(r => r.unread).length;
   // reading the last unread row here is worth a word; opening an inbox that was already read isn't
@@ -290,78 +357,112 @@ export function InboxPage() {
             {prefs.from.length > 0 && <span className="fpill"><span className="fp-part fp-field">From</span><span className="fp-part fp-vals">{prefs.from.map(id => snap.users.find(u => u.id === id)?.name ?? 'App').join(', ')}</span><button className="fp-part fp-x" onClick={() => patchPrefs({ from: [] })}><IconClose size={11} /></button></span>}
           </div>
         )}
+        <div className="subnav inbox-tabs" role="tablist" aria-label="Inbox views">
+          {(['all', 'needs', 'agents'] as const).map(v => (
+            <button key={v} role="tab" aria-selected={view === v} className={`seg${view === v ? ' selected' : ''}`} onClick={() => patchPrefs({ view: v })}>
+              {v === 'needs' && needsUnread && <span className="inbox-ask-dot" aria-hidden="true" />}
+              {VIEW_LABELS[v]}<span className="seg-n">{viewCount[v]}</span>
+            </button>
+          ))}
+        </div>
         <div className="content">
           {rows.length === 0 && (prefs.types.length > 0 || prefs.from.length > 0) && snap.notifications.length > 0 ? (
             <EmptyState kind="filtered" word="No matches" illo="inbox" title="No notifications match these filters"
               desc={<>{snap.notifications.length} notification{snap.notifications.length === 1 ? ' is' : 's are'} hidden by the type or sender filter.</>}
               actions={<button className="btn secondary" onClick={() => patchPrefs({ types: [], from: [] })}>Clear filters</button>} />
+          ) : rows.length === 0 && view !== 'all' && allRows.length > 0 ? (
+            <EmptyState kind="done" word={view === 'needs' ? 'Nothing waiting' : 'No reports'} illo="inbox"
+              title={view === 'needs' ? 'Nothing is waiting on you' : 'No agent reports'}
+              desc={view === 'needs' ? 'Mentions, replies, reminders, reviews and agents that need an answer show up here.' : 'When an agent finishes or gets stuck on one of your issues, it reports here.'}
+              actions={<button className="btn secondary" onClick={() => patchPrefs({ view: 'all' })}>Show all {allRows.length}</button>} />
           ) : rows.length === 0 ? (
             <EmptyState kind="done" word={emptiedNow ? 'Inbox zero' : 'Caught up'} illo="inbox"
               dot={emptiedNow && <Burst count={12} reach={46} />}
               title={emptiedNow ? 'Inbox zero' : 'You’re all caught up'}
-              desc={emptiedNow ? 'Everything is read and cleared away. Enjoy the quiet.' : 'Assignments, mentions, comments and status changes on issues you follow land here.'} />
+              desc={emptiedNow ? 'Everything is read and cleared away. Enjoy the quiet.' : 'Assignments, mentions, agent reports and reviews on issues you follow land here.'} />
           ) : sectioned.map(({ r: row, sec }, k) => {
             const n = row.lead;
             const header = sec && (k === 0 || sectioned[k - 1].sec !== sec) ? sec : null;
-            const d = describe(n);
             const issue = issueOf(n);
-            const actors = row.actors.map(a => snap.users.find(u => u.id === a)).filter(Boolean) as typeof snap.users;
             const idx = navigable.indexOf(row);
             const isSel = idx >= 0 && idx === cursor;
-            // stored previews are plain text; rows written before that may still hold markdown
-            const excerpt = ['issueCommented', 'issueMentioned', 'issueReplied'].includes(n.type) ? plainText(n.body)
-              : n.type === 'agentFinished' || n.type === 'agentBlocked' ? plainText(n.body.slice(n.body.indexOf(':') + 1)) : '';
-            const st = issue ? snap.states.find(s => s.id === issue.stateId) : undefined;
+            const excerpt = excerptOf(row);
             const project = !issue && n.projectId ? snap.projects.find(p => p.id === n.projectId) : undefined;
             const doc = n.type === 'docChanged' ? { id: n.body.split('|')[0], title: n.body.split('|').slice(1).join('|') } : null;
-            const target = updateTarget(snap, n);
-            const ini = n.type === 'initiativeUpdateReminder' ? snap.initiatives.find(i => i.id === n.body.split('|')[0]) : target?.initiative;
+            const ini = n.type === 'initiativeUpdateReminder' ? snap.initiatives.find(i => i.id === n.body.split('|')[0]) : updateTarget(snap, n)?.initiative;
             const addedTo = n.type === 'teamMemberAdded' ? teamOf(n) : null;
-            const projTitle: React.ReactNode = doc ? `📄 ${doc.title}` : addedTo ? addedTo.name : n.type === 'accessRequested' ? 'Request' : ini ? <span className="inbox-ini"><InitiativeIcon ini={ini} size={12} />{ini.name}</span> : project ? `${project.icon} ${project.name}` : n.type === 'updatesDigest' ? 'Project updates summary' : '';
+            const joined = parseJoined(n);
+            const projTitle: React.ReactNode = doc ? <span className="inbox-ini"><IconDoc size={12} />{doc.title}</span> : addedTo ? addedTo.name : joined ? `${joined.who} joined ${joined.where}` : n.type === 'accessRequested' ? 'Request' : ini ? <span className="inbox-ini"><InitiativeIcon ini={ini} size={12} />{ini.name}</span> : project ? `${project.icon} ${project.name}` : n.type === 'updatesDigest' ? 'Project updates summary' : n.type === 'loopFailed' ? 'Loop failed' : '';
             const snoozed = n.snoozedUntil && n.snoozedUntil > now;
+            const k2 = keyOf(n);
             return (
               <div key={row.key}>
-              {header && <div className="inbox-group">{header}<span className="count">{sectioned.filter(x => x.sec === sec).length}</span></div>}
+              {header && <div className="inbox-group"><span>{header}</span><span className="count">{sectioned.filter(x => x.sec === sec).length}</span></div>}
               <div
                 className={`inbox-row${row.unread ? ' unread' : ''}${(isSel && !openRow) || openRow?.lead.id === n.id ? ' selected' : ''}${idx < 0 ? ' static' : ''}${snoozed ? ' snoozed' : ''}`}
                 onClick={() => { if (idx >= 0) { setPicked(row.key); useCursor.setState({ index: idx }); setOpenRow(null); } else { setOpenRow(row); if (row.unread) void markRead(row, true); } }}
-                onDoubleClick={() => { const k = keyOf(n); if (doc) navigate(`/docs/${doc.id}`); else if (addedTo?.key) navigate(`/team/${addedTo.key}/overview`); else if (ini) navigate(`/initiatives/${ini.id}`); else if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); }}
+                onDoubleClick={() => { const to = pathOf(n); if (to) navigate(to); }}
                 onContextMenu={e => { setMenuRow(row); rowMenu.open(e); }}>
-                <span className="inbox-lead">
-                  {n.type === 'agentFinished' || n.type === 'agentBlocked' ? <span className={`inbox-sys ${n.type === 'agentBlocked' ? 'warn' : 'agent'}`}>{d.icon}</span>
-                  : n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'initiativeUpdateReminder' || n.type === 'updatesDigest' || n.type === 'prActivity' ? <span className="inbox-sys">{d.icon}</span>
-                    : actors.length > 1 ? <AvatarStack size={20} people={actors.map(a => ({ name: a.name, initials: a.initials, color: a.color }))} />
-                    : actors.length === 1 ? <Avatar user={actors[0]} size={20} />
-                    : <span className="inbox-sys">{d.icon}</span>}
-                </span>
+                <span className="inbox-lead">{leadOf(row)}</span>
                 <div className="inbox-body">
                   <div className="inbox-line1">
-                    {st && <StateIcon type={st.type} color={st.color} size={12} />}
+                    {k2 && <span className="inbox-key">{k2}</span>}
                     <span className="inbox-title">{issue ? issue.title : projTitle || n.body || 'Issue no longer exists'}</span>
-                    {(n.type === 'agentFinished' || n.type === 'agentBlocked') && (
-                      // where the dot stops says the state: at the end when done, part way and orange when it needs you
-                      <span className={`agent-line ${n.type === 'agentBlocked' ? 'ask' : 'done'}`}><i aria-hidden="true" />{n.type === 'agentBlocked' ? 'Needs an answer' : 'Done'}</span>
-                    )}
-                    <span className="rel-time" title={snoozed ? undefined : dateTime(n.createdAt)}>{snoozed ? `Snoozed until ${fmt(new Date(n.snoozedUntil!))}` : relTime(n.type === 'issueReminder' && n.snoozedUntil ? n.snoozedUntil : n.createdAt)}</span>
+                    <span className="rel-time" title={snoozed ? undefined : dateTime(n.createdAt)}>{snoozed ? <><IconClock size={11} />{fmt(new Date(n.snoozedUntil!))}</> : relTime(rowAt(row))}</span>
                   </div>
                   <div className="inbox-line2">
-                    {keyOf(n) && <span className="inbox-key">{keyOf(n)}</span>}
                     <span className="inbox-what">
-                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'updatesDigest' ? n.body : n.type === 'initiativeUpdateReminder' ? n.body.split('|').slice(1).join('|') : <>{actors[0] ? <>{nameOf(actors[0])}{actors.length === 2 ? ` and ${nameOf(actors[1])}` : actors.length > 2 ? ` and ${actors.length - 1} others` : ''} </> : null}{target?.initiative ? 'posted an initiative update' : d.what}</>}
-                      {(n.type === 'projectIssueAdded' || n.type === 'projectIssueClosed' || n.type === 'projectUpdate') && n.body && <>: <span className="inbox-excerpt">{plainText(target ? target.excerpt : n.body.replace(/^(Completed|Canceled): /, ''))}</span></>}
+                      {whoWhat(row)}
                       {excerpt && <>: <span className="inbox-excerpt">{excerpt}</span></>}
                       {row.count > 1 && <span className="inbox-count"> · {row.count} updates</span>}
                     </span>
                   </div>
                 </div>
+                {/* hover: the time steps aside for the three triage keys */}
+                <span className="inbox-qa" onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                  <button className="icon-btn" title={row.unread ? 'Mark as read (U)' : 'Mark as unread (U)'} aria-label={row.unread ? 'Mark as read' : 'Mark as unread'} onClick={() => void markRead(row, row.unread)}><IconCheck size={13} /></button>
+                  <button className="icon-btn" title="Snooze (H)" aria-label="Snooze" onClick={e => { setMenuRow(row); snoozeMenu.setAnchor(e.currentTarget.getBoundingClientRect()); }}><IconClock size={13} /></button>
+                  <button className="icon-btn" title="Delete (⌫)" aria-label="Delete notification" onClick={() => void remove(row)}><IconTrash size={13} /></button>
+                </span>
               </div>
               </div>
             );
           })}
+          {/* a new workspace's inbox is nearly empty: say what will land here, so it doesn't look broken */}
+          {view === 'all' && !prefs.types.length && !prefs.from.length && rows.length > 0 && snap.notifications.length <= 3 && (
+            <div className="inbox-lands">
+              <div className="inbox-lands-line" aria-hidden="true"><span /></div>
+              <div className="inbox-lands-title">Your inbox fills as work starts</div>
+              <div className="inbox-lands-desc">Anything that needs you lands here first.</div>
+              {([
+                [<IconAssignArrow size={12} />, 'Assignments', notifyPrefs.assigned !== false],
+                [<IconMention size={12} />, 'Mentions and replies', notifyPrefs.mentions !== false],
+                [<IconComment size={12} />, 'Comments on issues you follow', notifyPrefs.comments !== false],
+                [<IconAgent size={12} />, 'Agents that finish or need an answer', true],
+                [<IconCycle size={12} />, 'Status changes', notifyPrefs.statusChanged !== false],
+              ] as Array<[React.ReactNode, string, boolean]>).map(([icon, label, on]) => (
+                <div key={label} className="inbox-land"><span className="inbox-sys">{icon}</span><span>{label}</span><span className="inbox-land-on">{on ? 'On' : 'Off'}</span></div>
+              ))}
+              <div><button className="btn secondary sm" onClick={() => navigate('/settings/notifications')}>Notification settings</button></div>
+            </div>
+          )}
+        </div>
+        <div className="inbox-keys" aria-hidden="true">
+          <span><span className="kbd">J</span><span className="kbd">K</span>move</span>
+          <span><span className="kbd">U</span>read</span>
+          <span><span className="kbd">H</span>snooze</span>
+          <span><span className="kbd">⌫</span>delete</span>
+          <span><span className="kbd">⇧</span><span className="kbd">⌫</span>clear read</span>
         </div>
       </div>
       <div className="inbox-preview">
-        {openRow ? <ProjectNotice n={openRow.lead} /> : selectedIssue ? <IssueDetail key={selectedIssue.id} issue={selectedIssue} /> : (
+        {openRow ? <ProjectNotice n={openRow.lead} /> : selectedIssue && selected ? (
+          <IssueDetail key={selectedIssue.id} issue={selectedIssue} banner={
+            <WhyBand row={selected} lead={leadOf(selected)} what={whoWhat(selected)} excerpt={excerptOf(selected)}
+              onSnooze={el => { setMenuRow(selected); snoozeMenu.setAnchor(el.getBoundingClientRect()); }}
+              onDelete={() => void remove(selected)} />
+          } />
+        ) : (
           <EmptyState kind="holding" size="pane" illo="inbox" title={rows.length ? 'No notification selected' : 'Nothing to preview'}
             desc={rows.length > 0 && <><span className="kbd">J</span> <span className="kbd">K</span> to move · <span className="kbd">U</span> read/unread · <span className="kbd">⌫</span> delete · <span className="kbd">H</span> snooze</>} />
         )}
@@ -461,6 +562,28 @@ function updateTarget(snap: Snapshot, n: Notification) {
   return { project: undefined, initiative: ini, update, excerpt: n.body.slice(`New update on ${ini.name}: `.length) };
 }
 
+/** above an issue in the preview: the notification itself, on the line, with its triage keys. The
+ *  register under it turns orange when the row waits on you and red when an agent stopped */
+function WhyBand({ row, lead, what, excerpt, onSnooze, onDelete }: {
+  row: Row; lead: React.ReactNode; what: React.ReactNode; excerpt: string; onSnooze: (el: HTMLElement) => void; onDelete: () => void;
+}) {
+  const n = row.lead;
+  const tone = n.type === 'agentBlocked' ? (n.body.startsWith('Stopped') ? ' stop' : ' ask') : n.type === 'slaBreached' ? ' ask' : '';
+  return (
+    <div className={`inbox-why${tone}`} data-inbox-why>
+      <span className="inbox-why-lead">{lead}</span>
+      <div className="inbox-why-body">
+        <div className="inbox-why-head"><span className="inbox-why-what">{what}</span><span className="rel-time" title={dateTime(n.createdAt)}>{relTime(rowAt(row))}</span></div>
+        {excerpt && <div className="inbox-why-quote">{excerpt}</div>}
+      </div>
+      <div className="inbox-why-keys">
+        <button className="icon-btn" title="Snooze (H)" aria-label="Snooze" onClick={e => onSnooze(e.currentTarget)}><IconClock size={14} /></button>
+        <button className="icon-btn" title="Delete (⌫)" aria-label="Delete notification" onClick={onDelete}><IconTrash size={14} /></button>
+      </div>
+    </div>
+  );
+}
+
 /** one posted update as a card: who, health, when, the body and where to go */
 function UpdateCard({ title, update, onOpen, openLabel }: {
   title: React.ReactNode; update: { body: string; health: Parameters<typeof healthColor>[0] | null; userId: string; createdAt: string }; onOpen: () => void; openLabel: string;
@@ -508,7 +631,7 @@ function ProjectNotice({ n }: { n: Notification }) {
     const [docId, ...rest] = n.body.split('|');
     return (
       <div className="proj-notice">
-        <div className="pn-title"><span>📄</span>{rest.join('|')}</div>
+        <div className="pn-title"><IconDoc size={16} />{rest.join('|')}</div>
         <div className="pn-body">{snap.users.find(u => u.id === n.actorId)?.name ?? 'Someone'} edited this document{p ? ` in ${p.name}` : ''}.</div>
         <div style={{ display: 'flex', gap: 8 }}><button className="btn primary sm" onClick={() => navigate(`/docs/${docId}`)}>Open document</button></div>
       </div>
@@ -560,6 +683,37 @@ function ProjectNotice({ n }: { n: Notification }) {
         <div className="pn-body">{who} posted {tp ? 'a project' : 'an initiative'} update.</div>
         {update ? <UpdateCard title={tp ? 'Project update' : 'Initiative update'} update={update} openLabel={openLabel} onOpen={open} />
           : <><div className="summary-update">{target.excerpt}</div><div><button className="btn secondary sm" onClick={open}>{openLabel}</button></div></>}
+      </div>
+    );
+  }
+  if (n.type === 'systemUpdate') {
+    // someone joined: the person, not a "Project" heading over the server's sentence
+    const j = parseJoined(n);
+    const who = n.actorId ? snap.users.find(u => u.id === n.actorId) : undefined;
+    if (j) return (
+      <div className="proj-notice">
+        <div className="pn-person"><Avatar user={who} size={40} /><div><div className="pn-title">{who?.name ?? j.who}</div><div className="pn-body">Joined {j.where} {relTime(n.createdAt)}</div></div></div>
+        <dl className="pn-facts">
+          {j.teams && <><dt>Teams</dt><dd>{j.teams}</dd></>}
+          <dt>Role</dt><dd>{who?.admin ? 'Admin' : 'Member'}</dd>
+          <dt>Assigned</dt><dd>{(c => c ? `${c} issue${c === 1 ? '' : 's'}` : 'No issues yet')(snap.issues.filter(i => i.assigneeId === who?.id && !i.archivedAt).length)}</dd>
+        </dl>
+        <div style={{ display: 'flex', gap: 8 }}><button className="btn primary sm" onClick={() => navigate('/members')}>Open members</button></div>
+      </div>
+    );
+    return (
+      <div className="proj-notice">
+        <div className="pn-title"><IconBell size={16} />Workspace notice</div>
+        <div className="pn-body">{n.body}</div>
+      </div>
+    );
+  }
+  if (n.type === 'loopFailed') {
+    const [name, ...detail] = n.body.split(': ');
+    return (
+      <div className="proj-notice">
+        <div className="pn-title"><IconLoop size={16} />{name} didn’t run</div>
+        <div className="pn-body pn-code">{detail.join(': ') || n.body}</div>
       </div>
     );
   }
