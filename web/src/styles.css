@@ -3315,6 +3315,27 @@ fieldset.admin-locked a { pointer-events: auto; }
 /* My work: the caught-up state flows under the greeting */
 .mw-empty.es { min-height: 0; padding: 48px 0 24px; }
 .empty-state.es .empty-actions:empty { display: none; }
+/* page size: the state sits on the page's own gutter, under the heading and tabs, the way the
+   canvas draws it (Language · 03): word, dot and body share the left edge, and the word is set
+   to the page, not to a tile. Panes and narrow containers keep the centred column above. */
+.empty-state.es.es-page { --es-gutter: 16px; --es-col: min(560px, calc(100% - 2 * var(--es-gutter))); --es-x: var(--es-gutter); }
+.empty-state.es.es-page:not(.mw-empty) { padding-bottom: 6vh; }
+.empty-state.es.es-page > .es-word, .empty-state.es.es-page > .es-body { align-self: flex-start; margin-left: var(--es-gutter); margin-right: 0; }
+.empty-state.es.es-page > .es-word {
+  width: auto; max-width: calc(100% - 2 * var(--es-gutter));
+  /* the glyph's side bearing grows with the size; pull it back so the stem sits on the dot */
+  margin-left: calc(var(--es-gutter) - 0.045em);
+  font-size: clamp(56px, 9.5cqi, 132px); padding-bottom: 0.08em;
+}
+.empty-state.es.es-page .es-body { padding-top: 28px; gap: 24px; }
+.empty-state.es.es-page .empty-title { font-size: 17px; margin-bottom: 10px; }
+.empty-state.es.es-page .empty-desc { font-size: 14px; line-height: 1.5; max-width: 52ch; }
+.empty-state.es.es-page .empty-actions { margin-top: 20px; }
+/* the word is the title: hide the repeated title visually while the word shows (narrow
+   containers drop the word, so the title comes back there) */
+@container (min-width: 521px) {
+  .es-word-is-title .empty-title { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+}
 
 /* ---------- the hand-off into the app (arrival.ts) ----------
    The brand screen leaves: word, ticker and form fade, the node runs to the end of the line. */

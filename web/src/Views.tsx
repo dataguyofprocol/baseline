@@ -437,7 +437,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <TopBar crumbs={team ? [{ label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true }, { label: 'Views' }] : [{ label: 'Views' }]} right={<button className="btn secondary" onClick={createView}>＋ New view</button>} />
+      <TopBar crumbs={team ? [{ label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true }, { label: 'Views' }] : [{ label: 'Views' }]} right={snap.views.length ? <button className="btn secondary" onClick={createView}>＋ New view</button> : undefined} />
       <div className="subnav">
         {(['issues', 'projects'] as const).map(k => (
           <button key={k} className={`seg ${kind === k ? 'selected' : ''}`} onClick={() => navigate(k === 'issues' ? base : `${base}/projects`)}>

@@ -540,7 +540,7 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
               useApp.getState().toast({ title: 'View saved' });
             }}>Save view</button>
           </span>
-        ) : <button className="btn secondary" onClick={() => setCreating(true)}><IconPlus size={13} /> New project</button>} />
+        ) : snap.projects.length ? <button className="btn secondary" onClick={() => setCreating(true)}><IconPlus size={13} /> New project</button> : undefined} />
       <div className="subnav">
         {savedView
           ? <ViewNameSeg view={savedView} startEditing={Boolean((location.state as { rename?: boolean } | null)?.rename)} />

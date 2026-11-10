@@ -27,8 +27,11 @@ export function EmptyState(props: {
 }) {
   const { kind, size = 'page' } = props;
   const illo = typeof props.illo === 'string' ? <Illustration name={props.illo as IllustrationName} small /> : props.illo;
+  // the word already says the title ("Projects" over "Projects"): while the word shows, the
+  // title steps back to screen readers only, as on the canvas, where the word heads the body
+  const wordIsTitle = size === 'page' && typeof props.title === 'string' && props.word?.trim().toLowerCase() === props.title.trim().toLowerCase();
   return (
-    <div className={`empty-state es es-${kind} es-${size}${props.className ? ' ' + props.className : ''}`}>
+    <div className={`empty-state es es-${kind} es-${size}${wordIsTitle ? ' es-word-is-title' : ''}${props.className ? ' ' + props.className : ''}`}>
       {props.word && size === 'page' && <div className="es-word" aria-hidden="true">{props.word}</div>}
       <div className="es-line" aria-hidden="true">
         <span className="es-fill" />
