@@ -237,6 +237,13 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('backspace steps out of a submenu, then closes the menu', menu.overlay.kind === 'menu' && run(menu, { type: 'menuBack' }).overlay.kind === 'menu' && run(menu, { type: 'menuBack' }, { type: 'menuBack' }).overlay.kind === 'none');
   check('paneCommand splits tmux beside this pane in the issue\'s directory', paneCommand(['claude', 'go'], { cwd: '/w', target: { kind: 'local', dbPath: '/d.db', source: 'flag' }, issueKey: 'CORE-1' }).join(' ') ===
     'tmux split-window -h -c /w -e BASELINE_ISSUE=CORE-1 -e BASELINE_DB=/d.db -e BASELINE_URL= -e BASELINE_TOKEN= claude go');
+  const paneEnv = (target: Parameters<typeof paneCommand>[1]['target']) => paneCommand(['a'], { cwd: '/w', target, issueKey: 'K-1' }).filter((_, i, a) => a[i - 1] === '-e');
+  check('a tmux pane gets the database even when BASELINE_DB chose it, since splits don\'t inherit this process\'s environment',
+    paneEnv({ kind: 'local', dbPath: '/env.db', source: 'env' }).includes('BASELINE_DB=/env.db'));
+  check('a tmux pane gets the server and key when the environment chose them',
+    paneEnv({ kind: 'remote', url: new URL('https://bl.example.com'), token: 'tok', source: 'env' }).join(' ') === 'BASELINE_ISSUE=K-1 BASELINE_DB= BASELINE_URL=https://bl.example.com BASELINE_TOKEN=tok');
+  check('a tmux pane on a logged-in server clears all three so its CLI reads the same config file',
+    paneEnv({ kind: 'remote', url: new URL('https://bl.example.com'), token: 'tok', source: 'config' }).join(' ') === 'BASELINE_ISSUE=K-1 BASELINE_DB= BASELINE_URL= BASELINE_TOKEN=');
 
   const entry = (n: number) => ({ issueId: `i${n}`, key: `K-${n}`, field: 'state' as const, before: {}, after: {}, label: '' });
   const stacked = Array.from({ length: 25 }, (_, n) => n).reduce((x, n) => run(x, { type: 'pushUndo', entry: entry(n) }), st);
@@ -252,6 +259,8 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('the agent defaults to claude', agentCommand('p', {})[0] === 'claude');
   const env = agentEnv({ kind: 'local', dbPath: '/tmp/x.db', source: 'flag' }, 'CORE-1', { BASELINE_URL: 'https://x', BASELINE_TOKEN: 't' });
   check('an agent started from a --db TUI writes to that same database', env.BASELINE_DB === '/tmp/x.db' && !env.BASELINE_URL && env.BASELINE_ISSUE === 'CORE-1');
+  const fromEnv = agentEnv({ kind: 'local', dbPath: '/tmp/e.db', source: 'env' }, 'CORE-1', { BASELINE_URL: 'https://x', BASELINE_TOKEN: 't' });
+  check('an agent started from a BASELINE_DB TUI writes to that same database', fromEnv.BASELINE_DB === '/tmp/e.db' && !fromEnv.BASELINE_URL && !fromEnv.BASELINE_TOKEN);
   check('the confirm preview quotes the prompt and cuts it to one line', shellPreview(['claude', "Work on CORE-1: it's\nmore"], 80) === `claude 'Work on CORE-1: it'\\''s…'`);
 }
 

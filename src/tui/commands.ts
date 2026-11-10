@@ -1,5 +1,6 @@
 // What each keymap command does. Reads go through the state; writes go through the Baseline client,
 // patched into the state first so the screen answers before the server does.
+import { basename } from 'node:path';
 import type { Dispatch } from 'react';
 import { BaselineError, ResolveError, type Baseline } from '../client/index.js';
 import { PRIORITY_LABELS, type Handoff, type Issue, type Priority } from '../core/types.js';
@@ -151,7 +152,7 @@ async function startAgent(ctx: Ctx, i: Issue, where: 'here' | 'pane'): Promise<u
   if (where === 'pane') {
     if (!process.env.TMUX) return toast(ctx.dispatch, 'info', 'A new pane needs tmux. Run baseline inside tmux, or press w h to run the agent here.');
     const r = runInPane(cmd, { cwd: at.cwd, target: ctx.bl.target, issueKey: key });
-    return toast(ctx.dispatch, r.ok ? 'ok' : 'error', r.ok ? `${key}: ${cmd[0]} started in a new pane` : r.message);
+    return toast(ctx.dispatch, r.ok ? 'ok' : 'error', r.ok ? `${key}: ${basename(cmd[0])} started in a tmux pane beside this one` : r.message);
   }
   let result = { ok: false, message: '' };
   await ctx.suspend(() => {

@@ -29,15 +29,18 @@ export function shellPreview(cmd: readonly string[], width: number): string {
   return line.length > width ? `${line.slice(0, width - 1)}…` : line;
 }
 
-/** the agent's environment: a TUI opened on --db points the agent's `baseline` calls at that same file */
+/** the variables that point an agent's `baseline` calls at the TUI's own target, whatever chose it.
+ *  Every key is set (an empty value reads as unset) because a tmux split starts from the tmux
+ *  server's environment, not this process's, so nothing can be left to inheritance. A target from
+ *  the config file clears all three and lets the agent's CLI read the same file. */
+export function targetEnv(target: Target): Record<'BASELINE_DB' | 'BASELINE_URL' | 'BASELINE_TOKEN', string> {
+  if (target.kind === 'local') return { BASELINE_DB: target.dbPath, BASELINE_URL: '', BASELINE_TOKEN: '' };
+  if (target.source === 'env') return { BASELINE_DB: '', BASELINE_URL: target.url.origin, BASELINE_TOKEN: target.token };
+  return { BASELINE_DB: '', BASELINE_URL: '', BASELINE_TOKEN: '' };
+}
+
 export function agentEnv(target: Target, issueKey: string, env = process.env): NodeJS.ProcessEnv {
-  const next: NodeJS.ProcessEnv = { ...env, BASELINE_ISSUE: issueKey };
-  if (target.kind === 'local' && target.source === 'flag') {
-    next.BASELINE_DB = target.dbPath;
-    delete next.BASELINE_URL;
-    delete next.BASELINE_TOKEN;
-  }
-  return next;
+  return { ...env, BASELINE_ISSUE: issueKey, ...targetEnv(target) };
 }
 
 export interface RunResult { ok: boolean; message: string }
@@ -52,11 +55,10 @@ export function runInTerminal(cmd: readonly string[], opts: { cwd: string; env: 
   return { ok: r.status === 0, message: r.signal ? `${cmd[0]} stopped (${r.signal})` : `${cmd[0]} exited${r.status ? ` with code ${r.status}` : ''}` };
 }
 
-/** the tmux command that runs `cmd` in a split beside this pane, with the same environment changes agentEnv makes */
+/** the tmux command that runs `cmd` in a split beside this pane, pointed at the same target agentEnv uses */
 export function paneCommand(cmd: readonly string[], opts: { cwd: string; target: Target; issueKey: string }): string[] {
-  const env = ['-e', `BASELINE_ISSUE=${opts.issueKey}`];
-  // an empty value reads as unset, so the split can't inherit a URL that would point the agent elsewhere
-  if (opts.target.kind === 'local' && opts.target.source === 'flag') env.push('-e', `BASELINE_DB=${opts.target.dbPath}`, '-e', 'BASELINE_URL=', '-e', 'BASELINE_TOKEN=');
+  const vars = { BASELINE_ISSUE: opts.issueKey, ...targetEnv(opts.target) };
+  const env = Object.entries(vars).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
   return ['tmux', 'split-window', '-h', '-c', opts.cwd, ...env, ...cmd];
 }
 
