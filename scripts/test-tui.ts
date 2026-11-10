@@ -19,6 +19,7 @@ import { App } from '../src/tui/App.js';
 import { buildData, fetchData, type TuiData } from '../src/tui/data.js';
 import { BINDINGS, contextsFor, helpSections, isChordPrefix, lookup, type Context } from '../src/tui/keys.js';
 import { agentCommand, agentEnv, shellPreview } from '../src/tui/launch.js';
+import { peekLines } from '../src/tui/detail.js';
 import {
   CLOSED_TYPES, defaultExpanded, displayWidth, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
   markdownLines, selectableIds, sortIssues, truncate, wrap,
@@ -83,6 +84,11 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('markdown: headings are bold', md[0].every(s => s.bold) && md[0].map(s => s.text).join('') === 'Plan');
   check('markdown: bullets and task items get glyphs', md.some(l => l[0]?.text.startsWith('• ')) && md.some(l => l[0]?.text.includes('☑')));
   check('markdown: tables align their columns', md.some(l => l.map(s => s.text).join('') === 'a │ bb') && md.some(l => l.map(s => s.text).join('') === '1 │ 2 '));
+  const described = [...data.issues].sort((a, b) => b.description.length - a.description.length).find(i => data.comments.some(c => c.issueId === i.id)) ?? data.issues[0];
+  const peek = peekLines(described, data, 40, 18, now);
+  const peekText = peek.map(l => l.map(x => x.text).join('')).join('\n');
+  check('peek: fits its box, shows key, meta, description and the last comment', peek.length <= 18 && peek.every(l => lineWidth(l) <= 40) &&
+    peekText.includes(data.keyOf(described)) && peekText.includes('Status') && peekText.includes('Description') && /Comments \d+/.test(peekText), peekText);
   check('markdown: fenced code is dim', md.some(l => l[0]?.dim && l[0].text.includes('const x = 1;')));
 }
 
@@ -316,6 +322,19 @@ class FakeStdin extends EventEmitter {
   stdin.press('4');
   await waitFor('priority toast', f => f.includes(`${live.keyOf(pick)} → Low`));
   check('a digit in a picker picks that option (p 4 → Low)', (await fresh.getIssue(pick.id))?.priority === 4);
+
+  check('no peek pane at 120 columns with the sidebar', !stdout.last.includes('── Description'));
+  stdin.press(' ');
+  await waitFor('peek pane', f => f.includes('── Description') && f.includes('Status'));
+  check('space opens the peek pane beside the list, on the issue under the cursor', stdout.last.includes(pick.title.slice(0, 20)) && /My Issues\s+\d+ open/.test(stdout.last));
+  stdin.press('j');
+  const relisted = await fetchData(fresh);
+  const ids = selectableIds({ kind: 'my' }, relisted, defaultExpanded, now);
+  const nextRow = relisted.issueById.get(ids[ids.indexOf(pick.id) + 1])!;
+  await waitFor('peek follows the cursor', f => f.includes(`${live.keyOf(nextRow)}  `) && f.split(live.keyOf(nextRow)).length > 2);
+  check('the peek pane follows the cursor', stdout.last.split(live.keyOf(nextRow)).length > 2);
+  stdin.press(' ');
+  await waitFor('peek closed', f => !f.includes('── Description'));
 
   stdin.press('q');
   const exited = await Promise.race([app.waitUntilExit().then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);

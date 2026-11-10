@@ -12,7 +12,7 @@ export type CommandId =
   | 'quit' | 'backOrQuit' | 'back' | 'help' | 'palette' | 'search' | 'create' | 'refresh'
   | 'nextView' | 'prevView' | 'gotoView' | 'gotoMy' | 'gotoInbox' | 'gotoProjects' | 'switchTeam'
   | 'focusSidebar' | 'focusMain' | 'toggleSidebar'
-  | 'down' | 'up' | 'top' | 'bottom' | 'pageDown' | 'pageUp' | 'open' | 'nextIssue' | 'prevIssue'
+  | 'down' | 'up' | 'top' | 'bottom' | 'pageDown' | 'pageUp' | 'open' | 'nextIssue' | 'prevIssue' | 'togglePeek'
   | 'setState' | 'setPriority' | 'setAssignee' | 'setLabels' | 'setProject' | 'assignMe'
   | 'comment' | 'editTitle' | 'editDescription'
   | 'copyKey' | 'copyUrl' | 'copyBranch' | 'copyPrompt' | 'openBrowser' | 'startAgent'
@@ -76,6 +76,8 @@ export const BINDINGS: Binding[] = [
   { keys: ['Y'], label: 'copy issue URL', when: ISSUE, command: 'copyUrl', group: 'Copy and agents' },
   { keys: ['b'], label: 'copy git branch name', when: ISSUE, command: 'copyBranch', group: 'Copy and agents' },
   { keys: ['o'], label: 'open in browser', when: ISSUE, command: 'openBrowser', group: 'Copy and agents' },
+
+  { keys: ['space'], label: 'peek pane on / off', short: 'peek', when: ['list'], command: 'togglePeek', group: 'List display', hint: true },
 
   { keys: ['r'], label: 'read/unread', when: ['inbox'], command: 'markRead', group: 'Inbox', hint: true },
   { keys: ['R'], label: 'mark all read', when: ['inbox'], command: 'markAllRead', group: 'Inbox', hint: true },

@@ -2,7 +2,7 @@
 import type { Issue, Priority, WorkflowStateType } from '../core/types.js';
 import type { WorkThread } from '../core/work-types.js';
 import { patchIssue, type TuiData } from './data.js';
-import { defaultExpanded, inboxItems, isListRoute, issuesForRoute, groupIssues, listRows, selectableIds } from './model.js';
+import { defaultExpanded, inboxItems, isListRoute, issuesForRoute, groupIssues, listRows, selectableIds, type ListRow } from './model.js';
 import type { TextField } from './textfield.js';
 
 export type Route =
@@ -44,6 +44,8 @@ export interface TuiState {
   focus: 'main' | 'sidebar';
   sidebarCursor: number;
   sidebarHidden: boolean;
+  /** the list's peek pane; null follows the terminal width */
+  peek: boolean | null;
   /** the first key of a chord ("g" of "g m"), waiting for the second */
   pending: string | null;
   toast: Toast | null;
@@ -67,7 +69,7 @@ export const isTopLevel = (r: Route) => r.kind === 'my' || r.kind === 'team' || 
 
 export function initialState(route: Route = { kind: 'my' }, stack: Route[] = []): TuiState {
   return {
-    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, focus: 'main', sidebarCursor: 0, sidebarHidden: false, pending: null,
+    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, focus: 'main', sidebarCursor: 0, sidebarHidden: false, peek: null, pending: null,
     toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {},
   };
 }
@@ -87,6 +89,7 @@ export type Action =
   | { type: 'focus'; focus: 'main' | 'sidebar' }
   | { type: 'sidebarMove'; delta: number; count: number }
   | { type: 'toggleSidebar' }
+  | { type: 'peek'; on: boolean }
   | { type: 'pending'; key: string | null }
   | { type: 'stepIssue'; delta: number; now: number }
   | { type: 'openOverlay'; overlay: Overlay }
@@ -124,6 +127,13 @@ function remapCursors(s: TuiState, oldData: TuiData | null, newData: TuiData, ex
 
 function withData(s: TuiState, data: TuiData, now = Date.now()): TuiState {
   return { ...s, data, cursor: remapCursors(s, s.data, data, s.expanded, now) };
+}
+
+/** the row under a list route's cursor: an issue, or a folded group's header */
+export function cursorRow(s: TuiState, route: Route = s.route): ListRow | undefined {
+  if (!s.data || !isListRoute(route)) return undefined;
+  const rows = listRows(groupIssues(issuesForRoute(route, s.data), s.data), expandedFn(s, route)).filter(r => r.kind === 'issue' || r.selectable);
+  return rows[Math.min(s.cursor[routeKey(route)] ?? 0, Math.max(0, rows.length - 1))];
 }
 
 /** the issue ids J/K walk on an issue page: the list it was opened from, as that list shows them */
@@ -208,6 +218,7 @@ export function reducer(s: TuiState, a: Action): TuiState {
     case 'focus': return { ...s, focus: a.focus };
     case 'sidebarMove': return { ...s, sidebarCursor: clamp(s.sidebarCursor + a.delta, 0, Math.max(0, a.count - 1)) };
     case 'toggleSidebar': return { ...s, sidebarHidden: !s.sidebarHidden, focus: 'main' };
+    case 'peek': return { ...s, peek: a.on };
     case 'pending': return s.pending === a.key ? s : { ...s, pending: a.key };
     case 'stepIssue': return stepIssue(s, a.delta, a.now);
     case 'openOverlay': return { ...s, overlay: a.overlay };

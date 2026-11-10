@@ -6,9 +6,9 @@ import { errorText, runCommand, toast, type Ctx, type Layout } from './commands.
 import { fetchData } from './data.js';
 import { detailLines } from './detail.js';
 import { contextsFor, isChordPrefix, keyName, lookup, takesText, type CommandId } from './keys.js';
-import { displayWidth, type Line } from './model.js';
+import { displayWidth, isListRoute, type Line } from './model.js';
 import { OverlayView } from './overlay-views.js';
-import { DetailScreen, Footer, headerLine, InboxScreen, ListScreen, ProjectsScreen, scrollLabel, Sidebar, ToastLine } from './screens.js';
+import { DetailScreen, Footer, headerLine, InboxScreen, ListScreen, PeekPane, ProjectsScreen, scrollLabel, Sidebar, ToastLine } from './screens.js';
 import { initialState, reducer, routeKey, type Action, type Route, type TuiState } from './state.js';
 import { editField, type TextField } from './textfield.js';
 import { SPINNER, theme } from './theme.js';
@@ -17,6 +17,9 @@ import { LineView } from './ui.js';
 const SIDEBAR_MIN_COLS = 90;
 const SIDEBAR_W = 26;
 const CHORD_MS = 1000;
+/** the peek pane opens on its own from these widths, so the list keeps room for its columns */
+const PEEK_COLS_WITH_SIDEBAR = 150;
+const PEEK_COLS = 120;
 
 export interface AppProps {
   bl: Baseline;
@@ -149,7 +152,10 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
     return issue ? detailLines(issue, data, threads ?? [], contentW, state.syncedAt ?? Date.now()) : null;
   }, [data, openIssue, threads, contentW, state.syncedAt]);
 
-  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, sidebarVisible, sidebarFits };
+  const peekVisible = isListRoute(state.route) && (state.peek ?? columns >= (sidebarVisible ? PEEK_COLS_WITH_SIDEBAR : PEEK_COLS));
+  const peekW = peekVisible ? Math.max(28, Math.min(60, Math.floor(contentW * 0.42))) : 0;
+  const listW = peekVisible ? contentW - peekW - 3 : contentW;
+  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, sidebarVisible, sidebarFits, peekVisible };
   const contexts = contextsFor(state, sidebarVisible);
 
   const handleKey = (input: string, key: Key) => {
@@ -211,7 +217,14 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
   const screen = r.kind === 'issue' ? <DetailScreen s={state} lines={detail} width={contentW} height={bodyH} />
     : r.kind === 'inbox' ? <InboxScreen s={state} data={data} width={contentW} height={bodyH} now={now} />
     : r.kind === 'projects' ? <ProjectsScreen s={state} data={data} width={contentW} height={bodyH} />
-    : <ListScreen s={state} data={data} width={contentW} height={bodyH} now={now} />;
+    : peekVisible
+      ? (
+        <Box flexDirection="row">
+          <ListScreen s={state} data={data} width={listW} height={bodyH} now={now} />
+          <PeekPane s={state} data={data} width={peekW} height={bodyH} now={now} />
+        </Box>
+      )
+      : <ListScreen s={state} data={data} width={contentW} height={bodyH} now={now} />;
   const right = r.kind === 'issue' && detail ? scrollLabel(state, detail.length, bodyH) : '';
 
   return (

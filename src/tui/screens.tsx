@@ -9,7 +9,8 @@ import {
   displayWidth, dueLabel, groupIssues, inboxItems, issuesForRoute, listRows, navIdFor, navItems, padEnd, padStart,
   progressBar, projectProgress, projectRows, relTime, truncate, unreadCount, type Line, type ListRow, type Seg,
 } from './model.js';
-import { expandedFn, routeKey, type Route, type TuiState } from './state.js';
+import { cursorRow, expandedFn, routeKey, type Route, type TuiState } from './state.js';
+import { peekLines } from './detail.js';
 import { HEALTH, priorityGlyph, SPINNER, STATE_ICON, theme } from './theme.js';
 import { LineView } from './ui.js';
 
@@ -134,6 +135,29 @@ export function ListScreen({ s, data, width, height, now }: { s: TuiState; data:
   const cols = listColumns(rows, data, width, route.kind !== 'my');
   const lines = rows.slice(start, start + height).map(r => (r.kind === 'group' ? groupLine(r, r.id === selectedId) : issueLine(r.issue, data, cols, r.id === selectedId, now)));
   return <Lines lines={lines} width={width} height={height} />;
+}
+
+// ---------- peek ----------
+
+/** the issue under the list cursor, beside the list; all from the snapshot, so moving the cursor costs no fetch */
+export function PeekPane({ s, data, width, height, now }: { s: TuiState; data: TuiData; width: number; height: number; now: number }) {
+  const row = cursorRow(s);
+  const inner = width;
+  const lines: Line[] = row?.kind === 'issue' ? peekLines(row.issue, data, inner, height, now)
+    : row?.kind === 'group' ? [[{ text: `${STATE_ICON[row.group.type]} `, color: row.group.color }, { text: row.group.label, bold: true }, { text: `  ${row.group.issues.length}`, color: theme.muted }], [], [{ text: 'Folded. enter shows these issues.', color: theme.muted }]]
+    : [];
+  const out = lines.slice(0, height);
+  while (out.length < height) out.push([]);
+  return (
+    <Box flexDirection="column" width={width + 3} height={height}>
+      {out.map((l, i) => (
+        <Text key={i}>
+          <Text color={theme.border}> │ </Text>
+          <LineView line={l} width={inner} />
+        </Text>
+      ))}
+    </Box>
+  );
 }
 
 // ---------- detail ----------

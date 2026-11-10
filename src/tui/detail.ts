@@ -39,7 +39,7 @@ function meta(issue: Issue, data: TuiData, now: number): Array<[string, Seg[]]> 
 
 const LABEL_W = 10;
 
-function metaLines(rows: Array<[string, Seg[]]>, width: number): Line[] {
+function metaLines(rows: Array<[string, Seg[]]>, width: number, oneColumn = false): Line[] {
   const cell = (r: [string, Seg[]], w: number): Line => {
     const out: Line = [{ text: padEnd(r[0], LABEL_W), color: theme.muted }];
     let room = w - LABEL_W;
@@ -51,7 +51,7 @@ function metaLines(rows: Array<[string, Seg[]]>, width: number): Line[] {
     }
     return out;
   };
-  if (width < 64) return rows.map(r => cell(r, width));
+  if (width < 64 || oneColumn) return rows.map(r => cell(r, width));
   const colW = Math.floor((width - 2) / 2);
   const lines: Line[] = [];
   for (let i = 0; i < rows.length; i += 2) {
@@ -143,4 +143,32 @@ export function detailLines(issue: Issue, data: TuiData, threads: readonly WorkT
   }
   lines.push([]);
   return lines;
+}
+
+const PEEK_META = ['Status', 'Priority', 'Assignee', 'Project', 'Labels', 'Due'];
+
+/** the peek pane: the issue under the list cursor, cut to `height` rows; the description gets what the rest leaves */
+export function peekLines(issue: Issue, data: TuiData, width: number, height: number, now: number): Line[] {
+  const w = Math.max(12, width);
+  const team = data.teamById.get(issue.teamId);
+  const head: Line[] = [
+    [{ text: data.keyOf(issue), color: theme.accent, bold: true }, { text: `  ${team?.name ?? ''}`, color: theme.muted }],
+    ...wrap(issue.title, w, { bold: true }).slice(0, 3),
+    [],
+    ...metaLines(meta(issue, data, now).filter(([label]) => PEEK_META.includes(label)), w, true),
+  ];
+  const comments = data.comments.filter(c => c.issueId === issue.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const last = comments[comments.length - 1];
+  const tail: Line[] = [...section('Comments', w, comments.length)];
+  if (last) {
+    const author = data.userById.get(last.userId);
+    tail.push([{ text: author?.name ?? 'Someone', bold: true, color: author?.color }, { text: `  ${relTime(last.createdAt, now, { ago: true })}`, color: theme.muted }]);
+    tail.push(...markdownLines(last.body, w - 2).slice(0, 3).map(l => [{ text: '  ' }, ...l]));
+  } else tail.push([{ text: 'No comments yet', color: theme.muted, italic: true }]);
+
+  const room = height - head.length - tail.length - 2;
+  const desc = issue.description.trim() ? markdownLines(issue.description, w) : [[{ text: 'No description', color: theme.muted, italic: true }] as Line];
+  const body: Line[] = room < 2 ? [] : [...section('Description', w).slice(1),
+    ...(desc.length > room - 1 ? [...desc.slice(0, Math.max(1, room - 2)), [{ text: '… enter for the whole issue', color: theme.muted }] as Line] : desc)];
+  return [...head, ...(body.length ? [[] as Line, ...body] : []), ...tail].slice(0, height);
 }

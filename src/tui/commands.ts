@@ -11,7 +11,7 @@ import { cycleDraft, filteredOptions, filteredPalette, newDraft, NONE, searchRes
 import { expandedFn, routeKey, type Action, type PickerField, type TuiState } from './state.js';
 import { emptyField, fieldOf } from './textfield.js';
 
-export interface Layout { pageSize: number; detailMax: number; helpMax: number; sidebarVisible: boolean; sidebarFits: boolean }
+export interface Layout { pageSize: number; detailMax: number; helpMax: number; sidebarVisible: boolean; sidebarFits: boolean; peekVisible: boolean }
 
 export interface Ctx {
   state: TuiState;
@@ -241,6 +241,7 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'toggleSidebar':
       if (!ctx.layout.sidebarFits) return toast(d, 'info', 'Widen the terminal to 90+ columns for the sidebar; [ and ] switch views');
       return d({ type: 'toggleSidebar' });
+    case 'togglePeek': return d({ type: 'peek', on: !ctx.layout.peekVisible });
     case 'nextIssue': return d({ type: 'stepIssue', delta: 1, now });
     case 'prevIssue': return d({ type: 'stepIssue', delta: -1, now });
     case 'gotoView': {
