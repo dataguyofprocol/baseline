@@ -1247,6 +1247,8 @@ export function GroupedList(props: {
   emptyDesc?: string;
   hideGroups?: string[];   // state ids excluded up-front (Active/Backlog tabs)
   emptyHideCreate?: boolean;
+  /** the Getting started group is showing above: its last step is the first issue, so the empty view would only repeat it */
+  emptyHidden?: boolean;
   onFocusStatus?: (stateId: string) => void;
   /** clears the page's filters (the "hidden by filters" footer offers it) */
   onClearFilters?: () => void;
@@ -1344,6 +1346,7 @@ export function GroupedList(props: {
   );
 
   if (pool.length === 0) {
+    if (props.emptyHidden && !hiddenByFilters) return null;
     return (
       <>
         <div className="empty-state">

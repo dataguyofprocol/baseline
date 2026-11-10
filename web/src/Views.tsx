@@ -62,6 +62,7 @@ export function IssueListBody(props: {
   emptyTitle?: string;
   emptyDesc?: string;
   emptyHideCreate?: boolean;
+  emptyHidden?: boolean;
   createDefaults?: { projectId?: string | null; cycleId?: string | null };
   onFocusStatus?: (stateId: string) => void;
   /** "Save" in the filter bar: omit where a view can't be saved (a view saves itself) */
@@ -105,6 +106,7 @@ export function IssueListBody(props: {
             emptyTitle={props.emptyTitle}
             emptyDesc={props.emptyDesc}
             emptyHideCreate={props.emptyHideCreate}
+            emptyHidden={props.emptyHidden}
             createDefaults={props.createDefaults}
             onFocusStatus={props.onFocusStatus}
             onClearFilters={() => patch({ filters: {} })}
@@ -174,7 +176,7 @@ export function TeamPage() {
       {setup.shown && <SetupPanel teamId={team.id} expanded={setup.expanded} setExpanded={setup.setExpanded} />}
       <IssueListBody
         issues={issues} opts={opts} patch={patch} reset={reset} teamId={team.id}
-        emptyHideCreate={setup.shown && setup.expanded}
+        emptyHidden={setup.shown}
         displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close}
         onFocusStatus={stateId => patch({ filters: toggleStateFilter(opts.filters, [stateId]) })}
       />
