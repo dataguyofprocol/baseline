@@ -9,3 +9,9 @@ web/dist/
 design-polish/
 screenshots/
 .env
+
+# video demo output (not needed for now)
+.video_agent/
+out/
+demo.mp4
+demo-poster.png
