@@ -1,9 +1,10 @@
 // Pure view-model: what each screen shows, computed from TuiData. No Ink, no I/O, so it is testable.
 import { homedir } from 'node:os';
-import { PRIORITY_LABELS, STATE_TYPE_LABELS, type ActivityItem, type Issue, type Notification, type NotificationType, type Project, type ProjectStatus, type WorkflowStateType } from '../core/types.js';
+import { PRIORITY_LABELS, STATE_TYPE_LABELS, type ActivityItem, type Issue, type Notification, type NotificationType, type Priority, type Project, type ProjectStatus, type WorkflowStateType } from '../core/types.js';
 import { plainMentions } from '../core/mentions.js';
 import type { TuiData } from './data.js';
 import type { Route } from './state.js';
+import { priorityGlyph, STATE_ICON } from './theme.js';
 
 // ---------- text ----------
 
@@ -127,27 +128,6 @@ export function dueLabel(due: string, now: number): { text: string; tone: 'overd
 export const STATE_ORDER: WorkflowStateType[] = ['triage', 'started', 'unstarted', 'backlog', 'completed', 'canceled'];
 export const CLOSED_TYPES: ReadonlySet<WorkflowStateType> = new Set(['completed', 'canceled']);
 
-const PRIORITY_RANK = [5, 1, 2, 3, 4];
-
-export function sortIssues(issues: readonly Issue[]): Issue[] {
-  return [...issues].sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.sortOrder - b.sortOrder || a.number - b.number);
-}
-
-export interface IssueGroup { type: WorkflowStateType; label: string; color: string; issues: Issue[] }
-
-export function groupIssues(issues: readonly Issue[], data: Pick<TuiData, 'stateById' | 'states'>): IssueGroup[] {
-  const byType = new Map<WorkflowStateType, Issue[]>();
-  for (const i of issues) {
-    const type = data.stateById.get(i.stateId)?.type ?? 'backlog';
-    const list = byType.get(type);
-    if (list) list.push(i); else byType.set(type, [i]);
-  }
-  return STATE_ORDER.filter(t => byType.has(t)).map(type => {
-    const list = sortIssues(byType.get(type)!);
-    return { type, label: STATE_TYPE_LABELS[type], color: data.stateById.get(list[0].stateId)?.color ?? 'gray', issues: list };
-  });
-}
-
 export const isListRoute = (r: Route): r is Extract<Route, { kind: 'my' | 'team' | 'project' }> => r.kind === 'my' || r.kind === 'team' || r.kind === 'project';
 
 export function issuesForRoute(route: Route, data: TuiData): Issue[] {
@@ -159,22 +139,143 @@ export function issuesForRoute(route: Route, data: TuiData): Issue[] {
   }
 }
 
+// ---------- display options: preset filter and grouping ----------
+
+export type Preset = 'active' | 'backlog' | 'all';
+/** shift-tab's order */
+export const PRESETS: Preset[] = ['active', 'backlog', 'all'];
+export const PRESET_LABEL: Record<Preset, string> = { active: 'Active', backlog: 'Backlog', all: 'All' };
+const PRESET_TYPES: Record<Preset, ReadonlySet<WorkflowStateType> | null> = {
+  active: new Set(['started', 'unstarted']), backlog: new Set(['backlog']), all: null,
+};
+
+export function presetIssues(issues: readonly Issue[], preset: Preset, data: Pick<TuiData, 'stateById'>): Issue[] {
+  const types = PRESET_TYPES[preset];
+  return types ? issues.filter(i => types.has(data.stateById.get(i.stateId)?.type ?? 'backlog')) : [...issues];
+}
+
+export type GroupBy = 'status' | 'assignee' | 'priority' | 'project' | 'none';
+/** D's order */
+export const GROUP_BYS: GroupBy[] = ['status', 'assignee', 'priority', 'project', 'none'];
+
+type GroupData = Pick<TuiData, 'stateById' | 'userById' | 'projectById' | 'currentUser'>;
+
+interface GroupMode {
+  /** how the list header names it: "by priority" */
+  label: string;
+  key: (i: Issue, data: GroupData) => string;
+  /** sorts group keys; the list shows groups in this order */
+  order: (a: string, b: string, data: GroupData) => number;
+  /** the group's header icon and name; null for a mode without headers */
+  header: ((key: string, issues: readonly Issue[], data: GroupData) => { icon: Seg[]; label: string }) | null;
+  /** folded until opened */
+  folded: (key: string) => boolean;
+}
+
+const PRIORITY_RANK = [5, 1, 2, 3, 4];
+const lastIfEmpty = (a: string, b: string) => Number(!a) - Number(!b);
+
+export const GROUP_MODES: Record<GroupBy, GroupMode> = {
+  status: {
+    label: 'by status',
+    key: (i, d) => d.stateById.get(i.stateId)?.type ?? 'backlog',
+    order: (a, b) => STATE_ORDER.indexOf(a as WorkflowStateType) - STATE_ORDER.indexOf(b as WorkflowStateType),
+    header: (key, issues, d) => ({ icon: [{ text: STATE_ICON[key as WorkflowStateType], color: d.stateById.get(issues[0]?.stateId ?? '')?.color }], label: STATE_TYPE_LABELS[key as WorkflowStateType] }),
+    folded: key => CLOSED_TYPES.has(key as WorkflowStateType),
+  },
+  assignee: {
+    label: 'by assignee',
+    key: i => i.assigneeId ?? '',
+    order: (a, b, d) => lastIfEmpty(a, b) || Number(b === d.currentUser.id) - Number(a === d.currentUser.id) || (d.userById.get(a)?.name ?? '').localeCompare(d.userById.get(b)?.name ?? ''),
+    header: (key, _issues, d) => {
+      const u = key ? d.userById.get(key) : undefined;
+      return u ? { icon: [{ text: '●', color: u.color }], label: u.id === d.currentUser.id ? `${u.name} (me)` : u.name } : { icon: [{ text: '○', color: 'gray' }], label: 'No assignee' };
+    },
+    folded: () => false,
+  },
+  priority: {
+    label: 'by priority',
+    key: i => String(i.priority),
+    order: (a, b) => PRIORITY_RANK[Number(a)] - PRIORITY_RANK[Number(b)],
+    header: key => {
+      const g = priorityGlyph(Number(key) as Priority);
+      const bars = [...g.text];
+      const icon: Seg[] = g.text.includes('▂') ? [{ text: bars.slice(0, g.lit).join('') }, { text: bars.slice(g.lit).join(''), color: '#4a4a4a' }] : [{ text: g.text.trim(), color: g.color }];
+      return { icon, label: PRIORITY_LABELS[Number(key) as Priority] };
+    },
+    folded: () => false,
+  },
+  project: {
+    label: 'by project',
+    key: i => i.projectId ?? '',
+    order: (a, b, d) => lastIfEmpty(a, b) || (d.projectById.get(a)?.position ?? 0) - (d.projectById.get(b)?.position ?? 0),
+    header: (key, _issues, d) => {
+      const p = key ? d.projectById.get(key) : undefined;
+      return p ? { icon: [{ text: '◆', color: p.color }], label: p.name } : { icon: [{ text: '◇', color: 'gray' }], label: 'No project' };
+    },
+    folded: () => false,
+  },
+  none: { label: 'no grouping', key: () => '', order: () => 0, header: null, folded: () => false },
+};
+
+export function sortIssues(issues: readonly Issue[]): Issue[] {
+  return [...issues].sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.sortOrder - b.sortOrder || a.number - b.number);
+}
+
+/** a group's id is "<groupBy>:<key>", so fold state never leaks between groupings */
+export interface IssueGroup { id: string; key: string; groupBy: GroupBy; label: string; icon: Seg[]; issues: Issue[] }
+
+export function groupIssues(issues: readonly Issue[], data: GroupData, groupBy: GroupBy = 'status'): IssueGroup[] {
+  const mode = GROUP_MODES[groupBy];
+  const byKey = new Map<string, Issue[]>();
+  for (const i of issues) {
+    const k = mode.key(i, data);
+    const list = byKey.get(k);
+    if (list) list.push(i); else byKey.set(k, [i]);
+  }
+  return [...byKey.keys()].sort((a, b) => mode.order(a, b, data)).map(key => {
+    const sorted = sortIssues(byKey.get(key)!);
+    const closed = (i: Issue) => CLOSED_TYPES.has(data.stateById.get(i.stateId)?.type ?? 'backlog');
+    const list = [...sorted.filter(i => !closed(i)), ...sorted.filter(closed)];
+    const head = mode.header?.(key, list, data) ?? { icon: [], label: '' };
+    return { id: `${groupBy}:${key}`, key, groupBy, label: head.label, icon: head.icon, issues: list };
+  });
+}
+
+export const defaultExpanded = (groupId: string): boolean => {
+  const at = groupId.indexOf(':');
+  return !GROUP_MODES[groupId.slice(0, at) as GroupBy].folded(groupId.slice(at + 1));
+};
+
 export type ListRow =
   | { kind: 'group'; id: string; group: IssueGroup; expanded: boolean; selectable: boolean }
   | { kind: 'issue'; id: string; issue: Issue };
 
-/** group headers and issue rows; closed groups start collapsed and their header is what the cursor toggles */
-export function listRows(groups: readonly IssueGroup[], isExpanded: (type: WorkflowStateType) => boolean): ListRow[] {
+/** group headers and issue rows. The cursor stops on a folded header, and on the header of a group that folds by default, so enter can fold it back */
+export function listRows(groups: readonly IssueGroup[], isExpanded: (groupId: string) => boolean): ListRow[] {
   const rows: ListRow[] = [];
   for (const g of groups) {
-    const expanded = isExpanded(g.type);
-    rows.push({ kind: 'group', id: `group:${g.type}`, group: g, expanded, selectable: CLOSED_TYPES.has(g.type) });
+    const mode = GROUP_MODES[g.groupBy];
+    const expanded = !mode.header || isExpanded(g.id);
+    if (mode.header) rows.push({ kind: 'group', id: `group:${g.id}`, group: g, expanded, selectable: !expanded || mode.folded(g.key) });
     if (expanded) for (const i of g.issues) rows.push({ kind: 'issue', id: i.id, issue: i });
   }
   return rows;
 }
 
-export const defaultExpanded = (type: WorkflowStateType) => !CLOSED_TYPES.has(type);
+/** how a list route is shown: the preset, the grouping and which groups are open */
+export interface ListView { groupBy: GroupBy; preset: Preset; isExpanded: (groupId: string) => boolean }
+export const DEFAULT_VIEW: ListView = { groupBy: 'status', preset: 'all', isExpanded: defaultExpanded };
+
+export const listGroups = (route: Route, data: TuiData, view: ListView) => groupIssues(presetIssues(issuesForRoute(route, data), view.preset, data), data, view.groupBy);
+export const listRowsFor = (route: Route, data: TuiData, view: ListView) => listRows(listGroups(route, data, view), view.isExpanded);
+export const isSelectable = (r: ListRow) => r.kind === 'issue' || r.selectable;
+
+/** where the cursor goes for an issue: its row, or the header of the folded group hiding it */
+export function rowIdFor(rows: readonly ListRow[], issueId: string): string | undefined {
+  if (rows.some(r => r.kind === 'issue' && r.id === issueId)) return issueId;
+  return rows.find(r => r.kind === 'group' && r.selectable && r.group.issues.some(i => i.id === issueId))?.id;
+}
 
 // ---------- inbox ----------
 
@@ -280,8 +381,8 @@ export function navIdFor(route: Route, stack: readonly Route[]): string | null {
 // ---------- cursor targets ----------
 
 /** the ids the cursor moves over on a route, in order; the reducer keeps the cursor on the same id across refetches */
-export function selectableIds(route: Route, data: TuiData, isExpanded: (type: WorkflowStateType) => boolean, now: number): string[] {
-  if (isListRoute(route)) return listRows(groupIssues(issuesForRoute(route, data), data), isExpanded).filter(r => r.kind === 'issue' || r.selectable).map(r => r.id);
+export function selectableIds(route: Route, data: TuiData, view: ListView, now: number): string[] {
+  if (isListRoute(route)) return listRowsFor(route, data, view).filter(isSelectable).map(r => r.id);
   if (route.kind === 'inbox') return inboxItems(data, now).map(i => i.id);
   if (route.kind === 'projects') return projectRows(data).map(p => p.id);
   return [];

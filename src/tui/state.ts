@@ -1,8 +1,11 @@
 // The whole app state and the one reducer that changes it.
-import type { Issue, Priority, WorkflowStateType } from '../core/types.js';
+import type { Issue, Priority } from '../core/types.js';
 import type { WorkThread } from '../core/work-types.js';
 import { patchIssue, type TuiData } from './data.js';
-import { defaultExpanded, inboxItems, isListRoute, issuesForRoute, groupIssues, listRows, selectableIds, type ListRow } from './model.js';
+import {
+  defaultExpanded, GROUP_BYS, inboxItems, isListRoute, isSelectable, listGroups, listRows, listRowsFor, PRESETS, rowIdFor, selectableIds,
+  type GroupBy, type ListRow, type ListView, type Preset,
+} from './model.js';
 import type { TextField } from './textfield.js';
 
 export type Route =
@@ -39,8 +42,10 @@ export interface TuiState {
   overlay: Overlay;
   /** per route: the selected row in a list, or the scroll offset of a detail page */
   cursor: Record<string, number>;
-  /** per route and state type: whether that group is open (unset: closed groups are collapsed) */
+  /** per route and group id: whether that group is open (unset: the grouping's default, Done and Canceled folded) */
   expanded: Record<string, boolean>;
+  groupBy: GroupBy;
+  preset: Preset;
   focus: 'main' | 'sidebar';
   sidebarCursor: number;
   sidebarHidden: boolean;
@@ -69,7 +74,7 @@ export const isTopLevel = (r: Route) => r.kind === 'my' || r.kind === 'team' || 
 
 export function initialState(route: Route = { kind: 'my' }, stack: Route[] = []): TuiState {
   return {
-    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, focus: 'main', sidebarCursor: 0, sidebarHidden: false, peek: null, pending: null,
+    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, groupBy: 'status', preset: 'all', focus: 'main', sidebarCursor: 0, sidebarHidden: false, peek: null, pending: null,
     toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {},
   };
 }
@@ -84,7 +89,10 @@ export type Action =
   | { type: 'move'; delta: number; count: number }
   | { type: 'moveTo'; index: number }
   | { type: 'scroll'; delta: number; max: number }
-  | { type: 'toggleGroup'; groupType: WorkflowStateType }
+  | { type: 'toggleGroup'; groupId: string }
+  | { type: 'foldAll' }
+  | { type: 'cycleGroupBy' }
+  | { type: 'cyclePreset' }
   | { type: 'select'; issueId: string }
   | { type: 'focus'; focus: 'main' | 'sidebar' }
   | { type: 'sidebarMove'; delta: number; count: number }
@@ -106,33 +114,39 @@ export type Action =
   | { type: 'toast'; toast: Toast }
   | { type: 'clearToast'; id: number };
 
-export const expandKey = (r: Route, type: WorkflowStateType) => `${routeKey(r)}|${type}`;
-export const expandedFn = (s: Pick<TuiState, 'expanded'>, r: Route) => (type: WorkflowStateType) => s.expanded[expandKey(r, type)] ?? defaultExpanded(type);
+export const expandKey = (r: Route, groupId: string) => `${routeKey(r)}|${groupId}`;
+export const expandedFn = (s: Pick<TuiState, 'expanded'>, r: Route) => (groupId: string) => s.expanded[expandKey(r, groupId)] ?? defaultExpanded(groupId);
+export const listViewOf = (s: Pick<TuiState, 'expanded' | 'groupBy' | 'preset'>, r: Route): ListView => ({ groupBy: s.groupBy, preset: s.preset, isExpanded: expandedFn(s, r) });
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
-/** keep each route's cursor on the same row id when the rows under it change */
-function remapCursors(s: TuiState, oldData: TuiData | null, newData: TuiData, expanded: Record<string, boolean>, now: number): Record<string, number> {
-  const cursor = { ...s.cursor };
-  for (const r of [s.route, ...s.stack]) {
+/** keep each route's cursor on the same row when the rows under it change (new data, a fold, another grouping);
+ *  an issue that a fold hid hands the cursor to its group's header */
+function remapCursors(before: TuiState, after: TuiState, now: number): Record<string, number> {
+  const cursor = { ...after.cursor };
+  if (!after.data) return cursor;
+  for (const r of [after.route, ...after.stack]) {
     const k = routeKey(r);
     if (r.kind === 'issue' || cursor[k] === undefined) continue;
-    const before = oldData ? selectableIds(r, oldData, expandedFn(s, r), now) : [];
-    const after = selectableIds(r, newData, expandedFn({ expanded }, r), now);
-    const at = after.indexOf(before[cursor[k]]);
-    cursor[k] = at >= 0 ? at : clamp(cursor[k], 0, Math.max(0, after.length - 1));
+    const prev = before.data ? selectableIds(r, before.data, listViewOf(before, r), now)[cursor[k]] : undefined;
+    const rows = isListRoute(r) ? listRowsFor(r, after.data, listViewOf(after, r)) : null;
+    const ids = rows ? rows.filter(isSelectable).map(x => x.id) : selectableIds(r, after.data, listViewOf(after, r), now);
+    const target = prev && rows ? rowIdFor(rows, prev) ?? prev : prev;
+    const at = target ? ids.indexOf(target) : -1;
+    cursor[k] = at >= 0 ? at : clamp(cursor[k], 0, Math.max(0, ids.length - 1));
   }
   return cursor;
 }
 
-function withData(s: TuiState, data: TuiData, now = Date.now()): TuiState {
-  return { ...s, data, cursor: remapCursors(s, s.data, data, s.expanded, now) };
+/** a change to what the lists show, with every cursor kept on its row */
+function relist(s: TuiState, next: TuiState, now = Date.now()): TuiState {
+  return { ...next, cursor: remapCursors(s, next, now) };
 }
 
 /** the row under a list route's cursor: an issue, or a folded group's header */
 export function cursorRow(s: TuiState, route: Route = s.route): ListRow | undefined {
   if (!s.data || !isListRoute(route)) return undefined;
-  const rows = listRows(groupIssues(issuesForRoute(route, s.data), s.data), expandedFn(s, route)).filter(r => r.kind === 'issue' || r.selectable);
+  const rows = listRowsFor(route, s.data, listViewOf(s, route)).filter(isSelectable);
   return rows[Math.min(s.cursor[routeKey(route)] ?? 0, Math.max(0, rows.length - 1))];
 }
 
@@ -142,22 +156,33 @@ export function siblingIssueIds(s: TuiState, now: number): string[] {
   if (!s.data || !from) return [];
   if (from.kind === 'inbox') return [...new Set(inboxItems(s.data, now).map(i => i.issueId).filter((id): id is string => !!id))];
   if (!isListRoute(from)) return [];
-  const groups = groupIssues(issuesForRoute(from, s.data), s.data);
-  const shown = listRows(groups, expandedFn(s, from)).filter(r => r.kind === 'issue').map(r => r.id);
+  const view = listViewOf(s, from);
+  const groups = listGroups(from, s.data, view);
+  const shown = listRows(groups, view.isExpanded).filter(r => r.kind === 'issue').map(r => r.id);
   return s.route.kind === 'issue' && shown.includes(s.route.issueId) ? shown : groups.flatMap(g => g.issues.map(i => i.id));
 }
 
 /** the cursor of a list route moved onto an issue, opening its group if it was folded */
 function selectIn(s: TuiState, route: Route, issueId: string): TuiState {
   if (!s.data || !isListRoute(route)) return s;
-  const issue = s.data.issueById.get(issueId);
-  if (!issue) return s;
-  const type = s.data.stateById.get(issue.stateId)?.type;
-  const expanded = type && !expandedFn(s, route)(type) ? { ...s.expanded, [expandKey(route, type)]: true } : s.expanded;
-  const ids = listRows(groupIssues(issuesForRoute(route, s.data), s.data), expandedFn({ expanded }, route))
-    .filter(r => r.kind === 'issue' || r.selectable).map(r => r.id);
+  const group = listGroups(route, s.data, listViewOf(s, route)).find(g => g.issues.some(i => i.id === issueId));
+  if (!group) return s;
+  const expanded = expandedFn(s, route)(group.id) ? s.expanded : { ...s.expanded, [expandKey(route, group.id)]: true };
+  const ids = listRowsFor(route, s.data, listViewOf({ ...s, expanded }, route)).filter(isSelectable).map(r => r.id);
   const at = ids.indexOf(issueId);
   return at < 0 ? s : { ...s, expanded, cursor: { ...s.cursor, [routeKey(route)]: at } };
+}
+
+/** fold or open one group of the current list, or (groupId null) fold every group, or open them all when all are folded */
+function fold(s: TuiState, groupId: string | null): TuiState {
+  if (!s.data || !isListRoute(s.route)) return s;
+  const isOpen = expandedFn(s, s.route);
+  const groups = listGroups(s.route, s.data, listViewOf(s, s.route));
+  const ids = groupId ? [groupId] : groups.map(g => g.id);
+  const open = groupId ? !isOpen(groupId) : ids.every(id => !isOpen(id));
+  const expanded = { ...s.expanded };
+  for (const id of ids) expanded[expandKey(s.route, id)] = open;
+  return relist(s, { ...s, expanded });
 }
 
 function stepIssue(s: TuiState, delta: number, now: number): TuiState {
@@ -179,7 +204,7 @@ export function reducer(s: TuiState, a: Action): TuiState {
   switch (a.type) {
     case 'syncStart': return { ...s, syncing: true };
     case 'loaded': {
-      const next = withData({ ...s, status: 'ready', error: null, syncing: false, syncedAt: a.at }, a.data, a.at);
+      const next = relist(s, { ...s, data: a.data, status: 'ready', error: null, syncing: false, syncedAt: a.at }, a.at);
       // an issue that vanished (deleted, archived, moved out of reach) can't stay open
       if (next.route.kind === 'issue' && !a.data.issueById.has(next.route.issueId)) {
         const back = reducer(next, { type: 'back' });
@@ -209,11 +234,10 @@ export function reducer(s: TuiState, a: Action): TuiState {
       const k = routeKey(s.route);
       return { ...s, cursor: { ...s.cursor, [k]: clamp((s.cursor[k] ?? 0) + a.delta, 0, Math.max(0, a.max)) } };
     }
-    case 'toggleGroup': {
-      const k = expandKey(s.route, a.groupType);
-      const expanded = { ...s.expanded, [k]: !expandedFn(s, s.route)(a.groupType) };
-      return s.data ? { ...s, expanded, cursor: remapCursors(s, s.data, s.data, expanded, Date.now()) } : { ...s, expanded };
-    }
+    case 'toggleGroup': return fold(s, a.groupId);
+    case 'foldAll': return fold(s, null);
+    case 'cycleGroupBy': return relist(s, { ...s, groupBy: GROUP_BYS[(GROUP_BYS.indexOf(s.groupBy) + 1) % GROUP_BYS.length] });
+    case 'cyclePreset': return relist(s, { ...s, preset: PRESETS[(PRESETS.indexOf(s.preset) + 1) % PRESETS.length] });
     case 'select': return selectIn(s, s.route, a.issueId);
     case 'focus': return { ...s, focus: a.focus };
     case 'sidebarMove': return { ...s, sidebarCursor: clamp(s.sidebarCursor + a.delta, 0, Math.max(0, a.count - 1)) };
@@ -256,7 +280,7 @@ export function reducer(s: TuiState, a: Action): TuiState {
       const o = s.overlay;
       return o.kind === 'help' ? { ...s, overlay: { ...o, scroll: clamp(o.scroll + a.delta, 0, Math.max(0, a.max)) } } : s;
     }
-    case 'patchIssue': return s.data ? withData(s, patchIssue(s.data, a.issueId, a.patch)) : s;
+    case 'patchIssue': return s.data ? relist(s, { ...s, data: patchIssue(s.data, a.issueId, a.patch) }) : s;
     case 'markRead': {
       if (!s.data) return s;
       const at = new Date().toISOString();

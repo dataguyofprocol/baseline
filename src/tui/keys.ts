@@ -12,7 +12,8 @@ export type CommandId =
   | 'quit' | 'backOrQuit' | 'back' | 'help' | 'palette' | 'search' | 'create' | 'refresh'
   | 'nextView' | 'prevView' | 'gotoView' | 'gotoMy' | 'gotoInbox' | 'gotoProjects' | 'switchTeam'
   | 'focusSidebar' | 'focusMain' | 'toggleSidebar'
-  | 'down' | 'up' | 'top' | 'bottom' | 'pageDown' | 'pageUp' | 'open' | 'nextIssue' | 'prevIssue' | 'togglePeek'
+  | 'down' | 'up' | 'top' | 'bottom' | 'pageDown' | 'pageUp' | 'open' | 'nextIssue' | 'prevIssue'
+  | 'togglePeek' | 'cycleGroupBy' | 'cyclePreset' | 'foldGroup' | 'foldAll'
   | 'setState' | 'setPriority' | 'setAssignee' | 'setLabels' | 'setProject' | 'assignMe'
   | 'comment' | 'editTitle' | 'editDescription'
   | 'copyKey' | 'copyUrl' | 'copyBranch' | 'copyPrompt' | 'openBrowser' | 'startAgent'
@@ -78,6 +79,10 @@ export const BINDINGS: Binding[] = [
   { keys: ['o'], label: 'open in browser', when: ISSUE, command: 'openBrowser', group: 'Copy and agents' },
 
   { keys: ['space'], label: 'peek pane on / off', short: 'peek', when: ['list'], command: 'togglePeek', group: 'List display', hint: true },
+  { keys: ['D'], label: 'group by status → assignee → priority → project → none', short: 'group', when: ['list'], command: 'cycleGroupBy', group: 'List display', hint: true },
+  { keys: ['shift+tab'], display: 'shift-tab', label: 'show Active → Backlog → All', short: 'preset', when: ['list'], command: 'cyclePreset', group: 'List display' },
+  { keys: ['z'], label: 'fold / unfold this group', when: ['list'], command: 'foldGroup', group: 'List display' },
+  { keys: ['Z'], label: 'fold / unfold every group', when: ['list'], command: 'foldAll', group: 'List display' },
 
   { keys: ['r'], label: 'read/unread', when: ['inbox'], command: 'markRead', group: 'Inbox', hint: true },
   { keys: ['R'], label: 'mark all read', when: ['inbox'], command: 'markAllRead', group: 'Inbox', hint: true },

@@ -6,10 +6,10 @@ import type { Issue } from '../core/types.js';
 import type { TuiData } from './data.js';
 import { hintsFor, type Context } from './keys.js';
 import {
-  displayWidth, dueLabel, groupIssues, inboxItems, issuesForRoute, listRows, navIdFor, navItems, padEnd, padStart,
+  displayWidth, dueLabel, GROUP_MODES, inboxItems, isListRoute, issuesForRoute, listRowsFor, navIdFor, navItems, padEnd, padStart, PRESET_LABEL, PRESETS,
   progressBar, projectProgress, projectRows, relTime, truncate, unreadCount, type Line, type ListRow, type Seg,
 } from './model.js';
-import { cursorRow, expandedFn, routeKey, type Route, type TuiState } from './state.js';
+import { cursorRow, listViewOf, routeKey, type Route, type TuiState } from './state.js';
 import { peekLines } from './detail.js';
 import { HEALTH, priorityGlyph, SPINNER, STATE_ICON, theme } from './theme.js';
 import { LineView } from './ui.js';
@@ -113,15 +113,15 @@ function issueLine(i: Issue, data: TuiData, cols: Columns, selected: boolean, no
 
 function groupLine(r: Extract<ListRow, { kind: 'group' }>, selected: boolean): Line {
   const arrow = r.selectable ? (r.expanded ? '▾ ' : '▸ ') : '';
-  return [selected ? SELECT_BAR : NO_BAR, { text: ' ' }, { text: arrow, color: theme.muted }, { text: `${STATE_ICON[r.group.type]} `, color: r.group.color },
+  return [selected ? SELECT_BAR : NO_BAR, { text: ' ' }, { text: arrow, color: theme.muted }, ...r.group.icon, { text: ' ' },
     { text: r.group.label, bold: true }, { text: `  ${r.group.issues.length}`, color: theme.muted },
-    ...(r.selectable && !r.expanded && selected ? [{ text: '   enter to show', color: theme.muted }] : [])];
+    ...(r.selectable && !r.expanded && selected ? [{ text: '   enter or z to show', color: theme.muted }] : [])];
 }
 
 export function ListScreen({ s, data, width, height, now }: { s: TuiState; data: TuiData; width: number; height: number; now: number }) {
   const route = s.route;
   const issues = issuesForRoute(route, data);
-  const rows = listRows(groupIssues(issues, data), expandedFn(s, route));
+  const rows = listRowsFor(route, data, listViewOf(s, route));
   const selectable = rows.filter(r => r.kind === 'issue' || r.selectable);
   const cursor = Math.min(s.cursor[routeKey(route)] ?? 0, Math.max(0, selectable.length - 1));
   const selectedId = selectable[cursor]?.id;
@@ -131,6 +131,10 @@ export function ListScreen({ s, data, width, height, now }: { s: TuiState; data:
   if (!issues.length) {
     const empty = route.kind === 'my' ? ['Nothing assigned to you', 'Press c to create an issue, or / to find one'] : route.kind === 'team' ? ['No issues in this team yet', 'Press c to create the first one'] : ['No issues in this project yet', 'Press c to add one'];
     return <Lines lines={emptyState(width, height, empty[0], empty[1])} width={width} height={height} />;
+  }
+  if (!rows.length) {
+    const next = PRESET_LABEL[PRESETS[(PRESETS.indexOf(s.preset) + 1) % PRESETS.length]];
+    return <Lines lines={emptyState(width, height, `No ${PRESET_LABEL[s.preset].toLowerCase()} issues here`, `shift-tab shows ${next}`)} width={width} height={height} />;
   }
   const cols = listColumns(rows, data, width, route.kind !== 'my');
   const lines = rows.slice(start, start + height).map(r => (r.kind === 'group' ? groupLine(r, r.id === selectedId) : issueLine(r.issue, data, cols, r.id === selectedId, now)));
@@ -144,7 +148,7 @@ export function PeekPane({ s, data, width, height, now }: { s: TuiState; data: T
   const row = cursorRow(s);
   const inner = width;
   const lines: Line[] = row?.kind === 'issue' ? peekLines(row.issue, data, inner, height, now)
-    : row?.kind === 'group' ? [[{ text: `${STATE_ICON[row.group.type]} `, color: row.group.color }, { text: row.group.label, bold: true }, { text: `  ${row.group.issues.length}`, color: theme.muted }], [], [{ text: 'Folded. enter shows these issues.', color: theme.muted }]]
+    : row?.kind === 'group' ? [[...row.group.icon, { text: ' ' }, { text: row.group.label, bold: true }, { text: `  ${row.group.issues.length}`, color: theme.muted }], [], [{ text: 'Folded. enter or z shows these issues.', color: theme.muted }]]
     : [];
   const out = lines.slice(0, height);
   while (out.length < height) out.push([]);
@@ -259,7 +263,8 @@ function routeTitle(route: Route, data: TuiData, now: number): Line {
 
 export function headerLine(s: TuiState, data: TuiData, width: number, right: string, now: number): Line {
   const crumbs = s.stack.slice(-2).map(r => routeTitle(r, data, now)[r.kind === 'team' || r.kind === 'project' ? 1 : 0].text);
-  const left: Line = [...crumbs.flatMap(c => [{ text: c, color: theme.muted }, { text: ' › ', color: theme.muted }]), ...routeTitle(s.route, data, now)];
+  const display: Line = isListRoute(s.route) ? [{ text: ` · ${GROUP_MODES[s.groupBy].label} · ${PRESET_LABEL[s.preset]}`, color: theme.muted }] : [];
+  const left: Line = [...crumbs.flatMap(c => [{ text: c, color: theme.muted }, { text: ' › ', color: theme.muted }]), ...routeTitle(s.route, data, now), ...display];
   const rightW = displayWidth(right);
   const fitted: Line = [];
   let used = 0;

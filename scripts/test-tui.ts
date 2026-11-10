@@ -14,18 +14,18 @@ import { createElement } from 'react';
 import { connect } from '../src/client/index.js';
 import { openDb } from '../src/core/db.js';
 import { seedWorkspace } from '../src/core/seed.js';
-import type { Issue } from '../src/core/types.js';
+import type { Issue, WorkflowStateType } from '../src/core/types.js';
 import { App } from '../src/tui/App.js';
 import { buildData, fetchData, type TuiData } from '../src/tui/data.js';
 import { BINDINGS, contextsFor, helpSections, isChordPrefix, lookup, type Context } from '../src/tui/keys.js';
 import { agentCommand, agentEnv, shellPreview } from '../src/tui/launch.js';
 import { peekLines } from '../src/tui/detail.js';
 import {
-  CLOSED_TYPES, defaultExpanded, displayWidth, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
+  CLOSED_TYPES, DEFAULT_VIEW, defaultExpanded, displayWidth, GROUP_BYS, listRowsFor, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
   markdownLines, selectableIds, sortIssues, truncate, wrap,
 } from '../src/tui/model.js';
 import { cycleDraft, filteredPalette, newDraft, pickerOptions } from '../src/tui/overlays.js';
-import { initialState, reducer, routeKey, type Action, type TuiState } from '../src/tui/state.js';
+import { cursorRow, initialState, listViewOf, reducer, routeKey, type Action, type TuiState } from '../src/tui/state.js';
 import { editField, emptyField, fieldOf } from '../src/tui/textfield.js';
 
 const work = mkdtempSync(join(tmpdir(), 'baseline-tui-test-'));
@@ -55,19 +55,32 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   const mine = issuesForRoute({ kind: 'my' }, data);
   check('My Issues holds exactly the current user\'s issues', mine.length > 0 && mine.every(i => i.assigneeId === data.currentUser.id));
   const groups = groupIssues(mine, data);
-  const order = groups.map(g => g.type);
+  const order = groups.map(g => g.key as WorkflowStateType);
   check('groups follow Linear order: In Progress before Todo before Backlog, closed last',
     order.indexOf('started') < order.indexOf('unstarted') && order.indexOf('unstarted') < order.indexOf('backlog') && order.slice(-2).every(t => CLOSED_TYPES.has(t)), order.join());
-  check('every issue lands in the group of its state type', groups.every(g => g.issues.every(i => typeOf(i) === g.type)));
-  check('group headers carry a count and the state color', groups.every(g => g.issues.length > 0 && /^#/.test(g.color)));
+  check('every issue lands in the group of its state type', groups.every(g => g.issues.every(i => typeOf(i) === g.key)));
+  check('status group headers carry the state color', groups.every(g => g.issues.length > 0 && /^#/.test(g.icon[0]?.color ?? '')));
+  for (const by of GROUP_BYS) {
+    const gs = groupIssues(mine, data, by);
+    const all = gs.flatMap(g => g.issues.map(i => i.id));
+    if (new Set(all).size !== mine.length || all.length !== mine.length) check(`grouping by ${by} keeps every issue exactly once`, false);
+  }
+  check('every grouping keeps every issue exactly once', true);
+  const byPriority = groupIssues(mine, data, 'priority').map(g => g.label);
+  check('by priority: Urgent first, No priority last', byPriority[0] === 'Urgent' && (byPriority.includes('No priority') ? byPriority[byPriority.length - 1] === 'No priority' : true), byPriority.join());
+  const byAssignee = groupIssues(data.issues, data, 'assignee').map(g => g.label);
+  check('by assignee: me first, No assignee last', byAssignee[0].endsWith('(me)') && byAssignee[byAssignee.length - 1] === 'No assignee', byAssignee.join());
+  check('no grouping: one group, no header rows', listRows(groupIssues(mine, data, 'none'), defaultExpanded).every(r => r.kind === 'issue'));
+  const active = listRowsFor({ kind: 'my' }, data, { ...DEFAULT_VIEW, preset: 'active' }).filter(r => r.kind === 'issue');
+  check('the Active preset shows only started and unstarted issues', active.length > 0 && active.every(r => r.kind === 'issue' && ['started', 'unstarted'].includes(typeOf(r.issue))));
 
   const rows = listRows(groups, defaultExpanded);
-  const doneRow = rows.find(r => r.kind === 'group' && r.group.type === 'completed');
+  const doneRow = rows.find(r => r.kind === 'group' && r.group.key === 'completed');
   check('Done starts collapsed: its header shows, its issues do not', !!doneRow && !rows.some(r => r.kind === 'issue' && typeOf(r.issue) === 'completed'));
   const open = listRows(groups, () => true);
   check('expanding shows the closed issues', open.some(r => r.kind === 'issue' && typeOf(r.issue) === 'completed'));
-  const ids = selectableIds({ kind: 'my' }, data, defaultExpanded, now);
-  check('the cursor skips open group headers but stops on collapsed ones', !ids.includes('group:started') && ids.includes('group:completed'));
+  const ids = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now);
+  check('the cursor skips open group headers but stops on collapsed ones', !ids.includes('group:status:started') && ids.includes('group:status:completed'));
 
   check('fuzzy: a subsequence matches across words', !!fuzzyMatch('cmdk', 'Cmd+K fuzzy search scoring'));
   check('fuzzy: letters out of order don\'t match', fuzzyMatch('zq', 'Cmd+K fuzzy search scoring') === null);
@@ -114,17 +127,17 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   const team = data.teams[0];
   check('switching views clears the stack', run(s1, { type: 'switchView', route: { kind: 'team', teamId: team.id } }).stack.length === 0);
 
-  const count = selectableIds({ kind: 'my' }, data, defaultExpanded, now).length;
+  const count = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now).length;
   const moved = run(s0, { type: 'move', delta: 3, count }, { type: 'move', delta: 999, count });
   check('moving clamps to the last row', moved.cursor.my === count - 1);
   check('moving up clamps to the first row', run(moved, { type: 'move', delta: -999, count }).cursor.my === 0);
 
   const at2 = run(s0, { type: 'move', delta: 2, count });
-  const idAt2 = selectableIds({ kind: 'my' }, data, defaultExpanded, now)[2];
+  const idAt2 = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[2];
   const urgent: Issue = { ...issue, id: 'i_new_urgent', number: 999, priority: 1, sortOrder: -1, stateId: data.issueById.get(idAt2)!.stateId };
   const grown: TuiData = buildData({ ...data, issues: [urgent, ...data.issues] });
   const after = run(at2, { type: 'loaded', data: grown, at: now + 1 });
-  check('a refetch that inserts a row above keeps the cursor on the same issue', selectableIds({ kind: 'my' }, grown, defaultExpanded, now)[after.cursor.my] === idAt2);
+  check('a refetch that inserts a row above keeps the cursor on the same issue', selectableIds({ kind: 'my' }, grown, DEFAULT_VIEW, now)[after.cursor.my] === idAt2);
 
   const gone = run(s1, { type: 'loaded', data: buildData({ ...data, issues: data.issues.filter(i => i.id !== issue.id) }), at: now + 2 });
   check('an open issue that disappears goes back with a note', gone.route.kind === 'my' && gone.toast?.tone === 'info');
@@ -153,12 +166,27 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('the assignee picker offers me first and unassign last', opts[0].id === data.currentUser.id && opts[0].hint === 'me' && opts[opts.length - 1].label === 'No assignee');
   check('routeKey separates routes of the same kind', routeKey({ kind: 'team', teamId: 'a' }) !== routeKey({ kind: 'team', teamId: 'b' }));
 
-  const visible = selectableIds({ kind: 'my' }, data, defaultExpanded, now);
+  const visible = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now);
   const onFirst = run(s0, { type: 'navigate', route: { kind: 'issue', issueId: visible[0] } });
   const stepped = run(onFirst, { type: 'stepIssue', delta: 1, now });
   check('J on an issue page opens the next issue of the list it came from', stepped.route.kind === 'issue' && stepped.route.issueId === visible[1] && stepped.stack.length === 1);
   check('…and back lands the list cursor on that issue', run(stepped, { type: 'back' }).cursor.my === 1);
   check('K on the first issue stays put with a note', run(onFirst, { type: 'stepIssue', delta: -1, now }).route === onFirst.route && run(onFirst, { type: 'stepIssue', delta: -1, now }).toast?.tone === 'info');
+
+  const onSecond = run(s0, { type: 'move', delta: 1, count });
+  const secondId = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[1];
+  const regrouped = run(onSecond, { type: 'cycleGroupBy' });
+  check('D cycles status → assignee and keeps the cursor on the same issue', regrouped.groupBy === 'assignee' && cursorRow(regrouped)?.id === secondId);
+  check('D cycles through every grouping back to status', GROUP_BYS.reduce(st => run(st, { type: 'cycleGroupBy' }), s0).groupBy === 'status');
+  const firstGroup = groupIssues(issuesForRoute({ kind: 'my' }, data), data)[0];
+  const folded = run(s0, { type: 'toggleGroup', groupId: firstGroup.id });
+  check('z folds the group under the cursor and the cursor lands on its header', cursorRow(folded)?.id === `group:${firstGroup.id}` &&
+    !listRowsFor({ kind: 'my' }, data, listViewOf(folded, { kind: 'my' })).some(r => r.kind === 'issue' && firstGroup.issues.some(i => i.id === r.id)));
+  check('z again unfolds it', run(folded, { type: 'toggleGroup', groupId: firstGroup.id }).expanded[`my|${firstGroup.id}`] === true);
+  const allFolded = run(s0, { type: 'foldAll' });
+  check('Z folds every group; Z again opens them all', listRowsFor({ kind: 'my' }, data, listViewOf(allFolded, { kind: 'my' })).every(r => r.kind === 'group') &&
+    listRowsFor({ kind: 'my' }, data, listViewOf(run(allFolded, { type: 'foldAll' }), { kind: 'my' })).some(r => r.kind === 'issue' && typeOf(r.issue) === 'completed'));
+  check('shift-tab cycles All → Active → Backlog → All', ['active', 'backlog', 'all'].every((p, n) => Array.from({ length: n + 1 }).reduce<TuiState>(st => run(st, { type: 'cyclePreset' }), s0).preset === p));
 
   const key4 = data.keyOf(issue);
   const pal = (q: string) => filteredPalette({ kind: 'palette', input: fieldOf(q), cursor: 0 }, s0, data, now).map(r => r.item);
@@ -251,7 +279,7 @@ class FakeStdin extends EventEmitter {
   check('the footer shows hints from the keymap', frame.includes('s status') && frame.includes('? help'));
   check('the sidebar lists every team at 120 columns', data.teams.every(t => frame.includes(t.name)));
 
-  const target = data.issueById.get(selectableIds({ kind: 'my' }, data, defaultExpanded, now)[0])!;
+  const target = data.issueById.get(selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[0])!;
   const next = data.states.filter(s => s.teamId === target.teamId && s.id !== target.stateId).sort((a, b) => a.position - b.position).find(s => s.type === 'completed')!;
   stdin.press('s');
   await waitFor('status picker', f => f.includes('Change status'));
@@ -291,12 +319,12 @@ class FakeStdin extends EventEmitter {
   const created = (await fresh.listIssues({ query: 'Filed from the TUI test' }))[0];
   check('c → enter creates the issue, assigned to me from My Issues', !!created && created.assigneeId === data.currentUser.id);
 
-  const second = selectableIds({ kind: 'my' }, data, defaultExpanded, now)[1];
+  const second = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[1];
   const secondTitle = (await fresh.getIssue(second))!.title;
   stdin.press('ggj\r');
   await waitFor('burst opens the second issue', f => f.includes('Description') && f.includes(secondTitle));
   check('a burst of keys in one chunk (tmux send-keys) acts as separate presses', stdout.last.includes(secondTitle));
-  const third = selectableIds({ kind: 'my' }, await fetchData(fresh), defaultExpanded, now)[2];
+  const third = selectableIds({ kind: 'my' }, await fetchData(fresh), DEFAULT_VIEW, now)[2];
   const thirdTitle = (await fresh.getIssue(third))!.title;
   stdin.press('J');
   await waitFor('J opens the next issue', f => f.includes('Description') && f.includes(thirdTitle));
@@ -316,7 +344,7 @@ class FakeStdin extends EventEmitter {
   await waitFor('My Issues again', f => /My Issues\s+\d+ open/.test(f));
 
   const live = await fetchData(fresh);
-  const pick = live.issueById.get(selectableIds({ kind: 'my' }, live, defaultExpanded, now)[0])!;
+  const pick = live.issueById.get(selectableIds({ kind: 'my' }, live, DEFAULT_VIEW, now)[0])!;
   stdin.press('ggp');
   await waitFor('priority picker', f => f.includes('Set priority'));
   stdin.press('4');
@@ -329,12 +357,22 @@ class FakeStdin extends EventEmitter {
   check('space opens the peek pane beside the list, on the issue under the cursor', stdout.last.includes(pick.title.slice(0, 20)) && /My Issues\s+\d+ open/.test(stdout.last));
   stdin.press('j');
   const relisted = await fetchData(fresh);
-  const ids = selectableIds({ kind: 'my' }, relisted, defaultExpanded, now);
+  const ids = selectableIds({ kind: 'my' }, relisted, DEFAULT_VIEW, now);
   const nextRow = relisted.issueById.get(ids[ids.indexOf(pick.id) + 1])!;
   await waitFor('peek follows the cursor', f => f.includes(`${live.keyOf(nextRow)}  `) && f.split(live.keyOf(nextRow)).length > 2);
   check('the peek pane follows the cursor', stdout.last.split(live.keyOf(nextRow)).length > 2);
   stdin.press(' ');
   await waitFor('peek closed', f => !f.includes('── Description'));
+
+  stdin.press('DD');
+  await waitFor('grouped by priority', f => f.includes('by priority'));
+  const groupHeads = stdout.last.split('\n').map(l => /(Urgent|High|Medium|Low|No priority)\s+\d+\s*$/.exec(l.split('│')[1] ?? '')?.[1]).filter(Boolean);
+  check('D D groups by priority: the header says so and Urgent comes first', stdout.last.includes('My Issues') && groupHeads[0] === 'Urgent' && groupHeads.length >= 2, groupHeads.join());
+  stdin.press('ggz');
+  await waitFor('folded group', f => /▸ !? ?Urgent\s+\d+/.test(f) || /▸ ! Urgent/.test(f));
+  check('z folds the group under the cursor', /▸ .*Urgent\s+\d+/.test(stdout.last));
+  stdin.press('zDDD');
+  await waitFor('back to status grouping', f => f.includes('by status'));
 
   stdin.press('q');
   const exited = await Promise.race([app.waitUntilExit().then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);

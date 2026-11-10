@@ -6,9 +6,9 @@ import { PRIORITY_LABELS, type Handoff, type Issue, type Priority } from '../cor
 import { copyToClipboard, openBrowser } from '../cli/system.js';
 import type { CommandId } from './keys.js';
 import { agentCommand, agentCwd, agentEnv, editInEditor, runInTerminal } from './launch.js';
-import { groupIssues, inboxItems, isListRoute, issuesForRoute, listRows, navIdFor, navItems, projectRows, selectableIds } from './model.js';
+import { inboxItems, isListRoute, listGroups, listRowsFor, navIdFor, navItems, projectRows, selectableIds } from './model.js';
 import { cycleDraft, filteredOptions, filteredPalette, newDraft, NONE, searchResults } from './overlays.js';
-import { expandedFn, routeKey, type Action, type PickerField, type TuiState } from './state.js';
+import { cursorRow, listViewOf, routeKey, type Action, type PickerField, type TuiState } from './state.js';
 import { emptyField, fieldOf } from './textfield.js';
 
 export interface Layout { pageSize: number; detailMax: number; helpMax: number; sidebarVisible: boolean; sidebarFits: boolean; peekVisible: boolean }
@@ -35,7 +35,7 @@ export const errorText = (e: unknown) =>
   e instanceof BaselineError || e instanceof ResolveError ? e.message : e instanceof Error ? e.message : String(e);
 
 function cursorIds(s: TuiState, now: number): string[] {
-  return s.data ? selectableIds(s.route, s.data, expandedFn(s, s.route), now) : [];
+  return s.data ? selectableIds(s.route, s.data, listViewOf(s, s.route), now) : [];
 }
 
 /** the issue a command acts on: the open issue, or the row under the cursor */
@@ -241,6 +241,16 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'toggleSidebar':
       if (!ctx.layout.sidebarFits) return toast(d, 'info', 'Widen the terminal to 90+ columns for the sidebar; [ and ] switch views');
       return d({ type: 'toggleSidebar' });
+    case 'cycleGroupBy': return d({ type: 'cycleGroupBy' });
+    case 'cyclePreset': return d({ type: 'cyclePreset' });
+    case 'foldAll': return d({ type: 'foldAll' });
+    case 'foldGroup': {
+      const row = cursorRow(s);
+      if (!row || !isListRoute(s.route)) return;
+      const groupId = row.kind === 'group' ? row.group.id : listGroups(s.route, data, listViewOf(s, s.route)).find(g => g.issues.some(i => i.id === row.id))?.id;
+      if (s.groupBy === 'none') return toast(d, 'info', 'Nothing to fold without grouping; D groups the list');
+      return groupId ? d({ type: 'toggleGroup', groupId }) : undefined;
+    }
     case 'togglePeek': return d({ type: 'peek', on: !ctx.layout.peekVisible });
     case 'nextIssue': return d({ type: 'stepIssue', delta: 1, now });
     case 'prevIssue': return d({ type: 'stepIssue', delta: -1, now });
@@ -272,8 +282,8 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
       const id = cursorIds(s, now)[s.cursor[routeKey(s.route)] ?? 0];
       if (!id) return;
       if (isListRoute(s.route)) {
-        const row = listRows(groupIssues(issuesForRoute(s.route, data), data), expandedFn(s, s.route)).find(r => r.id === id);
-        if (row?.kind === 'group') return d({ type: 'toggleGroup', groupType: row.group.type });
+        const row = listRowsFor(s.route, data, listViewOf(s, s.route)).find(r => r.id === id);
+        if (row?.kind === 'group') return d({ type: 'toggleGroup', groupId: row.group.id });
         return d({ type: 'navigate', route: { kind: 'issue', issueId: id } });
       }
       if (s.route.kind === 'projects') {
