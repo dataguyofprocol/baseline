@@ -27,7 +27,6 @@ export type DraftField = typeof DRAFT_FIELDS[number];
 
 /** the start sheet's options, in the order they are numbered */
 export const START_CHOICES = ['pane', 'here', 'copy', 'none'] as const;
-export type StartChoice = typeof START_CHOICES[number];
 /** how an answer to a blocked agent runs it again */
 export const RERUN_CHOICES = ['pane', 'here', 'comment'] as const;
 
@@ -100,7 +99,6 @@ export const routeKey = (r: Route): string => {
 };
 
 export const TODAY: Route = { kind: 'today' };
-export const isTopLevel = (r: Route) => r.kind === 'today' || r.kind === 'team';
 
 export function initialState(route: Route = TODAY, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null; intro?: boolean; panes?: Record<string, Pane> } = {}): TuiState {
   return {

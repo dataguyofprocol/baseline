@@ -1073,7 +1073,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   type GsBoot = { currentUser: { id: string }; workspace: { preferences: { homeView: string; gettingStarted: { onboarding: string; flow: string } } }; notifications: Array<{ type: string; body: string; actorId: string | null }>; teams: Array<{ id: string; memberIds: string[] }>; users: Array<{ id: string; githubUsername?: string }> };
   const bootAs = async (cookie: string) => await (await preq('/api/bootstrap', { cookie })).json() as GsBoot;
   const ownerBoot = await bootAs(ownerCookie2);
-  const ownerIdNow = ownerBoot.currentUser.id;
   check('the owner starts on the onboarding flow that creates the workspace', ownerBoot.workspace.preferences.gettingStarted.onboarding === 'pending' && ownerBoot.workspace.preferences.gettingStarted.flow === 'create', JSON.stringify(ownerBoot.workspace.preferences.gettingStarted));
   check('…and everyone\'s home is My work by default', ownerBoot.workspace.preferences.homeView === 'my-work');
   const tiaGs = (await bootAs(tiaCookie)).workspace.preferences.gettingStarted;

@@ -59,7 +59,6 @@ export function CreateIssueModal() {
   const [milestoneId, setMilestoneId] = useState<string | null>(null);
   const [createMore, setCreateMore] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [moreOpen, setMoreOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [morePhase, setMorePhase] = useState<'root' | 'due' | 'estimate'>('root');
   const [newLabelName, setNewLabelName] = useState('');
@@ -100,7 +99,6 @@ export function CreateIssueModal() {
       setCycleId(state.cycleId ?? null);
       setMilestoneId(null);
       setCreateMore(false);
-      setMoreOpen(false);
       setAppliedTemplateId(undefined);
       // "Make a copy…": the same properties and text, as a new issue
       const src = state.copyFrom ? snap.issues.find(i => i.id === state.copyFrom) : undefined;
@@ -130,7 +128,7 @@ export function CreateIssueModal() {
       }
       setTimeout(() => titleRef.current?.focus(), 30);
     }
-  }, [state.open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.open]);
 
   // the editor remounts when the modal resets (new issue, discarded draft, create-more)
   const [editorKey, setEditorKey] = useState(0);

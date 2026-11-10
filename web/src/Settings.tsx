@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useApp, shortDate } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, ConfirmIconButton, AdminLock, useCanConfigure, useCanLead, useOnTeam, AskLine, useInFlight, NotFound } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, ConfirmIconButton, AdminLock, useCanLead, AskLine, useInFlight, NotFound } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
-import { StateIcon, PriorityIcon, Avatar, CalendarGrid, teamDisplayIcon } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconUpdates, IconInitiative, IconLoop, IconGithub, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
+import { StateIcon, Avatar, CalendarGrid, teamDisplayIcon } from './pickers.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconUpdates, IconInitiative, IconLoop, IconGithub, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconTriage, IconCycle } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
 import { HostedMembersSettings, SecuritySettings as WorkspaceSecuritySettings, TeamMembersSettings } from './Members.js';
@@ -17,7 +17,7 @@ import { TeamJoinChip } from './Workspace.js';
 import { SecuritySettings, NewApiKey, ApiAdminSettings } from './ApiKeysUI.js';
 import { InitiativesSettings, ProjectUpdatesSettings } from './SettingsMore.js';
 import { DEFAULT_PROMPT_TEMPLATE, PROMPT_TEMPLATE_VARS, buildHandoff } from '../../src/core/handoff.js';
-import { TERMINAL_APPS, FEATURE_SWITCHES, type WorkflowStateType, type Priority, type TerminalApp, type Snapshot, type WorkspaceFeatures } from '../../src/core/types.js';
+import { TERMINAL_APPS, FEATURE_SWITCHES, type WorkflowStateType, type TerminalApp, type Snapshot, type WorkspaceFeatures } from '../../src/core/types.js';
 import { LABEL_COLORS } from './labelColors.js';
 import { reorder } from './Projects.js';
 
@@ -282,7 +282,7 @@ function TeamSettingsPage(props: { teamKey: string }) {
   const [name, setName] = useState(team?.name ?? '');
   const [key, setKey] = useState(team?.key ?? '');
   const [desc, setDesc] = useState(team?.description ?? '');
-  useEffect(() => { setName(team?.name ?? ''); setKey(team?.key ?? ''); setDesc(team?.description ?? ''); }, [team?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setName(team?.name ?? ''); setKey(team?.key ?? ''); setDesc(team?.description ?? ''); }, [team?.id]);
   if (!team) return <NotFound what="Team" back={{ label: 'Back to teams', to: '/settings/teams' }} />;
   const patch = async (p: Record<string, unknown>) => { await api.updateTeam(team.id, p); await useApp.getState().bootstrap(); };
   const wf = snap.teamWorkflows?.[team.id];
@@ -1350,7 +1350,3 @@ function ShortcutSettings() {
     </div>
   );
 }
-
-/* keep imports referenced */
-export { Menu, MenuItem, useMenu, PriorityIcon, IconPlus, IconBack, IconClose };
-export type { WorkflowStateType, Priority };

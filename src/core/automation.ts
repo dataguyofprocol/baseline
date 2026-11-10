@@ -22,7 +22,7 @@ export class Automation {
   private running = false;
 
   constructor(private store: Store, private db: DatabaseSync) {
-    store.issueHooks.push((before, after, actorId) => { this.applySla(after); this.notifyTeam(before, after, actorId); this.applyWorkflow(before, after); if (!this.running) this.fireIssueLoops(before, after, actorId); });
+    store.issueHooks.push((before, after, actorId) => { this.applySla(after); this.notifyTeam(before, after, actorId); this.applyWorkflow(before, after); if (!this.running) this.fireIssueLoops(before, after); });
     store.tickHooks.push(now => { this.checkBreaches(now); this.runScheduledLoops(now); this.sweepWorkflows(now); });
   }
 
@@ -213,7 +213,7 @@ export class Automation {
   }
   deleteLoop(loopId: string): void { this.db.prepare('DELETE FROM loops WHERE id = ?').run(loopId); }
 
-  private fireIssueLoops(before: Issue | null, after: Issue, _actorId?: string): void {
+  private fireIssueLoops(before: Issue | null, after: Issue): void {
     for (const l of this.snapshot().loops) {
       if (!l.enabled || (l.teamId && l.teamId !== after.teamId)) continue;
       const t = l.trigger;

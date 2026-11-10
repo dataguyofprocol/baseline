@@ -60,7 +60,6 @@ export const PrioLow = (p: P) => <S {...p}>{bar(2.7, 9.6)}<rect x="6.3" y="9.2" 
 /* ---------- ui icons ---------- */
 export const IconInbox = (p: P) => <S {...p}><path d="M2.2 8.2h3l1 1.8h2.6l1-1.8h3" {...stroke} /><path d="M3.4 3.4h8.2l1.2 4.8v3.4H2.2V8.2l1.2-4.8Z" {...stroke} /></S>;
 export const IconMyIssues = (p: P) => <S {...p}><path d="M3.2 3.6c2.9-1.4 5.7-1.4 8.6 0v7.8c-2.9-1.4-5.7-1.4-8.6 0V3.6Z" {...stroke} /><path d="M3.2 3.6v7.8" {...stroke} /></S>;
-export const IconSparkle = (p: P) => <S {...p}><path d="M7.5 2.2 8.6 6l3.8 1.1-3.8 1.1-1.1 3.8-1.1-3.8L2.6 7.1 6.4 6l1.1-3.8Z" {...stroke} /></S>;
 export const IconBox = (p: P) => <S {...p}><path d="M7.5 2.2 13 5.2v4.6l-5.5 3L2 9.8V5.2l5.5-3Z" {...stroke} /><path d="M2.3 5.4 7.5 8.2l5.2-2.8M7.5 8.2v4.6" {...stroke} /></S>;
 export const IconViews = (p: P) => <S {...p}><path d="M2.4 5.2 7.5 2.4l5.1 2.8-5.1 2.8-5.1-2.8Z" {...stroke} /><path d="M2.4 8.2l5.1 2.8 5.1-2.8" {...stroke} /><path d="M2.4 10.8l5.1 2.8 5.1-2.8" {...stroke} opacity="0.5" /></S>;
 export const IconTeam = (p: P) => <S {...p}><rect x="2.6" y="2.6" width="9.8" height="9.8" rx="2.4" {...stroke} /><circle cx="7.5" cy="6.3" r="1.7" {...stroke} /><path d="M4.6 11.4c.5-1.7 1.6-2.5 2.9-2.5s2.4.8 2.9 2.5" {...stroke} /></S>;
@@ -97,9 +96,7 @@ export const IconEmoji = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.4" {
 export const IconArrowUp = (p: P) => <S {...p}><path d="M7.5 12V3M3.8 6.7 7.5 3l3.7 3.7" {...stroke} /></S>;
 export const IconCheck = (p: P) => <S {...p}><path d="m3.4 7.9 2.7 2.7 5.5-6.2" {...stroke} /></S>;
 export const IconTextAa = (p: P) => <S {...p}><path d="M2.4 11.5 5.6 3.5l3.2 8M3.5 9h4.2" {...stroke} /><path d="M11.1 11.5c.9 0 1.5-.5 1.5-1.6V6.6h-2.8M12.6 8.8c-2.2-.4-3 .2-3 1.2 0 .9.8 1.5 1.6 1.5.6 0 1.1-.2 1.4-.7" {...stroke} /></S>;
-export const IconSplit = (p: P) => <S {...p}><rect x="2.2" y="2.8" width="10.6" height="9.4" rx="2" {...stroke} /><path d="M7.5 2.8v9.4" {...stroke} /></S>;
 export const IconBack = (p: P) => <S {...p}><path d="M9.6 3.4 5.4 7.5l4.2 4.1" {...stroke} /></S>;
-export const IconDrag = (p: P) => <S {...p}><circle cx="5.4" cy="4" r="1" fill="currentColor" /><circle cx="9.6" cy="4" r="1" fill="currentColor" /><circle cx="5.4" cy="7.5" r="1" fill="currentColor" /><circle cx="9.6" cy="7.5" r="1" fill="currentColor" /><circle cx="5.4" cy="11" r="1" fill="currentColor" /><circle cx="9.6" cy="11" r="1" fill="currentColor" /></S>;
 export const IconCalendar = (p: P) => <S {...p}><rect x="2.6" y="3.4" width="9.8" height="9" rx="2" {...stroke} /><path d="M2.6 6.4h9.8M5.4 2.4v2M9.6 2.4v2" {...stroke} /></S>;
 export const IconUser = (p: P) => <S {...p}><circle cx="7.5" cy="5.3" r="2.4" {...stroke} /><path d="M3 12.4c.7-2.2 2.4-3.3 4.5-3.3s3.8 1.1 4.5 3.3" {...stroke} /></S>;
 export const IconUsers = (p: P) => <S {...p}><circle cx="5.6" cy="5.6" r="2.1" {...stroke} /><path d="M1.9 12c.6-1.9 2-2.8 3.7-2.8s3.1.9 3.7 2.8" {...stroke} /><circle cx="10.6" cy="5.2" r="1.7" {...stroke} /><path d="M10.3 8.9c1.5.1 2.6 1 3.1 2.6" {...stroke} /></S>;
@@ -125,11 +122,6 @@ export const IconEstimate = (p: P) => <S {...p}><path d="M7.5 2.4 12.9 12H2.1z" 
 export const IconSubIssue = (p: P) => <S {...p}><path d="M3.4 2.8v7a2 2 0 0 0 2 2h6.2" {...stroke} /><circle cx="3.4" cy="3.4" r="1" fill="currentColor" /></S>;
 export const IconEdit = (p: P) => <S {...p}><path d="M8.9 3.2l2.9 2.9-6.4 6.4-3.3.4.4-3.3 6.4-6.4Z" {...stroke} /></S>;
 export const IconFocus = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.2" {...stroke} /><circle cx="7.5" cy="7.5" r="1.6" fill="currentColor" /></S>;
-export const IconGauge = (p: P) => <S {...p}><path d="M2.6 10.5a5.2 5.2 0 1 1 9.8 0" {...stroke} /><path d="M7.5 7.5 9.6 5" {...stroke} /></S>;
-export const IconInboxArrow = (p: P) => <S {...p}><path d="M2.6 7.5h9.8M9 4.1l3.4 3.4L9 10.9" {...stroke} /></S>;
-export const IconBot = (p: P) => <S {...p}><rect x="2.8" y="4.4" width="9.4" height="7.6" rx="2" {...stroke} /><path d="M7.5 2.2v2.2" {...stroke} /><circle cx="5.4" cy="8.2" r="0.9" fill="currentColor" /><circle cx="9.6" cy="8.2" r="0.9" fill="currentColor" /><path d="M6 10.6h3" {...stroke} /></S>;
-export const IconPrompt = (p: P) => <S {...p}><path d="M4.6 4.4 2 7.5l2.6 3.1M10.4 4.4 13 7.5l-2.6 3.1" {...stroke} /><path d="m8.4 3.4-1.8 8.2" {...stroke} /></S>;
-export const IconTerminal = (p: P) => <S {...p}><rect x="2.2" y="2.8" width="10.6" height="9.4" rx="2" {...stroke} /><path d="m4.8 5.9 2.3 2.1-2.3 2.1" {...stroke} /><path d="M8.4 10.3h2.4" {...stroke} /></S>;
 /* Agents read as a shell prompt: chevron + caret, no chrome around it. The boxed
    terminal turns to mush under 16px and fights every other outline icon. */
 export const IconAgent = (p: P) => <S {...p}><path d="m4.4 5 2.6 2.5-2.6 2.5" {...stroke} /><path d="M8.6 10.2h2.6" {...stroke} /></S>;

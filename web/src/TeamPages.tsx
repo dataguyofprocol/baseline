@@ -7,7 +7,7 @@ import { Menu, MenuItem, ConfirmButton, useCanLead, AskLine, exclusive } from '.
 import { IssueDetail } from './IssueDetail.js';
 import { StateIcon, PriorityIcon, Avatar, teamDisplayIcon } from './pickers.js';
 import { PropertyMenuBody, propMenuWidth, parseReminder } from './propertyMenus.js';
-import { setIssueProps, triageDecide } from './actions.js';
+import { triageDecide } from './actions.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, FilterBar, applyFilters, activeFilterCount, type ViewOptions } from './IssueViews.js';
 import { IssueListBody, ListToolbar, openFilterMenu } from './Views.js';
 import { useMenu } from './ui.js';
@@ -55,7 +55,7 @@ export function TriagePage() {
   const createTriage = () => team && triageState && useApp.getState().openCreate({ teamId: team.id, stateId: triageState.id });
 
   useEffect(() => { registerVisibleList(queue, team?.id ?? ''); }, [queue, team?.id]);
-  useEffect(() => { useCursor.setState({ index: queue.length ? 0 : -1 }); return () => useCursor.getState().reset(); }, [team?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { useCursor.setState({ index: queue.length ? 0 : -1 }); return () => useCursor.getState().reset(); }, [team?.id]);
   useEffect(() => { if (cursor >= queue.length && queue.length) useCursor.setState({ index: queue.length - 1 }); }, [queue.length, cursor]);
   const current = cursor >= 0 ? queue[cursor] : undefined;
 
@@ -79,7 +79,7 @@ export function TriagePage() {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }); // eslint-disable-line react-hooks/exhaustive-deps
+  });
 
   if (!team) return null;
   if (!team.triageEnabled) {
@@ -197,7 +197,7 @@ function useServerList(load: () => Promise<{ issues: Issue[] }>, deps: unknown[]
   const [failed, setFailed] = useState(false);
   const snapIssues = useApp(s => s.snap?.issues);
   const reload = () => { setFailed(false); void load().then(r => setIssues(r.issues), () => setFailed(true)); };
-  useEffect(reload, [...deps, snapIssues]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(reload, [...deps, snapIssues]);
   const placeholder = failed && issues === null
     ? <EmptyState kind="missing" title="Couldn’t load this list" desc="Baseline didn’t answer. Check that the server is running." actions={<button className="btn secondary" onClick={reload}>Try again</button>} />
     : null;
@@ -335,7 +335,7 @@ export function SearchPage() {
   // the query lives in the address (#/search?q=…), so a search can be shared and Back returns to it
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(() => params.get('q') ?? sessionStorage.getItem('baseline:search') ?? '');
-  useEffect(() => { if ((params.get('q') ?? '') !== q.trim()) setParams(q.trim() ? { q: q.trim() } : {}, { replace: true }); }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if ((params.get('q') ?? '') !== q.trim()) setParams(q.trim() ? { q: q.trim() } : {}, { replace: true }); }, [q]);
   const [tab, setTab] = useState<SearchTab>(() => (sessionStorage.getItem('baseline:searchTab') as SearchTab) || 'all');
   const [archived, setArchived] = useState<Issue[]>([]);
   const [opts, patch, reset] = useViewPrefs<ViewOptions>('baseline:view:search', { ...DEFAULT_VIEW_OPTIONS, groupBy: 'none', orderBy: 'updated', filters: {}, showTriage: true });
@@ -356,7 +356,7 @@ export function SearchPage() {
       const key = `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
       return hit(`${key} ${i.title} ${i.description} ${commentText.get(i.id) ?? ''}`);
     });
-  }, [q, snap.issues, snap.comments, snap.teams, archived]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, snap.issues, snap.comments, snap.teams, archived]);
   const projects = words.length ? snap.projects.filter(p => hit(`${p.name} ${p.description} ${p.summary ?? ''}`)) : [];
   const initiatives = words.length ? snap.initiatives.filter(i => hit(`${i.name} ${i.description}`)) : [];
   const docs = words.length ? snap.docs.filter(d => hit(`${d.title} ${d.content}`)) : [];

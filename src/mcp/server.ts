@@ -72,7 +72,6 @@ export function createMcpServer(input: McpSessionInput): Server {
         // a read is the same whoever asks; it must work before the agent's identity is settled
         actor: op.effect.kind === 'read' ? { kind: 'person' } : await agent(),
         session: sessionFrom(input.session),
-        surface: 'mcp',
         local: input.local,
       };
       const out = await runOp(op, ctx, req.params.arguments ?? {});

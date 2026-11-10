@@ -21,11 +21,11 @@ import { SESSION_KEY, WORK_OUTCOMES } from '../core/work-types.js';
 import { z } from 'zod';
 import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
-import { isSnapshotSection, type FileOwnerType, type Priority, type Snapshot, type Team, type WorkflowStateType, type RelationType } from '../core/types.js';
+import { isSnapshotSection, type FileOwnerType, type Priority, type Team, type WorkflowStateType, type RelationType } from '../core/types.js';
 import { WEBHOOK_MAX_BYTES, WEBHOOK_PATH } from '../core/webhooks.js';
 import { FileError, FileService, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve, dirname, basename } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { exec } from 'node:child_process';
@@ -1101,7 +1101,3 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const open = process.argv.includes('--open');
   serve({ open });
 }
-
-// keep types referenced
-export type { Priority, Snapshot };
-void existsSync;

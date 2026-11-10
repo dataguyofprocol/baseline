@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, GitStatus, GithubTokenInfo, GithubSummary, GithubAuthor, TrackedRepo, Invite, InviteResult, WorkspaceSecurity, SignInMethod, TeamJoinLink } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, GitStatus, GithubTokenInfo, GithubSummary, GithubAuthor, TrackedRepo, Invite, InviteResult, WorkspaceSecurity, SignInMethod, TeamJoinLink } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -62,7 +62,6 @@ export const api = {
   restoreIssue: (id: string) => req<{ ok: true }>('POST', `/api/issues/${id}/restore`),
   archiveIssue: (id: string) => req<{ ok: true }>('POST', `/api/issues/${id}/archive`),
   unarchiveIssue: (id: string) => req<{ ok: true }>('POST', `/api/issues/${id}/unarchive`),
-  bulkIssues: (b: { ids: string[]; patch?: Record<string, unknown>; delete?: boolean; archive?: boolean }) => req<{ ok: true; count: number }>('POST', '/api/issues/bulk', b),
   moveIssue: (id: string, beforeId: string | null, afterId: string | null) => req<{ ok: true }>('POST', `/api/issues/${id}/move`, { beforeId, afterId }),
   startIssue: (id: string) => req<{ moved: boolean; assigned: boolean; stateName?: string }>('POST', `/api/issues/${id}/start`, {}),
   getHandoff: (id: string) => req<{ handoff: Handoff }>('GET', `/api/issues/${id}/handoff`),
@@ -117,7 +116,6 @@ export const api = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
     return res.json() as Promise<{ file: StoredFile }>;
   },
-  renameAttachment: (id: string, title: string) => req<{ ok: true }>('PATCH', `/api/attachments/${id}`, { title }),
   deleteAttachment: (id: string) => req<{ ok: true }>('DELETE', `/api/attachments/${id}`),
   updateComment: (commentId: string, body: string) => req<{ ok: true }>('PATCH', `/api/comments/${commentId}`, { body }),
   deleteComment: (commentId: string) => req<{ ok: true }>('DELETE', `/api/comments/${commentId}`),
@@ -171,8 +169,6 @@ export const api = {
   addMyGithubRepos: (repos: string[]) => req<{ repos: TrackedRepo[] }>('POST', '/api/me/github/repos', { repos }),
   removeMyGithubRepo: (repo: string) => req<{ repos: TrackedRepo[] }>('POST', '/api/me/github/repos/remove', { repo }),
   setGithubRepos: (repos: string[]) => req<{ repos: TrackedRepo[] }>('PUT', '/api/github/repos', { repos }),
-  githubRepoTeams: () => req<{ repos: Array<{ repo: string; teamId: string | null; teamKey: string | null }> }>('GET', '/api/github/repo-teams'),
-  setGithubRepoTeam: (repo: string, teamId: string | null) => req<{ ok: true }>('PUT', '/api/github/repo-teams', { repo, teamId }),
   githubSummary: () => req<GithubSummary>('GET', '/api/github/summary'),
   githubAuthors: () => req<{ authors: GithubAuthor[] }>('GET', '/api/github/authors'),
   gitSync: () => req<{ prs: number; commits: number; error?: string }>('POST', '/api/git/sync'),
@@ -193,11 +189,6 @@ export const api = {
   setTeamWorkflow: (teamId: string, patch: Record<string, unknown>) => req<{ workflow: unknown }>('PUT', `/api/teams/${teamId}/workflow`, patch),
   setFeatures: (patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', '/api/features', patch),
   createProjectLabel: (b: Record<string, unknown>) => req<{ label: ProjectLabel }>('POST', '/api/project-labels', b),
-  updateProjectLabel: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/project-labels/${id}`, b),
-  deleteProjectLabel: (id: string) => req<{ ok: true }>('DELETE', `/api/project-labels/${id}`),
-  createProjectStatus: (b: Record<string, unknown>) => req<{ status: ProjectStatusDef }>('POST', '/api/project-statuses', b),
-  updateProjectStatus: (id: string, b: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/project-statuses/${id}`, b),
-  deleteProjectStatus: (id: string) => req<{ ok: true }>('DELETE', `/api/project-statuses/${id}`),
   setProjectSubscription: (projectId: string, flags: Record<string, boolean>) => req<{ ok: true }>('PUT', `/api/projects/${projectId}/subscription`, flags),
   uploadAvatar: async (userId: string, file: File | null) => {
     const res = await fetch(`/api/users/${userId}/avatar${file ? `?file=${encodeURIComponent(file.name || 'avatar.png')}` : ''}`, { method: 'POST', headers: { 'Content-Type': file?.type || 'image/png' }, body: file ?? '' });
@@ -230,13 +221,8 @@ export const api = {
   updateCycle: (id: string, patch: Record<string, unknown>) => req<{ ok: true }>('PATCH', `/api/cycles/${id}`, patch),
   updateWorkspace: (b: Record<string, unknown>) => req<{ ok: true }>('PATCH', '/api/workspace', b),
   importWorkspace: (json: string) => req<{ ok: true }>('POST', '/api/import', { json }),
-  search: (q: string) => req<{ issues: Issue[]; projects: Project[] }>('GET', `/api/search?q=${encodeURIComponent(q)}`),
   reseed: () => req<{ ok: true }>('POST', '/api/seed', {}),
-  /** the sample workspace, added next to what's already here (once per workspace) */
-  loadSampleData: () => req<{ ok: true; already?: boolean }>('POST', '/api/seed', { into: true }),
 };
-
-export type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate };
 
 /** The signed-out side of a hosted server (/auth/*, no session needed). Plain fetches: a refused
  *  password is an answer to show, not a lost session. */

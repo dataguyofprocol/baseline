@@ -195,12 +195,6 @@ export function contextsFor(s: Pick<TuiState, 'status' | 'data' | 'overlay' | 'r
   return [baseContext(r), 'global'];
 }
 
-const closedIssue = (data: NonNullable<TuiState['data']>, id: string) => {
-  const i = data.issueById.get(id);
-  const t = i ? data.stateById.get(i.stateId)?.type : undefined;
-  return t === 'completed' || t === 'canceled';
-};
-
 export const baseContext = (r: TuiState['route']): Context =>
   r.kind === 'today' ? 'today' : isListRoute(r) ? 'list' : 'detail';
 

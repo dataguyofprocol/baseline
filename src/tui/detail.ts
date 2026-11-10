@@ -216,10 +216,6 @@ export function reviewKeys(ask: 'review' | 'blocked', drafts: number): Line {
 /** the issue page as lines, and where each comment starts (so a mention opens scrolled to it) */
 export interface DetailLayout { lines: Line[]; anchors: Record<string, number> }
 
-export function detailLines(issue: Issue, data: TuiData, threads: readonly WorkThread[], width: number, now: number, ui: IssueUi = {}): Line[] {
-  return detailLayout(issue, data, threads, width, now, ui).lines;
-}
-
 export function detailLayout(issue: Issue, data: TuiData, threads: readonly WorkThread[], width: number, now: number, ui: IssueUi & { focusComment?: string } = {}): DetailLayout {
   const w = Math.max(20, width);
   const anchors: Record<string, number> = {};

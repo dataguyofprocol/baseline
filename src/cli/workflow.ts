@@ -23,7 +23,7 @@ const harnessFromEnv = () => process.env.CLAUDECODE === '1' ? 'Claude Code' : un
 export async function agentContext(flags: { db?: string; as?: string }, who: 'agent' | 'person' = 'agent'): Promise<OpContext> {
   const bl = await connectAgent(flags);
   const actor = who === 'person' ? { kind: 'person' as const } : await agentActor(bl, flags.as ?? process.env.BASELINE_AS ?? harnessFromEnv());
-  return { bl, actor, session: sessionFrom(process.env.BASELINE_SESSION), surface: 'cli', local: localRepo() };
+  return { bl, actor, session: sessionFrom(process.env.BASELINE_SESSION), local: localRepo() };
 }
 
 async function runFor(op: AnyOperation, ctx: OpContext, input: Record<string, unknown>) {

@@ -564,7 +564,7 @@ export function CommandPalette() {
   useEffect(() => { if (open) { setQ(''); setIndex(0); setSub(null); } }, [open]);
   // O then … (or "Open issue…" in the list): the palette becomes a picker of one kind
   const scope = useApp(s => s.paletteScope);
-  useEffect(() => { if (open && scope) { setQ(''); setIndex(0); setSub(scopePage(scope)); } }, [open, scope]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open && scope) { setQ(''); setIndex(0); setSub(scopePage(scope)); } }, [open, scope]);
   const scopePage = (sc: PaletteScope): SubPage => {
     const s = useApp.getState().snap!;
     const of = (section: string) => () => items.filter(i => i.section === section && (section !== 'Issues' || i.prefixLen)).map(i => ({ ...i, section: '' }));

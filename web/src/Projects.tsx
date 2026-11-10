@@ -9,7 +9,6 @@ import { Avatar, PriorityIcon, CalendarGrid, StateIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
 import { RichEditor, isBlank, htmlToMarkdown } from './RichEditor.js';
 import type { Editor } from '@tiptap/react';
-import { Markdown } from './Markdown.js';
 import { ProjectLocationsRow } from './CodingTools.js';
 import { Resources } from './Docs.js';
 import { ProjectInitiatives } from './Initiatives.js';
@@ -266,7 +265,7 @@ const DEFAULT_PROJ: ProjOptions = {
   display: { summary: false, priority: true, status: true, health: true, team: false, lead: true, members: false, start: false, target: true, issues: true, created: false, updated: false, milestones: false, labels: true },
 };
 
-function applyProjectFilters(list: Project[], f: ProjectFilters, snap: Snap): Project[] {
+function applyProjectFilters(list: Project[], f: ProjectFilters): Project[] {
   const today = localIsoDate();
   const inDays = (n: number) => isoDaysFromToday(n);
   return list.filter(p =>
@@ -285,7 +284,7 @@ function applyProjectFilters(list: Project[], f: ProjectFilters, snap: Snap): Pr
       return d >= today && d <= inDays(t === 'month' ? 31 : 92);
     }))
     && (!f.query || `${p.name} ${p.summary} ${p.description}`.toLowerCase().includes(f.query.toLowerCase())),
-  ).filter(() => snap !== null);
+  );
 }
 
 const PF_FIELDS: Array<{ key: keyof ProjectFilters; label: string; icon: React.ReactNode }> = [
@@ -442,14 +441,14 @@ function ProjectDisplayMenu(props: { anchor: DOMRect; onClose: () => void; opts:
 
 /* ================= projects page ================= */
 /** the closed-projects window, then the filters */
-function shownProjects(list: Project[], opts: Pick<ProjOptions, 'closed' | 'filters'>, snap: Snap): Project[] {
+function shownProjects(list: Project[], opts: Pick<ProjOptions, 'closed' | 'filters'>): Project[] {
   const windowMs = opts.closed === 'week' ? 7 * 86400000 : opts.closed === 'month' ? 31 * 86400000 : null;
   return applyProjectFilters(list.filter(p => {
     if (p.status !== 'completed' && p.status !== 'canceled') return true;
     if (opts.closed === 'none') return false;
     if (windowMs === null) return true;
     return Date.now() - new Date(p.completedAt ?? p.updatedAt).getTime() <= windowMs;
-  }), opts.filters, snap);
+  }), opts.filters);
 }
 
 function projectViewOpts(v: SavedView): ProjOptions {
@@ -458,7 +457,7 @@ function projectViewOpts(v: SavedView): ProjOptions {
 
 /** for the Views page: how many projects a project view shows */
 export function countProjectView(v: SavedView, snap: Snap): number {
-  return shownProjects(v.teamId ? snap.projects.filter(p => p.teamId === v.teamId) : snap.projects, projectViewOpts(v), snap).length;
+  return shownProjects(v.teamId ? snap.projects.filter(p => p.teamId === v.teamId) : snap.projects, projectViewOpts(v)).length;
 }
 
 /** for the Views page: one chip per active filter, plus the layout when it isn't a list */
@@ -488,7 +487,7 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
   const { teamKey } = useParams();
   const team = savedView ? snap.teams.find(t => t.id === savedView.teamId) : teamKey ? snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase()) : undefined;
   const viewDefaults = useMemo<ProjOptions>(() => savedView ? { ...DEFAULT_PROJ, ...(savedView.projectOptions as Partial<ProjOptions> | null ?? {}), display: { ...DEFAULT_PROJ.display, ...((savedView.projectOptions as Partial<ProjOptions> | null)?.display ?? {}) } } : DEFAULT_PROJ,
-    [savedView?.id, JSON.stringify(savedView?.projectOptions)]); // eslint-disable-line react-hooks/exhaustive-deps
+    [savedView?.id, JSON.stringify(savedView?.projectOptions)]);
   const [stored, patch, reset] = useViewPrefs<ProjOptions>(savedView ? `baseline:view:saved:${savedView.id}` : `baseline:projects:${team?.id ?? 'all'}`, viewDefaults);
   // views and pages saved with the old Timeline layout open as a list
   const opts: ProjOptions = stored.layout === 'board' ? stored : { ...stored, layout: 'list' };
@@ -507,7 +506,7 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
   useListLayoutToggle({ layout: opts.layout === 'list' ? 'list' : 'board' } as ViewOptions, p => patch({ layout: p.layout === 'board' ? 'board' : 'list' }));
 
   const visible = useMemo(() => {
-    const list = shownProjects(team ? snap.projects.filter(p => p.teamId === team.id) : snap.projects, opts, snap);
+    const list = shownProjects(team ? snap.projects.filter(p => p.teamId === team.id) : snap.projects, opts);
     const prog = (p: Project) => projectProgress(snap, p.id).pct;
     const sorted = [...list];
     switch (opts.orderBy) {
@@ -784,7 +783,7 @@ export function ProjectTimeline(props: { projects: Project[] }) {
   const firstMonday = new Date(start); while (step > 1 && firstMonday.getDay() !== 1) firstMonday.setDate(firstMonday.getDate() + 1);
   for (let d = new Date(firstMonday); d.getTime() < max; d.setDate(d.getDate() + step)) ticks.push({ label: String(d.getDate()), left: x(d.getTime()) });
   const scroller = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (scroller.current) scroller.current.scrollLeft = Math.max(0, x(today.getTime()) - 200); }, [zoom]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (scroller.current) scroller.current.scrollLeft = Math.max(0, x(today.getTime()) - 200); }, [zoom]);
   const [drag, setDrag] = useState<{ id: string; mode: 'move' | 'start' | 'end'; originX: number; s: number; e: number; dx: number } | null>(null);
   // the listeners below are bound once per drag, so they read the live drag (with its
   // current dx) through this ref. The `drag` they close over is the dx: 0 start value
@@ -807,7 +806,7 @@ export function ProjectTimeline(props: { projects: Project[] }) {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp, { once: true });
     return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
-  }, [drag?.id, drag?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [drag?.id, drag?.mode]);
 
   return (
     <div className="timeline">
@@ -975,7 +974,7 @@ export function ProjectPage() {
     if (!routeState?.milestoneId) return;
     patch({ filters: { ...opts.filters, milestoneIds: [routeState.milestoneId] } });
     navigate('.', { replace: true, state: null });
-  }, [routeState?.milestoneId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [routeState?.milestoneId]);
   // closed until you open it (⌘I), as in Linear
   const [details, setDetails] = useState(() => localStorage.getItem('baseline:projectDetails') === '1');
   const toggleDetails = () => setDetails(d => { try { localStorage.setItem('baseline:projectDetails', d ? '0' : '1'); } catch { /* ignore */ } return !d; });
@@ -1362,7 +1361,7 @@ function ProjectDetails(props: { project: Project }) {
       else { const c = snap.cycles.find(x => x.id === i.cycleId); add(c?.id ?? 'none', c ? c.name || `Cycle ${c.number}` : 'No cycle', <IconCycle size={12} />, i); }
     }
     return [...m.entries()].sort((a, b) => b[1].total - a[1].total);
-  }, [issues, tab, snap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [issues, tab, snap]);
   const row = (label: string, kind: ProjKind, value: React.ReactNode) => (
     <ProjectMenu kind={kind} project={p}>{open => <button className="rail-kv" onClick={open}><span className="rail-kv-label">{label}</span><span className="rail-kv-value">{value}</span></button>}</ProjectMenu>
   );

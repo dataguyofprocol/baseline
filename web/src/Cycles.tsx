@@ -180,7 +180,7 @@ function Breakdown(props: { issues: Issue[] }) {
       else { const p = snap.projects.find(x => x.id === i.projectId); add(p?.id ?? 'none', p?.name ?? 'No project', p ? <span>{p.icon}</span> : <IconBox size={12} />, i); }
     }
     return [...m.values()].sort((a, b) => b.total - a.total);
-  }, [props.issues, tab, snap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [props.issues, tab, snap]);
   return (
     <div className="breakdown">
       <div className="bd-tabs">
@@ -295,7 +295,7 @@ export function CycleAlias({ which }: { which: 'current' | 'upcoming' }) {
       : cycles.find(c => c.startsAt <= now && c.endsAt >= now);
     navigate(hit ? `/team/${team.key}/cycles/${hit.id}` : `/team/${team.key}/cycles`, { replace: true });
     if (!hit) useApp.getState().toast({ title: which === 'upcoming' ? 'No upcoming cycle' : 'No cycle is running', line: 'Create one, or turn on cycle automation in the team settings' });
-  }, [team?.id, which]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [team?.id, which]);
   return null;
 }
 

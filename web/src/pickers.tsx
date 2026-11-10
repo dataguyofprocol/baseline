@@ -89,9 +89,6 @@ export const MilestoneMenu = propMenu('milestone');
 export const DueDateMenu = propMenu('due');
 export const EstimateMenu = propMenu('estimate');
 export const CycleMenu = propMenu('cycle');
-export const ParentMenu = propMenu('parent');
-export const TeamMoveMenu = propMenu('team');
-export const ESTIMATE_POINTS = [0, 1, 2, 3, 5, 8, 13, 21];
 
 export function teamDisplayIcon(team: Team) {
   return <span className="ws-avatar" style={{ background: team.color, borderRadius: 4, fontSize: 10 }}>{team.icon?.match(/\p{Emoji}/u) ? team.icon : team.key[0]}</span>;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp, relTime, copyText, shortDate } from './store.js';
 import { api } from './api.js';
-import { IconPr, IconCommit, IconClose, IconExternal, IconCopy, IconShieldUser } from './icons.js';
+import { IconPr, IconCommit, IconClose, IconCopy, IconShieldUser } from './icons.js';
 import { branchName } from '../../src/core/handoff.js';
 import type { GithubAuthor, GithubSummary, GitStatus, PrAutomation, PrEvent, PullRequest, WebhookConfig, WebhookDelivery } from '../../src/core/types.js';
 import { ConfirmButton } from './ui.js';
@@ -429,7 +429,7 @@ function IssueImportSettings({ repos }: { repos: string[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { void api.webhookConfig().then(setCfg).catch(() => {}); }, []);
-  useEffect(() => { if (!repo && repos[0]) setRepo(repos[0]); }, [repos.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!repo && repos[0]) setRepo(repos[0]); }, [repos.join()]);
   const run = async () => {
     setBusy(true); setError('');
     try { const r = await api.importGithubIssues(repo.trim(), teamId, follow); toast({ title: `Imported ${r.imported} issue${r.imported === 1 ? '' : 's'}${r.skipped ? ` · ${r.skipped} already here` : ''}` }); await refresh(); setCfg(await api.webhookConfig()); }
@@ -496,8 +496,4 @@ export function PrAutomationSettings({ teamId, bare }: { teamId: string; /** wit
       </div>
     </div>
   );
-}
-
-export function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return <a href={href} target="_blank" rel="noreferrer" className="ext-link">{children}<IconExternal size={11} /></a>;
 }

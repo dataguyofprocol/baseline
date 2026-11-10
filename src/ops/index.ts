@@ -719,4 +719,3 @@ export const OPERATIONS = [
   draftProjectUpdate, undo,
 ] as const satisfies readonly AnyOperation[];
 
-export type { OpContext };

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { flushSync } from 'react-dom';
 import { api, ApiError } from './api.js';
 import { revealTheme } from './motion.js';
-import { notifyCategory, type Snapshot, type Issue, type Priority, type GettingStarted } from '../../src/core/types.js';
+import { notifyCategory, type Snapshot, type Issue, type GettingStarted } from '../../src/core/types.js';
 import type { PropKind } from './propertyMenus.js';
 
 export type PaletteScope = 'issue' | 'project' | 'view' | 'document' | 'cycle' | 'label' | 'user' | 'favorite' | 'settings' | 'document-new';
@@ -199,24 +199,6 @@ export function registerVisibleList(issues: Issue[], teamId: string) {
 export function nameOf(u: { name: string } | null | undefined, fallback = 'Someone'): string {
   if (!u) return fallback;
   return useApp.getState().snap?.workspace.preferences.displayNames === 'first' ? u.name.split(/\s+/)[0] : u.name;
-}
-
-/* ---------- derived helpers ---------- */
-export function useHelpers() {
-  const snap = useApp(s => s.snap)!;
-  return {
-    stateById: (id: string) => snap.states.find(s => s.id === id),
-    statesOf: (teamId: string) => snap.states.filter(s => s.teamId === teamId),
-    teamById: (id: string) => snap.teams.find(t => t.id === id),
-    teamByKey: (key: string) => snap.teams.find(t => t.key.toLowerCase() === key.toLowerCase()),
-    userById: (id: string | null) => (id ? snap.users.find(u => u.id === id) : undefined),
-    labelById: (id: string) => snap.labels.find(l => l.id === id),
-    projectById: (id: string | null) => (id ? snap.projects.find(p => p.id === id) : undefined),
-    cycleById: (id: string | null) => (id ? snap.cycles.find(c => c.id === id) : undefined),
-    issueById: (id: string) => snap.issues.find(i => i.id === id),
-    keyOf: (issue: Issue) => `${snap.teams.find(t => t.id === issue.teamId)?.key ?? 'ISS'}-${issue.number}`,
-    priorityName: (p: Priority) => (['No priority', 'Urgent', 'High', 'Medium', 'Low'] as const)[p],
-  };
 }
 
 export function relTime(iso: string): string {

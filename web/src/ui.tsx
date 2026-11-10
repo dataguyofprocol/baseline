@@ -74,7 +74,7 @@ export function Menu(props: {
   useLayoutEffect(() => {
     const at = itemEls().findIndex(el => el.classList.contains('is-selected'));
     if (at > 0) setIndex(at);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // the highlight is the single source of truth for both mouse and keyboard
   useLayoutEffect(() => {
@@ -132,7 +132,7 @@ export function Menu(props: {
     return { left: x, top: y, width: w, ...(maxHeight ? { maxHeight } : {}), '--menu-dy': flipped ? '4px' : '-4px', transformOrigin: `${Math.max(12, a.left + Math.min(a.width, 40) / 2 - x)}px ${flipped ? '100%' : '0'}` };
   };
   const [pos, setPos] = useState<React.CSSProperties>(place);
-  useLayoutEffect(() => { setPos(place()); /* eslint-disable-line */ }, []);
+  useLayoutEffect(() => { setPos(place()); }, []);
 
   return createPortal(
     <>

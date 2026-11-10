@@ -8,7 +8,7 @@ import { seedWorkspace } from '../core/seed.js';
 import { plainMentions } from '../core/mentions.js';
 import { hashPassword, passwordProblem } from '../core/passwords.js';
 import { issueKey, initiativeKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS, API_KEY_SCOPES } from '../core/types.js';
-import type { RelationType, Snapshot, Team, Label, Project, Issue, Location, ApiKeyScope } from '../core/types.js';
+import type { RelationType, Snapshot, Team, Project, Issue, Location, ApiKeyScope } from '../core/types.js';
 import { BaselineError, connect, issueIndex, resolve, ResolveError, TargetError, targetFor, views, type Baseline } from '../client/index.js';
 import { readSetupToken } from '../server/setup.js';
 import { legacyApp, legacyStore, setLegacyCommand } from './legacy.js';

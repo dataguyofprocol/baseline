@@ -824,20 +824,6 @@ export interface GettingStarted {
 export type SidebarVisibility = 'show' | 'badged' | 'hide';
 /** the kinds Linear's notification settings speak in */
 export type NotifyCategory = 'agentWork' | 'assignments' | 'statusChanges' | 'comments' | 'mentions' | 'reactions' | 'subscriptions' | 'documents' | 'updates' | 'reminders' | 'loops' | 'triage';
-export const NOTIFY_CATEGORIES: Array<[NotifyCategory, string, string]> = [
-  ['agentWork', 'Agent work', 'An agent finished work for you, stopped, or got blocked'],
-  ['assignments', 'Assignments', 'Assignments, unassignments, and membership changes'],
-  ['statusChanges', 'Status changes', 'Changes to the status, priority, and blocking relationships of issues'],
-  ['comments', 'Comments and replies', 'Comments, replies, and thread resolutions'],
-  ['mentions', 'Mentions', 'Mentions in comments or content'],
-  ['reactions', 'Reactions', 'Emoji reactions to your content'],
-  ['subscriptions', 'Subscriptions', 'Issues, projects, teams, and pull requests you’re subscribed to'],
-  ['documents', 'Document changes', 'Changes to document content, location, and subscriptions'],
-  ['updates', 'Updates', 'New project & initiative updates and reminders to post an update'],
-  ['reminders', 'Reminders and deadlines', 'Reminders, due dates, and SLA updates'],
-  ['loops', 'Loops', 'Messages, responses, and failures from loops'],
-  ['triage', 'Triage', 'Issues added to triage'],
-];
 export function notifyCategory(type: NotificationType, body = ''): NotifyCategory | null {
   switch (type) {
     case 'agentFinished': case 'agentBlocked': return 'agentWork';

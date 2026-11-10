@@ -3,18 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useApp, relTime, shortDate } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, Modal, useMenu, ConfirmIconButton } from './ui.js';
+import { ConfirmIconButton } from './ui.js';
 import { Avatar, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
-import {
-  IconPlus, IconSearch, IconTrash, IconClose, IconCheck, IconCycle, IconBox,
-  IconInbox, IconMyIssues, IconDrafts, IconInitiative, IconViews, IconTeam, IconMembers, IconChevronDown,
-} from './icons.js';
+import { IconPlus, IconSearch, IconTrash, IconCheck, IconCycle, IconBox } from './icons.js';
 import { SIDEBAR_DEFAULTS, type SidebarVisibility, type Team } from '../../src/core/types.js';
 import { EmptyState } from './EmptyState.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
-const refresh = () => useApp.getState().bootstrap();
 
 /* ================= Teams & Members (workspace directories) ================= */
 /** join or leave a team right in a list whose row opens the team. Joining is one click; leaving
@@ -178,79 +174,8 @@ export function DraftsPage() {
 }
 
 /* ================= Customize sidebar ================= */
-export const SIDEBAR_ITEMS: Array<{ key: string; label: string; section: 'Personal' | 'Workspace' }> = [
-  { key: 'inbox', label: 'Inbox', section: 'Personal' }, { key: 'my-issues', label: 'My issues', section: 'Personal' }, { key: 'drafts', label: 'Drafts', section: 'Personal' },
-  { key: 'initiatives', label: 'Initiatives', section: 'Workspace' }, { key: 'projects', label: 'Projects', section: 'Workspace' }, { key: 'views', label: 'Views', section: 'Workspace' },
-  { key: 'teams', label: 'Teams', section: 'Workspace' }, { key: 'members', label: 'Members', section: 'Workspace' },
-];
 // Customize sidebar is cut (CORE_FLOW.md › Core vs niche): everyone gets the defaults. Stored
 // choices stay in preferences, unread, in case it comes back
 export function sidebarVisibility(_snap: Snap, key: string): SidebarVisibility {
   return SIDEBAR_DEFAULTS[key] ?? 'show';
-}
-
-const SIDEBAR_ICONS: Record<string, React.ReactNode> = {
-  inbox: <IconInbox />, 'my-issues': <IconMyIssues />, drafts: <IconDrafts />, initiatives: <IconInitiative />, projects: <IconBox />, views: <IconViews />,
-  teams: <IconTeam />, members: <IconMembers />,
-};
-const VISIBILITY_LABEL: Record<SidebarVisibility, string> = { show: 'Always show', badged: 'Show when badged', hide: "Don't show" };
-const BADGE_LABEL = { count: 'Count', dot: 'Dot', none: 'None' } as const;
-type BadgeStyle = keyof typeof BADGE_LABEL;
-function BadgePreview({ style }: { style: BadgeStyle }) {
-  return style === 'count' ? <span className="cs-badge-count">1</span> : style === 'dot' ? <span className="cs-badge-dot" /> : null;
-}
-
-export function CustomizeSidebar(props: { onClose: () => void }) {
-  const snap = useApp(s => s.snap)!;
-  const sb = snap.workspace.preferences.sidebar;
-  const menu = useMenu();
-  const [menuFor, setMenuFor] = useState<string | null>(null);
-  const save = async (patch: { badgeStyle?: BadgeStyle; items?: Record<string, SidebarVisibility> }) => { await api.updatePreferences({ sidebar: { ...sb, ...patch, items: { ...sb.items, ...(patch.items ?? {}) } } }); await refresh(); };
-  // only items the sidebar can actually show: feature-gated pages are left out while their feature is off
-  const f = snap.workspace.features;
-  const off: Record<string, boolean> = { initiatives: !f.initiativesEnabled };
-  const items = SIDEBAR_ITEMS.filter(i => !off[i.key]);
-  const openMenu = (key: string) => (e: React.MouseEvent) => { setMenuFor(key); menu.open(e); };
-  const menuItem = items.find(i => i.key === menuFor);
-  return (
-    <Modal onClose={props.onClose} className="modal small-modal wide cs-modal">
-      <div className="sm-head"><span>Customize sidebar</span><button className="icon-btn" aria-label="Close" onClick={props.onClose}><IconClose size={14} /></button></div>
-      <div className="sm-body">
-        <div className="cs-card">
-          <div className="cs-row">
-            <span className="cs-label">Default badge style</span>
-            <button className={`cs-pick${menuFor === 'badge' && menu.anchor ? ' open' : ''}`} aria-label="Default badge style" onClick={openMenu('badge')}>
-              <BadgePreview style={sb.badgeStyle} /><span>{BADGE_LABEL[sb.badgeStyle]}</span><IconChevronDown size={12} />
-            </button>
-          </div>
-        </div>
-        {(['Personal', 'Workspace'] as const).map(sec => (
-          <section key={sec} className="cs-section">
-            <h3 className="cs-sec">{sec}</h3>
-            <div className="cs-card">
-              {items.filter(i => i.section === sec).map(i => {
-                const v = sidebarVisibility(snap, i.key);
-                return (
-                  <div key={i.key} className={`cs-row${v === 'hide' ? ' hidden' : ''}`}>
-                    <span className="cs-icon">{SIDEBAR_ICONS[i.key]}</span>
-                    <span className="cs-label">{i.label}</span>
-                    <button className={`cs-pick${menuFor === i.key && menu.anchor ? ' open' : ''}`} aria-label={`${i.label} visibility`} onClick={openMenu(i.key)}>
-                      <span>{VISIBILITY_LABEL[v]}</span><IconChevronDown size={12} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-      </div>
-      {menu.anchor && menuFor && (
-        <Menu anchor={menu.anchor} onClose={() => { menu.close(); setMenuFor(null); }} width={200}>
-          {menuFor === 'badge'
-            ? (Object.keys(BADGE_LABEL) as BadgeStyle[]).map(b => <MenuItem key={b} label={BADGE_LABEL[b]} selected={sb.badgeStyle === b} onClick={() => void save({ badgeStyle: b })} />)
-            : menuItem && (['show', 'badged', 'hide'] as const).map(v => <MenuItem key={v} label={VISIBILITY_LABEL[v]} selected={sidebarVisibility(snap, menuItem.key) === v} onClick={() => void save({ items: { [menuItem.key]: v } })} />)}
-        </Menu>
-      )}
-    </Modal>
-  );
 }

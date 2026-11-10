@@ -36,7 +36,7 @@ export function useListLayoutToggle(opts: ViewOptions, patch: (p: Partial<ViewOp
     const onToggle = () => patch({ layout: ref.current === 'list' ? 'board' : 'list' });
     window.addEventListener('baseline:toggle-layout', onToggle);
     return () => window.removeEventListener('baseline:toggle-layout', onToggle);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 }
 
 /** the right side of a list page's subnav: filter + display buttons */
@@ -87,7 +87,7 @@ export function IssueListBody(props: {
   });
   const boardIssues = useMemo(
     () => opts.layout === 'board' ? applyFilters(applyDisplay(props.issues, opts), opts.filters) : [],
-    [opts, props.issues, snap], // eslint-disable-line react-hooks/exhaustive-deps
+    [opts, props.issues, snap],
   );
   return (
     <>
@@ -190,7 +190,7 @@ function teamStates(states: Array<{ id: string; teamId: string; type: string }>,
 export function TeamMissingRedirect() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
-  useEffect(() => { if (snap.teams[0]) navigate(`/team/${snap.teams[0].key}/all`, { replace: true }); }, []); // eslint-disable-line
+  useEffect(() => { if (snap.teams[0]) navigate(`/team/${snap.teams[0].key}/all`, { replace: true }); }, []);
   return null;
 }
 
@@ -459,7 +459,7 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
               const chips = kind === 'projects' ? describeProjectView(v, snapAll) : describe(v.filters);
               const count = kind === 'projects'
                 ? countProjectView(v, snapAll)
-                : applyFilters(live.filter(i => !v.teamId || i.teamId === v.teamId), v.filters, snap.states).length;
+                : applyFilters(live.filter(i => !v.teamId || i.teamId === v.teamId), v.filters).length;
               const faved = snap.favorites.some(f => f.type === 'view' && f.refId === v.id);
               return (
               <div key={v.id} className="view-grid view-row" onClick={() => navigate(`/views/${v.id}`)}
@@ -583,7 +583,7 @@ function IssueViewPage() {
     groupBy: (view?.groupBy as ViewOptions['groupBy']) ?? 'status',
     orderBy: (view?.orderBy as ViewOptions['orderBy']) ?? 'priority',
     layout: view?.layout ?? 'list',
-  }), [view?.filters, view?.groupBy, view?.orderBy, view?.layout]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [view?.filters, view?.groupBy, view?.orderBy, view?.layout]);
   const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:saved:${viewId}`, defaults);
   const displayBtn = useMenu();
   const savedJson = JSON.stringify({ filters: view?.filters, groupBy: view?.groupBy, orderBy: view?.orderBy, layout: view?.layout });

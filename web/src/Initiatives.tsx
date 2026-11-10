@@ -592,7 +592,7 @@ export function InitiativePage() {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === ',') { e.preventDefault(); void copyText(`${location.origin}/#/initiatives/${ini.id}`).then(ok => ok && toast('Copied initiative link')); }
     };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
-  }, [ini?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ini?.id]);
   if (!ini) return <EmptyState kind="missing" word="Not found" illo="initiatives" title="Initiative not found" desc="It may have been deleted."
     actions={<button className="btn secondary" onClick={() => navigate('/initiatives')}>Back to initiatives</button>} />;
   const chain: Initiative[] = [];
@@ -877,7 +877,7 @@ function InitiativeGraph({ ini }: { ini: Initiative }) {
       return { p, v: r, total: v.reduce((a, b) => a + b, 0) };
     }).filter(s => s.total > 0).sort((a, b) => b.total - a.total);
     return { start, series };
-  }, [snap.issues, projects.map(p => p.id).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [snap.issues, projects.map(p => p.id).join()]);
   if (!projects.length) return null;
   const { series, start } = data;
   const stackTop = new Array(WEEKS).fill(0) as number[];

@@ -33,7 +33,7 @@ export function useSubIssueRequests(parentId: string, open: () => void): void {
     take();
     window.addEventListener(START, take);
     return () => window.removeEventListener(START, take);
-  }, [parentId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [parentId]);
 }
 
 export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) {

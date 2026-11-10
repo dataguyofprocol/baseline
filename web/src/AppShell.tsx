@@ -377,7 +377,6 @@ export function TopBar(props: {
   favoriteRef?: { type: string; refId: string };
   more?: React.ReactNode;
 }) {
-  const navigate = useNavigate();
   const snap = useApp(s => s.snap);
   const menu = useMenu();
   const faved = props.favoriteRef && snap
@@ -387,7 +386,7 @@ export function TopBar(props: {
   const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
   const pageLabel = props.crumbs[props.crumbs.length - 1]?.label ?? '';
   const titleHold = useRef<ReturnType<typeof holdPageTitle> | null>(null);
-  useEffect(() => { titleHold.current = holdPageTitle(pageLabel); return () => titleHold.current?.release(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { titleHold.current = holdPageTitle(pageLabel); return () => titleHold.current?.release(); }, []);
   useEffect(() => { titleHold.current?.update(pageLabel); }, [pageLabel]);
 
   return (

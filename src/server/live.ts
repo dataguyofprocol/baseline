@@ -43,12 +43,11 @@ export class ChangeFeed {
   start(everyMs = 500): void {
     this.timer ??= setInterval(() => this.check(), everyMs);
   }
-  stop(): void { clearInterval(this.timer); this.timer = undefined; }
 }
 
 /** The workspace's clock: cycles, recurring issues and update reminders, once a minute and at start.
  *  It runs outside any request, so what it writes is the workspace's own (not whoever was looking). */
-export function startScheduler(store: Store, feed: ChangeFeed, everyMs = 60_000): () => void {
+export function startScheduler(store: Store, feed: ChangeFeed, everyMs = 60_000): void {
   let lastRun = new Date();
   const run = () => {
     const now = new Date();
@@ -63,6 +62,5 @@ export function startScheduler(store: Store, feed: ChangeFeed, everyMs = 60_000)
     feed.check();
   };
   run();
-  const timer = setInterval(run, everyMs);
-  return () => clearInterval(timer);
+  setInterval(run, everyMs);
 }

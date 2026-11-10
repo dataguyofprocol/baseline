@@ -415,7 +415,7 @@ function InviteLinkTab({ teams }: { teams: Team[] }) {
   const load = useCallback(async () => {
     const got = await Promise.all(teams.map(async t => [t.id, (await api.teamJoinLink(t.id).catch(() => ({ joinLink: null }))).joinLink] as const));
     setLinks(Object.fromEntries(got));
-  }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ids]);
   useEffect(() => { void load(); }, [load]);
   const run = async (fn: () => Promise<unknown>) => { try { await fn(); await load(); } catch (err) { toast({ title: (err as Error).message }); } };
   return (
@@ -832,7 +832,7 @@ function JoinLinks() {
   const load = useCallback(async () => {
     const got = await Promise.all(snap.teams.map(async t => [t.id, (await api.teamJoinLink(t.id).catch(() => ({ joinLink: null }))).joinLink] as const));
     setLinks(Object.fromEntries(got));
-  }, [snap.teams.map(t => t.id).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [snap.teams.map(t => t.id).join()]);
   useEffect(() => { void load(); }, [load]);
   const run = async (fn: () => Promise<unknown>, done: string) => {
     try { await fn(); await load(); toast({ title: done }); } catch (err) { toast({ title: (err as Error).message }); }

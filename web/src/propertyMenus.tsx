@@ -64,7 +64,7 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
   useEffect(() => {
     const keys = PROP_KBD[props.kind], what = TIP_WHAT[props.kind];
     if (keys && what && !inSubmenu) nudgeShortcut(`prop:${props.kind}`, keys, what);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
   const issues = props.issues.map(i => snap.issues.find(x => x.id === i.id) ?? i);
   if (!issues.length) return null;
   const ids = issues.map(i => i.id);

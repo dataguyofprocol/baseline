@@ -111,7 +111,6 @@ export function SetupPanel(props: { teamId: string | null; expanded: boolean; se
     if (!justDone.size || !open || !justDone.has(open) || open === 'invite' || open === 'github') return;
     const t = setTimeout(() => setOpen(items.find(i => !i.isDone)?.id ?? null), 1400);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [justDone]);
   // everything done: let the finish line be read, then tuck the group away
   useEffect(() => {
@@ -204,7 +203,6 @@ function useJustDone(items: Array<{ id: SetupItemId; isDone: boolean }>) {
     setFresh(new Set(flipped));
     const t = setTimeout(() => setFresh(new Set()), 1600);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
   return fresh;
 }

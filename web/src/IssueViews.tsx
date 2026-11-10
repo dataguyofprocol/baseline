@@ -154,8 +154,7 @@ function testField(key: keyof ViewFilters, i: Issue, f: ViewFilters, snap: Snap)
 const FILTER_KEYS: Array<keyof ViewFilters> = ['states', 'stateTypes', 'priority', 'assigneeIds', 'creatorIds', 'labelIds', 'projectIds', 'milestoneIds', 'sla', 'prs', 'cycleIds', 'estimates', 'due', 'created', 'updated', 'hierarchy', 'relations', 'subscriberIds', 'links', 'query'];
 const isSet = (f: ViewFilters, k: keyof ViewFilters) => { const v = f[k]; return Array.isArray(v) ? v.length > 0 : !!v; };
 
-export function applyFilters(issues: Issue[], f: ViewFilters, _states?: unknown): Issue[] {
-  void _states;
+export function applyFilters(issues: Issue[], f: ViewFilters): Issue[] {
   const snap = useApp.getState().snap;
   if (!snap) return issues;
   const keys = FILTER_KEYS.filter(k => isSet(f, k));
@@ -1269,8 +1268,8 @@ export function GroupedList(props: {
     let out = props.issues;
     if (props.hideGroups?.length) out = out.filter(i => !props.hideGroups!.includes(i.stateId));
     return applyDisplay(out, props.opts);
-  }, [props.issues, props.hideGroups, props.opts, snap.states]); // eslint-disable-line react-hooks/exhaustive-deps
-  const pool = useMemo(() => applyFilters(shown, props.opts.filters), [shown, props.opts.filters, snap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [props.issues, props.hideGroups, props.opts, snap.states]);
+  const pool = useMemo(() => applyFilters(shown, props.opts.filters), [shown, props.opts.filters, snap]);
   const hiddenByFilters = shown.length - pool.length;
   // point totals only where estimates are on: the workspace's switch, then the team's scale
   const estimatesOn = snap.workspace.features.estimatesEnabled && (props.teamId ? snap.teams.find(t => t.id === props.teamId)?.estimateScale !== 'none' : true);
@@ -1468,23 +1467,5 @@ function useKeyColumn(ref: React.RefObject<HTMLElement | null>, dep: unknown) {
     void document.fonts?.ready.then(() => { if (live) measure(); });
     return () => { live = false; };
   }, [ref, dep]);
-}
-
-/* helper used by pages to render rows outside a group */
-export function FlatIssueList(props: { issues: Issue[]; teamId?: string; display?: RowDisplay }) {
-  const cursorIndex = useCursor(s => s.index);
-  const selection = useSelection(s => s.ids);
-  const flat = props.issues;
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { registerVisibleList(flat, props.teamId ?? ''); }, [flat, props.teamId]);
-  useKeyColumn(ref, flat);
-  return (
-    <div className="issue-list" ref={ref}>
-      {flat.map((i, idx) => (
-        <IssueRow key={i.id} issue={i} display={props.display} cursor={idx === cursorIndex} selected={selection.includes(i.id)}
-          onHover={() => { if (useCursor.getState().index !== idx) useCursor.setState({ index: idx }); }} />
-      ))}
-    </div>
-  );
 }
 

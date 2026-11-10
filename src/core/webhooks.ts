@@ -21,7 +21,7 @@ export const WEBHOOK_EVENTS = ['pull_request', 'pull_request_review', 'check_sui
 export const WEBHOOK_MAX_BYTES = 25 * 1024 * 1024;
 
 
-type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Json = Record<string, any>;
 
 export function migrateWebhooks(db: DatabaseSync): void {
   db.exec(`

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useApp, useHelpers, relTime, shortDate, nameOf, localIsoDate, dateTime, copyText } from './store.js';
+import { useApp, relTime, shortDate, nameOf, localIsoDate, dateTime, copyText } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure, Via, ConfirmIconButton, NotFound, exclusive } from './ui.js';
@@ -20,7 +20,7 @@ import { PropertyMenuBody, propMenuWidth } from './propertyMenus.js';
 import { SubIssueSpine, AvatarStack } from './AvatarStack.js';
 import { SubIssueComposer, startSubIssue, useSubIssueRequests } from './SubIssueComposer.js';
 import { SubIssueProgress, subIssueProgress, estimateLabel } from './IssueViews.js';
-import { archiveIssues, deleteIssues, setIssueProps, toggleSubscription, markDuplicate, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS, triageDecide } from './actions.js';
+import { archiveIssues, deleteIssues, setIssueProps, toggleSubscription, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS, triageDecide } from './actions.js';
 import { navFor, neighbour, exitPathFor } from './nav.js';
 import { Logo } from './Logo.js';
 import { useLanding } from './motion.js';
@@ -31,7 +31,7 @@ import {
   IconBell, IconBellOff, IconTeam, IconClock, IconTriage, IconCheck, IconEmoji, IconMore, IconDoc,
   IconArrowUp,
 } from './icons.js';
-import type { Issue, Comment, Priority } from '../../src/core/types.js';
+import { issueKey, type Issue, type Comment, type Priority } from '../../src/core/types.js';
 import { EmptyState } from './EmptyState.js';
 
 /* shared activity text builder */
@@ -618,11 +618,10 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   banner?: React.ReactNode }) {
   const snap = useApp(s => s.snap)!;
   const issue = props.issue;
-  const helpers = useHelpers();
   // issue templates are team setup (admins', hosted)
   const canConfigure = useCanConfigure();
-  const key = helpers.keyOf(issue);
-  const team = helpers.teamById(issue.teamId)!;
+  const key = issueKey(issue, snap.teams);
+  const team = snap.teams.find(t => t.id === issue.teamId)!;
   const activityText = useActivityText();
   // ?comment=<id> (from "Copy link to comment"): bring that comment into view and mark it briefly
   const linkedComment = new URLSearchParams(useLocation().search).get('comment');
@@ -637,7 +636,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
     }, 150);
     return () => clearTimeout(t);
   }, [linkedComment, issue.id]);
-  const toast = useApp(s => s.toast);
   const [titleDraft, setTitleDraft] = useState(issue.title);
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -677,7 +675,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [props.peek]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [props.peek]);
 
   const comments = snap.comments.filter(c => c.issueId === issue.id);
   const roots = comments.filter(c => !c.parentId);
@@ -688,7 +686,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
       .map(a => ({ kind: 'event' as const, at: a.createdAt, a }));
     const threads = roots.map(c => ({ kind: 'thread' as const, at: c.createdAt, c }));
     return [...events, ...threads].sort((x, y) => x.at.localeCompare(y.at));
-  }, [snap.activity, comments, issue.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [snap.activity, comments, issue.id]);
 
   const me = snap.currentUser.id;
   const subscribers = snap.subscriptions.filter(s => s.issueId === issue.id).map(s => snap.users.find(u => u.id === s.userId)).filter(Boolean) as typeof snap.users;
@@ -720,7 +718,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const go = (delta: 1 | -1) => {
     const id = neighbour(issue.id, delta);
     const next = id ? snap.issues.find(i => i.id === id) : null;
-    if (next) navigate(`/issue/${helpers.keyOf(next)}`, { replace: true });
+    if (next) navigate(`/issue/${issueKey(next, snap.teams)}`, { replace: true });
   };
 
   const project = snap.projects.find(p => p.id === issue.projectId);
@@ -937,5 +935,3 @@ export function PeekPanel() {
     document.body,
   );
 }
-
-export { markDuplicate };

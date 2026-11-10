@@ -4,7 +4,6 @@
 import { randomBytes, scrypt as scryptCb, timingSafeEqual, type ScryptOptions } from 'node:crypto';
 import { PASSWORD_MIN } from './types.js';
 
-export { PASSWORD_MIN };
 /** scrypt reads every byte; an unbounded password is a cheap way to burn the server's CPU */
 export const PASSWORD_MAX = 200;
 

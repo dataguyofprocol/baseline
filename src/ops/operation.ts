@@ -60,8 +60,6 @@ export interface OpContext {
   actor: Actor;
   /** null: the default lane, one living comment per (issue, agent, person) */
   session: SessionKey | null;
-  /** default 'cli' */
-  surface?: Surface;
   local?: LocalRepo;
 }
 

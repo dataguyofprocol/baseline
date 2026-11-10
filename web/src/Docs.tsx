@@ -92,7 +92,7 @@ export function DocumentPage() {
   const navigate = useNavigate();
   const doc = snap.docs.find(d => d.id === docId);
   const [title, setTitle] = useState(doc?.title ?? '');
-  useEffect(() => { setTitle(doc?.title ?? ''); }, [doc?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setTitle(doc?.title ?? ''); }, [doc?.id]);
   if (!doc) return <NotFound what="Document" back={{ label: 'Go to inbox', to: '/inbox' }} />;
   const project = snap.projects.find(p => p.id === doc.projectId);
   const team = snap.teams.find(t => t.id === doc.teamId);

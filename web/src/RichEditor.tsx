@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import { Extension, type Range } from '@tiptap/core';
@@ -348,16 +348,3 @@ export function RichEditor(props: {
 
 /** quick check used by composers: is there anything worth posting? */
 export function isBlank(md: string) { return !md.replace(/\s+/g, '').length; }
-
-export function useEditorEmpty(editorRef: React.MutableRefObject<Editor | null>) {
-  const [empty, setEmpty] = useState(true);
-  useEffect(() => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    const update = () => setEmpty(ed.isEmpty);
-    ed.on('update', update);
-    update();
-    return () => { ed.off('update', update); };
-  });
-  return empty;
-}

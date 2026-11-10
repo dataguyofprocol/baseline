@@ -172,7 +172,6 @@ export class Store {
     return this.getTeam(tid)!;
   }
 
-  listTeams(): Team[] { return this.snapshot().teams; }
   getTeam(teamId: string): Team | undefined {
     const row = this.db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId) as TeamRow | undefined;
     return row ? this.mapTeam(row) : undefined;
@@ -207,9 +206,6 @@ export class Store {
   setTeamLead(teamId: string, userId: string, lead: boolean): void {
     this.addTeamMember(teamId, userId);
     this.db.prepare('UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ?').run(lead ? 'lead' : 'member', teamId, userId);
-  }
-  isTeamLead(teamId: string, userId: string): boolean {
-    return !!this.db.prepare("SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ? AND role = 'lead'").get(teamId, userId);
   }
   removeTeamMember(teamId: string, userId: string): void {
     this.db.prepare('DELETE FROM team_members WHERE team_id = ? AND user_id = ?').run(teamId, userId);
@@ -313,9 +309,6 @@ export class Store {
     const snap = this.snapshot();
     const template = getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
     return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels, branchFormat: snap.workspace.features.branchFormat, username: snap.currentUser?.username || snap.currentUser?.name, baseUrl }, template);
-  }
-  getHandoffTemplate(): string {
-    return getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
   }
   /** null resets to the built-in default */
   setHandoffTemplate(template: string | null): void {

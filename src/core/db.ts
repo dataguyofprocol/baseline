@@ -229,7 +229,7 @@ function migrate(db: DatabaseSync): void {
   // accounts: Google identity, suspension, and server-side sessions (one row per signed-in browser;
   // the cookie holds a random token, the row only its SHA-256)
   for (const [col, def] of [
-    ['google_sub', 'TEXT'], ['avatar_url', "TEXT NOT NULL DEFAULT ''"], ['status', "TEXT NOT NULL DEFAULT 'active'"],
+    ['google_sub', 'TEXT'], ['status', "TEXT NOT NULL DEFAULT 'active'"],
     ['created_at', 'TEXT'], ['last_seen_at', 'TEXT'],
   ] as const) if (!columns('users').includes(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${def}`);
   db.exec(`

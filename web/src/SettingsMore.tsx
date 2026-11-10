@@ -2,12 +2,10 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from './store.js';
 import { api } from './api.js';
-import { IconPlus, IconTrash, IconSearch } from './icons.js';
-import { ProjectStatusIcon, PROJECT_STATUS } from './Projects.js';
+import { IconPlus, IconTrash } from './icons.js';
 import { UPDATE_CADENCE_LABELS, type UpdateCadence, type WorkspaceFeatures } from '../../src/core/types.js';
 import { ConfirmIconButton } from './ui.js';
 import { LABEL_COLORS } from './labelColors.js';
-import { reorder } from './Projects.js';
 
 /* Settings pages Linear keeps under Projects (Labels, Statuses, Updates) and Features
    (Initiatives). */
@@ -29,75 +27,6 @@ function EditableName(props: { value: string; onSave: (v: string) => void; class
   if (!editing) return <button className={`set-name ${props.className ?? ''}`} title="Rename" onClick={() => { setV(props.value); setEditing(true); }}>{props.value}</button>;
   const save = () => { setEditing(false); if (v.trim() && v.trim() !== props.value) props.onSave(v.trim()); };
   return <input className="text-input set-name-input" autoFocus value={v} onChange={e => setV(e.target.value)} onBlur={save} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }} />;
-}
-
-/* ---------------- project labels ---------------- */
-export function ProjectLabelsSettings() {
-  const snap = useApp(s => s.snap)!;
-  const [q, setQ] = useState('');
-  const [adding, setAdding] = useState<null | { group: boolean; parentId: string | null }>(null);
-  const [name, setName] = useState('');
-  const [color, setColor] = useState(COLORS[5]);
-  const create = async () => {
-    if (!name.trim() || !adding) return;
-    await api.createProjectLabel({ name: name.trim(), color, isGroup: adding.group, parentId: adding.parentId });
-    setName(''); setAdding(null);
-    await refresh();
-  };
-  const count = (id: string) => snap.projects.filter(p => p.labelIds.includes(id)).length;
-  const match = (n: string) => n.toLowerCase().includes(q.trim().toLowerCase());
-  const loose = snap.projectLabels.filter(l => !l.isGroup && !l.parentId && match(l.name));
-  const groups = snap.projectLabels.filter(l => l.isGroup);
-  const addRow = (parentId: string | null, group: boolean) => adding && adding.parentId === parentId && adding.group === group && (
-    <div className="set-row">
-      <button className="label-dot" style={{ background: color, width: 12, height: 12 }} title="Change colour" onClick={() => setColor(nextColor(color))} />
-      <input className="text-input" autoFocus placeholder={group ? 'Group name' : 'Label name'} value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void create(); if (e.key === 'Escape') setAdding(null); }} />
-      <button className="btn primary sm" disabled={!name.trim()} onClick={create}>Create</button>
-      <button className="btn ghost sm" onClick={() => setAdding(null)}>Cancel</button>
-    </div>
-  );
-  const labelRow = (l: (typeof snap.projectLabels)[number], indent = false) => (
-    <div key={l.id} className={`set-row group${indent ? ' indent' : ''}`}>
-      <button className="label-dot" style={{ background: l.color, width: 12, height: 12 }} title="Change colour" onClick={async () => { await api.updateProjectLabel(l.id, { color: nextColor(l.color) }); await refresh(); }} />
-      <EditableName value={l.name} onSave={async v => { await api.updateProjectLabel(l.id, { name: v }); await refresh(); }} />
-      <span className="set-meta">{count(l.id) ? `${count(l.id)} project${count(l.id) === 1 ? '' : 's'}` : ''}</span>
-      <ConfirmIconButton className="icon-btn hover-only" title="Delete label" onConfirm={async () => { await api.deleteProjectLabel(l.id); await refresh(); }}><IconTrash size={13} /></ConfirmIconButton>
-    </div>
-  );
-  return (
-    <div className="settings-card">
-      <div className="set-head">
-        <h1>Project labels</h1>
-        <span style={{ flex: 1 }} />
-        <button className="btn secondary" onClick={() => { setAdding({ group: true, parentId: null }); setName(''); }}>New group</button>
-        <button className="btn primary" onClick={() => { setAdding({ group: false, parentId: null }); setName(''); }}>New label</button>
-      </div>
-      <div className="set-filter"><IconSearch size={13} /><input placeholder="Filter by name…" value={q} onChange={e => setQ(e.target.value)} /></div>
-      <div className="card set-list">
-        {addRow(null, true)}
-        {addRow(null, false)}
-        {loose.map(l => labelRow(l))}
-        {groups.map(g => {
-          const kids = snap.projectLabels.filter(l => l.parentId === g.id && (match(l.name) || match(g.name)));
-          if (!kids.length && !match(g.name)) return null;
-          return (
-            <div key={g.id}>
-              <div className="set-row group set-group">
-                <span className="label-dot" style={{ background: g.color, width: 12, height: 12 }} />
-                <EditableName value={g.name} className="strong" onSave={async v => { await api.updateProjectLabel(g.id, { name: v }); await refresh(); }} />
-                <span className="set-meta">{kids.length} label{kids.length === 1 ? '' : 's'} · one per project</span>
-                <button className="icon-btn hover-only" title="Add label to group" onClick={() => { setAdding({ group: false, parentId: g.id }); setName(''); }}><IconPlus size={13} /></button>
-                <ConfirmIconButton confirmLabel="Delete group?" className="icon-btn hover-only" title="Delete group and its labels" onConfirm={async () => { await api.deleteProjectLabel(g.id); await refresh(); }}><IconTrash size={13} /></ConfirmIconButton>
-              </div>
-              {kids.map(l => labelRow(l, true))}
-              {addRow(g.id, false)}
-            </div>
-          );
-        })}
-        {!snap.projectLabels.length && !adding && <div className="set-empty">No labels found</div>}
-      </div>
-    </div>
-  );
 }
 
 /* ---------------- initiatives: the switch, the update schedule and initiative labels ---------------- */
@@ -149,56 +78,6 @@ export function InitiativesSettings() {
           {!snap.initiativeLabels.length && !adding && <div className="set-empty">No initiative labels yet</div>}
         </div>
       </>}
-    </div>
-  );
-}
-
-/* ---------------- project statuses ---------------- */
-export function ProjectStatusesSettings() {
-  const snap = useApp(s => s.snap)!;
-  const [adding, setAdding] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const toast = useApp(s => s.toast);
-  return (
-    <div className="settings-card">
-      <h1>Project statuses</h1>
-      <div className="field-help" style={{ marginBottom: 14 }}>Project statuses define the workflow that projects go through from start to completion.</div>
-      <div className="card set-list">
-        {PROJECT_STATUS.map(([type, label]) => {
-          const list = snap.projectStatuses.filter(st => st.type === type).sort((a, b) => a.position - b.position);
-          return (
-            <div key={type}>
-              <div className="set-cat"><span>{label}</span><button className="icon-btn" title={`Add a ${label.toLowerCase()} status`} onClick={() => { setAdding(type); setName(''); }}><IconPlus size={13} /></button></div>
-              {list.map(st => {
-                const n = snap.projects.filter(p => p.statusId === st.id).length;
-                return (
-                  <div key={st.id} className="set-row group">
-                    <button className="set-icon" title="Change colour" onClick={async () => { await api.updateProjectStatus(st.id, { color: nextColor(st.color) }); await refresh(); }}><ProjectStatusIcon status={type} color={st.color} /></button>
-                    <EditableName value={st.name} onSave={async v => { await api.updateProjectStatus(st.id, { name: v }); await refresh(); }} />
-                    <span className="set-meta">{n ? `${n} project${n === 1 ? '' : 's'}` : ''}</span>
-                    {list.length > 1 && <span className="reorder hover-only">
-                      <button className="icon-btn" style={{ width: 20, height: 20 }} title="Move up" aria-label="Move up" disabled={list[0].id === st.id} onClick={() => void reorder(list, st.id, -1, (id, position) => api.updateProjectStatus(id, { position }))}>↑</button>
-                      <button className="icon-btn" style={{ width: 20, height: 20 }} title="Move down" aria-label="Move down" disabled={list[list.length - 1].id === st.id} onClick={() => void reorder(list, st.id, 1, (id, position) => api.updateProjectStatus(id, { position }))}>↓</button>
-                    </span>}
-                    <ConfirmIconButton className="icon-btn hover-only" title={list.length > 1 ? 'Delete status' : 'Each category keeps one status'} disabled={list.length < 2}
-                      onConfirm={async () => { try { await api.deleteProjectStatus(st.id); await refresh(); toast({ title: `Status “${st.name}” deleted`, line: n ? `${n} project${n === 1 ? '' : 's'} moved to ${list.find(x => x.id !== st.id)?.name}` : undefined }); } catch (e) { toast({ title: 'Can’t delete', line: String((e as Error).message) }); } }}>
-                      <IconTrash size={13} />
-                    </ConfirmIconButton>
-                  </div>
-                );
-              })}
-              {adding === type && (
-                <div className="set-row">
-                  <ProjectStatusIcon status={type} />
-                  <input className="text-input" autoFocus placeholder="Status name" value={name} onChange={e => setName(e.target.value)}
-                    onKeyDown={async e => { if (e.key === 'Enter' && name.trim()) { await api.createProjectStatus({ type, name: name.trim(), color: PROJECT_STATUS.find(x => x[0] === type)?.[2] }); setAdding(null); await refresh(); } if (e.key === 'Escape') setAdding(null); }} />
-                  <button className="btn ghost sm" onClick={() => setAdding(null)}>Cancel</button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

@@ -59,7 +59,7 @@ export function MyWorkPage() {
   const typeOf = (i: Issue) => snap.states.find(s => s.id === i.stateId)?.type;
   const keyOf = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
 
-  const mine = useMemo(() => snap.issues.filter(i => i.assigneeId === me && !i.archivedAt && !i.deletedAt), [snap.issues, me]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mine = useMemo(() => snap.issues.filter(i => i.assigneeId === me && !i.archivedAt && !i.deletedAt), [snap.issues, me]);
   const started = mine.filter(i => typeOf(i) === 'started').sort(byPriority);
   const upNext = mine.filter(i => typeOf(i) === 'unstarted').sort(byPriority);
   const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString();
@@ -78,7 +78,7 @@ export function MyWorkPage() {
       seen.set(k, [...(seen.get(k) ?? []), n]);
     }
     return [...seen.values()].map(ns => ns.sort((a, b) => b.createdAt.localeCompare(a.createdAt))).sort((a, b) => b[0]!.createdAt.localeCompare(a[0]!.createdAt));
-  }, [snap.notifications, cleared]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [snap.notifications, cleared]);
   // an issue that needs you (say, an agent finished it for your review) shows once, up there
   const askIds = new Set(asks.map(ns => ns[0]!.issueId).filter(Boolean));
   const inProgress = started.filter(i => !askIds.has(i.id));
@@ -89,7 +89,7 @@ export function MyWorkPage() {
   }).filter(x => x.count > 0);
 
   // J/K and the issue shortcuts run over the two work lists, top to bottom
-  const listed = useMemo(() => [...inProgress, ...upNext], [inProgress.map(i => i.id).join(), upNext.map(i => i.id).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const listed = useMemo(() => [...inProgress, ...upNext], [inProgress.map(i => i.id).join(), upNext.map(i => i.id).join()]);
   const cursor = useCursor(s => s.index);
   useEffect(() => { registerVisibleList(listed, ''); }, [listed]);
   useEffect(() => () => useCursor.getState().reset(), []);

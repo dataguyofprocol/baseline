@@ -142,7 +142,7 @@ const mdata = await fetchData(mbl);
   const w = m.flight.find(r => r.id === morning.working);
   check('In flight shows an agent at work with what it did and has left', !!w?.thread && w.thread.progress.did === 'list --json' && w.thread.progress.left === 'search flags');
   check('In flight shows my own started work without an agent as mine', m.flight.some(r => !r.thread));
-  const op = await runOp(nextIssue, { bl: mbl, actor: { kind: 'person' }, session: null, surface: 'cli' }, { limit: 10 });
+  const op = await runOp(nextIssue, { bl: mbl, actor: { kind: 'person' }, session: null }, { limit: 10 });
   const started = new Set(mdata.issues.filter(i => mdata.stateById.get(i.stateId)?.type === 'started').map(i => mdata.keyOf(i)));
   const expected = op.issues.map(i => i.key).filter(k => !started.has(k) && !needIds.some(id => mdata.issueById.get(id) && key(id) === k)).slice(0, 3);
   check('Up next is next_issue\'s own order, without what is started or needs you', m.next.map(r => key(r.id)).join() === expected.join(), `${m.next.map(r => key(r.id)).join()} vs ${expected.join()}`);

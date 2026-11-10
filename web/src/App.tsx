@@ -390,7 +390,7 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
     void bootstrap();
-  }, []); // eslint-disable-line
+  }, []);
   // Preferences › Font size and Use pointer cursors apply to the whole app
   const fontSize = useApp(s => s.snap?.workspace.preferences.fontSize ?? 'default');
   const pointer = useApp(s => !!s.snap?.workspace.preferences.pointerCursors);

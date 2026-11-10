@@ -442,7 +442,7 @@ async function startFromSheet(ctx: Ctx, sheet: Extract<Sheet, { type: 'start' }>
   const closed: Ctx = { ...ctx, state: { ...ctx.state, overlay: { kind: 'none' } } };
   const key = data.keyOf(issue);
   const cwd = agentWhere(issue, data).cwd;
-  const opCtx: OpContext = { bl: ctx.bl, actor: { kind: 'person' }, session: null, surface: 'cli', local: (ctx.repo ?? localRepo)(cwd) };
+  const opCtx: OpContext = { bl: ctx.bl, actor: { kind: 'person' }, session: null, local: (ctx.repo ?? localRepo)(cwd) };
   const end = ctx.beginWrite();
   let out: Awaited<ReturnType<typeof startIssue.run>>;
   try {
@@ -519,7 +519,7 @@ async function markAllRead(ctx: Ctx): Promise<unknown> {
 async function openStandup(ctx: Ctx): Promise<void> {
   ctx.dispatch({ type: 'openOverlay', overlay: { kind: 'sheet', sheet: { type: 'standup', text: null, error: null } } });
   try {
-    const out = await runOp(myActivity, { bl: ctx.bl, actor: { kind: 'person' }, session: null, surface: 'cli' }, {});
+    const out = await runOp(myActivity, { bl: ctx.bl, actor: { kind: 'person' }, session: null }, {});
     ctx.dispatch({ type: 'setSheet', sheet: { type: 'standup', text: myActivity.text(out, 'cli'), error: null } });
   } catch (e) {
     ctx.dispatch({ type: 'setSheet', sheet: { type: 'standup', text: null, error: errorText(e) } });

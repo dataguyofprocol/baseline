@@ -33,9 +33,6 @@ interface InboxPrefs { view?: InboxView; order: 'newest' | 'oldest'; showSnoozed
 const PREFS_KEY = 'baseline:inboxPrefs';
 /** what Priority inbox lifts to the top (Settings › Notifications › Priority notifications) */
 export const DEFAULT_PRIORITY_CATS: NotifyCategory[] = ['agentWork', 'assignments', 'mentions', 'comments', 'reminders', 'updates'];
-/** the inbox's display settings live in this browser; Settings › Notifications edits the same ones */
-export function readInboxPrefs(): Partial<InboxPrefs> { try { return JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}'); } catch { return {}; } }
-export function writeInboxPrefs(p: Partial<InboxPrefs>) { try { localStorage.setItem(PREFS_KEY, JSON.stringify({ ...readInboxPrefs(), ...p })); } catch { /* ignore */ } }
 const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
   agentFinished: 'Agent finished', agentBlocked: 'Agent blocked or stopped',
   issueAssignedToYou: 'Assignments', issueCommented: 'Comments', issueReplied: 'Replies', issueMentioned: 'Mentions', commentReacted: 'Reactions',
@@ -141,7 +138,7 @@ export function InboxPage() {
   const inView = (r: Row, v: InboxView) => v === 'all' || (v === 'needs' ? needsYou(r.lead) : isAgent(r.lead.type));
   const viewCount = { all: allRows.length, needs: allRows.filter(r => inView(r, 'needs')).length, agents: allRows.filter(r => inView(r, 'agents')).length };
   const needsUnread = allRows.some(r => r.unread && inView(r, 'needs'));
-  const rows = useMemo(() => allRows.filter(r => inView(r, view)), [allRows, view]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => allRows.filter(r => inView(r, view)), [allRows, view]);
 
   /* Priority inbox puts what needs you (assignments, mentions, replies, reminders) above
      everything else; Focus groups the unread ones by kind. Rows are re-ordered to match
@@ -160,7 +157,7 @@ export function InboxPage() {
     const i = order.indexOf(name);
     return i < 0 ? 99 : i;
   };
-  const sectioned = useMemo(() => rows.map((r, i) => ({ r, i, sec: sectionOf(r) })).sort((a, b) => sectionRank(a.sec) - sectionRank(b.sec) || a.i - b.i), [rows, prefs.priority, prefs.groupUnreads]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sectioned = useMemo(() => rows.map((r, i) => ({ r, i, sec: sectionOf(r) })).sort((a, b) => sectionRank(a.sec) - sectionRank(b.sec) || a.i - b.i), [rows, prefs.priority, prefs.groupUnreads]);
   const orderedRows = sectioned.map(x => x.r);
 
   /** a teamMemberAdded body is "<teamId>|<name at the time>"; the team may since be renamed or gone */
@@ -181,14 +178,14 @@ export function InboxPage() {
   };
 
   // J/K and the issue shortcuts run on the shared list cursor
-  const navigable = useMemo(() => orderedRows.filter(r => issueOf(r.lead)), [orderedRows, snap.issues]); // eslint-disable-line react-hooks/exhaustive-deps
+  const navigable = useMemo(() => orderedRows.filter(r => issueOf(r.lead)), [orderedRows, snap.issues]);
   const cursor = useCursor(s => s.index);
-  useEffect(() => { registerVisibleList(navigable.map(r => issueOf(r.lead)!), ''); }, [navigable]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { registerVisibleList(navigable.map(r => issueOf(r.lead)!), ''); }, [navigable]);
   useEffect(() => {
     const first = navigable.findIndex(r => r.unread);
     useCursor.setState({ index: navigable.length ? Math.max(first, 0) : -1 });
     return () => useCursor.getState().reset();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => { if (cursor >= navigable.length && navigable.length) useCursor.setState({ index: navigable.length - 1 }); }, [navigable.length, cursor]);
 
   const selected = cursor >= 0 ? navigable[cursor] : undefined;
@@ -220,12 +217,12 @@ export function InboxPage() {
     if (!keyMove.current) return;
     keyMove.current = false;
     if (cursor >= 0 && navigable[cursor]) setPicked(navigable[cursor].key);
-  }, [cursor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cursor]);
   useEffect(() => {
     if (!selected?.unread || selected.key !== picked) return;
     const t = setTimeout(() => void markRead(selected, true), 900);
     return () => clearTimeout(t);
-  }, [selected?.lead.id, selected?.unread, picked]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected?.lead.id, selected?.unread, picked]);
   useEffect(() => { document.querySelector('.inbox-row.selected')?.scrollIntoView({ block: 'nearest' }); }, [cursor]);
 
   // inbox keys (U, ⌫, H, ⇧⌫) listen in the capture phase so they run before the list shortcuts
@@ -249,7 +246,7 @@ export function InboxPage() {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const describe = (n: Notification, z = 12): { icon: React.ReactNode; what: string } => {
     switch (n.type) {
@@ -333,7 +330,7 @@ export function InboxPage() {
     if (!readAllNow || snap.notifications.length === 0) return;
     const lines = ['Everything is read. Enjoy the quiet.', 'All read. Back to the good stuff.', 'Nothing new. Go build something.'];
     useApp.getState().toast({ title: 'Inbox zero', line: lines[Math.floor(Math.random() * lines.length)] });
-  }, [readAllNow]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [readAllNow]);
   const senders = [...new Set(snap.notifications.map(n => n.actorId).filter(Boolean))] as string[];
 
   return (
