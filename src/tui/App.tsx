@@ -1,7 +1,8 @@
 // The root component: owns the reducer, the poll loop and the single input handler.
-import { Box, Text, useApp, useInput, useWindowSize, type Key } from 'ink';
+import { Box, Text, useApp, useInput, useStdout, useWindowSize, type Key } from 'ink';
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import type { Baseline } from '../client/index.js';
+import { copyToClipboard } from '../cli/system.js';
 import { errorText, runCommand, toast, type Ctx, type Layout } from './commands.js';
 import { fetchData } from './data.js';
 import { detailLines } from './detail.js';
@@ -32,6 +33,8 @@ export interface AppProps {
   start?: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null };
   /** told what the screen shows whenever that changes, for `baseline context` */
   onContext?: (c: SessionContext) => void;
+  /** the native clipboard (tests pass a fake so they leave the real one alone) */
+  clipboard?: (text: string) => boolean;
   /** ms between background refetches; agents write to the same database from other processes */
   pollMs?: number;
 }
@@ -79,7 +82,7 @@ function BootScreen({ s, width, height }: { s: TuiState; width: number; height: 
   );
 }
 
-export function App({ bl, actorId, route, stack, start, onContext, pollMs = 4000 }: AppProps) {
+export function App({ bl, actorId, route, stack, start, onContext, clipboard = copyToClipboard, pollMs = 4000 }: AppProps) {
   const [state, dispatchToReact] = useReducer(reducer, undefined, () => initialState(route, stack, start));
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -87,6 +90,7 @@ export function App({ bl, actorId, route, stack, start, onContext, pollMs = 4000
   const dispatch = useCallback((a: Action) => { stateRef.current = reducer(stateRef.current, a); dispatchToReact(a); }, []);
   const { columns, rows } = useWindowSize();
   const { exit, suspendTerminal } = useApp();
+  const { stdout } = useStdout();
   const epoch = useRef(0);
   const fetching = useRef(false);
   const writing = useRef(0);
@@ -188,6 +192,8 @@ export function App({ bl, actorId, route, stack, start, onContext, pollMs = 4000
           suspended.current = true;
           try { await suspendTerminal(fn); } finally { suspended.current = false; }
         },
+        terminal: seq => { stdout.write(seq); },
+        clipboard,
         exit: () => exit(),
         now: () => Date.now(),
       };

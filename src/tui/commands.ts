@@ -3,7 +3,7 @@
 import type { Dispatch } from 'react';
 import { BaselineError, ResolveError, type Baseline } from '../client/index.js';
 import { PRIORITY_LABELS, type Handoff, type Issue, type Priority } from '../core/types.js';
-import { copyToClipboard, openBrowser } from '../cli/system.js';
+import { openBrowser, osc52 } from '../cli/system.js';
 import type { CommandId } from './keys.js';
 import { agentCommand, agentCwd, agentEnv, editInEditor, runInTerminal } from './launch.js';
 import { inboxItems, isListRoute, listGroups, listRowsFor, navIdFor, navItems, projectRows, selectableIds } from './model.js';
@@ -23,6 +23,10 @@ export interface Ctx {
   /** marks a write as started (so a fetch that began before it can't overwrite its optimistic patch); call the result when it settles */
   beginWrite: () => () => void;
   suspend: (fn: () => void | Promise<void>) => Promise<void>;
+  /** writes straight to the terminal, past Ink (escape sequences that draw nothing) */
+  terminal: (seq: string) => void;
+  /** the native clipboard helper; false when none worked */
+  clipboard: (text: string) => boolean;
   exit: () => void;
   now: () => number;
 }
@@ -81,9 +85,10 @@ async function handoff(ctx: Ctx, issue: Issue): Promise<Handoff | undefined> {
   }
 }
 
+/** both ways at once: OSC 52 for SSH and helper-less terminals, the native helper for terminals that ignore OSC 52 */
 function copy(ctx: Ctx, text: string, what: string): void {
-  if (copyToClipboard(text)) toast(ctx.dispatch, 'ok', `Copied ${what}`);
-  else toast(ctx.dispatch, 'error', 'No clipboard tool found. Install pbcopy (macOS), wl-copy or xclip.');
+  ctx.terminal(osc52(text));
+  toast(ctx.dispatch, 'ok', ctx.clipboard(text) ? `Copied ${what}` : `Copied ${what} (through the terminal; no pbcopy, wl-copy or xclip here)`);
 }
 
 function openPicker(ctx: Ctx, field: PickerField): void {

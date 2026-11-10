@@ -271,7 +271,8 @@ class FakeStdin extends EventEmitter {
     return false;
   };
 
-  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000 }), {
+  const copied: string[] = [];
+  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, clipboard: (t: string) => { copied.push(t); return true; } }), {
     stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream,
     debug: true, exitOnCtrlC: false, patchConsole: false,
   });
@@ -369,6 +370,11 @@ class FakeStdin extends EventEmitter {
   check('the peek pane follows the cursor', stdout.last.split(live.keyOf(nextRow)).length > 2);
   stdin.press(' ');
   await waitFor('peek closed', f => !f.includes('── Description'));
+
+  stdin.press('y');
+  await waitFor('copy toast', f => f.includes(`Copied ${live.keyOf(nextRow)}`));
+  const osc = `\x1b]52;c;${Buffer.from(live.keyOf(nextRow)).toString('base64')}\x07`;
+  check('y copies the issue ID through OSC 52 and the native helper, and says Copied', stdout.frames.some(f => f.includes(osc)) && copied.includes(live.keyOf(nextRow)));
 
   stdin.press('DD');
   await waitFor('grouped by priority', f => f.includes('by priority'));

@@ -10,6 +10,9 @@ export function copyToClipboard(text: string): boolean {
   return false;
 }
 
+/** the OSC 52 escape that asks the terminal itself to set the clipboard; it travels over SSH and needs no helper */
+export const osc52 = (text: string) => `\x1b]52;c;${Buffer.from(text, 'utf8').toString('base64')}\x07`;
+
 export function openBrowser(url: string): void {
   const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
   spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
