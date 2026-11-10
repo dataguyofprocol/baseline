@@ -242,7 +242,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
 
   if (!data) {
     return (
-      <Box flexDirection="column" width={columns} height={rows}>
+      <Box flexDirection="column" width="100%" height={rows} overflow="hidden">
         <BootScreen s={state} width={columns} height={rows - 2} />
         <ToastLine toast={state.toast} width={columns} />
         <Footer s={state} left={footerLeft(state, null, contexts, 0)} width={columns} target={targetLabel(bl)} />
@@ -269,7 +269,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const right = r.kind === 'issue' && detail ? scrollLabel(state, detail.length, bodyH) : '';
 
   return (
-    <Box flexDirection="column" width={columns} height={rows}>
+    <Box flexDirection="column" width="100%" height={rows} overflow="hidden">
       <Box paddingX={1}><LineView line={tabBarLine(state, data, tabs, hidden, activeTab, contentW, right)} width={contentW} /></Box>
       <LineView line={[{ text: '─'.repeat(columns), color: theme.border }]} width={columns} />
       <Box flexDirection="row" height={bodyH} paddingX={1}>

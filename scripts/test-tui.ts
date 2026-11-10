@@ -476,6 +476,26 @@ class FakeStdin extends EventEmitter {
 }
 
 {
+  const stdout = new FakeStdout();
+  stdout.columns = 120;
+  stdout.rows = 30;
+  // Ink follows resizes only on a terminal, and draws the frame it already has before React re-renders
+  stdout.isTTY = true;
+  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000 }), {
+    stdout: stdout as unknown as NodeJS.WriteStream, stdin: new FakeStdin() as unknown as NodeJS.ReadStream, exitOnCtrlC: false, patchConsole: false,
+  });
+  const until = async (ok: () => boolean, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end && !ok()) await new Promise(r => setTimeout(r, 25)); return ok(); };
+  await until(() => stdout.last.includes('s Status'));
+  const from = stdout.frames.length;
+  stdout.columns = 90;
+  stdout.emit('resize');
+  await until(() => !stdout.last.includes('s Status'));
+  const widest = Math.max(...stdout.frames.slice(from).flatMap(f => stripVTControlCharacters(f).split('\n')).map(l => displayWidth(l)));
+  check('after the terminal narrows, no frame is wider than it, so the terminal never wraps and scrolls a stale frame', widest <= 90, `widest line ${widest}`);
+  app.unmount();
+}
+
+{
   const prev = process.env.BASELINE_TUI_STATE_DIR;
   process.env.BASELINE_TUI_STATE_DIR = join(work, 'first-launch');
   const bl1 = await connect({ db: dbPath });
