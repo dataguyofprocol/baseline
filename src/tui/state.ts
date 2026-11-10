@@ -3,7 +3,7 @@ import type { Issue, Priority } from '../core/types.js';
 import type { WorkThread } from '../core/work-types.js';
 import { patchIssue, type TuiData } from './data.js';
 import {
-  defaultExpanded, GROUP_BYS, inboxItems, isListRoute, isSelectable, listGroups, listRows, listRowsFor, PRESETS, rowIdFor, selectableIds,
+  defaultExpanded, isListRoute, isSelectable, listGroups, listRowsFor, rowIdFor, selectableIds,
   type GroupBy, type ListRow, type ListView, type Preset,
 } from './model.js';
 import type { TextField } from './textfield.js';
@@ -25,7 +25,6 @@ export type DraftField = typeof DRAFT_FIELDS[number];
 export type Overlay =
   | { kind: 'none' }
   | { kind: 'help'; scroll: number }
-  | { kind: 'palette'; input: TextField; cursor: number }
   | { kind: 'search'; input: TextField; cursor: number }
   /** issueId is null for pickers that aren't about an issue (the team switcher) */
   | { kind: 'picker'; field: PickerField; issueId: string | null; input: TextField; cursor: number; selected: string[] }
@@ -48,13 +47,6 @@ export interface TuiState {
   preset: Preset;
   /** an issue key to put the list cursor on once data arrives (reopening where the last session left off) */
   restoreCursor: string | null;
-  focus: 'main' | 'sidebar';
-  sidebarCursor: number;
-  sidebarHidden: boolean;
-  /** the list's peek pane; null follows the terminal width */
-  peek: boolean | null;
-  /** the first key of a chord ("g" of "g m"), waiting for the second */
-  pending: string | null;
   toast: Toast | null;
   status: 'loading' | 'ready' | 'error';
   error: string | null;
@@ -76,7 +68,7 @@ export const isTopLevel = (r: Route) => r.kind === 'my' || r.kind === 'team' || 
 
 export function initialState(route: Route = { kind: 'my' }, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null } = {}): TuiState {
   return {
-    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, groupBy: start.groupBy ?? 'status', preset: start.preset ?? 'all', restoreCursor: start.cursorKey ?? null, focus: 'main', sidebarCursor: 0, sidebarHidden: false, peek: null, pending: null,
+    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, groupBy: start.groupBy ?? 'status', preset: start.preset ?? 'all', restoreCursor: start.cursorKey ?? null,
     toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {},
   };
 }
@@ -92,16 +84,7 @@ export type Action =
   | { type: 'moveTo'; index: number }
   | { type: 'scroll'; delta: number; max: number }
   | { type: 'toggleGroup'; groupId: string }
-  | { type: 'foldAll' }
-  | { type: 'cycleGroupBy' }
-  | { type: 'cyclePreset' }
   | { type: 'select'; issueId: string }
-  | { type: 'focus'; focus: 'main' | 'sidebar' }
-  | { type: 'sidebarMove'; delta: number; count: number }
-  | { type: 'toggleSidebar' }
-  | { type: 'peek'; on: boolean }
-  | { type: 'pending'; key: string | null }
-  | { type: 'stepIssue'; delta: number; now: number }
   | { type: 'openOverlay'; overlay: Overlay }
   | { type: 'closeOverlay' }
   | { type: 'editInput'; input: TextField }
@@ -152,18 +135,6 @@ export function cursorRow(s: TuiState, route: Route = s.route): ListRow | undefi
   return rows[Math.min(s.cursor[routeKey(route)] ?? 0, Math.max(0, rows.length - 1))];
 }
 
-/** the issue ids J/K walk on an issue page: the list it was opened from, as that list shows them */
-export function siblingIssueIds(s: TuiState, now: number): string[] {
-  const from = s.stack[s.stack.length - 1];
-  if (!s.data || !from) return [];
-  if (from.kind === 'inbox') return [...new Set(inboxItems(s.data, now).map(i => i.issueId).filter((id): id is string => !!id))];
-  if (!isListRoute(from)) return [];
-  const view = listViewOf(s, from);
-  const groups = listGroups(from, s.data, view);
-  const shown = listRows(groups, view.isExpanded).filter(r => r.kind === 'issue').map(r => r.id);
-  return s.route.kind === 'issue' && shown.includes(s.route.issueId) ? shown : groups.flatMap(g => g.issues.map(i => i.id));
-}
-
 /** the cursor of a list route moved onto an issue, opening its group if it was folded */
 function selectIn(s: TuiState, route: Route, issueId: string): TuiState {
   if (!s.data || !isListRoute(route)) return s;
@@ -175,31 +146,10 @@ function selectIn(s: TuiState, route: Route, issueId: string): TuiState {
   return at < 0 ? s : { ...s, expanded, cursor: { ...s.cursor, [routeKey(route)]: at } };
 }
 
-/** fold or open one group of the current list, or (groupId null) fold every group, or open them all when all are folded */
-function fold(s: TuiState, groupId: string | null): TuiState {
+/** fold or open one group of the current list */
+function fold(s: TuiState, groupId: string): TuiState {
   if (!s.data || !isListRoute(s.route)) return s;
-  const isOpen = expandedFn(s, s.route);
-  const groups = listGroups(s.route, s.data, listViewOf(s, s.route));
-  const ids = groupId ? [groupId] : groups.map(g => g.id);
-  const open = groupId ? !isOpen(groupId) : ids.every(id => !isOpen(id));
-  const expanded = { ...s.expanded };
-  for (const id of ids) expanded[expandKey(s.route, id)] = open;
-  return relist(s, { ...s, expanded });
-}
-
-function stepIssue(s: TuiState, delta: number, now: number): TuiState {
-  if (s.route.kind !== 'issue' || !s.data) return s;
-  const ids = siblingIssueIds(s, now);
-  const at = ids.indexOf(s.route.issueId);
-  const nextId = at < 0 ? undefined : ids[at + delta];
-  if (!nextId) {
-    const text = !ids.length || at < 0 ? 'J/K step through the list this issue was opened from' : delta > 0 ? 'Last issue in the list' : 'First issue in the list';
-    return { ...s, toast: { id: now, tone: 'info', text } };
-  }
-  const route: Route = { kind: 'issue', issueId: nextId };
-  const from = s.stack[s.stack.length - 1];
-  const moved = from.kind === 'inbox' ? s : selectIn(s, from, nextId);
-  return { ...moved, route, cursor: { ...moved.cursor, [routeKey(route)]: 0 } };
+  return relist(s, { ...s, expanded: { ...s.expanded, [expandKey(s.route, groupId)]: !expandedFn(s, s.route)(groupId) } });
 }
 
 export function reducer(s: TuiState, a: Action): TuiState {
@@ -224,9 +174,9 @@ export function reducer(s: TuiState, a: Action): TuiState {
         ? { ...s, syncing: false, toast: { id: Date.now(), tone: 'error', text: a.message } }
         : { ...s, syncing: false, status: 'error', error: a.message };
     case 'navigate':
-      return { ...s, stack: [...s.stack, s.route], route: a.route, overlay: { kind: 'none' }, focus: 'main' };
+      return { ...s, stack: [...s.stack, s.route], route: a.route, overlay: { kind: 'none' } };
     case 'switchView':
-      return { ...s, stack: [], route: a.route, overlay: { kind: 'none' }, focus: 'main' };
+      return { ...s, stack: [], route: a.route, overlay: { kind: 'none' } };
     case 'back': {
       if (!s.stack.length) return s;
       const stack = s.stack.slice(0, -1);
@@ -242,27 +192,18 @@ export function reducer(s: TuiState, a: Action): TuiState {
       return { ...s, cursor: { ...s.cursor, [k]: clamp((s.cursor[k] ?? 0) + a.delta, 0, Math.max(0, a.max)) } };
     }
     case 'toggleGroup': return fold(s, a.groupId);
-    case 'foldAll': return fold(s, null);
-    case 'cycleGroupBy': return relist(s, { ...s, groupBy: GROUP_BYS[(GROUP_BYS.indexOf(s.groupBy) + 1) % GROUP_BYS.length] });
-    case 'cyclePreset': return relist(s, { ...s, preset: PRESETS[(PRESETS.indexOf(s.preset) + 1) % PRESETS.length] });
     case 'select': return selectIn(s, s.route, a.issueId);
-    case 'focus': return { ...s, focus: a.focus };
-    case 'sidebarMove': return { ...s, sidebarCursor: clamp(s.sidebarCursor + a.delta, 0, Math.max(0, a.count - 1)) };
-    case 'toggleSidebar': return { ...s, sidebarHidden: !s.sidebarHidden, focus: 'main' };
-    case 'peek': return { ...s, peek: a.on };
-    case 'pending': return s.pending === a.key ? s : { ...s, pending: a.key };
-    case 'stepIssue': return stepIssue(s, a.delta, a.now);
     case 'openOverlay': return { ...s, overlay: a.overlay };
     case 'closeOverlay': return { ...s, overlay: { kind: 'none' } };
     case 'editInput': {
       const o = s.overlay;
-      if (o.kind === 'palette' || o.kind === 'search' || o.kind === 'picker') return { ...s, overlay: { ...o, input: a.input, cursor: a.input.value === o.input.value ? o.cursor : 0 } };
+      if (o.kind === 'search' || o.kind === 'picker') return { ...s, overlay: { ...o, input: a.input, cursor: a.input.value === o.input.value ? o.cursor : 0 } };
       if (o.kind === 'compose') return { ...s, overlay: { ...o, input: a.input } };
       return s;
     }
     case 'overlayMove': {
       const o = s.overlay;
-      if (o.kind !== 'palette' && o.kind !== 'search' && o.kind !== 'picker') return s;
+      if (o.kind !== 'search' && o.kind !== 'picker') return s;
       const n = Math.max(1, a.count);
       return { ...s, overlay: { ...o, cursor: ((o.cursor + a.delta) % n + n) % n } };
     }

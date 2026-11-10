@@ -17,16 +17,15 @@ import { seedWorkspace } from '../src/core/seed.js';
 import type { Issue, WorkflowStateType } from '../src/core/types.js';
 import { App } from '../src/tui/App.js';
 import { buildData, fetchData, type TuiData } from '../src/tui/data.js';
-import { BINDINGS, contextsFor, helpSections, isChordPrefix, lookup, type Context } from '../src/tui/keys.js';
+import { BINDINGS, contextsFor, helpSections, lookup, type Context } from '../src/tui/keys.js';
 import { agentCommand, agentEnv, shellPreview } from '../src/tui/launch.js';
-import { peekLines } from '../src/tui/detail.js';
 import { prepareStart } from '../src/tui/index.js';
 import { sessionPath, sessionWriter, targetId, workspaceDir, type SessionFile } from '../src/tui/session.js';
 import {
   CLOSED_TYPES, DEFAULT_VIEW, defaultExpanded, displayWidth, GROUP_BYS, listRowsFor, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
   markdownLines, selectableIds, sortIssues, truncate, wrap,
 } from '../src/tui/model.js';
-import { cycleDraft, filteredPalette, newDraft, pickerOptions } from '../src/tui/overlays.js';
+import { cycleDraft, newDraft, pickerOptions } from '../src/tui/overlays.js';
 import { cursorRow, initialState, listViewOf, reducer, routeKey, type Action, type TuiState } from '../src/tui/state.js';
 import { editField, emptyField, fieldOf } from '../src/tui/textfield.js';
 
@@ -103,11 +102,6 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('markdown: headings are bold', md[0].every(s => s.bold) && md[0].map(s => s.text).join('') === 'Plan');
   check('markdown: bullets and task items get glyphs', md.some(l => l[0]?.text.startsWith('• ')) && md.some(l => l[0]?.text.includes('☑')));
   check('markdown: tables align their columns', md.some(l => l.map(s => s.text).join('') === 'a │ bb') && md.some(l => l.map(s => s.text).join('') === '1 │ 2 '));
-  const described = [...data.issues].sort((a, b) => b.description.length - a.description.length).find(i => data.comments.some(c => c.issueId === i.id)) ?? data.issues[0];
-  const peek = peekLines(described, data, 40, 18, now);
-  const peekText = peek.map(l => l.map(x => x.text).join('')).join('\n');
-  check('peek: fits its box, shows key, meta, description and the last comment', peek.length <= 18 && peek.every(l => lineWidth(l) <= 40) &&
-    peekText.includes(data.keyOf(described)) && peekText.includes('Status') && peekText.includes('Description') && /Comments \d+/.test(peekText), peekText);
   check('markdown: fenced code is dim', md.some(l => l[0]?.dim && l[0].text.includes('const x = 1;')));
 }
 
@@ -172,33 +166,11 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('the assignee picker offers me first and unassign last', opts[0].id === data.currentUser.id && opts[0].hint === 'me' && opts[opts.length - 1].label === 'No assignee');
   check('routeKey separates routes of the same kind', routeKey({ kind: 'team', teamId: 'a' }) !== routeKey({ kind: 'team', teamId: 'b' }));
 
-  const visible = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now);
-  const onFirst = run(s0, { type: 'navigate', route: { kind: 'issue', issueId: visible[0] } });
-  const stepped = run(onFirst, { type: 'stepIssue', delta: 1, now });
-  check('J on an issue page opens the next issue of the list it came from', stepped.route.kind === 'issue' && stepped.route.issueId === visible[1] && stepped.stack.length === 1);
-  check('…and back lands the list cursor on that issue', run(stepped, { type: 'back' }).cursor.my === 1);
-  check('K on the first issue stays put with a note', run(onFirst, { type: 'stepIssue', delta: -1, now }).route === onFirst.route && run(onFirst, { type: 'stepIssue', delta: -1, now }).toast?.tone === 'info');
-
-  const onSecond = run(s0, { type: 'move', delta: 1, count });
-  const secondId = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[1];
-  const regrouped = run(onSecond, { type: 'cycleGroupBy' });
-  check('D cycles status → assignee and keeps the cursor on the same issue', regrouped.groupBy === 'assignee' && cursorRow(regrouped)?.id === secondId);
-  check('D cycles through every grouping back to status', GROUP_BYS.reduce(st => run(st, { type: 'cycleGroupBy' }), s0).groupBy === 'status');
   const firstGroup = groupIssues(issuesForRoute({ kind: 'my' }, data), data)[0];
   const folded = run(s0, { type: 'toggleGroup', groupId: firstGroup.id });
-  check('z folds the group under the cursor and the cursor lands on its header', cursorRow(folded)?.id === `group:${firstGroup.id}` &&
+  check('folding a group puts the cursor on its header', cursorRow(folded)?.id === `group:${firstGroup.id}` &&
     !listRowsFor({ kind: 'my' }, data, listViewOf(folded, { kind: 'my' })).some(r => r.kind === 'issue' && firstGroup.issues.some(i => i.id === r.id)));
-  check('z again unfolds it', run(folded, { type: 'toggleGroup', groupId: firstGroup.id }).expanded[`my|${firstGroup.id}`] === true);
-  const allFolded = run(s0, { type: 'foldAll' });
-  check('Z folds every group; Z again opens them all', listRowsFor({ kind: 'my' }, data, listViewOf(allFolded, { kind: 'my' })).every(r => r.kind === 'group') &&
-    listRowsFor({ kind: 'my' }, data, listViewOf(run(allFolded, { type: 'foldAll' }), { kind: 'my' })).some(r => r.kind === 'issue' && typeOf(r.issue) === 'completed'));
-  check('shift-tab cycles All → Active → Backlog → All', ['active', 'backlog', 'all'].every((p, n) => Array.from({ length: n + 1 }).reduce<TuiState>(st => run(st, { type: 'cyclePreset' }), s0).preset === p));
-
-  const key4 = data.keyOf(issue);
-  const pal = (q: string) => filteredPalette({ kind: 'palette', input: fieldOf(q), cursor: 0 }, s0, data, now).map(r => r.item);
-  check('the palette finds an issue by its key and jumps there', pal(key4)[0]?.id === `issue:${issue.id}`, pal(key4).slice(0, 3).map(i => i.label).join(' | '));
-  check('> in the palette lists commands only', pal('>').length > 0 && pal('>').every(i => 'command' in i.run) && pal('>status').every(i => 'command' in i.run));
-  check('palette commands show their key', pal('>assign to me')[0]?.hint === 'i');
+  check('toggling again unfolds it', run(folded, { type: 'toggleGroup', groupId: firstGroup.id }).expanded[`my|${firstGroup.id}`] === true);
 }
 
 {
@@ -211,22 +183,18 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   const st = run(initialState(), { type: 'loaded', data, at: now });
   check('s on a list opens the status picker', lookup(['list', 'global'], 's')?.command === 'setState');
   check('j moves on lists and scrolls the issue page, through one binding', lookup(['detail', 'global'], 'j') === lookup(['list', 'global'], 'j') && lookup(['list', 'global'], 'j')?.command === 'down');
-  check('Linear keys: i assigns to me, r renames, e edits the description, b copies the branch, Y the URL',
-    lookup(['list', 'global'], 'i')?.command === 'assignMe' && lookup(['detail', 'global'], 'r')?.command === 'editTitle' && lookup(['list', 'global'], 'e')?.command === 'editDescription' &&
-    lookup(['list', 'global'], 'b')?.command === 'copyBranch' && lookup(['detail', 'global'], 'Y')?.command === 'copyUrl' && lookup(['inbox', 'global'], 'r')?.command === 'markRead');
-  check('g starts a chord on lists but is text in a search box', isChordPrefix(['list', 'global'], 'g') && !isChordPrefix(['finder'], 'g') && lookup(['list', 'global'], 'g i')?.command === 'gotoInbox');
+  check('removed keys answer nothing: g, D, J, z, ctrl-b, ctrl-k', ['g', 'D', 'J', 'z', 'ctrl+b', 'ctrl+k', 'g i'].every(k => !lookup(['list', 'global'], k)));
   const help = helpSections().flatMap(sec => sec.rows.map(r => `${sec.group}|${r.key}|${r.label}`));
   check('the help overlay has no duplicate rows, and one j/k row for lists and the issue page',
     new Set(help).size === help.length && help.filter(r => r.startsWith('Move|j/k')).length === 1, help.filter((r, i) => help.indexOf(r) !== i).join(', '));
   const pickerState = run(st, { type: 'openOverlay', overlay: { kind: 'picker', field: 'priority', issueId: data.issues[0].id, input: emptyField, cursor: 0, selected: [] } });
-  check('a picker takes digits and j/k until you type, then they are text',
-    lookup(contextsFor(pickerState, true), '3')?.command === 'pickerPick' && lookup(contextsFor(pickerState, true), 'j')?.command === 'overlayDown' &&
-    lookup(contextsFor(run(pickerState, { type: 'editInput', input: fieldOf('h') }), true), 'j') === undefined);
+  check('a picker: digits always pick, every other letter filters',
+    lookup(contextsFor(pickerState), '3')?.command === 'pickerPick' && lookup(contextsFor(run(pickerState, { type: 'editInput', input: fieldOf('h') })), '3')?.command === 'pickerPick' &&
+    lookup(contextsFor(pickerState), 'j') === undefined && lookup(contextsFor(pickerState), 'q') === undefined);
   check('letters typed into a search box are text, not commands', lookup(['finder'], 's') === undefined && lookup(['finder'], 'q') === undefined);
   check('space toggles in the labels picker only', lookup(['multipicker', 'picker'], 'space')?.command === 'pickerToggle' && lookup(['picker'], 'space') === undefined);
   check('ctrl-c quits from anywhere, even inside an overlay', ['boot', 'finder', 'picker', 'compose', 'help', 'confirm'].every(c => lookup([c as Context], 'ctrl+c')?.command === 'quit'));
-  check('a compose title field is a text context', contextsFor(run(st, { type: 'openOverlay', overlay: { kind: 'compose', target: 'issue', field: 'title', input: emptyField, draft: newDraft(st, data) } }), true).join() === 'compose-issue,compose');
-  check('the sidebar takes keys only when it is visible', contextsFor({ ...st, focus: 'sidebar' }, false)[0] === 'list' && contextsFor({ ...st, focus: 'sidebar' }, true)[0] === 'sidebar');
+  check('a compose title field is a text context', contextsFor(run(st, { type: 'openOverlay', overlay: { kind: 'compose', target: 'issue', field: 'title', input: emptyField, draft: newDraft(st, data) } })).join() === 'compose-issue,compose');
 }
 
 {
@@ -284,7 +252,6 @@ class FakeStdin extends EventEmitter {
   check('My Issues renders every open issue assigned to me', openKeys.every(k => frame.includes(k)), openKeys.filter(k => !frame.includes(k)).join(', '));
   check('group headers render with counts', /In Progress\s+\d+/.test(frame) && /Todo\s+\d+/.test(frame));
   check('the footer shows hints from the keymap', frame.includes('s status') && frame.includes('? help'));
-  check('the sidebar lists every team at 120 columns', data.teams.every(t => frame.includes(t.name)));
 
   const target = data.issueById.get(selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[0])!;
   const next = data.states.filter(s => s.teamId === target.teamId && s.id !== target.stateId).sort((a, b) => a.position - b.position).find(s => s.type === 'completed')!;
@@ -328,63 +295,28 @@ class FakeStdin extends EventEmitter {
 
   const second = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[1];
   const secondTitle = (await fresh.getIssue(second))!.title;
-  stdin.press('ggj\r');
+  stdin.press('kkkkkkkkkkkkj\r');
   await waitFor('burst opens the second issue', f => f.includes('Description') && f.includes(secondTitle));
   check('a burst of keys in one chunk (tmux send-keys) acts as separate presses', stdout.last.includes(secondTitle));
-  const third = selectableIds({ kind: 'my' }, await fetchData(fresh), DEFAULT_VIEW, now)[2];
-  const thirdTitle = (await fresh.getIssue(third))!.title;
-  stdin.press('J');
-  await waitFor('J opens the next issue', f => f.includes('Description') && f.includes(thirdTitle));
-  check('J on the issue page opens the next issue in the list', stdout.last.includes(thirdTitle));
   stdin.press('\x1b');
   await waitFor('back to the list again', f => f.includes('My Issues') && !f.includes('Description'));
 
-  stdin.press('g');
-  await waitFor('chord pending', f => f.includes('g…'));
-  check('the footer shows g… and the chord endings while g waits', stdout.last.includes('g…') && stdout.last.includes('Inbox'));
-  stdin.press('i');
-  await waitFor('Inbox', f => /Inbox\s+(\d+ unread|all read)/.test(f));
-  check('g i goes to the Inbox', /Inbox\s+(\d+ unread|all read)/.test(stdout.last));
-  stdin.press('g');
-  await waitFor('chord pending again', f => f.includes('g…'));
-  stdin.press('m');
-  await waitFor('My Issues again', f => /My Issues\s+\d+ open/.test(f));
-
   const live = await fetchData(fresh);
   const pick = live.issueById.get(selectableIds({ kind: 'my' }, live, DEFAULT_VIEW, now)[0])!;
-  stdin.press('ggp');
+  stdin.press('kkkkkkkkkkkkkp');
   await waitFor('priority picker', f => f.includes('Set priority'));
   stdin.press('4');
   await waitFor('priority toast', f => f.includes(`${live.keyOf(pick)} → Low`));
   check('a digit in a picker picks that option (p 4 → Low)', (await fresh.getIssue(pick.id))?.priority === 4);
 
-  check('no peek pane at 120 columns with the sidebar', !stdout.last.includes('── Description'));
-  stdin.press(' ');
-  await waitFor('peek pane', f => f.includes('── Description') && f.includes('Status'));
-  check('space opens the peek pane beside the list, on the issue under the cursor', stdout.last.includes(pick.title.slice(0, 20)) && /My Issues\s+\d+ open/.test(stdout.last));
   stdin.press('j');
   const relisted = await fetchData(fresh);
   const ids = selectableIds({ kind: 'my' }, relisted, DEFAULT_VIEW, now);
   const nextRow = relisted.issueById.get(ids[ids.indexOf(pick.id) + 1])!;
-  await waitFor('peek follows the cursor', f => f.includes(`${live.keyOf(nextRow)}  `) && f.split(live.keyOf(nextRow)).length > 2);
-  check('the peek pane follows the cursor', stdout.last.split(live.keyOf(nextRow)).length > 2);
-  stdin.press(' ');
-  await waitFor('peek closed', f => !f.includes('── Description'));
-
   stdin.press('y');
   await waitFor('copy toast', f => f.includes(`Copied ${live.keyOf(nextRow)}`));
   const osc = `\x1b]52;c;${Buffer.from(live.keyOf(nextRow)).toString('base64')}\x07`;
   check('y copies the issue ID through OSC 52 and the native helper, and says Copied', stdout.frames.some(f => f.includes(osc)) && copied.includes(live.keyOf(nextRow)));
-
-  stdin.press('DD');
-  await waitFor('grouped by priority', f => f.includes('by priority'));
-  const groupHeads = stdout.last.split('\n').map(l => /(Urgent|High|Medium|Low|No priority)\s+\d+\s*$/.exec(l.split('│')[1] ?? '')?.[1]).filter(Boolean);
-  check('D D groups by priority: the header says so and Urgent comes first', stdout.last.includes('My Issues') && groupHeads[0] === 'Urgent' && groupHeads.length >= 2, groupHeads.join());
-  stdin.press('ggz');
-  await waitFor('folded group', f => /▸ !? ?Urgent\s+\d+/.test(f) || /▸ ! Urgent/.test(f));
-  check('z folds the group under the cursor', /▸ .*Urgent\s+\d+/.test(stdout.last));
-  stdin.press('zDDD');
-  await waitFor('back to status grouping', f => f.includes('by status'));
 
   stdin.press('q');
   const exited = await Promise.race([app.waitUntilExit().then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);
@@ -433,15 +365,15 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
   const json = cli(['context', '--json', '--db', dbPath]);
   check('`baseline context --json` prints the file', json.status === 0 && JSON.parse(json.stdout).list.cursorKey === thirdKey && JSON.parse(json.stdout).open === true);
 
-  stdin.press('D\r');
+  stdin.press('\r');
   await until(() => read()?.route.kind === 'issue');
-  check('opening an issue records it as the open issue', read()?.openIssue?.key === thirdKey && read()?.display.groupBy === 'assignee', JSON.stringify(read()?.openIssue));
+  check('opening an issue records it as the open issue', read()?.openIssue?.key === thirdKey, JSON.stringify(read()?.openIssue));
   app.unmount();
   writer.flush();
 
   const bl2 = await connect({ db: dbPath });
   const start = await prepareStart(bl2, {}, workspace);
-  check('the next start reopens the same issue, grouping and list', start.route?.kind === 'issue' && start.route.issueId === third.id && start.stack?.[0]?.kind === 'my' && start.start?.groupBy === 'assignee');
+  check('the next start reopens the same issue, grouping and list', start.route?.kind === 'issue' && start.route.issueId === third.id && start.stack?.[0]?.kind === 'my' && start.start?.groupBy === 'status');
   check('--fresh skips the restore', Object.keys(await prepareStart(bl2, { fresh: true }, workspace)).length === 0);
   const out2 = new FakeStdout();
   const app2 = render(createElement(App, { bl: bl2, pollMs: 60_000, ...start }), {

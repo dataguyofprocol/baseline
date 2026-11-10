@@ -1,16 +1,15 @@
 // The main pane's screens and the chrome around them. Each screen is built as exactly `height`
 // lines of exactly `width` cells, so the frame never scrolls or leaves stale cells behind.
-import { Box, Text } from 'ink';
+import { Box } from 'ink';
 import { useEffect, useRef, useState } from 'react';
 import type { Issue } from '../core/types.js';
 import type { TuiData } from './data.js';
 import { hintsFor, type Context } from './keys.js';
 import {
-  displayWidth, dueLabel, GROUP_MODES, inboxItems, isListRoute, issuesForRoute, listRowsFor, navIdFor, navItems, padEnd, padStart, PRESET_LABEL, PRESETS,
+  displayWidth, dueLabel, GROUP_MODES, inboxItems, isListRoute, issuesForRoute, listRowsFor, padEnd, padStart, PRESET_LABEL,
   progressBar, projectProgress, projectRows, relTime, truncate, unreadCount, type Line, type ListRow, type Seg,
 } from './model.js';
-import { cursorRow, listViewOf, routeKey, type Route, type TuiState } from './state.js';
-import { peekLines } from './detail.js';
+import { listViewOf, routeKey, type Route, type TuiState } from './state.js';
 import { HEALTH, priorityGlyph, SPINNER, STATE_ICON, theme } from './theme.js';
 import { LineView } from './ui.js';
 
@@ -115,7 +114,7 @@ function groupLine(r: Extract<ListRow, { kind: 'group' }>, selected: boolean): L
   const arrow = r.selectable ? (r.expanded ? '▾ ' : '▸ ') : '';
   return [selected ? SELECT_BAR : NO_BAR, { text: ' ' }, { text: arrow, color: theme.muted }, ...r.group.icon, { text: ' ' },
     { text: r.group.label, bold: true }, { text: `  ${r.group.issues.length}`, color: theme.muted },
-    ...(r.selectable && !r.expanded && selected ? [{ text: '   enter or z to show', color: theme.muted }] : [])];
+    ...(r.selectable && !r.expanded && selected ? [{ text: '   enter to show', color: theme.muted }] : [])];
 }
 
 export function ListScreen({ s, data, width, height, now }: { s: TuiState; data: TuiData; width: number; height: number; now: number }) {
@@ -133,35 +132,11 @@ export function ListScreen({ s, data, width, height, now }: { s: TuiState; data:
     return <Lines lines={emptyState(width, height, empty[0], empty[1])} width={width} height={height} />;
   }
   if (!rows.length) {
-    const next = PRESET_LABEL[PRESETS[(PRESETS.indexOf(s.preset) + 1) % PRESETS.length]];
-    return <Lines lines={emptyState(width, height, `No ${PRESET_LABEL[s.preset].toLowerCase()} issues here`, `shift-tab shows ${next}`)} width={width} height={height} />;
+    return <Lines lines={emptyState(width, height, `No ${PRESET_LABEL[s.preset].toLowerCase()} issues here`, 'type / show all to see the rest')} width={width} height={height} />;
   }
   const cols = listColumns(rows, data, width, route.kind !== 'my');
   const lines = rows.slice(start, start + height).map(r => (r.kind === 'group' ? groupLine(r, r.id === selectedId) : issueLine(r.issue, data, cols, r.id === selectedId, now)));
   return <Lines lines={lines} width={width} height={height} />;
-}
-
-// ---------- peek ----------
-
-/** the issue under the list cursor, beside the list; all from the snapshot, so moving the cursor costs no fetch */
-export function PeekPane({ s, data, width, height, now }: { s: TuiState; data: TuiData; width: number; height: number; now: number }) {
-  const row = cursorRow(s);
-  const inner = width;
-  const lines: Line[] = row?.kind === 'issue' ? peekLines(row.issue, data, inner, height, now)
-    : row?.kind === 'group' ? [[...row.group.icon, { text: ' ' }, { text: row.group.label, bold: true }, { text: `  ${row.group.issues.length}`, color: theme.muted }], [], [{ text: 'Folded. enter or z shows these issues.', color: theme.muted }]]
-    : [];
-  const out = lines.slice(0, height);
-  while (out.length < height) out.push([]);
-  return (
-    <Box flexDirection="column" width={width + 3} height={height}>
-      {out.map((l, i) => (
-        <Text key={i}>
-          <Text color={theme.border}> │ </Text>
-          <LineView line={l} width={inner} />
-        </Text>
-      ))}
-    </Box>
-  );
 }
 
 // ---------- detail ----------
@@ -230,7 +205,7 @@ export function ProjectsScreen({ s, data, width, height }: { s: TuiState; data: 
   return <Lines lines={lines} width={width} height={height} />;
 }
 
-// ---------- header, sidebar, footer ----------
+// ---------- header, footer ----------
 
 function routeTitle(route: Route, data: TuiData, now: number): Line {
   switch (route.kind) {
@@ -277,43 +252,6 @@ export function headerLine(s: TuiState, data: TuiData, width: number, right: str
   return [...fitted, { text: ' '.repeat(Math.max(1, width - used - rightW)) }, { text: right, color: theme.muted }];
 }
 
-export function Sidebar({ s, data, width, height, now }: { s: TuiState; data: TuiData; width: number; height: number; now: number }) {
-  const items = navItems(data, now);
-  const active = navIdFor(s.route, s.stack);
-  const focused = s.focus === 'sidebar';
-  const w = width - 1;
-  const lines: Line[] = [
-    [{ text: ' ' }, { text: truncate(data.workspace.name, w - 2), bold: true }],
-    [{ text: ' ' }, { text: truncate(data.currentUser.name, w - 2), color: theme.muted }],
-    [],
-  ];
-  items.forEach((item, i) => {
-    if (item.route.kind === 'team' && items[i - 1]?.route.kind !== 'team') lines.push([], [{ text: ' Teams', color: theme.muted }]);
-    if (item.route.kind === 'projects') lines.push([]);
-    const isActive = item.id === active;
-    const isCursor = focused && i === s.sidebarCursor;
-    const count = item.count ? String(item.count) : '';
-    const label = truncate(item.label, w - 6 - count.length);
-    lines.push([isCursor ? SELECT_BAR : NO_BAR, { text: `${item.icon} `, color: item.color ?? (isActive ? theme.accent : theme.muted) },
-      { text: label, bold: isActive || isCursor, color: isActive ? theme.accent : undefined },
-      { text: ' '.repeat(Math.max(1, w - 3 - displayWidth(label) - count.length - 1)) },
-      { text: count, color: item.id === 'inbox' && item.count ? theme.accent : theme.muted, bold: item.id === 'inbox' && !!item.count }]);
-  });
-  const out = lines.slice(0, height);
-  while (out.length < height) out.push([]);
-  if (focused && height > out.length - 1) out[height - 1] = [{ text: ' enter open · tab back', color: theme.muted }];
-  return (
-    <Box flexDirection="column" width={width} height={height}>
-      {out.map((l, i) => (
-        <Text key={i}>
-          <LineView line={l} width={w} />
-          <Text color={focused ? theme.accent : theme.border}>│</Text>
-        </Text>
-      ))}
-    </Box>
-  );
-}
-
 export function ToastLine({ toast, width }: { toast: TuiState['toast']; width: number }) {
   if (!toast) return <LineView line={[]} width={width} />;
   const icon = toast.tone === 'ok' ? '✓' : toast.tone === 'error' ? '✗' : '›';
@@ -344,12 +282,11 @@ export function Footer({ s, contexts, width, target }: { s: TuiState; contexts: 
   const frame = useTicker(s.syncing ? 80 : 1000);
   const right: Seg[] = [...syncLabel(s, frame), { text: `  ${target}`, color: theme.muted }];
   const rightW = right.reduce((n, x) => n + displayWidth(x.text), 0) + 1;
-  const hints = hintsFor(contexts, s.pending);
+  const hints = hintsFor(contexts);
   const help = hints.find(h => h.label === 'help');
   const rest = hints.filter(h => h !== help);
   const segs: Seg[] = [{ text: ' ' }];
   let used = 1;
-  if (s.pending) { segs.push({ text: `${s.pending}…  `, color: theme.accent, bold: true }); used += displayWidth(`${s.pending}…  `); }
   const room = width - rightW - (help ? displayWidth(`${help.key} ${help.label}`) + 3 : 0);
   for (const h of rest) {
     const w = displayWidth(`${h.key} ${h.label}`) + 3;

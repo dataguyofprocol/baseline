@@ -1,8 +1,7 @@
-// What each overlay lists: picker options, search results, palette entries, new-issue field values. Pure.
+// What each overlay lists: picker options, search results, new-issue field values. Pure.
 import { PRIORITY_LABELS, type Issue, type Priority } from '../core/types.js';
 import type { TuiData } from './data.js';
-import { baseContext, keyLabel, paletteBindings, type CommandId } from './keys.js';
-import { fuzzyFilter, navItems, type FuzzyMatch, type Seg } from './model.js';
+import { fuzzyFilter, type FuzzyMatch, type Seg } from './model.js';
 import type { DraftField, IssueDraft, Overlay, PickerField, Route, TuiState } from './state.js';
 import { priorityGlyph, STATE_ICON, theme } from './theme.js';
 
@@ -71,33 +70,6 @@ export function searchResults(query: string, data: TuiData, limit = 50): SearchR
     ? fuzzyFilter(data.issues, query, i => `${data.keyOf(i)} ${i.title}`)
     : [...data.issues].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(item => ({ item, match: { score: 0, indices: [] } }));
   return all.slice(0, limit).map(({ item, match }) => ({ issue: item, key: data.keyOf(item), match }));
-}
-
-// ---------- palette ----------
-
-export interface PaletteItem { id: string; label: string; hint: string; run: { command: CommandId } | { route: Route } }
-
-export function paletteItems(s: Pick<TuiState, 'route'>, data: TuiData, now: number): PaletteItem[] {
-  const cap = (t: string) => t[0].toUpperCase() + t.slice(1);
-  const commands = paletteBindings(baseContext(s.route)).map((b): PaletteItem => ({ id: `cmd:${b.command}`, label: cap(b.label), hint: keyLabel(b), run: { command: b.command } }));
-  const views = navItems(data, now).map((n, i): PaletteItem => ({
-    id: `view:${n.id}`, label: `Go to ${n.route.kind === 'team' ? `team ${n.label}` : n.label}`, hint: i < 9 ? String(i + 1) : '', run: { route: n.route },
-  }));
-  const projects = data.projects.map((p): PaletteItem => ({ id: `project:${p.id}`, label: `Go to project ${p.name}`, hint: '', run: { route: { kind: 'project', projectId: p.id } } }));
-  return [...commands, ...views, ...projects];
-}
-
-/** `>` narrows to commands; otherwise an issue key or title words also find issues, ranked with the rest */
-export function filteredPalette(o: Extract<Overlay, { kind: 'palette' }>, s: Pick<TuiState, 'route'>, data: TuiData, now: number): Array<{ item: PaletteItem; match: FuzzyMatch }> {
-  const query = o.input.value;
-  const items = paletteItems(s, data, now);
-  if (query.startsWith('>')) return fuzzyFilter(items.filter(i => 'command' in i.run), query.slice(1), x => x.label);
-  const found = fuzzyFilter(items, query, x => x.label);
-  if (query.trim().length < 2) return found;
-  const issues = fuzzyFilter(data.issues.map((i): PaletteItem => ({
-    id: `issue:${i.id}`, label: `${data.keyOf(i)} ${i.title}`, hint: data.stateById.get(i.stateId)?.name ?? '', run: { route: { kind: 'issue', issueId: i.id } },
-  })), query, x => x.label).slice(0, 8);
-  return [...found, ...issues].sort((a, b) => b.match.score - a.match.score);
 }
 
 // ---------- new issue ----------

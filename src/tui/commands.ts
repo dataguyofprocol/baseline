@@ -6,12 +6,12 @@ import { PRIORITY_LABELS, type Handoff, type Issue, type Priority } from '../cor
 import { openBrowser, osc52 } from '../cli/system.js';
 import type { CommandId } from './keys.js';
 import { agentCommand, agentCwd, agentEnv, editInEditor, runInTerminal } from './launch.js';
-import { inboxItems, isListRoute, listGroups, listRowsFor, navIdFor, navItems, projectRows, selectableIds } from './model.js';
-import { cycleDraft, filteredOptions, filteredPalette, newDraft, NONE, searchResults } from './overlays.js';
-import { cursorRow, listViewOf, routeKey, type Action, type PickerField, type TuiState } from './state.js';
+import { inboxItems, isListRoute, listRowsFor, navIdFor, navItems, projectRows, selectableIds } from './model.js';
+import { cycleDraft, filteredOptions, newDraft, NONE, searchResults } from './overlays.js';
+import { listViewOf, routeKey, type Action, type PickerField, type TuiState } from './state.js';
 import { emptyField, fieldOf } from './textfield.js';
 
-export interface Layout { pageSize: number; detailMax: number; helpMax: number; sidebarVisible: boolean; sidebarFits: boolean; peekVisible: boolean }
+export interface Layout { pageSize: number; detailMax: number; helpMax: number }
 
 export interface Ctx {
   state: TuiState;
@@ -129,20 +129,12 @@ function applyPicker(ctx: Ctx): Promise<unknown> | void {
 
 async function accept(ctx: Ctx): Promise<unknown> {
   const s = ctx.state, data = s.data!, o = s.overlay;
-  const now = ctx.now();
   switch (o.kind) {
     case 'picker': return applyPicker(ctx);
     case 'search': {
       const r = searchResults(o.input.value, data)[o.cursor];
       if (!r) return;
       return ctx.dispatch({ type: 'navigate', route: { kind: 'issue', issueId: r.issue.id } });
-    }
-    case 'palette': {
-      const item = filteredPalette(o, s, data, now)[o.cursor]?.item;
-      ctx.dispatch({ type: 'closeOverlay' });
-      if (!item) return;
-      if ('route' in item.run) return ctx.dispatch({ type: item.run.route.kind === 'issue' ? 'navigate' : 'switchView', route: item.run.route });
-      return runCommand(item.run.command, { ...ctx, state: { ...s, overlay: { kind: 'none' } } }, '');
     }
     case 'compose': {
       const text = o.input.value.trim();
@@ -190,16 +182,12 @@ function overlayCount(ctx: Ctx): number {
   switch (o.kind) {
     case 'picker': return filteredOptions(o, data, s.route).length;
     case 'search': return searchResults(o.input.value, data).length;
-    case 'palette': return filteredPalette(o, s, data, ctx.now()).length;
     default: return 0;
   }
 }
 
 function move(ctx: Ctx, delta: number): void {
   const s = ctx.state;
-  if (s.focus === 'sidebar' && ctx.layout.sidebarVisible && s.overlay.kind === 'none') {
-    return ctx.dispatch({ type: 'sidebarMove', delta, count: s.data ? navItems(s.data, ctx.now()).length : 0 });
-  }
   if (s.route.kind === 'issue') return ctx.dispatch({ type: 'scroll', delta, max: ctx.layout.detailMax });
   ctx.dispatch({ type: 'move', delta, count: cursorIds(s, ctx.now()).length });
 }
@@ -226,64 +214,24 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
 
   switch (cmd) {
     case 'backOrQuit': return s.stack.length ? d({ type: 'back' }) : ctx.exit();
-    case 'back':
-      if (s.focus === 'sidebar') return d({ type: 'focus', focus: 'main' });
-      return d({ type: 'back' });
+    case 'back': return d({ type: 'back' });
     case 'help': return d({ type: 'openOverlay', overlay: { kind: 'help', scroll: 0 } });
-    case 'palette': return d({ type: 'openOverlay', overlay: { kind: 'palette', input: emptyField, cursor: 0 } });
     case 'search': return d({ type: 'openOverlay', overlay: { kind: 'search', input: emptyField, cursor: 0 } });
     case 'create':
       if (!data.teams.length) return toast(d, 'error', 'This workspace has no teams to file an issue in');
       return d({ type: 'openOverlay', overlay: { kind: 'compose', target: 'issue', field: 'title', input: emptyField, draft: newDraft(s, data) } });
     case 'nextView': return cycleView(ctx, 1);
     case 'prevView': return cycleView(ctx, -1);
-    case 'gotoMy': return d({ type: 'switchView', route: { kind: 'my' } });
-    case 'gotoInbox': return d({ type: 'switchView', route: { kind: 'inbox' } });
-    case 'gotoProjects': return d({ type: 'switchView', route: { kind: 'projects' } });
-    case 'switchTeam':
-      if (!data.teams.length) return toast(d, 'info', 'This workspace has no teams yet');
-      return d({ type: 'openOverlay', overlay: { kind: 'picker', field: 'team', issueId: null, input: emptyField, cursor: Math.max(0, data.teams.findIndex(t => s.route.kind === 'team' && t.id === s.route.teamId)), selected: [] } });
-    case 'toggleSidebar':
-      if (!ctx.layout.sidebarFits) return toast(d, 'info', 'Widen the terminal to 90+ columns for the sidebar; [ and ] switch views');
-      return d({ type: 'toggleSidebar' });
-    case 'cycleGroupBy': return d({ type: 'cycleGroupBy' });
-    case 'cyclePreset': return d({ type: 'cyclePreset' });
-    case 'foldAll': return d({ type: 'foldAll' });
-    case 'foldGroup': {
-      const row = cursorRow(s);
-      if (!row || !isListRoute(s.route)) return;
-      const groupId = row.kind === 'group' ? row.group.id : listGroups(s.route, data, listViewOf(s, s.route)).find(g => g.issues.some(i => i.id === row.id))?.id;
-      if (s.groupBy === 'none') return toast(d, 'info', 'Nothing to fold without grouping; D groups the list');
-      return groupId ? d({ type: 'toggleGroup', groupId }) : undefined;
-    }
-    case 'togglePeek': return d({ type: 'peek', on: !ctx.layout.peekVisible });
-    case 'nextIssue': return d({ type: 'stepIssue', delta: 1, now });
-    case 'prevIssue': return d({ type: 'stepIssue', delta: -1, now });
     case 'gotoView': {
       const item = navItems(data, now)[Number(key) - 1];
       return item ? d({ type: 'switchView', route: item.route }) : undefined;
     }
-    case 'focusSidebar': {
-      if (!ctx.layout.sidebarVisible) return toast(d, 'info', ctx.layout.sidebarFits ? 'The sidebar is hidden; ctrl-b shows it' : 'Widen the terminal to 90+ columns for the sidebar; [ and ] switch views');
-      if (s.focus === 'sidebar') return d({ type: 'focus', focus: 'main' });
-      const at = navItems(data, now).findIndex(n => n.id === navIdFor(s.route, s.stack));
-      d({ type: 'sidebarMove', delta: Math.max(0, at) - s.sidebarCursor, count: navItems(data, now).length });
-      return d({ type: 'focus', focus: 'sidebar' });
-    }
-    case 'focusMain': return d({ type: 'focus', focus: 'main' });
-
     case 'down': return move(ctx, 1);
     case 'up': return move(ctx, -1);
-    case 'pageDown': return move(ctx, s.route.kind === 'issue' && key === 'space' ? ctx.layout.pageSize : Math.max(1, Math.floor(ctx.layout.pageSize / 2)));
+    case 'pageDown': return move(ctx, Math.max(1, Math.floor(ctx.layout.pageSize / 2)));
     case 'pageUp': return move(ctx, -Math.max(1, Math.floor(ctx.layout.pageSize / 2)));
-    case 'top': return move(ctx, -1e6);
-    case 'bottom': return move(ctx, 1e6);
 
     case 'open': {
-      if (s.focus === 'sidebar' && ctx.layout.sidebarVisible) {
-        const item = navItems(data, now)[s.sidebarCursor];
-        return item ? d({ type: 'switchView', route: item.route }) : undefined;
-      }
       const id = cursorIds(s, now)[s.cursor[routeKey(s.route)] ?? 0];
       if (!id) return;
       if (isListRoute(s.route)) {

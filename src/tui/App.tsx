@@ -6,23 +6,16 @@ import { copyToClipboard } from '../cli/system.js';
 import { errorText, runCommand, toast, type Ctx, type Layout } from './commands.js';
 import { fetchData } from './data.js';
 import { detailLines } from './detail.js';
-import { contextsFor, isChordPrefix, keyName, lookup, takesText, type CommandId } from './keys.js';
+import { contextsFor, keyName, lookup, takesText, type CommandId } from './keys.js';
 import { contextOf } from './context.js';
-import { displayWidth, isListRoute, type GroupBy, type Line, type Preset } from './model.js';
+import { displayWidth, type GroupBy, type Line, type Preset } from './model.js';
 import type { SessionContext } from './session.js';
 import { OverlayView } from './overlay-views.js';
-import { DetailScreen, Footer, headerLine, InboxScreen, ListScreen, PeekPane, ProjectsScreen, scrollLabel, Sidebar, ToastLine } from './screens.js';
+import { DetailScreen, Footer, headerLine, InboxScreen, ListScreen, ProjectsScreen, scrollLabel, ToastLine } from './screens.js';
 import { initialState, reducer, routeKey, type Action, type Route, type TuiState } from './state.js';
 import { editField, type TextField } from './textfield.js';
 import { SPINNER, theme } from './theme.js';
 import { LineView } from './ui.js';
-
-const SIDEBAR_MIN_COLS = 90;
-const SIDEBAR_W = 26;
-const CHORD_MS = 1000;
-/** the peek pane opens on its own from these widths, so the list keeps room for its columns */
-const PEEK_COLS_WITH_SIDEBAR = 150;
-const PEEK_COLS = 120;
 
 export interface AppProps {
   bl: Baseline;
@@ -59,7 +52,7 @@ class ScreenBoundary extends Component<{ children: ReactNode; resetKey: string }
 
 function currentField(s: TuiState): TextField | null {
   const o = s.overlay;
-  return o.kind === 'palette' || o.kind === 'search' || o.kind === 'picker' || o.kind === 'compose' ? o.input : null;
+  return o.kind === 'search' || o.kind === 'picker' || o.kind === 'compose' ? o.input : null;
 }
 
 function BootScreen({ s, width, height }: { s: TuiState; width: number; height: number }) {
@@ -142,21 +135,13 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
     return () => clearTimeout(t);
   }, [state.toast]);
 
-  useEffect(() => {
-    if (!state.pending) return;
-    const t = setTimeout(() => dispatch({ type: 'pending', key: null }), CHORD_MS);
-    return () => clearTimeout(t);
-  }, [state.pending]);
-
   const context = useMemo(() => (onContext ? contextOf(state, Date.now()) : null),
     [onContext, state.data, state.route, state.stack, state.cursor, state.expanded, state.groupBy, state.preset]);
   // a refetch rebuilds the same context; only a real change is worth a write
   const contextJson = context ? JSON.stringify(context) : '';
   useEffect(() => { if (context && onContext) onContext(context); }, [contextJson]);
 
-  const sidebarFits = columns >= SIDEBAR_MIN_COLS;
-  const sidebarVisible = sidebarFits && !state.sidebarHidden;
-  const mainW = columns - (sidebarVisible ? SIDEBAR_W : 0);
+  const mainW = columns;
   const contentW = Math.max(20, mainW - 2);
   const bodyH = Math.max(1, rows - 4);
   const data = state.data;
@@ -168,17 +153,14 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
     return issue ? detailLines(issue, data, threads ?? [], contentW, state.syncedAt ?? Date.now()) : null;
   }, [data, openIssue, threads, contentW, state.syncedAt]);
 
-  const peekVisible = isListRoute(state.route) && (state.peek ?? columns >= (sidebarVisible ? PEEK_COLS_WITH_SIDEBAR : PEEK_COLS));
-  const peekW = peekVisible ? Math.max(28, Math.min(60, Math.floor(contentW * 0.42))) : 0;
-  const listW = peekVisible ? contentW - peekW - 3 : contentW;
-  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, sidebarVisible, sidebarFits, peekVisible };
-  const contexts = contextsFor(state, sidebarVisible);
+  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current };
+  const contexts = contextsFor(state);
 
   const handleKey = (input: string, key: Key) => {
     if (suspended.current) return;
     const s = stateRef.current;
     const name = keyName(input, key);
-    const ctxs = contextsFor(s, sidebarVisible);
+    const ctxs = contextsFor(s);
     const run = (command: CommandId, keyPressed: string) => {
       const ctx: Ctx = {
         state: stateRef.current, dispatch, bl, actorId, layout: { ...layout, helpMax: helpMax.current }, refresh,
@@ -199,13 +181,6 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
       };
       runCommand(command, ctx, keyPressed).catch(e => toast(dispatch, 'error', errorText(e)));
     };
-    if (s.pending) {
-      dispatch({ type: 'pending', key: null });
-      const chord = lookup(ctxs, `${s.pending} ${name}`);
-      // an unknown ending cancels the chord, as in Linear and vim
-      return chord ? run(chord.command, name) : undefined;
-    }
-    if (!takesText(s) && isChordPrefix(ctxs, name)) return dispatch({ type: 'pending', key: name });
     const binding = lookup(ctxs, name);
     if (binding) return run(binding.command, name);
     const field = takesText(s) ? currentField(s) : null;
@@ -235,20 +210,12 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const screen = r.kind === 'issue' ? <DetailScreen s={state} lines={detail} width={contentW} height={bodyH} />
     : r.kind === 'inbox' ? <InboxScreen s={state} data={data} width={contentW} height={bodyH} now={now} />
     : r.kind === 'projects' ? <ProjectsScreen s={state} data={data} width={contentW} height={bodyH} />
-    : peekVisible
-      ? (
-        <Box flexDirection="row">
-          <ListScreen s={state} data={data} width={listW} height={bodyH} now={now} />
-          <PeekPane s={state} data={data} width={peekW} height={bodyH} now={now} />
-        </Box>
-      )
-      : <ListScreen s={state} data={data} width={contentW} height={bodyH} now={now} />;
+    : <ListScreen s={state} data={data} width={contentW} height={bodyH} now={now} />;
   const right = r.kind === 'issue' && detail ? scrollLabel(state, detail.length, bodyH) : '';
 
   return (
     <Box flexDirection="column" width={columns} height={rows}>
       <Box flexDirection="row" height={rows - 2}>
-        {sidebarVisible ? <Sidebar s={state} data={data} width={SIDEBAR_W} height={rows - 2} now={now} /> : null}
         <Box flexDirection="column" width={mainW} paddingX={1}>
           <LineView line={headerLine(state, data, contentW, right, now)} width={contentW} />
           <LineView line={[]} width={contentW} />

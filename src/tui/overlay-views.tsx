@@ -1,9 +1,9 @@
-// The centered boxes: pickers, search, the command palette, compose forms, help and the agent confirm.
+// The centered boxes: pickers, search, compose forms, help and the agent confirm.
 import type { TuiData } from './data.js';
 import { helpSections, hintsFor, type Context } from './keys.js';
 import { shellPreview } from './launch.js';
 import { displayWidth, highlight, padEnd, tildePath, truncate, type Line, type Seg } from './model.js';
-import { draftChoices, draftValue, filteredOptions, filteredPalette, PICKER_TITLE, searchResults } from './overlays.js';
+import { draftChoices, draftValue, filteredOptions, PICKER_TITLE, searchResults } from './overlays.js';
 import { useWindow } from './screens.js';
 import { DRAFT_FIELDS, type Overlay, type TuiState } from './state.js';
 import { STATE_ICON, theme } from './theme.js';
@@ -59,7 +59,6 @@ export function OverlayView(p: Props) {
     case 'none': return null;
     case 'picker': return <PickerView {...p} o={o} />;
     case 'search': return <SearchView {...p} o={o} />;
-    case 'palette': return <PaletteView {...p} o={o} />;
     case 'compose': return <ComposeView {...p} o={o} />;
     case 'help': return <HelpView {...p} o={o} />;
     case 'confirm': return <ConfirmView {...p} o={o} />;
@@ -79,7 +78,7 @@ function useListWindow<T>(key: string, items: T[], cursor: number, room: number,
 function PickerView({ s, data, contexts, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'picker' }> }) {
   const issue = o.issueId ? data.issueById.get(o.issueId) : undefined;
   const options = filteredOptions(o, data, s.route);
-  const numbered = !o.input.value;
+  const numbered = true;
   const multi = o.field === 'labels';
   const room = Math.max(3, Math.min(12, rows - 10));
   const height = Math.min(options.length || 1, room) + 6;
@@ -93,7 +92,7 @@ function PickerView({ s, data, contexts, cols, rows, o }: Props & { o: Extract<O
     const digit: Seg[] = numbered ? [{ text: n < 9 ? `${n + 1} ` : '  ', color: theme.muted }] : [];
     return rightAlign([selected ? BAR : { text: ' ' }, { text: ' ' }, ...digit, ...mark, ...(option.icon ? [option.icon, { text: ' ' }] : []), ...withMatches(option.label, match.indices, 0, selected ? { bold: true } : {})], right, inner);
   });
-  const placeholder = multi ? 'type to filter labels, or 1-9 to toggle…' : 'type to filter, or 1-9 to pick…';
+  const placeholder = multi ? 'type to filter labels, 1-9 to toggle…' : 'type to filter, 1-9 to pick…';
   const lines: Line[] = [[{ text: '› ', color: theme.accent }, ...fieldSegs(o.input, inner - 2, placeholder)], [], ...(options.length ? body : [[{ text: '  No matches', color: theme.muted }]])];
   return <Modal title={PICKER_TITLE[o.field]} subtitle={issue ? data.keyOf(issue) : undefined} rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
 }
@@ -115,18 +114,6 @@ function SearchView({ data, contexts, cols, rows, o }: Props & { o: Extract<Over
   const lines: Line[] = [rightAlign([{ text: '/ ', color: theme.accent }, ...fieldSegs(o.input, inner - 20, 'search issues by key or title…')], [{ text: count, color: theme.muted }], inner), [],
     ...(results.length ? body : [[{ text: '  No issues match', color: theme.muted }]])];
   return <Modal title="Search" rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
-}
-
-function PaletteView({ s, data, contexts, cols, rows, now, o }: Props & { o: Extract<Overlay, { kind: 'palette' }> }) {
-  const items = filteredPalette(o, s, data, now);
-  const room = Math.max(3, Math.min(14, rows - 10));
-  const { width, left, top } = place(cols, rows, 72, Math.min(items.length || 1, room) + 6);
-  const inner = width - 4;
-  const cursor = Math.min(o.cursor, Math.max(0, items.length - 1));
-  const body = useListWindow('palette', items, cursor, room, ({ item, match }, selected) =>
-    rightAlign([selected ? BAR : { text: ' ' }, { text: ' ' }, ...withMatches(item.label, match.indices, 0, selected ? { bold: true } : {})], [{ text: item.hint, color: theme.muted }], inner));
-  const lines: Line[] = [[{ text: '› ', color: theme.accent }, ...fieldSegs(o.input, inner - 2, 'run a command, go somewhere, or type an issue key (> commands only)…')], [], ...(items.length ? body : [[{ text: '  No commands match', color: theme.muted }]])];
-  return <Modal title="Commands" rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
 }
 
 const FIELD_LABEL: Record<typeof DRAFT_FIELDS[number], string> = { title: 'Title', team: 'Team', state: 'Status', priority: 'Priority', assignee: 'Assignee', project: 'Project' };
