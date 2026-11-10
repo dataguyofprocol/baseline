@@ -1,13 +1,13 @@
-// The boxes over the screen: the space menu, a picker with no field on screen, search, compose forms and help.
+// What draws over the screen: the space menu, a picker with no field on screen, / find, compose forms and help.
 import { Box, Text } from 'ink';
-import { menuCtxFor } from './commands.js';
-import { MENUS, rowLabel, SUBMENU } from './menus.js';
+import { findCtx, findSections, menuCtxFor } from './commands.js';
+import { agentPreview, MENUS, rowLabel, SUBMENU } from './menus.js';
 import type { TuiData } from './data.js';
 import { helpSections, hintsFor, type Context } from './keys.js';
-import { displayWidth, highlight, padEnd, truncate, type Line, type Seg } from './model.js';
+import { displayWidth, padEnd, truncate, type Line, type Seg } from './model.js';
 import { pickerLines } from './detail.js';
-import { draftChoices, draftValue, PICKER_TITLE, searchResults } from './overlays.js';
-import { useWindow } from './screens.js';
+import { draftChoices, draftValue, PICKER_TITLE } from './overlays.js';
+import { FIND_SUGGESTIONS, findItems } from './find.js';
 import { DRAFT_FIELDS, type Overlay, type TuiState } from './state.js';
 import { keySeg, STATE_ICON, theme } from './theme.js';
 import { fieldBlock, fieldSegs, LineView, Modal } from './ui.js';
@@ -16,10 +16,6 @@ const BAR: Seg = { text: '▍', color: theme.accent };
 
 function hintLine(contexts: Context[]): Line {
   return hintsFor(contexts).flatMap((h, i) => [{ text: `${i ? '   ' : ''}${h.key}`, bold: true }, { text: ` ${h.label}`, color: theme.muted }]);
-}
-
-function withMatches(text: string, indices: readonly number[], offset: number, base: Omit<Seg, 'text'> = {}): Seg[] {
-  return highlight(text, indices, offset).map(r => (r.hit ? { ...base, text: r.text, color: theme.accent, bold: true } : { ...base, text: r.text }));
 }
 
 function rightAlign(left: Seg[], right: Seg[], width: number): Line {
@@ -61,7 +57,7 @@ export function OverlayView(p: Props) {
   switch (o.kind) {
     case 'none': return null;
     case 'picker': return <PickerView {...p} o={o} />;
-    case 'search': return <SearchView {...p} o={o} />;
+    case 'find': return <FindView {...p} o={o} />;
     case 'compose': return <ComposeView {...p} o={o} />;
     case 'help': return <HelpView {...p} o={o} />;
     case 'menu': return <MenuView {...p} o={o} />;
@@ -71,11 +67,6 @@ export function OverlayView(p: Props) {
 function place(cols: number, rows: number, width: number, height: number) {
   const w = Math.min(width, cols - 2);
   return { width: w, left: Math.max(0, Math.floor((cols - w) / 2)), top: Math.max(0, Math.min(Math.floor((rows - height) / 3), rows - height - 1)) };
-}
-
-function useListWindow<T>(key: string, items: T[], cursor: number, room: number, render: (t: T, selected: boolean) => Line): Line[] {
-  const start = useWindow(key, cursor, room, items.length);
-  return items.slice(start, start + room).map((t, i) => render(t, start + i === cursor));
 }
 
 /** the picker floating over the list, when no detail pane or issue page shows the field it changes */
@@ -91,23 +82,50 @@ function PickerView({ data, cols, rows, o }: Props & { o: Extract<Overlay, { kin
   );
 }
 
-function SearchView({ data, contexts, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'search' }> }) {
-  const results = searchResults(o.input.value, data);
-  const room = Math.max(3, Math.min(14, rows - 10));
-  const { width, left, top } = place(cols, rows, 96, Math.min(results.length || 1, room) + 6);
-  const inner = width - 4;
-  const cursor = Math.min(o.cursor, Math.max(0, results.length - 1));
-  const keyW = Math.max(6, ...results.map(r => r.key.length));
-  const body = useListWindow('search', results, cursor, room, (r, selected) => {
-    const st = data.stateById.get(r.issue.stateId);
-    const keyHits = r.match.indices.filter(i => i < r.key.length);
-    return [selected ? BAR : { text: ' ' }, { text: ' ' }, ...withMatches(padEnd(r.key, keyW), keyHits, 0, { color: selected ? theme.accent : theme.muted }), { text: ' ' },
-      { text: `${st ? STATE_ICON[st.type] : '○'} `, color: st?.color }, ...withMatches(r.issue.title, r.match.indices, r.key.length + 1, selected ? { bold: true } : {})];
-  });
-  const count = o.input.value.trim() ? `${results.length} match${results.length === 1 ? '' : 'es'}` : 'recently updated';
-  const lines: Line[] = [rightAlign([{ text: '/ ', color: theme.accent }, ...fieldSegs(o.input, inner - 20, 'search issues by key or title…')], [{ text: count, color: theme.muted }], inner), [],
-    ...(results.length ? body : [[{ text: '  No issues match', color: theme.muted }]])];
-  return <Modal title="Search" rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
+/** `/`: a prompt at the bottom with the results panel above it, over the lower part of the screen */
+function FindView({ s, data, cols, rows, now, o }: Props & { o: Extract<Overlay, { kind: 'find' }> }) {
+  const sections = findSections(s, o.query.value, now);
+  const items = findItems(sections);
+  const cursor = Math.min(o.cursor, Math.max(0, items.length - 1));
+  const inner = cols - 2;
+  const lines: Array<{ line: Line; sel?: boolean; at?: number }> = [];
+  if (!o.query.value.trim()) {
+    lines.push({ line: [{ text: 'try typing   ', color: theme.muted }, ...FIND_SUGGESTIONS.flatMap(t => [keySeg(` ${t} `), { text: '  ' }])] }, { line: [] });
+  }
+  let n = 0;
+  for (const sec of sections) {
+    lines.push({ line: [{ text: sec.title, color: theme.muted, bold: true }] });
+    if (!sec.items.length) lines.push({ line: [{ text: `  no issue titles match “${o.query.value.trim()}”`, color: theme.muted }] });
+    for (const it of sec.items) {
+      const sel = n === cursor;
+      const bar: Seg = sel ? { text: '▌ ', color: theme.accent } : { text: '  ' };
+      if (it.issue) {
+        const st = data.stateById.get(it.issue.stateId);
+        lines.push({ line: [bar, { text: padEnd(data.keyOf(it.issue), 9), color: sel ? undefined : theme.muted, bold: sel }, { text: `${st ? STATE_ICON[st.type] : '○'} `, color: st?.color }, { text: it.label, bold: sel }], sel, at: n });
+      } else {
+        const left: Line = [bar, { text: it.label, bold: sel }, ...(it.detail ? [{ text: `   ${it.detail}`, color: theme.muted }] : [])];
+        lines.push({ line: rightAlign(left, it.key ? it.key.split(' ').flatMap((k, i) => [...(i ? [{ text: ' ' }] : []), keySeg(k)]) : [], inner), sel, at: n });
+      }
+      if (sel && it.agent) {
+        const mc = findCtx(s, now).mc;
+        if (mc) lines.push(...agentPreview(mc, inner - 4).map(l => ({ line: [{ text: '    ' }, ...l] })));
+      }
+      n++;
+    }
+    lines.push({ line: [] });
+  }
+  const room = Math.max(4, rows - 6);
+  const selLine = Math.max(0, lines.findIndex(l => l.sel));
+  const start = Math.max(0, Math.min(selLine - room + 3, lines.length - room));
+  const shown = lines.slice(start, start + room);
+  const top = rows - 2 - shown.length - 1;
+  return (
+    <Box position="absolute" left={0} top={top} flexDirection="column" width={cols}>
+      <LineView line={[{ text: '─'.repeat(cols), color: theme.border }]} width={cols} />
+      {shown.map((l, i) => <Box key={i} paddingX={1}><LineView line={l.line} width={inner} bg={l.sel ? theme.selBg : undefined} /></Box>)}
+      <Box paddingX={1}><LineView line={[{ text: '› ', color: theme.accent, bold: true }, ...fieldSegs(o.query, inner - 2, 'an issue key or title, or what to do: done, assign ada, agent, new <title>, group by priority…')]} width={inner} /></Box>
+    </Box>
+  );
 }
 
 const FIELD_LABEL: Record<typeof DRAFT_FIELDS[number], string> = { title: 'Title', team: 'Team', state: 'Status', priority: 'Priority', assignee: 'Assignee', project: 'Project' };

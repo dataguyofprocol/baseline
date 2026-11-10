@@ -1,4 +1,4 @@
-// What each overlay lists: picker options, search results, new-issue field values. Pure.
+// What the pickers and the new-issue form list. Pure.
 import { PRIORITY_LABELS, type Issue, type Priority } from '../core/types.js';
 import type { TuiData } from './data.js';
 import { fuzzyFilter, type FuzzyMatch, type Seg } from './model.js';
@@ -50,17 +50,6 @@ export function filteredOptions(o: Extract<Overlay, { kind: 'picker' }>, data: T
 }
 
 export const PICKER_TITLE: Record<PickerField, string> = { state: 'Status', priority: 'Priority', assignee: 'Assignee', labels: 'Labels', project: 'Project' };
-
-// ---------- search ----------
-
-export interface SearchResult { issue: Issue; key: string; match: FuzzyMatch }
-
-export function searchResults(query: string, data: TuiData, limit = 50): SearchResult[] {
-  const all = query.trim()
-    ? fuzzyFilter(data.issues, query, i => `${data.keyOf(i)} ${i.title}`)
-    : [...data.issues].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(item => ({ item, match: { score: 0, indices: [] } }));
-  return all.slice(0, limit).map(({ item, match }) => ({ issue: item, key: data.keyOf(item), match }));
-}
 
 // ---------- new issue ----------
 

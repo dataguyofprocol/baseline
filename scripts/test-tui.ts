@@ -261,15 +261,15 @@ class FakeStdin extends EventEmitter {
   stdin.press(next.name);
   await waitFor('filtered picker', f => f.includes(`› ${next.name}`));
   stdin.press('\r');
-  await waitFor('state toast', f => f.includes(`${data.keyOf(target)} → ${next.name}`));
+  await waitFor('state toast', f => f.includes(`${data.keyOf(target)} moved to ${next.name}`));
   const fresh = await connect({ db: dbPath });
   check('s → choosing a state changes it, as a fresh client reads it', (await fresh.getIssue(target.id))?.stateId === next.id);
 
   stdin.press('/');
-  await waitFor('search', f => f.includes('Search'));
+  await waitFor('find', f => f.includes('Find') && f.includes('Recently updated'));
   const other = mine.find(i => i.id !== target.id)!;
   stdin.press(data.keyOf(other));
-  await waitFor('search results', f => f.includes('match'));
+  await waitFor('find results', f => f.includes(`› ${data.keyOf(other)}`) && f.includes('Issues'));
   stdin.press('\r');
   await waitFor('issue page', f => f.includes('Description') && f.includes(other.title));
   check('/ → typing a key → enter opens that issue', stdout.last.includes(data.keyOf(other)));
@@ -307,7 +307,7 @@ class FakeStdin extends EventEmitter {
   stdin.press('kkkkkkkkkkkkkp');
   await waitFor('priority picker', f => f.includes('Priority for'));
   stdin.press('4');
-  await waitFor('priority toast', f => f.includes(`${live.keyOf(pick)} → Low`));
+  await waitFor('priority toast', f => f.includes(`${live.keyOf(pick)} priority set to Low`));
   check('a digit in a picker picks that option (p 4 → Low)', (await fresh.getIssue(pick.id))?.priority === 4);
 
   stdin.press('j');

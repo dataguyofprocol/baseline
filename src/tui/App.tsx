@@ -57,7 +57,7 @@ class ScreenBoundary extends Component<{ children: ReactNode; resetKey: string }
 
 function currentField(s: TuiState): TextField | null {
   const o = s.overlay;
-  return o.kind === 'picker' ? o.query : o.kind === 'search' || o.kind === 'compose' ? o.input : null;
+  return o.kind === 'picker' || o.kind === 'find' ? o.query : o.kind === 'compose' ? o.input : null;
 }
 
 function BootScreen({ s, width, height }: { s: TuiState; width: number; height: number }) {
@@ -133,7 +133,8 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const openIssue = state.route.kind === 'issue' ? state.route.issueId : null;
 
   // the agent and copy menus show the branch and the command before you pick, so fetch the handoff as they open
-  const wantsHandoff = state.overlay.kind === 'menu' && state.overlay.path.some(m => m === 'agent' || m === 'copy') ? state.overlay.issueId : null;
+  const wantsHandoff = state.overlay.kind === 'menu' && state.overlay.path.some(m => m === 'agent' || m === 'copy') ? state.overlay.issueId
+    : state.overlay.kind === 'find' && state.data ? targetIssue(state, Date.now())?.id ?? null : null;
   useEffect(() => {
     const issue = wantsHandoff ? stateRef.current.data?.issueById.get(wantsHandoff) : undefined;
     if (issue) void handoff({ bl, dispatch, state: stateRef.current }, issue, true);
@@ -277,7 +278,7 @@ function overlayTitle(s: TuiState, data: TuiData | null): string {
   const key = (id: string) => { const i = data?.issueById.get(id); return i ? data!.keyOf(i) : ''; };
   switch (o.kind) {
     case 'picker': return `${PICKER_TITLE[o.field]} for ${key(o.issueId)}`;
-    case 'search': return 'Find';
+    case 'find': return 'Find';
     case 'compose': return o.target === 'issue' ? 'New issue' : o.target === 'comment' ? `Comment on ${key(o.issueId)}` : `Rename ${key(o.issueId)}`;
     case 'help': return 'Keys';
     case 'menu': case 'none': return '';

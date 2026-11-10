@@ -87,8 +87,9 @@ export const BINDINGS: Binding[] = [
   { keys: DIGITS, display: '1-9', label: 'pick', when: ['picker'], command: 'pickerPick', group: 'Overlay', hint: true, hideIn: ['multipicker'] },
   { keys: ['space'], label: 'toggle', when: ['multipicker'], command: 'pickerToggle', group: 'Overlay', hint: true },
   { keys: ['enter'], label: 'apply', when: ['picker'], command: 'overlayAccept', group: 'Overlay', hint: true },
-  { keys: ['enter'], label: 'open', when: ['finder'], command: 'overlayAccept', group: 'Overlay', hint: true },
-  { keys: ['esc'], label: 'cancel', when: ['picker', 'finder'], command: 'overlayCancel', group: 'Overlay', hint: true },
+  { keys: ['enter'], label: 'do it', when: ['finder'], command: 'overlayAccept', group: 'Overlay', hint: true },
+  { keys: ['esc'], label: 'cancel', when: ['picker'], command: 'overlayCancel', group: 'Overlay', hint: true },
+  { keys: ['esc'], label: 'close', when: ['finder'], command: 'overlayCancel', group: 'Overlay', hint: true },
 
   { keys: ['tab', 'down'], display: '↑↓', label: 'field', when: ['compose-issue'], command: 'composeNext', group: 'Overlay', hint: true },
   { keys: ['shift+tab', 'up'], label: 'previous field', when: ['compose-issue'], command: 'composePrev', group: 'Overlay', partner: true },
@@ -132,7 +133,7 @@ export function contextsFor(s: Pick<TuiState, 'status' | 'data' | 'overlay' | 'r
   switch (o.kind) {
     case 'help': return ['help'];
     case 'menu': return ['menu'];
-    case 'search': return ['finder'];
+    case 'find': return ['finder'];
     case 'picker': return o.field === 'labels' ? ['multipicker', 'picker'] : ['picker'];
     case 'compose':
       if (o.target !== 'issue') return ['compose'];
@@ -147,7 +148,7 @@ export const baseContext = (r: TuiState['route']): Context =>
 
 /** whether the active overlay has a text field that takes keys no binding claimed */
 export const takesText = (s: Pick<TuiState, 'overlay'>) =>
-  s.overlay.kind === 'search' || s.overlay.kind === 'picker' ||
+  s.overlay.kind === 'find' || s.overlay.kind === 'picker' ||
   (s.overlay.kind === 'compose' && (s.overlay.target !== 'issue' || s.overlay.field === 'title'));
 
 export function lookup(contexts: readonly Context[], name: string): Binding | undefined {

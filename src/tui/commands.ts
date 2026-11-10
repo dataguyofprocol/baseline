@@ -8,7 +8,9 @@ import type { CommandId } from './keys.js';
 import { agentCommand, agentCwd, agentEnv, editInEditor, runInPane, runInTerminal } from './launch.js';
 import { MENUS, SUBMENU, type MenuCtx, type MenuId } from './menus.js';
 import { inboxItems, isListRoute, listRowsFor, projectRows, selectableIds, type InboxItem, type Tab } from './model.js';
-import { cycleDraft, filteredOptions, newDraft, NONE, searchResults } from './overlays.js';
+import type { FieldId } from './detail.js';
+import { findItems, findResults, type FindItem } from './find.js';
+import { cycleDraft, filteredOptions, newDraft, NONE } from './overlays.js';
 import { cursorRow, listViewOf, routeKey, type Action, type PickerField, type TuiState } from './state.js';
 import { emptyField, fieldOf } from './textfield.js';
 
@@ -164,6 +166,72 @@ function openPicker(ctx: Ctx, field: PickerField): void {
   ctx.dispatch({ type: 'openOverlay', overlay: { kind: 'picker', field, issueId: issue.id, query: emptyField, cursor: 0, selected: field === 'labels' ? [...issue.labelIds] : [] } });
 }
 
+/** how a change reads in its toast: "moved to In Progress", "assigned to Ada Osei" */
+export function describeChange(field: FieldId, patch: Partial<Issue>, data: NonNullable<TuiState['data']>): string {
+  switch (field) {
+    case 'state': return `moved to ${data.stateById.get(patch.stateId ?? '')?.name ?? '?'}`;
+    case 'assignee': return patch.assigneeId ? `assigned to ${patch.assigneeId === data.currentUser.id ? 'you' : data.userById.get(patch.assigneeId)?.name ?? 'someone'}` : 'unassigned';
+    case 'priority': return `priority set to ${PRIORITY_LABELS[patch.priority ?? 0]}`;
+    case 'labels': { const names = (patch.labelIds ?? []).map(id => data.labelById.get(id)?.name).filter(Boolean); return names.length ? `labels: ${names.join(', ')}` : 'labels cleared'; }
+    case 'project': return patch.projectId ? `moved to project ${data.projectById.get(patch.projectId)?.name ?? '?'}` : 'removed from its project';
+    case 'title': return 'renamed';
+    case 'description': return 'description saved';
+  }
+}
+
+/** one field change from this TUI, written ahead of the server's answer */
+export function change(ctx: Ctx, issue: Issue, field: FieldId, patch: Partial<Issue>): Promise<unknown> {
+  const data = ctx.state.data!;
+  const key = data.keyOf(issue);
+  return write(ctx, { issueId: issue.id, patch, run: () => ctx.bl.updateIssue(issue.id, patch, ctx.actorId), ok: () => `${key} ${describeChange(field, patch, data)}` });
+}
+
+/** what `/` is about: the issue under the cursor, its menu context, and the team a new issue would go to */
+export function findCtx(s: TuiState, now: number) {
+  const issue = targetIssue(s, now);
+  const data = s.data!;
+  const team = data.teamById.get(newDraft(s, data).teamId);
+  return { issue, mc: issue ? menuCtxFor(s, issue.id, now) : undefined, team };
+}
+
+export const findSections = (s: TuiState, query: string, now: number) => {
+  const f = findCtx(s, now);
+  return findResults(query, s, s.data!, f.issue, f.mc, now, f.team);
+};
+
+async function runFind(ctx: Ctx, item: FindItem): Promise<unknown> {
+  const s = ctx.state, data = s.data!, d = ctx.dispatch;
+  const closed = { ...ctx, state: { ...s, overlay: { kind: 'none' } as const } };
+  d({ type: 'closeOverlay' });
+  const run = item.run;
+  if ('route' in run) return d({ type: run.route.kind === 'issue' || run.route.kind === 'project' ? 'navigate' : 'switchView', route: run.route });
+  if ('view' in run) return d({ type: 'setView', ...run.view });
+  if ('command' in run) return runCommand(run.command, closed, '');
+  if ('markAllRead' in run) return markAllRead(closed);
+  if ('create' in run) {
+    const draft = newDraft(s, data);
+    return write(closed, {
+      run: () => ctx.bl.createIssue({ teamId: draft.teamId, title: run.create, stateId: draft.stateId || undefined, priority: draft.priority, assigneeId: draft.assigneeId, projectId: draft.projectId }, ctx.actorId),
+      ok: issue => `Created ${data.teamById.get(issue.teamId)?.key ?? 'ISS'}-${issue.number}  ${issue.title}`,
+      after: issue => d({ type: 'select', issueId: issue.id }),
+    });
+  }
+  const issue = findCtx(s, ctx.now()).issue;
+  return issue ? change(closed, issue, run.change.field, run.change.patch) : undefined;
+}
+
+async function markAllRead(ctx: Ctx): Promise<unknown> {
+  const n = inboxItems(ctx.state.data!, ctx.now()).filter(i => i.unread).length;
+  if (!n) return toast(ctx.dispatch, 'info', 'Nothing unread');
+  const end = ctx.beginWrite();
+  ctx.dispatch({ type: 'markRead', ids: 'all', read: true });
+  try {
+    await ctx.bl.markAllNotificationsRead();
+    toast(ctx.dispatch, 'ok', `Marked ${n} notification${n === 1 ? '' : 's'} read`);
+  } catch (e) { toast(ctx.dispatch, 'error', errorText(e)); } finally { end(); }
+  return ctx.refresh();
+}
+
 function applyPicker(ctx: Ctx): Promise<unknown> | void {
   const s = ctx.state, data = s.data!;
   const o = s.overlay;
@@ -171,22 +239,17 @@ function applyPicker(ctx: Ctx): Promise<unknown> | void {
   const chosen = filteredOptions(o, data)[o.cursor]?.option;
   const issue = data.issueById.get(o.issueId);
   if (!issue) return ctx.dispatch({ type: 'closeOverlay' });
-  const key = data.keyOf(issue);
   ctx.dispatch({ type: 'closeOverlay' });
-  const update = (patch: Partial<Issue>, label: string) =>
-    write(ctx, { issueId: issue.id, patch, run: () => ctx.bl.updateIssue(issue.id, patch, ctx.actorId), ok: () => `${key} → ${label}` });
   if (o.field === 'labels') {
-    const before = [...issue.labelIds].sort().join();
-    if ([...o.selected].sort().join() === before) return;
-    const names = o.selected.map(id => data.labelById.get(id)?.name).filter(Boolean).join(', ');
-    return update({ labelIds: o.selected }, names ? `labels ${names}` : 'no labels');
+    if ([...o.selected].sort().join() === [...issue.labelIds].sort().join()) return;
+    return change(ctx, issue, 'labels', { labelIds: o.selected });
   }
   if (!chosen || chosen.current) return;
   switch (o.field) {
-    case 'state': return update({ stateId: chosen.id }, chosen.label);
-    case 'priority': return update({ priority: Number(chosen.id) as Priority }, PRIORITY_LABELS[Number(chosen.id) as Priority]);
-    case 'assignee': return update({ assigneeId: chosen.id === NONE ? null : chosen.id }, chosen.id === NONE ? 'unassigned' : chosen.label);
-    case 'project': return update({ projectId: chosen.id === NONE ? null : chosen.id }, chosen.id === NONE ? 'no project' : chosen.label);
+    case 'state': return change(ctx, issue, 'state', { stateId: chosen.id });
+    case 'priority': return change(ctx, issue, 'priority', { priority: Number(chosen.id) as Priority });
+    case 'assignee': return change(ctx, issue, 'assignee', { assigneeId: chosen.id === NONE ? null : chosen.id });
+    case 'project': return change(ctx, issue, 'project', { projectId: chosen.id === NONE ? null : chosen.id });
   }
 }
 
@@ -194,10 +257,9 @@ async function accept(ctx: Ctx): Promise<unknown> {
   const s = ctx.state, data = s.data!, o = s.overlay;
   switch (o.kind) {
     case 'picker': return applyPicker(ctx);
-    case 'search': {
-      const r = searchResults(o.input.value, data)[o.cursor];
-      if (!r) return;
-      return ctx.dispatch({ type: 'navigate', route: { kind: 'issue', issueId: r.issue.id } });
+    case 'find': {
+      const item = findItems(findSections(s, o.query.value, ctx.now()))[o.cursor];
+      return item ? runFind(ctx, item) : undefined;
     }
     case 'compose': {
       const text = o.input.value.trim();
@@ -222,7 +284,7 @@ async function accept(ctx: Ctx): Promise<unknown> {
       if (!text) return toast(ctx.dispatch, 'error', 'A title can\'t be empty');
       ctx.dispatch({ type: 'closeOverlay' });
       if (text === issue.title) return;
-      return write(ctx, { issueId: issue.id, patch: { title: text }, run: () => ctx.bl.updateIssue(issue.id, { title: text }, ctx.actorId), ok: () => `${key} renamed` });
+      return change(ctx, issue, 'title', { title: text });
     }
     case 'menu': return runMenuRow(ctx, null);
     default: return;
@@ -233,7 +295,7 @@ function overlayCount(ctx: Ctx): number {
   const s = ctx.state, data = s.data!, o = s.overlay;
   switch (o.kind) {
     case 'picker': return filteredOptions(o, data).length;
-    case 'search': return searchResults(o.input.value, data).length;
+    case 'find': return findItems(findSections(s, o.query.value, ctx.now())).length;
     case 'menu': return MENUS[o.path[o.path.length - 1]].rows.length;
     default: return 0;
   }
@@ -262,7 +324,7 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'backOrQuit': return s.stack.length ? d({ type: 'back' }) : ctx.exit();
     case 'back': return d({ type: 'back' });
     case 'help': return d({ type: 'openOverlay', overlay: { kind: 'help', scroll: 0 } });
-    case 'search': return d({ type: 'openOverlay', overlay: { kind: 'search', input: emptyField, cursor: 0 } });
+    case 'search': return d({ type: 'openOverlay', overlay: { kind: 'find', query: emptyField, cursor: 0 } });
     case 'create':
       if (!data.teams.length) return toast(d, 'error', 'This workspace has no teams to file an issue in');
       return d({ type: 'openOverlay', overlay: { kind: 'compose', target: 'issue', field: 'title', input: emptyField, draft: newDraft(s, data) } });
@@ -317,7 +379,7 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
       if (result.error) return toast(d, 'error', result.error);
       const text = result.text?.replace(/\s+$/, '') ?? null;
       if (text === null || text === i.description.replace(/\s+$/, '')) return toast(d, 'info', 'Description unchanged');
-      return write(ctx, { issueId: i.id, patch: { description: text }, run: () => ctx.bl.updateIssue(i.id, { description: text }, ctx.actorId), ok: () => `${data.keyOf(i)} description saved` });
+      return change(ctx, i, 'description', { description: text });
     });
 
     case 'copyKey': return needIssue(i => copy(ctx, data.keyOf(i), data.keyOf(i)));

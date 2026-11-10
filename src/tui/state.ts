@@ -26,7 +26,7 @@ export type DraftField = typeof DRAFT_FIELDS[number];
 export type Overlay =
   | { kind: 'none' }
   | { kind: 'help'; scroll: number }
-  | { kind: 'search'; input: TextField; cursor: number }
+  | { kind: 'find'; query: TextField; cursor: number }
   /** `selected` is the labels picker's set */
   | { kind: 'picker'; field: PickerField; issueId: string; query: TextField; cursor: number; selected: string[] }
   | { kind: 'compose'; target: 'issue'; field: DraftField; input: TextField; draft: IssueDraft }
@@ -88,6 +88,7 @@ export type Action =
   | { type: 'moveTo'; index: number }
   | { type: 'scroll'; delta: number; max: number }
   | { type: 'toggleGroup'; groupId: string }
+  | { type: 'setView'; groupBy?: GroupBy; preset?: Preset }
   | { type: 'select'; issueId: string }
   | { type: 'openOverlay'; overlay: Overlay }
   | { type: 'closeOverlay' }
@@ -199,19 +200,19 @@ export function reducer(s: TuiState, a: Action): TuiState {
       return { ...s, cursor: { ...s.cursor, [k]: clamp((s.cursor[k] ?? 0) + a.delta, 0, Math.max(0, a.max)) } };
     }
     case 'toggleGroup': return fold(s, a.groupId);
+    case 'setView': return relist(s, { ...s, groupBy: a.groupBy ?? s.groupBy, preset: a.preset ?? s.preset });
     case 'select': return selectIn(s, s.route, a.issueId);
     case 'openOverlay': return { ...s, overlay: a.overlay };
     case 'closeOverlay': return { ...s, overlay: { kind: 'none' } };
     case 'editInput': {
       const o = s.overlay;
-      if (o.kind === 'search') return { ...s, overlay: { ...o, input: a.input, cursor: a.input.value === o.input.value ? o.cursor : 0 } };
-      if (o.kind === 'picker') return { ...s, overlay: { ...o, query: a.input, cursor: a.input.value === o.query.value ? o.cursor : 0 } };
+      if (o.kind === 'find' || o.kind === 'picker') return { ...s, overlay: { ...o, query: a.input, cursor: a.input.value === o.query.value ? o.cursor : 0 } };
       if (o.kind === 'compose') return { ...s, overlay: { ...o, input: a.input } };
       return s;
     }
     case 'overlayMove': {
       const o = s.overlay;
-      if (o.kind !== 'search' && o.kind !== 'picker' && o.kind !== 'menu') return s;
+      if (o.kind !== 'find' && o.kind !== 'picker' && o.kind !== 'menu') return s;
       const n = Math.max(1, a.count);
       return { ...s, overlay: { ...o, cursor: ((o.cursor + a.delta) % n + n) % n } };
     }
