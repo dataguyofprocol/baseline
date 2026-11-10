@@ -76,9 +76,10 @@ function useListWindow<T>(key: string, items: T[], cursor: number, room: number,
   return items.slice(start, start + room).map((t, i) => render(t, start + i === cursor));
 }
 
-function PickerView({ data, contexts, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'picker' }> }) {
-  const issue = data.issueById.get(o.issueId);
-  const options = filteredOptions(o, data);
+function PickerView({ s, data, contexts, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'picker' }> }) {
+  const issue = o.issueId ? data.issueById.get(o.issueId) : undefined;
+  const options = filteredOptions(o, data, s.route);
+  const numbered = !o.input.value;
   const multi = o.field === 'labels';
   const room = Math.max(3, Math.min(12, rows - 10));
   const height = Math.min(options.length || 1, room) + 6;
@@ -88,9 +89,12 @@ function PickerView({ data, contexts, cols, rows, o }: Props & { o: Extract<Over
   const body = useListWindow(`picker:${o.field}`, options, cursor, room, ({ option, match }, selected) => {
     const mark: Seg[] = multi ? [{ text: o.selected.includes(option.id) ? '◉ ' : '○ ', color: o.selected.includes(option.id) ? theme.accent : theme.muted }] : [];
     const right: Seg[] = !multi && option.current ? [{ text: '✓ current', color: theme.ok }] : option.hint ? [{ text: option.hint, color: theme.muted }] : [];
-    return rightAlign([selected ? BAR : { text: ' ' }, { text: ' ' }, ...mark, ...(option.icon ? [option.icon, { text: ' ' }] : []), ...withMatches(option.label, match.indices, 0, selected ? { bold: true } : {})], right, inner);
+    const n = options.findIndex(x => x.option === option);
+    const digit: Seg[] = numbered ? [{ text: n < 9 ? `${n + 1} ` : '  ', color: theme.muted }] : [];
+    return rightAlign([selected ? BAR : { text: ' ' }, { text: ' ' }, ...digit, ...mark, ...(option.icon ? [option.icon, { text: ' ' }] : []), ...withMatches(option.label, match.indices, 0, selected ? { bold: true } : {})], right, inner);
   });
-  const lines: Line[] = [[{ text: '› ', color: theme.accent }, ...fieldSegs(o.input, inner - 2, multi ? 'filter labels…' : 'type to filter…')], [], ...(options.length ? body : [[{ text: '  No matches', color: theme.muted }]])];
+  const placeholder = multi ? 'type to filter labels, or 1-9 to toggle…' : 'type to filter, or 1-9 to pick…';
+  const lines: Line[] = [[{ text: '› ', color: theme.accent }, ...fieldSegs(o.input, inner - 2, placeholder)], [], ...(options.length ? body : [[{ text: '  No matches', color: theme.muted }]])];
   return <Modal title={PICKER_TITLE[o.field]} subtitle={issue ? data.keyOf(issue) : undefined} rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
 }
 
@@ -121,7 +125,7 @@ function PaletteView({ s, data, contexts, cols, rows, now, o }: Props & { o: Ext
   const cursor = Math.min(o.cursor, Math.max(0, items.length - 1));
   const body = useListWindow('palette', items, cursor, room, ({ item, match }, selected) =>
     rightAlign([selected ? BAR : { text: ' ' }, { text: ' ' }, ...withMatches(item.label, match.indices, 0, selected ? { bold: true } : {})], [{ text: item.hint, color: theme.muted }], inner));
-  const lines: Line[] = [[{ text: '› ', color: theme.accent }, ...fieldSegs(o.input, inner - 2, 'run a command or go somewhere…')], [], ...(items.length ? body : [[{ text: '  No commands match', color: theme.muted }]])];
+  const lines: Line[] = [[{ text: '› ', color: theme.accent }, ...fieldSegs(o.input, inner - 2, 'run a command, go somewhere, or type an issue key (> commands only)…')], [], ...(items.length ? body : [[{ text: '  No commands match', color: theme.muted }]])];
   return <Modal title="Commands" rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
 }
 

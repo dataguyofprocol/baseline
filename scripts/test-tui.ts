@@ -17,13 +17,13 @@ import { seedWorkspace } from '../src/core/seed.js';
 import type { Issue } from '../src/core/types.js';
 import { App } from '../src/tui/App.js';
 import { buildData, fetchData, type TuiData } from '../src/tui/data.js';
-import { BINDINGS, contextsFor, lookup, type Context } from '../src/tui/keys.js';
+import { BINDINGS, contextsFor, helpSections, isChordPrefix, lookup, type Context } from '../src/tui/keys.js';
 import { agentCommand, agentEnv, shellPreview } from '../src/tui/launch.js';
 import {
   CLOSED_TYPES, defaultExpanded, displayWidth, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
   markdownLines, selectableIds, sortIssues, truncate, wrap,
 } from '../src/tui/model.js';
-import { cycleDraft, newDraft, pickerOptions } from '../src/tui/overlays.js';
+import { cycleDraft, filteredPalette, newDraft, pickerOptions } from '../src/tui/overlays.js';
 import { initialState, reducer, routeKey, type Action, type TuiState } from '../src/tui/state.js';
 import { editField, emptyField, fieldOf } from '../src/tui/textfield.js';
 
@@ -146,6 +146,19 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   const opts = pickerOptions('assignee', issue, data);
   check('the assignee picker offers me first and unassign last', opts[0].id === data.currentUser.id && opts[0].hint === 'me' && opts[opts.length - 1].label === 'No assignee');
   check('routeKey separates routes of the same kind', routeKey({ kind: 'team', teamId: 'a' }) !== routeKey({ kind: 'team', teamId: 'b' }));
+
+  const visible = selectableIds({ kind: 'my' }, data, defaultExpanded, now);
+  const onFirst = run(s0, { type: 'navigate', route: { kind: 'issue', issueId: visible[0] } });
+  const stepped = run(onFirst, { type: 'stepIssue', delta: 1, now });
+  check('J on an issue page opens the next issue of the list it came from', stepped.route.kind === 'issue' && stepped.route.issueId === visible[1] && stepped.stack.length === 1);
+  check('…and back lands the list cursor on that issue', run(stepped, { type: 'back' }).cursor.my === 1);
+  check('K on the first issue stays put with a note', run(onFirst, { type: 'stepIssue', delta: -1, now }).route === onFirst.route && run(onFirst, { type: 'stepIssue', delta: -1, now }).toast?.tone === 'info');
+
+  const key4 = data.keyOf(issue);
+  const pal = (q: string) => filteredPalette({ kind: 'palette', input: fieldOf(q), cursor: 0 }, s0, data, now).map(r => r.item);
+  check('the palette finds an issue by its key and jumps there', pal(key4)[0]?.id === `issue:${issue.id}`, pal(key4).slice(0, 3).map(i => i.label).join(' | '));
+  check('> in the palette lists commands only', pal('>').length > 0 && pal('>').every(i => 'command' in i.run) && pal('>status').every(i => 'command' in i.run));
+  check('palette commands show their key', pal('>assign to me')[0]?.hint === 'i');
 }
 
 {
@@ -155,12 +168,23 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
     return keys.filter((k, i) => keys.indexOf(k) !== i).map(k => `${ctx}:${k}`);
   });
   check('no key is bound twice in one context', !clashes.length, clashes.join(', '));
+  const st = run(initialState(), { type: 'loaded', data, at: now });
   check('s on a list opens the status picker', lookup(['list', 'global'], 's')?.command === 'setState');
-  check('j scrolls on the issue page and moves on lists', lookup(['detail', 'global'], 'j')?.command === 'down' && lookup(['list', 'global'], 'j')?.label === 'move');
+  check('j moves on lists and scrolls the issue page, through one binding', lookup(['detail', 'global'], 'j') === lookup(['list', 'global'], 'j') && lookup(['list', 'global'], 'j')?.command === 'down');
+  check('Linear keys: i assigns to me, r renames, e edits the description, b copies the branch, Y the URL',
+    lookup(['list', 'global'], 'i')?.command === 'assignMe' && lookup(['detail', 'global'], 'r')?.command === 'editTitle' && lookup(['list', 'global'], 'e')?.command === 'editDescription' &&
+    lookup(['list', 'global'], 'b')?.command === 'copyBranch' && lookup(['detail', 'global'], 'Y')?.command === 'copyUrl' && lookup(['inbox', 'global'], 'r')?.command === 'markRead');
+  check('g starts a chord on lists but is text in a search box', isChordPrefix(['list', 'global'], 'g') && !isChordPrefix(['finder'], 'g') && lookup(['list', 'global'], 'g i')?.command === 'gotoInbox');
+  const help = helpSections().flatMap(sec => sec.rows.map(r => `${sec.group}|${r.key}|${r.label}`));
+  check('the help overlay has no duplicate rows, and one j/k row for lists and the issue page',
+    new Set(help).size === help.length && help.filter(r => r.startsWith('Move|j/k')).length === 1, help.filter((r, i) => help.indexOf(r) !== i).join(', '));
+  const pickerState = run(st, { type: 'openOverlay', overlay: { kind: 'picker', field: 'priority', issueId: data.issues[0].id, input: emptyField, cursor: 0, selected: [] } });
+  check('a picker takes digits and j/k until you type, then they are text',
+    lookup(contextsFor(pickerState, true), '3')?.command === 'pickerPick' && lookup(contextsFor(pickerState, true), 'j')?.command === 'overlayDown' &&
+    lookup(contextsFor(run(pickerState, { type: 'editInput', input: fieldOf('h') }), true), 'j') === undefined);
   check('letters typed into a search box are text, not commands', lookup(['finder'], 's') === undefined && lookup(['finder'], 'q') === undefined);
   check('space toggles in the labels picker only', lookup(['multipicker', 'picker'], 'space')?.command === 'pickerToggle' && lookup(['picker'], 'space') === undefined);
   check('ctrl-c quits from anywhere, even inside an overlay', ['boot', 'finder', 'picker', 'compose', 'help', 'confirm'].every(c => lookup([c as Context], 'ctrl+c')?.command === 'quit'));
-  const st = run(initialState(), { type: 'loaded', data, at: now });
   check('a compose title field is a text context', contextsFor(run(st, { type: 'openOverlay', overlay: { kind: 'compose', target: 'issue', field: 'title', input: emptyField, draft: newDraft(st, data) } }), true).join() === 'compose-issue,compose');
   check('the sidebar takes keys only when it is visible', contextsFor({ ...st, focus: 'sidebar' }, false)[0] === 'list' && contextsFor({ ...st, focus: 'sidebar' }, true)[0] === 'sidebar');
 }
@@ -263,11 +287,35 @@ class FakeStdin extends EventEmitter {
 
   const second = selectableIds({ kind: 'my' }, data, defaultExpanded, now)[1];
   const secondTitle = (await fresh.getIssue(second))!.title;
-  stdin.press('gj\r');
+  stdin.press('ggj\r');
   await waitFor('burst opens the second issue', f => f.includes('Description') && f.includes(secondTitle));
   check('a burst of keys in one chunk (tmux send-keys) acts as separate presses', stdout.last.includes(secondTitle));
+  const third = selectableIds({ kind: 'my' }, await fetchData(fresh), defaultExpanded, now)[2];
+  const thirdTitle = (await fresh.getIssue(third))!.title;
+  stdin.press('J');
+  await waitFor('J opens the next issue', f => f.includes('Description') && f.includes(thirdTitle));
+  check('J on the issue page opens the next issue in the list', stdout.last.includes(thirdTitle));
   stdin.press('\x1b');
   await waitFor('back to the list again', f => f.includes('My Issues') && !f.includes('Description'));
+
+  stdin.press('g');
+  await waitFor('chord pending', f => f.includes('g…'));
+  check('the footer shows g… and the chord endings while g waits', stdout.last.includes('g…') && stdout.last.includes('Inbox'));
+  stdin.press('i');
+  await waitFor('Inbox', f => /Inbox\s+(\d+ unread|all read)/.test(f));
+  check('g i goes to the Inbox', /Inbox\s+(\d+ unread|all read)/.test(stdout.last));
+  stdin.press('g');
+  await waitFor('chord pending again', f => f.includes('g…'));
+  stdin.press('m');
+  await waitFor('My Issues again', f => /My Issues\s+\d+ open/.test(f));
+
+  const live = await fetchData(fresh);
+  const pick = live.issueById.get(selectableIds({ kind: 'my' }, live, defaultExpanded, now)[0])!;
+  stdin.press('ggp');
+  await waitFor('priority picker', f => f.includes('Set priority'));
+  stdin.press('4');
+  await waitFor('priority toast', f => f.includes(`${live.keyOf(pick)} → Low`));
+  check('a digit in a picker picks that option (p 4 → Low)', (await fresh.getIssue(pick.id))?.priority === 4);
 
   stdin.press('q');
   const exited = await Promise.race([app.waitUntilExit().then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);

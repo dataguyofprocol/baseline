@@ -11,7 +11,7 @@ import { cycleDraft, filteredOptions, filteredPalette, newDraft, NONE, searchRes
 import { expandedFn, routeKey, type Action, type PickerField, type TuiState } from './state.js';
 import { emptyField, fieldOf } from './textfield.js';
 
-export interface Layout { pageSize: number; detailMax: number; helpMax: number; sidebarVisible: boolean }
+export interface Layout { pageSize: number; detailMax: number; helpMax: number; sidebarVisible: boolean; sidebarFits: boolean }
 
 export interface Ctx {
   state: TuiState;
@@ -96,10 +96,14 @@ function applyPicker(ctx: Ctx): Promise<unknown> | void {
   const s = ctx.state, data = s.data!;
   const o = s.overlay;
   if (o.kind !== 'picker') return;
-  const issue = data.issueById.get(o.issueId);
+  const chosen = filteredOptions(o, data, s.route)[o.cursor]?.option;
+  if (o.field === 'team') {
+    ctx.dispatch({ type: 'closeOverlay' });
+    return chosen ? ctx.dispatch({ type: 'switchView', route: { kind: 'team', teamId: chosen.id } }) : undefined;
+  }
+  const issue = o.issueId ? data.issueById.get(o.issueId) : undefined;
   if (!issue) return ctx.dispatch({ type: 'closeOverlay' });
   const key = data.keyOf(issue);
-  const chosen = filteredOptions(o, data)[o.cursor]?.option;
   ctx.dispatch({ type: 'closeOverlay' });
   const update = (patch: Partial<Issue>, label: string) =>
     write(ctx, { issueId: issue.id, patch, run: () => ctx.bl.updateIssue(issue.id, patch, ctx.actorId), ok: () => `${key} → ${label}` });
@@ -132,7 +136,7 @@ async function accept(ctx: Ctx): Promise<unknown> {
       const item = filteredPalette(o, s, data, now)[o.cursor]?.item;
       ctx.dispatch({ type: 'closeOverlay' });
       if (!item) return;
-      if ('route' in item.run) return ctx.dispatch({ type: 'switchView', route: item.run.route });
+      if ('route' in item.run) return ctx.dispatch({ type: item.run.route.kind === 'issue' ? 'navigate' : 'switchView', route: item.run.route });
       return runCommand(item.run.command, { ...ctx, state: { ...s, overlay: { kind: 'none' } } }, '');
     }
     case 'compose': {
@@ -179,7 +183,7 @@ async function accept(ctx: Ctx): Promise<unknown> {
 function overlayCount(ctx: Ctx): number {
   const s = ctx.state, data = s.data!, o = s.overlay;
   switch (o.kind) {
-    case 'picker': return filteredOptions(o, data).length;
+    case 'picker': return filteredOptions(o, data, s.route).length;
     case 'search': return searchResults(o.input.value, data).length;
     case 'palette': return filteredPalette(o, s, data, ctx.now()).length;
     default: return 0;
@@ -228,12 +232,23 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
       return d({ type: 'openOverlay', overlay: { kind: 'compose', target: 'issue', field: 'title', input: emptyField, draft: newDraft(s, data) } });
     case 'nextView': return cycleView(ctx, 1);
     case 'prevView': return cycleView(ctx, -1);
+    case 'gotoMy': return d({ type: 'switchView', route: { kind: 'my' } });
+    case 'gotoInbox': return d({ type: 'switchView', route: { kind: 'inbox' } });
+    case 'gotoProjects': return d({ type: 'switchView', route: { kind: 'projects' } });
+    case 'switchTeam':
+      if (!data.teams.length) return toast(d, 'info', 'This workspace has no teams yet');
+      return d({ type: 'openOverlay', overlay: { kind: 'picker', field: 'team', issueId: null, input: emptyField, cursor: Math.max(0, data.teams.findIndex(t => s.route.kind === 'team' && t.id === s.route.teamId)), selected: [] } });
+    case 'toggleSidebar':
+      if (!ctx.layout.sidebarFits) return toast(d, 'info', 'Widen the terminal to 90+ columns for the sidebar; [ and ] switch views');
+      return d({ type: 'toggleSidebar' });
+    case 'nextIssue': return d({ type: 'stepIssue', delta: 1, now });
+    case 'prevIssue': return d({ type: 'stepIssue', delta: -1, now });
     case 'gotoView': {
       const item = navItems(data, now)[Number(key) - 1];
       return item ? d({ type: 'switchView', route: item.route }) : undefined;
     }
     case 'focusSidebar': {
-      if (!ctx.layout.sidebarVisible) return toast(d, 'info', 'Widen the terminal to 90+ columns for the sidebar; [ and ] switch views');
+      if (!ctx.layout.sidebarVisible) return toast(d, 'info', ctx.layout.sidebarFits ? 'The sidebar is hidden; ctrl-b shows it' : 'Widen the terminal to 90+ columns for the sidebar; [ and ] switch views');
       if (s.focus === 'sidebar') return d({ type: 'focus', focus: 'main' });
       const at = navItems(data, now).findIndex(n => n.id === navIdFor(s.route, s.stack));
       d({ type: 'sidebarMove', delta: Math.max(0, at) - s.sidebarCursor, count: navItems(data, now).length });
@@ -297,6 +312,7 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     });
 
     case 'copyKey': return needIssue(i => copy(ctx, data.keyOf(i), data.keyOf(i)));
+    case 'copyUrl': return needIssue(async i => { const h = await handoff(ctx, i); if (h) copy(ctx, h.url, h.url); });
     case 'copyBranch': return needIssue(async i => { const h = await handoff(ctx, i); if (h) copy(ctx, h.branchName, `branch ${h.branchName}`); });
     case 'copyPrompt': return needIssue(async i => { const h = await handoff(ctx, i); if (h) copy(ctx, h.prompt, `agent prompt for ${h.key}`); });
     case 'openBrowser': return needIssue(async i => {
@@ -341,8 +357,17 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'pickerToggle': {
       const o = s.overlay;
       if (o.kind !== 'picker') return;
-      const opt = filteredOptions(o, data)[o.cursor]?.option;
+      const opt = filteredOptions(o, data, s.route)[o.cursor]?.option;
       return opt ? d({ type: 'pickerToggle', id: opt.id }) : undefined;
+    }
+    case 'pickerPick': {
+      const o = s.overlay;
+      const n = Number(key) - 1;
+      if (o.kind !== 'picker' || !filteredOptions(o, data, s.route)[n]) return;
+      const picked = { ...o, cursor: n };
+      d({ type: 'overlayMove', delta: n - o.cursor, count: overlayCount(ctx) });
+      if (o.field === 'labels') return runCommand('pickerToggle', { ...ctx, state: { ...s, overlay: picked } }, key);
+      return applyPicker({ ...ctx, state: { ...s, overlay: picked } });
     }
     case 'composeNext': return d({ type: 'composeField', delta: 1 });
     case 'composePrev': return d({ type: 'composeField', delta: -1 });

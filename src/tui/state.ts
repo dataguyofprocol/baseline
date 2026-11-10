@@ -2,7 +2,7 @@
 import type { Issue, Priority, WorkflowStateType } from '../core/types.js';
 import type { WorkThread } from '../core/work-types.js';
 import { patchIssue, type TuiData } from './data.js';
-import { defaultExpanded, isListRoute, issuesForRoute, groupIssues, listRows, selectableIds } from './model.js';
+import { defaultExpanded, inboxItems, isListRoute, issuesForRoute, groupIssues, listRows, selectableIds } from './model.js';
 import type { TextField } from './textfield.js';
 
 export type Route =
@@ -13,7 +13,7 @@ export type Route =
   | { kind: 'project'; projectId: string }
   | { kind: 'issue'; issueId: string };
 
-export type PickerField = 'state' | 'priority' | 'assignee' | 'labels' | 'project';
+export type PickerField = 'state' | 'priority' | 'assignee' | 'labels' | 'project' | 'team';
 
 export interface IssueDraft { teamId: string; stateId: string; priority: Priority; assigneeId: string | null; projectId: string | null }
 export const DRAFT_FIELDS = ['title', 'team', 'state', 'priority', 'assignee', 'project'] as const;
@@ -24,7 +24,8 @@ export type Overlay =
   | { kind: 'help'; scroll: number }
   | { kind: 'palette'; input: TextField; cursor: number }
   | { kind: 'search'; input: TextField; cursor: number }
-  | { kind: 'picker'; field: PickerField; issueId: string; input: TextField; cursor: number; selected: string[] }
+  /** issueId is null for pickers that aren't about an issue (the team switcher) */
+  | { kind: 'picker'; field: PickerField; issueId: string | null; input: TextField; cursor: number; selected: string[] }
   | { kind: 'compose'; target: 'issue'; field: DraftField; input: TextField; draft: IssueDraft }
   | { kind: 'compose'; target: 'comment' | 'title'; issueId: string; input: TextField }
   | { kind: 'confirm'; action: 'agent'; issueId: string; command: string[]; cwd: string; note: string | null };
@@ -42,6 +43,9 @@ export interface TuiState {
   expanded: Record<string, boolean>;
   focus: 'main' | 'sidebar';
   sidebarCursor: number;
+  sidebarHidden: boolean;
+  /** the first key of a chord ("g" of "g m"), waiting for the second */
+  pending: string | null;
   toast: Toast | null;
   status: 'loading' | 'ready' | 'error';
   error: string | null;
@@ -63,7 +67,7 @@ export const isTopLevel = (r: Route) => r.kind === 'my' || r.kind === 'team' || 
 
 export function initialState(route: Route = { kind: 'my' }, stack: Route[] = []): TuiState {
   return {
-    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, focus: 'main', sidebarCursor: 0,
+    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, focus: 'main', sidebarCursor: 0, sidebarHidden: false, pending: null,
     toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {},
   };
 }
@@ -82,6 +86,9 @@ export type Action =
   | { type: 'select'; issueId: string }
   | { type: 'focus'; focus: 'main' | 'sidebar' }
   | { type: 'sidebarMove'; delta: number; count: number }
+  | { type: 'toggleSidebar' }
+  | { type: 'pending'; key: string | null }
+  | { type: 'stepIssue'; delta: number; now: number }
   | { type: 'openOverlay'; overlay: Overlay }
   | { type: 'closeOverlay' }
   | { type: 'editInput'; input: TextField }
@@ -117,6 +124,45 @@ function remapCursors(s: TuiState, oldData: TuiData | null, newData: TuiData, ex
 
 function withData(s: TuiState, data: TuiData, now = Date.now()): TuiState {
   return { ...s, data, cursor: remapCursors(s, s.data, data, s.expanded, now) };
+}
+
+/** the issue ids J/K walk on an issue page: the list it was opened from, as that list shows them */
+export function siblingIssueIds(s: TuiState, now: number): string[] {
+  const from = s.stack[s.stack.length - 1];
+  if (!s.data || !from) return [];
+  if (from.kind === 'inbox') return [...new Set(inboxItems(s.data, now).map(i => i.issueId).filter((id): id is string => !!id))];
+  if (!isListRoute(from)) return [];
+  const groups = groupIssues(issuesForRoute(from, s.data), s.data);
+  const shown = listRows(groups, expandedFn(s, from)).filter(r => r.kind === 'issue').map(r => r.id);
+  return s.route.kind === 'issue' && shown.includes(s.route.issueId) ? shown : groups.flatMap(g => g.issues.map(i => i.id));
+}
+
+/** the cursor of a list route moved onto an issue, opening its group if it was folded */
+function selectIn(s: TuiState, route: Route, issueId: string): TuiState {
+  if (!s.data || !isListRoute(route)) return s;
+  const issue = s.data.issueById.get(issueId);
+  if (!issue) return s;
+  const type = s.data.stateById.get(issue.stateId)?.type;
+  const expanded = type && !expandedFn(s, route)(type) ? { ...s.expanded, [expandKey(route, type)]: true } : s.expanded;
+  const ids = listRows(groupIssues(issuesForRoute(route, s.data), s.data), expandedFn({ expanded }, route))
+    .filter(r => r.kind === 'issue' || r.selectable).map(r => r.id);
+  const at = ids.indexOf(issueId);
+  return at < 0 ? s : { ...s, expanded, cursor: { ...s.cursor, [routeKey(route)]: at } };
+}
+
+function stepIssue(s: TuiState, delta: number, now: number): TuiState {
+  if (s.route.kind !== 'issue' || !s.data) return s;
+  const ids = siblingIssueIds(s, now);
+  const at = ids.indexOf(s.route.issueId);
+  const nextId = at < 0 ? undefined : ids[at + delta];
+  if (!nextId) {
+    const text = !ids.length || at < 0 ? 'J/K step through the list this issue was opened from' : delta > 0 ? 'Last issue in the list' : 'First issue in the list';
+    return { ...s, toast: { id: now, tone: 'info', text } };
+  }
+  const route: Route = { kind: 'issue', issueId: nextId };
+  const from = s.stack[s.stack.length - 1];
+  const moved = from.kind === 'inbox' ? s : selectIn(s, from, nextId);
+  return { ...moved, route, cursor: { ...moved.cursor, [routeKey(route)]: 0 } };
 }
 
 export function reducer(s: TuiState, a: Action): TuiState {
@@ -158,19 +204,12 @@ export function reducer(s: TuiState, a: Action): TuiState {
       const expanded = { ...s.expanded, [k]: !expandedFn(s, s.route)(a.groupType) };
       return s.data ? { ...s, expanded, cursor: remapCursors(s, s.data, s.data, expanded, Date.now()) } : { ...s, expanded };
     }
-    case 'select': {
-      if (!s.data || !isListRoute(s.route)) return s;
-      const issue = s.data.issueById.get(a.issueId);
-      if (!issue) return s;
-      const type = s.data.stateById.get(issue.stateId)?.type;
-      const expanded = type && !expandedFn(s, s.route)(type) ? { ...s.expanded, [expandKey(s.route, type)]: true } : s.expanded;
-      const ids = listRows(groupIssues(issuesForRoute(s.route, s.data), s.data), expandedFn({ expanded }, s.route))
-        .filter(r => r.kind === 'issue' || r.selectable).map(r => r.id);
-      const at = ids.indexOf(a.issueId);
-      return at < 0 ? s : { ...s, expanded, cursor: { ...s.cursor, [routeKey(s.route)]: at } };
-    }
+    case 'select': return selectIn(s, s.route, a.issueId);
     case 'focus': return { ...s, focus: a.focus };
     case 'sidebarMove': return { ...s, sidebarCursor: clamp(s.sidebarCursor + a.delta, 0, Math.max(0, a.count - 1)) };
+    case 'toggleSidebar': return { ...s, sidebarHidden: !s.sidebarHidden, focus: 'main' };
+    case 'pending': return s.pending === a.key ? s : { ...s, pending: a.key };
+    case 'stepIssue': return stepIssue(s, a.delta, a.now);
     case 'openOverlay': return { ...s, overlay: a.overlay };
     case 'closeOverlay': return { ...s, overlay: { kind: 'none' } };
     case 'editInput': {

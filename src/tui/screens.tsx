@@ -315,11 +315,12 @@ export function Footer({ s, contexts, width, target }: { s: TuiState; contexts: 
   const frame = useTicker(s.syncing ? 80 : 1000);
   const right: Seg[] = [...syncLabel(s, frame), { text: `  ${target}`, color: theme.muted }];
   const rightW = right.reduce((n, x) => n + displayWidth(x.text), 0) + 1;
-  const hints = hintsFor(contexts);
+  const hints = hintsFor(contexts, s.pending);
   const help = hints.find(h => h.label === 'help');
   const rest = hints.filter(h => h !== help);
   const segs: Seg[] = [{ text: ' ' }];
   let used = 1;
+  if (s.pending) { segs.push({ text: `${s.pending}…  `, color: theme.accent, bold: true }); used += displayWidth(`${s.pending}…  `); }
   const room = width - rightW - (help ? displayWidth(`${help.key} ${help.label}`) + 3 : 0);
   for (const h of rest) {
     const w = displayWidth(`${h.key} ${h.label}`) + 3;

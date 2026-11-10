@@ -95,7 +95,7 @@ export function detailLines(issue: Issue, data: TuiData, threads: readonly WorkT
   lines.push(...metaLines(meta(issue, data, now), w));
 
   lines.push(...section('Description', w));
-  lines.push(...(issue.description.trim() ? markdownLines(issue.description, w) : [[{ text: 'No description. Press E to write one in your editor.', color: theme.muted, italic: true }]]));
+  lines.push(...(issue.description.trim() ? markdownLines(issue.description, w) : [[{ text: 'No description. Press e to write one in your editor.', color: theme.muted, italic: true }]]));
 
   const children = data.issues.filter(i => i.parentId === issue.id);
   if (children.length) {

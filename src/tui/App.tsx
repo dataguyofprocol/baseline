@@ -5,17 +5,18 @@ import type { Baseline } from '../client/index.js';
 import { errorText, runCommand, toast, type Ctx, type Layout } from './commands.js';
 import { fetchData } from './data.js';
 import { detailLines } from './detail.js';
-import { contextsFor, keyName, lookup, takesText } from './keys.js';
+import { contextsFor, isChordPrefix, keyName, lookup, takesText, type CommandId } from './keys.js';
 import { displayWidth, type Line } from './model.js';
 import { OverlayView } from './overlay-views.js';
 import { DetailScreen, Footer, headerLine, InboxScreen, ListScreen, ProjectsScreen, scrollLabel, Sidebar, ToastLine } from './screens.js';
-import { initialState, reducer, routeKey, type Route, type TuiState } from './state.js';
+import { initialState, reducer, routeKey, type Action, type Route, type TuiState } from './state.js';
 import { editField, type TextField } from './textfield.js';
 import { SPINNER, theme } from './theme.js';
 import { LineView } from './ui.js';
 
 const SIDEBAR_MIN_COLS = 90;
 const SIDEBAR_W = 26;
+const CHORD_MS = 1000;
 
 export interface AppProps {
   bl: Baseline;
@@ -70,9 +71,11 @@ function BootScreen({ s, width, height }: { s: TuiState; width: number; height: 
 }
 
 export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
-  const [state, dispatch] = useReducer(reducer, undefined, () => initialState(route, stack));
+  const [state, dispatchToReact] = useReducer(reducer, undefined, () => initialState(route, stack));
   const stateRef = useRef(state);
   stateRef.current = state;
+  // keys replayed from one chunk can arrive before React renders, so the ref runs the reducer itself
+  const dispatch = useCallback((a: Action) => { stateRef.current = reducer(stateRef.current, a); dispatchToReact(a); }, []);
   const { columns, rows } = useWindowSize();
   const { exit, suspendTerminal } = useApp();
   const epoch = useRef(0);
@@ -126,7 +129,14 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
     return () => clearTimeout(t);
   }, [state.toast]);
 
-  const sidebarVisible = columns >= SIDEBAR_MIN_COLS;
+  useEffect(() => {
+    if (!state.pending) return;
+    const t = setTimeout(() => dispatch({ type: 'pending', key: null }), CHORD_MS);
+    return () => clearTimeout(t);
+  }, [state.pending]);
+
+  const sidebarFits = columns >= SIDEBAR_MIN_COLS;
+  const sidebarVisible = sidebarFits && !state.sidebarHidden;
   const mainW = columns - (sidebarVisible ? SIDEBAR_W : 0);
   const contentW = Math.max(20, mainW - 2);
   const bodyH = Math.max(1, rows - 4);
@@ -139,7 +149,7 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
     return issue ? detailLines(issue, data, threads ?? [], contentW, state.syncedAt ?? Date.now()) : null;
   }, [data, openIssue, threads, contentW, state.syncedAt]);
 
-  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, sidebarVisible };
+  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, sidebarVisible, sidebarFits };
   const contexts = contextsFor(state, sidebarVisible);
 
   const handleKey = (input: string, key: Key) => {
@@ -147,10 +157,9 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
     const s = stateRef.current;
     const name = keyName(input, key);
     const ctxs = contextsFor(s, sidebarVisible);
-    const binding = lookup(ctxs, name);
-    if (binding) {
+    const run = (command: CommandId, keyPressed: string) => {
       const ctx: Ctx = {
-        state: s, dispatch, bl, actorId, layout: { ...layout, helpMax: helpMax.current }, refresh,
+        state: stateRef.current, dispatch, bl, actorId, layout: { ...layout, helpMax: helpMax.current }, refresh,
         beginWrite: () => {
           epoch.current++;
           writing.current++;
@@ -164,9 +173,17 @@ export function App({ bl, actorId, route, stack, pollMs = 4000 }: AppProps) {
         exit: () => exit(),
         now: () => Date.now(),
       };
-      runCommand(binding.command, ctx, name).catch(e => toast(dispatch, 'error', errorText(e)));
-      return;
+      runCommand(command, ctx, keyPressed).catch(e => toast(dispatch, 'error', errorText(e)));
+    };
+    if (s.pending) {
+      dispatch({ type: 'pending', key: null });
+      const chord = lookup(ctxs, `${s.pending} ${name}`);
+      // an unknown ending cancels the chord, as in Linear and vim
+      return chord ? run(chord.command, name) : undefined;
     }
+    if (!takesText(s) && isChordPrefix(ctxs, name)) return dispatch({ type: 'pending', key: name });
+    const binding = lookup(ctxs, name);
+    if (binding) return run(binding.command, name);
     const field = takesText(s) ? currentField(s) : null;
     const next = field ? editField(field, name, input) : null;
     if (next) dispatch({ type: 'editInput', input: next });

@@ -12,7 +12,13 @@ export interface Option { id: string; label: string; icon?: Seg; hint?: string; 
 
 const PRIORITY_ORDER: Priority[] = [1, 2, 3, 4, 0];
 
-export function pickerOptions(field: PickerField, issue: Issue, data: TuiData): Option[] {
+export function pickerOptions(field: PickerField, issue: Issue | undefined, data: TuiData, route?: Route): Option[] {
+  if (field === 'team') {
+    return data.teams.map(t => ({
+      id: t.id, label: t.name, hint: t.key, icon: { text: '■', color: t.color }, current: route?.kind === 'team' && route.teamId === t.id, search: `${t.key} ${t.name}`,
+    }));
+  }
+  if (!issue) return [];
   switch (field) {
     case 'state':
       return data.states.filter(s => s.teamId === issue.teamId).sort((a, b) => a.position - b.position).map(s => ({
@@ -48,13 +54,13 @@ export function pickerOptions(field: PickerField, issue: Issue, data: TuiData): 
   }
 }
 
-export function filteredOptions(o: Extract<Overlay, { kind: 'picker' }>, data: TuiData): Array<{ option: Option; match: FuzzyMatch }> {
-  const issue = data.issueById.get(o.issueId);
-  if (!issue) return [];
-  return fuzzyFilter(pickerOptions(o.field, issue, data), o.input.value, x => x.search).map(({ item, match }) => ({ option: item, match }));
+export function filteredOptions(o: Extract<Overlay, { kind: 'picker' }>, data: TuiData, route?: Route): Array<{ option: Option; match: FuzzyMatch }> {
+  const issue = o.issueId ? data.issueById.get(o.issueId) : undefined;
+  if (o.issueId && !issue) return [];
+  return fuzzyFilter(pickerOptions(o.field, issue, data, route), o.input.value, x => x.search).map(({ item, match }) => ({ option: item, match }));
 }
 
-export const PICKER_TITLE: Record<PickerField, string> = { state: 'Change status', priority: 'Set priority', assignee: 'Assign to', labels: 'Labels', project: 'Move to project' };
+export const PICKER_TITLE: Record<PickerField, string> = { state: 'Change status', priority: 'Set priority', assignee: 'Assign to', labels: 'Labels', project: 'Move to project', team: 'Switch team' };
 
 // ---------- search ----------
 
@@ -81,8 +87,17 @@ export function paletteItems(s: Pick<TuiState, 'route'>, data: TuiData, now: num
   return [...commands, ...views, ...projects];
 }
 
-export function filteredPalette(o: Extract<Overlay, { kind: 'palette' }>, s: Pick<TuiState, 'route'>, data: TuiData, now: number) {
-  return fuzzyFilter(paletteItems(s, data, now), o.input.value, x => x.label).map(({ item, match }) => ({ item, match }));
+/** `>` narrows to commands; otherwise an issue key or title words also find issues, ranked with the rest */
+export function filteredPalette(o: Extract<Overlay, { kind: 'palette' }>, s: Pick<TuiState, 'route'>, data: TuiData, now: number): Array<{ item: PaletteItem; match: FuzzyMatch }> {
+  const query = o.input.value;
+  const items = paletteItems(s, data, now);
+  if (query.startsWith('>')) return fuzzyFilter(items.filter(i => 'command' in i.run), query.slice(1), x => x.label);
+  const found = fuzzyFilter(items, query, x => x.label);
+  if (query.trim().length < 2) return found;
+  const issues = fuzzyFilter(data.issues.map((i): PaletteItem => ({
+    id: `issue:${i.id}`, label: `${data.keyOf(i)} ${i.title}`, hint: data.stateById.get(i.stateId)?.name ?? '', run: { route: { kind: 'issue', issueId: i.id } },
+  })), query, x => x.label).slice(0, 8);
+  return [...found, ...issues].sort((a, b) => b.match.score - a.match.score);
 }
 
 // ---------- new issue ----------
