@@ -5,7 +5,7 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, Modal, ConfirmButton, ConfirmIconButton, AdminLock, useCanLead, AskLine, useInFlight, NotFound } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
 import { StateIcon, Avatar, CalendarGrid, teamDisplayIcon } from './pickers.js';
-import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconUpdates, IconInitiative, IconLoop, IconGithub, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconTriage, IconCycle } from './icons.js';
+import { IconBack, IconPlus, IconClose, IconTrash, IconAgent, IconCalendar, IconSearch, IconSliders, IconUser, IconBell, IconKeyboard, IconTag, IconDoc, IconSla, IconStatusRing, IconUpdates, IconInitiative, IconLoop, IconGithub, IconSettings, IconTeam, IconUsers, IconArchive, IconShieldUser, IconCode, IconChevronRight, IconPanel, IconTriage, IconCycle } from './icons.js';
 import { dateLabel } from './Views.js';
 import { LocationsSettings } from './CodingTools.js';
 import { HostedMembersSettings, SecuritySettings as WorkspaceSecuritySettings, TeamMembersSettings } from './Members.js';
@@ -35,7 +35,7 @@ const SETTINGS_ICONS: Record<string, React.ReactNode> = {
   preferences: <IconSliders size={14} />, profile: <IconUser size={14} />, notifications: <IconBell size={14} />, account: <IconShieldUser size={14} />, 'workspace-security': <IconShieldUser size={14} />, api: <IconCode size={14} />, shortcuts: <IconKeyboard size={14} />,
   labels: <IconTag size={14} />, templates: <IconDoc size={14} />, slas: <IconSla size={14} />,
   'project-labels': <IconTag size={14} />, 'project-statuses': <IconStatusRing size={14} />, 'project-updates': <IconUpdates size={14} />,
-  initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />,
+  features: <IconPanel size={14} />, initiatives: <IconInitiative size={14} />, documents: <IconDoc size={14} />,
   loops: <IconLoop size={14} />, github: <IconGithub size={14} />,
   workspace: <IconSettings size={14} />, teams: <IconTeam size={14} />, members: <IconUsers size={14} />, handoff: <IconAgent size={14} />, data: <IconArchive size={14} />,
 };
