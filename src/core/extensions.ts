@@ -94,6 +94,10 @@ function migrateExtensions(db: DatabaseSync): void {
       sha TEXT NOT NULL REFERENCES commits(sha) ON DELETE CASCADE,
       PRIMARY KEY (issue_id, sha)
     );
+    -- each person's own read-only GitHub token (GitSync): Baseline reads a repo they added only as them
+    CREATE TABLE IF NOT EXISTS user_github_tokens (
+      user_id TEXT PRIMARY KEY, token TEXT NOT NULL, login TEXT NOT NULL, expires_at TEXT, created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS api_keys (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, hint TEXT NOT NULL,
       scopes TEXT, team_ids TEXT, created_at TEXT NOT NULL, last_used_at TEXT
@@ -124,7 +128,7 @@ export function createExtensions(store: Store, db: DatabaseSync): Extensions {
     planning, automation, git, apiKeys, webhooks, work,
     snapshot: () => ({ ...planning.snapshot(), ...automation.snapshot(), ...git.snapshot() }),
     // api_keys are not exported or imported (only their hashes exist), nor is agent work
-    tables: [...WORK_TABLES, 'github_issue_imports', 'github_deliveries', 'api_keys', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'sla_rules', 'initiative_links', 'initiative_updates', 'initiative_projects', 'initiatives', 'initiative_labels'],
+    tables: [...WORK_TABLES, 'github_issue_imports', 'github_deliveries', 'api_keys', 'user_github_tokens', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'sla_rules', 'initiative_links', 'initiative_updates', 'initiative_projects', 'initiatives', 'initiative_labels'],
     importData(data, insert) {
       const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : []);
       for (const x of arr<Record<string, unknown>>(data.initiatives)) {

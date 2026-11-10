@@ -340,6 +340,100 @@ export class GitSync {
   }
   removeToken(): void { setMeta(this.db, 'githubToken', ''); }
 
+  // ---------- each person's own GitHub connection ----------
+  // Hosted, every member can connect their own read-only token and add repos it can read. A repo
+  // someone added is read only with an added-by person's token, so Baseline never reads a repo as
+  // someone who didn't choose it. The admin's workspace token (above) still reads the repos picked
+  // with it. On a laptop the gh sign-in reads everything, as before.
+  private userToken(userId: string): StoredToken | null {
+    const r = this.db.prepare("SELECT t.token, t.login, t.expires_at FROM user_github_tokens t JOIN users u ON u.id = t.user_id WHERE t.user_id = ? AND COALESCE(u.status, 'active') = 'active'").get(userId) as { token: string; login: string; expires_at: string | null } | undefined;
+    return r ? { token: r.token, login: r.login, expiresAt: r.expires_at } : null;
+  }
+  userTokenInfo(userId: string): GithubTokenInfo | null {
+    const t = this.userToken(userId);
+    return t && { hint: `…${t.token.slice(-4)}`, login: t.login, expiresAt: t.expiresAt };
+  }
+  /** check a token the way the workspace one is checked (it must work and be read-only), then keep it as theirs */
+  async saveUserToken(userId: string, input: string): Promise<GithubTokenInfo> {
+    const token = input.trim();
+    if (!/^[\w-]{20,255}$/.test(token)) throw new Error('That doesn\'t look like a GitHub token');
+    let raw: string;
+    try { raw = await this.gh(['api', '-i', 'user'], { kind: 'token', token }); }
+    catch (e) { const m = (e as Error).message; throw new Error(/ENOENT/.test(m) ? 'The GitHub CLI (gh) isn\'t installed on this server' : `GitHub didn't accept that token: ${m}`); }
+    const { login, expiresAt } = parseTokenCheck(raw);
+    this.db.prepare('INSERT INTO user_github_tokens (user_id, token, login, expires_at, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET token = excluded.token, login = excluded.login, expires_at = excluded.expires_at')
+      .run(userId, token, login, expiresAt, new Date().toISOString());
+    return this.userTokenInfo(userId)!;
+  }
+  /** disconnect: their token goes, and so do they as a reader of the repos they added */
+  removeUserToken(userId: string): void {
+    this.db.prepare('DELETE FROM user_github_tokens WHERE user_id = ?').run(userId);
+    const readers = this.readers();
+    for (const k of Object.keys(readers)) readers[k] = readers[k]!.filter(u => u !== userId);
+    setMeta(this.db, 'githubRepoReaders', JSON.stringify(readers));
+  }
+  /** what this person reads GitHub as: their own token; on a laptop, the gh sign-in */
+  private sourceFor(userId: string): GithubSource {
+    const t = this.userToken(userId);
+    if (t) return { kind: 'token', token: t.token };
+    return this.hosted ? { kind: 'none' } : { kind: 'login' };
+  }
+  /** repo (lower case) → the people who added it with their own connection */
+  private readers(): Record<string, string[]> {
+    try { return JSON.parse(getMeta(this.db, 'githubRepoReaders') ?? '{}') ?? {}; } catch { return {}; }
+  }
+  /** repos this person's own connection can see, most recently pushed first */
+  async availableFor(userId: string): Promise<string[]> {
+    const source = this.sourceFor(userId);
+    if (source.kind === 'none') throw new Error('Connect your GitHub account first');
+    return (await this.gh(['api', '--paginate', 'user/repos?per_page=100&sort=pushed', '--jq', '.[].full_name'], source)).split('\n').map(r => r.trim()).filter(Boolean);
+  }
+  /** add repos to what Baseline reads, as this person: each must be readable with their connection.
+   *  A repo isn't anyone's team's: a PR links to whatever issues it names, in any team */
+  async addReposFor(userId: string, repos: string[]): Promise<void> {
+    const source = this.sourceFor(userId);
+    if (source.kind === 'none') throw new Error('Connect your GitHub account first');
+    const bad = repos.find(r => !REPO.test(r));
+    if (bad !== undefined) throw new Error(`“${bad}” isn't owner/name`);
+    const readers = this.readers();
+    const picked = this.picked();
+    for (const r of repos) {
+      let name: string;
+      try { name = (await this.gh(['api', `repos/${r}`, '--jq', '.full_name'], source)).trim() || r; }
+      catch { throw new Error(`Your GitHub connection can't read ${r}`); }
+      const k = name.toLowerCase();
+      if (!picked.some(p => p.toLowerCase() === k)) picked.push(name);
+      readers[k] = [...new Set([...(readers[k] ?? []), userId])];
+    }
+    setMeta(this.db, 'githubRepos', JSON.stringify(picked));
+    setMeta(this.db, 'githubRepoReaders', JSON.stringify(readers));
+    // adding a repo is the decision to use GitHub, as picking one in settings is
+    if (picked.length) this.store.setFeatures({ githubEnabled: true });
+  }
+  /** stop reading a repo as this person. It stops being read when nobody is left to read it as;
+   *  an admin can stop it outright */
+  removeRepoFor(userId: string, repo: string, admin: boolean): void {
+    const k = repo.toLowerCase();
+    const readers = this.readers();
+    const mine = (readers[k] ?? []).includes(userId);
+    if (!mine && !admin) throw new Error('Only the people who added a repo, or an admin, can remove it');
+    const left = admin ? [] : (readers[k] ?? []).filter(u => u !== userId);
+    if (left.length) readers[k] = left; else delete readers[k];
+    if (!left.length) setMeta(this.db, 'githubRepos', JSON.stringify(this.picked().filter(p => p.toLowerCase() !== k)));
+    setMeta(this.db, 'githubRepoReaders', JSON.stringify(readers));
+  }
+  /** what a tracked repo is read as: one of the people who added it; a repo nobody added that way
+   *  (picked with the workspace token, or a laptop location) uses the workspace source */
+  private repoSource(repo: string): GithubSource {
+    const added = this.readers()[repo.toLowerCase()];
+    // added by people, even if they've all disconnected since: only their tokens ever read it
+    if (added) {
+      for (const u of added) { const t = this.userToken(u); if (t) return { kind: 'token', token: t.token }; }
+      return this.hosted ? { kind: 'none' } : { kind: 'login' };
+    }
+    return this.source();
+  }
+
   private picked(): string[] {
     try { return JSON.parse(getMeta(this.db, 'githubRepos') ?? '[]'); } catch { return []; }
   }
@@ -376,9 +470,11 @@ export class GitSync {
     const located = this.hosted ? [] : (await Promise.all(this.store.listLocations().map(async l => ({ repo: await this.remoteOf(l.path), path: l.path, location: l.name })))).filter(l => l.repo);
     const out = new Map<string, TrackedRepo>();
     const teams = this.repoTeams();
+    const readers = this.readers();
     const teamOf = (repo: string) => teams[repo.toLowerCase()] ?? null;
-    for (const repo of this.picked()) { const l = located.find(x => x.repo!.toLowerCase() === repo.toLowerCase()); out.set(repo.toLowerCase(), { repo, path: l?.path ?? null, via: 'picked', location: l?.location ?? null, teamId: teamOf(repo) }); }
-    for (const l of located) if (!out.has(l.repo!.toLowerCase())) out.set(l.repo!.toLowerCase(), { repo: l.repo!, path: l.path, via: 'location', location: l.location, teamId: teamOf(l.repo!) });
+    const addedBy = (repo: string) => readers[repo.toLowerCase()] ?? [];
+    for (const repo of this.picked()) { const l = located.find(x => x.repo!.toLowerCase() === repo.toLowerCase()); out.set(repo.toLowerCase(), { repo, path: l?.path ?? null, via: 'picked', location: l?.location ?? null, addedBy: addedBy(repo), teamId: teamOf(repo) }); }
+    for (const l of located) if (!out.has(l.repo!.toLowerCase())) out.set(l.repo!.toLowerCase(), { repo: l.repo!, path: l.path, via: 'location', location: l.location, addedBy: addedBy(l.repo!), teamId: teamOf(l.repo!) });
     return [...out.values()];
   }
 
@@ -419,13 +515,16 @@ export class GitSync {
   }
   /** recent PRs (gh) and commits (git log in a checkout, else the commits API) for every tracked repo */
   async sync(): Promise<{ prs: number; commits: number; error?: string }> {
-    const source = this.source();
-    if (source.kind === 'none') return { prs: 0, commits: 0, error: NO_SOURCE };
+    const repos = await this.repos();
+    if (this.source().kind === 'none' && !repos.some(r => this.repoSource(r.repo).kind !== 'none')) return { prs: 0, commits: 0, error: NO_SOURCE };
     if (this.syncing) return { prs: 0, commits: 0, error: 'already syncing' };
     this.syncing = true;
     let prs = 0; let commits = 0; const errors: string[] = [];
     try {
-      for (const { repo, path } of await this.repos()) {
+      for (const { repo, path } of repos) {
+        // each repo as someone who chose it (repoSource); one nobody can read any more is reported, not skipped silently
+        const source = this.repoSource(repo);
+        if (source.kind === 'none') { errors.push(`${repo}: nobody who added it has a working GitHub connection`); continue; }
         try {
           const json = await this.gh(['pr', 'list', '--repo', repo, '--state', 'all', '--limit', '50', '--json', 'number,title,body,url,state,isDraft,headRefName,baseRefName,author,reviewDecision,statusCheckRollup,updatedAt,mergedAt'], source);
           for (const p of JSON.parse(json) as Array<{ number: number; title: string; body: string; url: string; state: string; isDraft: boolean; headRefName: string; baseRefName: string; author?: { login: string }; reviewDecision?: string; statusCheckRollup?: Array<{ conclusion?: string; state?: string; status?: string }>; updatedAt: string; mergedAt?: string | null }>) {

@@ -164,6 +164,12 @@ export const api = {
   saveGithubToken: (token: string) => req<{ token: GithubTokenInfo }>('PUT', '/api/github/token', { token }),
   removeGithubToken: () => req<{ ok: true }>('DELETE', '/api/github/token'),
   availableGithubRepos: () => req<{ repos: string[] }>('GET', '/api/github/repos/available'),
+  // your own GitHub connection (hosted): your read-only token, and the repos you add with it
+  saveMyGithubToken: (token: string) => req<{ token: GithubTokenInfo }>('PUT', '/api/me/github/token', { token }),
+  removeMyGithubToken: () => req<{ ok: true }>('DELETE', '/api/me/github/token'),
+  myAvailableGithubRepos: () => req<{ repos: string[] }>('GET', '/api/me/github/repos/available'),
+  addMyGithubRepos: (repos: string[]) => req<{ repos: TrackedRepo[] }>('POST', '/api/me/github/repos', { repos }),
+  removeMyGithubRepo: (repo: string) => req<{ repos: TrackedRepo[] }>('POST', '/api/me/github/repos/remove', { repo }),
   setGithubRepos: (repos: string[]) => req<{ repos: TrackedRepo[] }>('PUT', '/api/github/repos', { repos }),
   githubRepoTeams: () => req<{ repos: Array<{ repo: string; teamId: string | null; teamKey: string | null }> }>('GET', '/api/github/repo-teams'),
   setGithubRepoTeam: (repo: string, teamId: string | null) => req<{ ok: true }>('PUT', '/api/github/repo-teams', { repo, teamId }),

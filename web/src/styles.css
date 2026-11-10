@@ -3373,6 +3373,54 @@ fieldset.admin-locked a { pointer-events: auto; }
 .agent-line.ask i { background: color-mix(in srgb, var(--prio-urgent) 35%, transparent); }
 .agent-line.ask i::after { left: 8px; background: var(--prio-urgent); }
 
+/* ---------- the way in after the first team (Onboarding.tsx) ---------- */
+/* the bridge: the line carries the setup steps as stops; the node sits on the picked one */
+.auth-line.col { --at: calc(var(--x0) + (min(100%, 1200px) - 80px) * var(--p, 0)); }
+.bridge-stops { display: flex; }
+.bridge-stop {
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 0 16px 0 0;
+  border: 0; background: transparent; color: #e3e4e6; font: inherit; text-align: left; cursor: pointer; opacity: 0.62;
+  transition: opacity 160ms var(--ease); animation: bl-fade-up 500ms var(--ease) both; animation-delay: calc(500ms + var(--d) + var(--auth-since, 0ms));
+}
+.bridge-stop::before { content: ''; width: 1px; height: 12px; background: rgba(243, 241, 236, 0.5); }
+.bridge-stop:hover, .bridge-stop.on { opacity: 1; }
+.bridge-stop.on .bridge-title { color: #ffffff; }
+.bridge-meta { font-family: var(--font-code); font-size: 11.5px; color: #8a8f98; }
+.bridge-title { font-size: 15px; font-weight: 590; letter-spacing: -0.015em; }
+.bridge-pick { display: flex; flex-direction: column; gap: 6px; padding: 16px 18px; border-radius: 10px; background: rgba(255, 255, 255, 0.03); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); }
+.bridge-pick-title { font-size: 15px; font-weight: 590; color: #ffffff; }
+.bridge-pick-why { font-size: 13.5px; line-height: 1.55; color: #949496; }
+@media (max-width: 640px) { .bridge-stops { flex-direction: column; gap: 14px; padding-top: 14px; } .auth-line.col { --at: var(--x0); } }
+
+/* the tour: one area lit, the rest held back, a card on the line */
+.tour { position: fixed; inset: 0; z-index: 250; }
+.tour-catch { position: absolute; inset: 0; }
+.tour-spot {
+  position: fixed; border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 0 1.5px var(--brand-register), 0 0 0 9999px rgba(9, 9, 10, 0.68);
+  transition: left 520ms var(--ease), top 520ms var(--ease), width 520ms var(--ease), height 520ms var(--ease);
+}
+.tour-card {
+  position: fixed; box-sizing: border-box; padding: 18px 18px 14px; border-radius: 12px; display: flex; flex-direction: column; gap: 14px;
+  background: var(--bg-overlay); box-shadow: var(--shadow-overlay); color: var(--text-primary);
+  transition: left 520ms var(--ease), top 520ms var(--ease);
+}
+.tour-progress { display: flex; align-items: center; gap: 12px; }
+.tour-line { position: relative; flex: 1; height: 1.5px; background: var(--rule); }
+.tour-fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--brand-register); transition: width 520ms var(--ease); }
+.tour-tick { position: absolute; top: -3px; width: 1px; height: 7.5px; background: var(--border-strong); }
+.tour-node { position: absolute; top: -5px; width: 11px; height: 11px; margin-left: -5.5px; border-radius: 50%; background: var(--bg-overlay); transition: left 520ms var(--ease); }
+.tour-node::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: var(--brand-register); }
+.tour-count { font-size: 11.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.tour-body { display: flex; flex-direction: column; gap: 6px; animation: bl-fade-up 360ms var(--ease) both; }
+.tour-title { font-size: 15px; font-weight: 590; letter-spacing: -0.015em; }
+.tour-text { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
+.tour-actions { display: flex; align-items: center; gap: 8px; }
+.tour-skip { padding: 0; border: 0; background: none; color: var(--text-secondary); font: inherit; font-size: 12.5px; cursor: pointer; }
+.tour-skip:hover { color: var(--text-primary); }
+@media (prefers-reduced-motion: reduce) { .tour-spot, .tour-card, .tour-fill, .tour-node, .tour-body, .bridge-stop { transition: none; animation: none; } }
+.nav-personal { display: flex; flex-direction: column; gap: inherit; }
+
 /* inbox previews without an issue (Inbox.tsx ProjectNotice): title, what happened, one action */
 .proj-notice { gap: 14px; padding: 32px 40px; }
 .proj-notice .pn-title { font-size: 20px; font-weight: 620; letter-spacing: -0.025em; line-height: 26px; }

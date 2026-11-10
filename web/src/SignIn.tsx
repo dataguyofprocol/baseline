@@ -115,6 +115,10 @@ interface ShellProps {
   wordLive?: boolean;
   /** marks along the line in place of the ticker (a team's first issue keys) */
   ticks?: string[];
+  /** anything else under the line in place of the ticker (the setup stops) */
+  under?: React.ReactNode;
+  /** place the node at this share of the content column instead of by progress (a picked stop) */
+  at?: number;
   /** the frame's exit: word and form leave, the node runs to the end */
   leaving?: boolean;
 }
@@ -145,13 +149,13 @@ export function LineFrame(props: ShellProps) {
                 : <span key={i} aria-hidden="true" style={{ '--d': `${300 + i * 45}ms` } as React.CSSProperties}>{ch}</span>)}
             </div>
           </div>
-          <div className={`auth-line${props.state ? ' ' + props.state : ''}`} style={{ '--p': p } as React.CSSProperties} aria-hidden="true">
+          <div className={`auth-line${props.state ? ' ' + props.state : ''}${props.at !== undefined && !props.leaving ? ' col' : ''}`} style={{ '--p': props.at !== undefined && !props.leaving ? props.at : p } as React.CSSProperties} aria-hidden="true">
             <div className="auth-line-rule" />
             <div className="auth-line-fill" />
             {/* keyed on the state so each refusal replays the shake */}
             <div className="auth-node"><span key={props.state ?? 'idle'} className="auth-node-ground"><span className="auth-node-dot" /></span></div>
           </div>
-          {props.ticks ? (
+          {props.under ? props.under : props.ticks ? (
             <div className="auth-wrap auth-ticks" aria-hidden="true">
               {props.ticks.map((t, i) => <span key={i} style={{ '--d': `${i * 90}ms` } as React.CSSProperties}>{t}</span>)}
             </div>

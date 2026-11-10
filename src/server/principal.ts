@@ -30,7 +30,8 @@ export const originHostOf = (c: Context): string | null => {
 const isRead = (method: string) => method === 'GET' || method === 'HEAD';
 
 /** a key can't mint, list or approve keys, or set passwords: those doors need a person (cookie or this machine) */
-const KEYLESS = /^\/api\/(api-keys|cli-auth|me\/password|members\/[^/]+\/reset-link)(\/|$)/;
+// a person's GitHub connection is theirs: an API key (an agent's) can't set it or read repos as them
+const KEYLESS = /^\/api\/(api-keys|cli-auth|me\/password|me\/github|members\/[^/]+\/reset-link)(\/|$)/;
 /** an agent drafts project updates with a key; only a person (cookie or this machine) publishes one */
 const PUBLISH = /^\/api\/projects\/[^/]+\/update-draft\/publish$/;
 /** the hosted MCP endpoint: keys only. Its tool calls are /api requests made with the same key,
@@ -98,7 +99,7 @@ export function authenticate(d: AuthenticateDeps): MiddlewareHandler {
     const key = apiKeys.verify(header.replace(/^Bearer\s+/i, ''));
     if (!key) return c.json({ error: 'Invalid API key', code: 'unauthorized' }, 401);
     const path = c.req.path;
-    if (KEYLESS.test(path)) return forbid(c, 'API keys are managed in Settings › Account & API keys, not with an API key');
+    if (KEYLESS.test(path)) return forbid(c, path.startsWith('/api/me/github') ? 'Your GitHub connection is set in the app (Settings › Integrations › GitHub), not with an API key' : 'API keys are managed in Settings › Account & API keys, not with an API key');
     if (PUBLISH.test(path)) return forbid(c, 'A person publishes project updates from the project page in Baseline; an API key can only draft them');
     const missing = apiKeys.missingScope(key, c.req.method, path);
     if (missing) return forbid(c, `This API key doesn't have the “${API_KEY_SCOPES.find(([k]) => k === missing)?.[1]}” permission`);

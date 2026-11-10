@@ -3,6 +3,7 @@ import { useApp, refresh } from './store.js';
 import { api } from './api.js';
 import { LineFrame, filled, lineState } from './SignIn.js';
 import { markArrival, takeArrival } from './arrival.js';
+import { markBridge, clearBridge } from './Onboarding.js';
 
 const keyFromName = (name: string) => name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'TEAM';
 
@@ -21,16 +22,17 @@ export function TeamGate() {
     const n = name.trim(), k = key.trim().toUpperCase();
     if (busy || !n || !k) return;
     setBusy(true); setError('');
-    // marked before the write: the server's live update mounts the app as soon as the team exists,
-    // and the app plays the arrival (the line climbing into its top bar) from this mark
-    markArrival();
+    // marked before the write: the server's live update mounts the app as soon as the team exists.
+    // The first team goes on to the bridge (its setup steps on the same line); a later one arrives
+    // straight in the app, which plays the line climbing into its top bar from this mark
+    if (useApp.getState().snap?.teams.length === 0) markBridge(); else markArrival();
     try {
       await api.createTeam({ key: k, name: n });
       // the router mounts after the refresh, so it starts on this address
       window.location.hash = `#/team/${k}/all`;
       await refresh();
     } catch (err) {
-      takeArrival();
+      takeArrival(); clearBridge();
       setError((err as Error).message);
       setBusy(false);
     }

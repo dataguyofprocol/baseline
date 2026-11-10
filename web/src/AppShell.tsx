@@ -15,8 +15,9 @@ import { nudgeShortcut } from './tips.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues, IconCycle, IconTeam, IconHelp, IconCaret,
   IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
-  IconTriage, IconArchive, IconTrash, IconLink, IconPlus, IconDrafts, IconMembers, IconHome, IconInitiative, IconKeyboard,
+  IconTriage, IconArchive, IconTrash, IconLink, IconPlus, IconDrafts, IconMembers, IconHome, IconInitiative, IconKeyboard, IconTarget,
 } from './icons.js';
+import { startTour } from './Onboarding.js';
 
 /** Panel-with-a-left-rail glyph: the standard "toggle the nav" affordance. */
 function IconSidebar({ size = 15 }: { size?: number }) {
@@ -168,7 +169,7 @@ export function Sidebar() {
           </Menu>
         )}
 
-        {personal.map(i => <Nav key={i.key} to={i.to} icon={i.icon} label={i.label} badge={i.badge} />)}
+        <div className="nav-personal">{personal.map(i => <Nav key={i.key} to={i.to} icon={i.icon} label={i.label} badge={i.badge} />)}</div>
 
         <SectionHeader label="Workspace" open={isOpen('workspace')} onToggle={() => toggleSection('workspace')} />
         {isOpen('workspace') && (
@@ -268,6 +269,7 @@ export function Sidebar() {
         {helpMenu.anchor && (
           <Menu anchor={helpMenu.anchor} onClose={helpMenu.close} width={230}>
             <SetupMenuItem />
+            <MenuItem icon={<IconTarget size={14} />} label="Take the tour" onClick={startTour} />
             <MenuSep />
             <MenuItem icon={<IconKeyboard size={14} />} label="Keyboard shortcuts" right={<span className="mi-kbd">⌘/</span>} onClick={() => useApp.getState().setShortcuts(true)} />
             <MenuItem icon={<IconSearch size={14} />} label="Command menu" right={<span className="mi-kbd">⌘K</span>} onClick={() => useApp.getState().setPalette(true)} />

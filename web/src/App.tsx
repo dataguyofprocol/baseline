@@ -29,6 +29,7 @@ import { ProjectsPage, NewProjectPage, ProjectPage } from './Projects.js';
 import { IssuePage } from './IssueDetail.js';
 import { TeamGate } from './TeamGate.js';
 import { takeArrival, reducedMotion as prefersReducedMotion } from './arrival.js';
+import { Bridge, Tour, bridgePending } from './Onboarding.js';
 import { setupHome } from './SetupPanel.js';
 import { SignIn, SignedInInvite } from './SignIn.js';
 import { api } from './api.js';
@@ -381,6 +382,9 @@ export function App() {
   const resolvedTheme = useApp(s => s.resolvedTheme);
   // every issue needs a team, so a workspace with none (new, or all deleted) names one before any route
   const noTeams = useApp(s => !!s.snap && !s.snap.teams.length);
+  // right after the first team is named: its setup steps on the same line, before the full page.
+  // Read on each render: the mark is set while the team screen is up, after this mounted
+  const [, afterBridge] = useState(0);
   const [linkWhileSignedIn, setLinkWhileSignedIn] = useState(() => /[?&](invite|join)=/.test(window.location.search));
 
   useEffect(() => {
@@ -420,6 +424,7 @@ export function App() {
   if (noTeams) {
     return <TeamGate />;
   }
+  if (bridgePending()) return <Bridge onDone={() => afterBridge(n => n + 1)} />;
 
   return (
     <MotionConfig reducedMotion="user">
@@ -428,6 +433,7 @@ export function App() {
       <RouteSettle />
       <div className="app">
         <Arrival />
+        <Tour />
         <ShellSidebar />
         <div className="main">
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>

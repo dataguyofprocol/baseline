@@ -94,7 +94,9 @@ export function GitHubSettings() {
   const sample = snap.issues.find(i => !i.deletedAt);
   const teamKey = (sample && snap.teams.find(t => t.id === sample.teamId)?.key) ?? snap.teams[0]?.key ?? 'CORE';
   const sampleKey = sample ? `${teamKey}-${sample.number}` : `${teamKey}-42`;
-  const canRead = !!status && (status.source === 'token' || (status.source === 'login' && !!status.ghUser));
+  const canRead = !!status && ((hosted && !!snap.myGithub) || status.source === 'token' || (status.source === 'login' && !!status.ghUser));
+  // hosted, a member manages their own connection and repos here; the workspace's setup stays the admins'
+  const member = hosted && !snap.currentUser.admin;
   return (
     <div className="settings-card" data-github-settings>
       <h1>GitHub</h1>
@@ -103,6 +105,7 @@ export function GitHubSettings() {
       {result && <div className="field-help" style={{ margin: '-6px 0 10px', color: 'var(--danger)' }}>{result}</div>}
       {status && <GitHubAccess status={status} hosted={hosted} onChange={load} />}
       {status && <GitHubRepos status={status} hosted={hosted} canRead={canRead} onChange={load} onAdded={sync} />}
+      {!member && <>
       <GitHubPeople onChange={load} />
       <div className="settings-h2">Pull request automations</div>
       <PrAutomationPicker />
@@ -134,6 +137,7 @@ export function GitHubSettings() {
         <WebhookSettings polls={status?.source !== 'none'} />
         <IssueImportSettings repos={(status?.repos ?? []).map(r => r.repo)} />
       </details>
+      </>}
     </div>
   );
 }
@@ -164,10 +168,12 @@ export function GitHubAccess({ status, hosted, onChange, bare }: { status: GitSt
   const [replacing, setReplacing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const t = status.token;
+  // hosted, everyone connects their own token: Baseline reads the repos you add as you, and only those
+  const mine = useApp(s => s.snap?.myGithub ?? null);
+  const t = hosted ? mine : status.token;
   const save = async () => {
     setBusy(true); setError('');
-    try { await api.saveGithubToken(token); setToken(''); setReplacing(false); await refresh(); await onChange(); }
+    try { await (hosted ? api.saveMyGithubToken(token) : api.saveGithubToken(token)); setToken(''); setReplacing(false); await refresh(); await onChange(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   const days = t?.expiresAt ? (Date.parse(t.expiresAt) - Date.now()) / 86_400_000 : null;
@@ -178,7 +184,7 @@ export function GitHubAccess({ status, hosted, onChange, bare }: { status: GitSt
       {t && !replacing ? (
         <div className="field-row">
           <div>
-            <div className="field-label">Read-only token for @{t.login}</div>
+            <div className="field-label">{hosted ? 'Your' : 'Read-only'} token{hosted ? ', read-only,' : ''} for @{t.login}</div>
             <div className="field-help">
               {t.hint} · {t.expiresAt ? `expires ${shortDate(t.expiresAt)}` : 'no expiry'}
               {days !== null && days < 7 && <span style={{ color: days < 0 ? 'var(--danger)' : '#f2c94c' }}> · {days < 0 ? 'expired, so syncing has stopped: replace it' : 'expires within a week: replace it soon'}</span>}
@@ -186,7 +192,7 @@ export function GitHubAccess({ status, hosted, onChange, bare }: { status: GitSt
           </div>
           <span style={{ display: 'flex', gap: 6 }}>
             <button className="btn secondary sm" onClick={() => setReplacing(true)}>Replace</button>
-            <ConfirmButton className="btn ghost sm" label="Remove" confirmLabel="Stop syncing?" onConfirm={async () => { await api.removeGithubToken(); await onChange(); }} />
+            <ConfirmButton className="btn ghost sm" label="Remove" confirmLabel={hosted ? 'Disconnect?' : 'Stop syncing?'} onConfirm={async () => { await (hosted ? api.removeMyGithubToken() : api.removeGithubToken()); await refresh(); await onChange(); }} />
           </span>
         </div>
       ) : ghReady && !replacing ? (
@@ -196,7 +202,8 @@ export function GitHubAccess({ status, hosted, onChange, bare }: { status: GitSt
         </div>
       ) : (
         <div className="gh-steps" style={{ marginTop: 0 }}>
-          <div className="field-label" style={{ marginBottom: 6 }}>{t ? 'Replace the token' : 'Paste a read-only token'}</div>
+          <div className="field-label" style={{ marginBottom: 6 }}>{t ? 'Replace the token' : hosted ? 'Connect your GitHub account with a read-only token' : 'Paste a read-only token'}</div>
+          {hosted && !t && <div className="field-help" style={{ marginBottom: 6 }}>It's yours: Baseline reads only the repositories you add, as you, so it never sees more than you can.</div>}
           <ol>
             <li>Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">fine-grained token</a> for the repositories Baseline should see.</li>
             <li>Under <b>Repository permissions</b>, set {TOKEN_PERMISSIONS.map((p, i) => <span key={p}>{i ? ', ' : ''}<b>{p}</b></span>)} to <b>Read-only</b>.</li>
@@ -215,9 +222,15 @@ export function GitHubAccess({ status, hosted, onChange, bare }: { status: GitSt
   );
 }
 
-/* ================= the repositories Baseline syncs, each mapped to a team ================= */
+/* ================= the repositories Baseline syncs =================
+   A repo isn't any one team's: a pull request moves whatever issues it names, in any team, so one
+   team can carry a feature across every repository it touches. Hosted, each person adds repos their
+   own connection can read, and Baseline reads each one as someone who added it. */
 export function GitHubRepos({ status, hosted, canRead, onChange, onAdded, bare }: { status: GitStatus; hosted: boolean; canRead: boolean; onChange: () => Promise<void>; onAdded: () => Promise<void>; bare?: boolean }) {
   const snap = useApp(s => s.snap)!;
+  const me = snap.currentUser;
+  // hosted with your own connection: your routes. An admin with only the workspace token keeps the old ones
+  const own = hosted && !!snap.myGithub;
   const [available, setAvailable] = useState<string[] | null>(null);
   const [picking, setPicking] = useState(false);
   const [filter, setFilter] = useState('');
@@ -228,30 +241,32 @@ export function GitHubRepos({ status, hosted, canRead, onChange, onAdded, bare }
   const choices = (available ?? []).filter(r => !tracked.has(r.toLowerCase()) && r.toLowerCase().includes(filter.trim().toLowerCase()));
   const open = async () => {
     setPicking(true); setError(''); setAvailable(null); setChosen([]); setFilter('');
-    try { setAvailable((await api.availableGithubRepos()).repos); } catch (e) { setError((e as Error).message); }
+    try { setAvailable((own ? await api.myAvailableGithubRepos() : await api.availableGithubRepos()).repos); } catch (e) { setError((e as Error).message); }
   };
-  const save = async (repos: string[], added: boolean) => {
-    try { await api.setGithubRepos(repos); setPicking(false); await refresh(); await onChange(); if (added) await onAdded(); } catch (e) { setError((e as Error).message); }
+  const done = async (added: boolean) => { setPicking(false); await refresh(); await onChange(); if (added) await onAdded(); };
+  const add = async (repos: string[]) => {
+    try { if (own) await api.addMyGithubRepos(repos); else await api.setGithubRepos([...picked, ...repos]); await done(true); } catch (e) { setError((e as Error).message); }
   };
-  const setTeam = async (repo: string, teamId: string) => { await api.setGithubRepoTeam(repo, teamId || null); await onChange(); };
+  const remove = async (repo: string) => {
+    try { if (hosted) await api.removeMyGithubRepo(repo); else await api.setGithubRepos(picked.filter(x => x !== repo)); await done(false); } catch (e) { setError((e as Error).message); }
+  };
+  // hosted, you remove what you added; an admin can remove anything
+  const canRemove = (r: { addedBy: string[] }) => !hosted || me.admin || r.addedBy.includes(me.id);
+  const who = (ids: string[]) => ids.map(id => snap.users.find(u => u.id === id)?.name.split(' ')[0]).filter(Boolean).join(', ');
   return (
     <>
       {!bare && <div className="settings-h2">2. Repositories</div>}
       <div className="field-help" style={{ marginBottom: 8 }}>
-        Pick the repositories to sync and the team each one's work belongs to.{!hosted && <> Locations (Settings › Coding tools) whose <code>origin</code> is on GitHub are synced too.</>}
+        Pick the repositories to sync. They aren't any one team's: a pull request moves the issues it names, whichever team they're in.{hosted && <> You add repositories your own connection can read, and Baseline reads each one as someone who added it.</>}{!hosted && <> Locations (Settings › Coding tools) whose <code>origin</code> is on GitHub are synced too.</>}
         {status.lastError ? <span style={{ color: 'var(--danger)' }}> Last error: {status.lastError}</span> : ''}
       </div>
       <div className="card set-list" data-github-repos>
         {status.repos.map(r => (
           <div key={r.repo} className="set-row">
             <IconPr size={14} />
-            <span style={{ flex: 1, minWidth: 0 }}><b>{r.repo}</b>{r.location && <span className="set-meta"> location {r.location}</span>}</span>
-            <select className="text-input" aria-label={`Team for ${r.repo}`} value={r.teamId ?? ''} onChange={e => void setTeam(r.repo, e.target.value)}>
-              <option value="">No team</option>
-              {snap.teams.map(t => <option key={t.id} value={t.id}>{t.name} ({t.key})</option>)}
-            </select>
-            {r.via === 'picked'
-              ? <button className="icon-btn" title={`Stop syncing ${r.repo}`} onClick={() => void save(picked.filter(x => x !== r.repo), false)}><IconClose size={12} /></button>
+            <span style={{ flex: 1, minWidth: 0 }}><b>{r.repo}</b>{r.location && <span className="set-meta"> location {r.location}</span>}{hosted && r.addedBy.length > 0 && <span className="set-meta"> added by {who(r.addedBy)}</span>}</span>
+            {r.via === 'picked' && canRemove(r)
+              ? <button className="icon-btn" title={`Stop syncing ${r.repo}`} onClick={() => void remove(r.repo)}><IconClose size={12} /></button>
               : <span style={{ width: 24 }} />}
           </div>
         ))}
@@ -273,7 +288,7 @@ export function GitHubRepos({ status, hosted, canRead, onChange, onAdded, bare }
             )}
             {error && <div className="field-help" style={{ color: 'var(--danger)' }}>{error}</div>}
             <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn primary sm" disabled={!chosen.length} onClick={() => void save([...picked, ...chosen], true)}>{chosen.length ? `Add ${chosen.length} and sync` : 'Add'}</button>
+              <button className="btn primary sm" disabled={!chosen.length} onClick={() => void add(chosen)}>{chosen.length ? `Add ${chosen.length} and sync` : 'Add'}</button>
               <button className="btn ghost sm" onClick={() => setPicking(false)}>Cancel</button>
             </div>
           </div>

@@ -334,7 +334,7 @@ export type GithubSource =
 /** what the web app sees of a saved token (never the token itself) */
 export interface GithubTokenInfo { hint: string; login: string; expiresAt: string | null }
 /** a repository Baseline syncs: picked in settings, or a location's origin (laptop only) */
-export interface TrackedRepo { repo: string; path: string | null; via: 'picked' | 'location'; location: string | null; /** the team this repo's work belongs to (Settings › GitHub) */ teamId: string | null }
+export interface TrackedRepo { repo: string; path: string | null; via: 'picked' | 'location'; location: string | null; /** who added it with their own GitHub connection: hosted reads it only with one of their tokens (empty: the workspace token's) */ addedBy: string[]; /** the team this repo's work belongs to (Settings › GitHub) */ teamId: string | null }
 /** what syncing found, for the GitHub page's payoff line: "23 open PRs, 9 linked, 3 people matched" */
 export interface GithubSummary { repos: number; openPrs: number; linkedPrs: number; authors: number; peopleMatched: number }
 /** a PR author seen in synced repos, and the member they probably are (for members with no GitHub username yet) */
@@ -926,6 +926,9 @@ export interface Snapshot {
   myApiKeys?: ApiKey[];
   /** how many invites the requesting person has sent. Filled by GET /api/bootstrap only */
   invitesSent?: number;
+  /** the requesting person's own GitHub connection (login and the token's last four, never the token).
+   *  Filled by GET /api/bootstrap only */
+  myGithub?: GithubTokenInfo | null;
 }
 
 export type SnapshotSection = keyof Snapshot;
@@ -939,7 +942,7 @@ const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, slaRules: true,
   loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
   teamSubscriptions: true, teamWorkflows: true, recurring: true, locations: true, projectUpdates: true, milestones: true,
-  cycles: true, views: true, favorites: true, notifications: true, activity: true, currentUser: true, updateDrafts: true, myApiKeys: true, invitesSent: true,
+  cycles: true, views: true, favorites: true, notifications: true, activity: true, currentUser: true, updateDrafts: true, myApiKeys: true, invitesSent: true, myGithub: true,
 };
 export const isSnapshotSection = (s: string): s is SnapshotSection => Object.hasOwn(SNAPSHOT_SECTIONS, s);
 

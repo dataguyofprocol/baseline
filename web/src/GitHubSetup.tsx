@@ -29,7 +29,9 @@ export function GitHubSetup({ onClose }: { onClose: () => void }) {
     await api.githubSummary().then(setSummary).catch(() => {});
   };
   useEffect(() => { void load(); }, []);
-  const canRead = !!status && (status.source === 'token' || (status.source === 'login' && !!status.ghUser));
+  const mine = useApp(s => s.snap?.myGithub ?? null);
+  // hosted, your own connection is what reads your repos
+  const canRead = !!status && ((hosted && !!mine) || status.source === 'token' || (status.source === 'login' && !!status.ghUser));
   const sync = async () => {
     setSyncing(true);
     try { await api.gitSync(); await refresh(); await load(); } catch { /* the done step shows lastError */ } finally { setSyncing(false); }

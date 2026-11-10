@@ -253,6 +253,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (LAN_OPEN) snap.workspace.lanHost = LISTEN_HOST;
     snap.updateDrafts = work.draftsFor(actor(c));
     snap.myApiKeys = apiKeys.list(actor(c));
+    snap.myGithub = git.userTokenInfo(actor(c));
     snap.invitesSent = accounts.invitesSentBy(actor(c));
     if (!requested) return c.json(snap);
     // scope before picking: a team-limited key's response scoping drops comments and activity by
@@ -930,7 +931,20 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const b = await c.req.json();
     try { git.setPicked(Array.isArray(b.repos) ? b.repos.map(String) : []); return c.json({ repos: await git.repos() }); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
   });
-  // repo → team: which team a repository's work belongs to (hooks and `baseline doctor` read this)
+  // your own GitHub connection: anyone connects their own read-only token and adds the repos it can
+  // read. A repo isn't a team's; a PR links to the issues it names in any team (core/git.ts)
+  app.put('/api/me/github/token', async (c) => { try { return c.json({ token: await git.saveUserToken(actor(c), String((await c.req.json()).token ?? '')) }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
+  app.delete('/api/me/github/token', (c) => { git.removeUserToken(actor(c)); return c.json({ ok: true }); });
+  app.get('/api/me/github/repos/available', async (c) => { try { return c.json({ repos: await git.availableFor(actor(c)) }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
+  app.post('/api/me/github/repos', async (c) => {
+    const b = await c.req.json();
+    try { await git.addReposFor(actor(c), Array.isArray(b.repos) ? b.repos.map(String) : []); return c.json({ repos: await git.repos() }); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  });
+  app.post('/api/me/github/repos/remove', async (c) => {
+    const b = await c.req.json();
+    try { git.removeRepoFor(actor(c), String(b.repo ?? ''), isAdmin(actor(c))); return c.json({ repos: await git.repos() }); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
+  });
+  // repo → team: an optional label for a repository (Settings › GitHub); linking doesn't depend on it
   app.get('/api/github/repo-teams', async (c) => c.json({ repos: (await git.repos()).map(r => ({ repo: r.repo, teamId: r.teamId, teamKey: r.teamId ? store.getTeam(r.teamId)?.key ?? null : null })) }));
   app.put('/api/github/repo-teams', async (c) => { const b = await c.req.json(); try { git.setRepoTeam(String(b.repo ?? ''), b.teamId ? String(b.teamId) : null); return c.json({ ok: true }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
   // what syncing found, and PR authors with the member each probably is (Members can offer the match)

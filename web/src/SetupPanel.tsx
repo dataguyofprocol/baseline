@@ -7,6 +7,7 @@ import { InviteModal } from './Members.js';
 import { GitHubSetup } from './GitHubSetup.js';
 import { StatusDone, StatusStarted, StatusTodo, IconChevronDown, IconChevronRight, IconClose, IconCopy, IconShieldUser } from './icons.js';
 import type { Snapshot } from '../../src/core/types.js';
+import { takeSetupStep } from './Onboarding.js';
 
 /* Setup happens inside the app, as a "Getting started" group at the top of the team's issues while
    gettingStarted.onboarding is 'pending': a welcome, one row per step, and the open step beside them.
@@ -23,14 +24,15 @@ const SETUP_ITEMS: Array<{ id: SetupItemId; title: string; minutes: number; when
     id: 'invite', title: 'Invite your team', minutes: 1, when: c => c.hosted && c.canInvite, Body: InviteBody,
     done: s => !!s.invitesSent || teammates(s).length > 0,
   },
-  { id: 'github', title: 'Connect GitHub', minutes: 3, when: c => c.admin, done: s => s.workspace.features.githubEnabled, Body: GitHubBody },
+  // everyone's (hosted, each person connects their own read-only token), so done is per person
+  { id: 'github', title: 'Connect GitHub', minutes: 3, when: () => true, done: s => s.workspace.auth === 'hosted' ? !!s.myGithub : s.workspace.features.githubEnabled, Body: GitHubBody },
   {
     id: 'issue', title: 'Write your first issue', minutes: 0.5, when: () => true, Body: IssueBody,
     done: s => !!firstIssue(s),
   },
 ];
 
-function setupItems(s: Snapshot) {
+export function setupItems(s: Snapshot) {
   const ctx: SetupCtx = {
     hosted: s.workspace.auth === 'hosted',
     admin: s.currentUser.admin,
@@ -93,7 +95,11 @@ export function SetupPanel(props: { teamId: string | null; expanded: boolean; se
   const snap = useApp(s => s.snap)!;
   const items = setupItems(snap);
   const firstOpen = items.find(i => !i.isDone)?.id ?? null;
-  const [open, setOpen] = useState<SetupItemId | null>(firstOpen);
+  // the bridge after naming the first team can ask for a step to be open (Onboarding.tsx)
+  const [open, setOpen] = useState<SetupItemId | null>(() => {
+    const asked = takeSetupStep();
+    return asked && items.some(i => i.id === asked) ? asked as SetupItemId : firstOpen;
+  });
   const done = items.filter(i => i.isDone).length;
   const allDone = done === items.length;
   const justDone = useJustDone(items);

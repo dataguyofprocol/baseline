@@ -240,6 +240,12 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'DELETE /api/github/token': { scope: 'admin', team: 'workspace' },
   'GET /api/github/repos/available': { scope: 'admin', team: 'workspace' },
   'PUT /api/github/repos': { scope: 'admin', team: 'workspace' },
+  // a person's own GitHub connection: their token is theirs to set, never an API key's (an agent's key can't)
+  'PUT /api/me/github/token': { scope: 'write', team: 'keyless' },
+  'DELETE /api/me/github/token': { scope: 'write', team: 'keyless' },
+  'GET /api/me/github/repos/available': { scope: 'read', team: 'keyless' },
+  'POST /api/me/github/repos': { scope: 'write', team: 'keyless' },
+  'POST /api/me/github/repos/remove': { scope: 'write', team: 'keyless' },
   'GET /api/github/repo-teams': { scope: 'read', team: 'workspace' },
   'PUT /api/github/repo-teams': { scope: 'admin', team: 'workspace' },
   'GET /api/github/summary': { scope: 'read', team: 'workspace' },

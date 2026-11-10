@@ -44,7 +44,9 @@ const SETTINGS_ICONS: Record<string, React.ReactNode> = {
 // routes; api = /api/features). Labels and templates are each team's members' and team setup its lead's
 // (TeamSettingsPage); Security and Members gate their own admin-only controls.
 const ADMIN_SECTIONS = new Set(['workspace', 'data', 'slas', 'project-labels', 'project-statuses', 'project-updates',
-  'initiatives', 'loops', 'github', 'api', 'features', 'workspace-security']);
+  'initiatives', 'loops', 'api', 'features', 'workspace-security']);
+// GitHub is everyone's: a member connects their own account and adds repos there; the workspace's
+// GitHub setup on that page stays the admins' (GitHubSettings)
 // a team's lead (or an admin) sets these up; a member doesn't see them in the team's hub
 const LEAD_TEAM_PAGES = new Set(['general', 'statuses', 'triage', 'workflow']);
 // pages that are a feature's own, hidden until Settings › Features turns it on

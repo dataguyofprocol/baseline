@@ -398,6 +398,10 @@ export class Accounts {
     if (userId === actorId) throw new AccountError('self', 'You can\'t suspend yourself');
     if (suspended && u.admin && u.status === 'active' && this.activeAdmins() <= 1) throw new AccountError('last-admin', 'The workspace needs at least one admin');
     this.db.prepare('UPDATE users SET status = ? WHERE id = ?').run(suspended ? 'suspended' : 'active', userId);
-    if (suspended) this.revokeUserSessions(userId);
+    if (suspended) {
+      this.revokeUserSessions(userId);
+      // their GitHub connection goes with them: nothing is read as a suspended person
+      this.db.prepare('DELETE FROM user_github_tokens WHERE user_id = ?').run(userId);
+    }
   }
 }

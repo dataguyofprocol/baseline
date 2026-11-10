@@ -671,6 +671,7 @@ cat > "$WORK/fakegh/gh" <<'FAKEGH'
 const fs = require("node:fs");
 const a = process.argv.slice(2);
 fs.appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify(a) + "\n");
+if (process.env.FAKE_GH_TOKENS) fs.appendFileSync(process.env.FAKE_GH_TOKENS, JSON.stringify({ a, t: process.env.GH_TOKEN ?? null }) + "\n");
 const out = (s) => { process.stdout.write(s); process.exit(0); };
 const now = new Date().toISOString();
 if (a[0] === "--version") out("gh version 2.60.0\n");
@@ -681,6 +682,7 @@ if (a[0] === "pr" && a[1] === "list") out(JSON.stringify([
   { number: 1, title: "Login redirect", body: "", url: "https://github.com/acme/app/pull/1", state: "OPEN", isDraft: false, headRefName: "ada-osei/core-1-login", baseRefName: "main", author: { login: "ada-osei" }, reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], updatedAt: now, mergedAt: null },
   { number: 2, title: "Unrelated chore", body: "", url: "https://github.com/acme/app/pull/2", state: "OPEN", isDraft: false, headRefName: "chore/deps", baseRefName: "main", author: { login: "octo-jun" }, reviewDecision: null, statusCheckRollup: [], updatedAt: now, mergedAt: null },
 ]));
+if (a[0] === "api" && /^repos\/[^/]+\/[^/]+$/.test(a[1]) && a.includes(".full_name")) { if (/private/.test(a[1]) && process.env.GH_TOKEN !== "github_pat_" + "a".repeat(30)) { process.stderr.write("HTTP 404\n"); process.exit(1); } out(a[1].slice(6) + "\n"); }
 if (a[0] === "api" && /^repos\/[^/]+\/[^/]+$/.test(a[1])) out("main\n");
 if (a[0] === "api" && /\/commits\?/.test(a[1])) out(JSON.stringify([{ sha: "f".repeat(40), author: { login: "ada-osei" }, commit: { message: "CORE-2 wip", author: { date: now }, committer: { date: now } } }]));
 if (a[0] === "issue" && a[1] === "list") out("[]");
@@ -737,6 +739,44 @@ const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(e => e.is
 for (const f of [...walk("dist/core"), ...walk("dist/server")]) if (/api\.github\.com|uploads\.github\.com/.test(fs.readFileSync(f, "utf8"))) bad.push("direct GitHub API URL in " + f);
 if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
 ' "$WORK/readonly.db" "$WORK/fakegh" "$WORK/fakegh.log"
+
+echo "=== git: everyone connects their own GitHub, and a repo is read as someone who added it ==="
+nodecheck "per-person GitHub: own token, own repos, read as the adder" '
+const fs = await import("node:fs");
+const [dbPath, fakeDir, log, tokens] = process.argv.slice(1);
+process.env.PATH = `${fakeDir}:${process.env.PATH}`;
+process.env.FAKE_GH_LOG = log; process.env.FAKE_GH_TOKENS = tokens;
+const { createApp } = await import("./dist/server/index.js");
+const { app, store, db } = createApp(dbPath);
+const bad = [];
+const ok = (what, cond, detail) => { if (!cond) bad.push(what + (detail === undefined ? "" : ": " + JSON.stringify(detail))); };
+const call = async (method, path, body) => { const r = await app.request("http://localhost" + path, { method, headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+const A = "github_pat_" + "a".repeat(30);
+ok("your token is checked and kept", (await call("PUT", "/api/me/github/token", { token: A })).status === 200);
+const boot = (await call("GET", "/api/bootstrap?sections=myGithub")).body;
+ok("bootstrap shows your connection, never the token", boot.myGithub?.login === "octo-admin" && boot.myGithub?.hint === "…aaaa" && !JSON.stringify(boot).includes(A), boot);
+ok("a malformed token is refused", (await call("PUT", "/api/me/github/token", { token: "nope" })).status === 400);
+ok("your connection lists what it can see", (await call("GET", "/api/me/github/repos/available")).body.repos?.length === 2);
+const added = await call("POST", "/api/me/github/repos", { repos: ["acme/private-svc", "acme/web"] });
+const me = store.workspaceMeta().currentUser;
+const r = added.body.repos?.find(x => x.repo === "acme/private-svc");
+ok("repos you add are tracked as added by you", added.status === 200 && r?.addedBy?.includes(me), added.body);
+ok("adding a repo turns GitHub on", store.getFeatures().githubEnabled === true);
+fs.writeFileSync(tokens, "");
+const s = await call("POST", "/api/git/sync");
+const used = fs.readFileSync(tokens, "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+const prCalls = used.filter(u => u.a[0] === "pr" && u.a[1] === "list");
+ok("sync reads each added repo with the adder token", prCalls.length >= 2 && prCalls.every(u => u.t === A), prCalls);
+ok("sync ran clean", !s.body.error, s.body);
+// a repo your connection cannot read is refused at add time, so nobody else token reads it for you
+const B = "github_pat_" + "b".repeat(30);
+await call("PUT", "/api/me/github/token", { token: B });
+ok("a repo your connection cannot read is refused", (await call("POST", "/api/me/github/repos", { repos: ["acme/private-other"] })).status === 400);
+ok("removing a repo you added stops it", (await call("POST", "/api/me/github/repos/remove", { repo: "acme/web" })).body.repos?.every(x => x.repo !== "acme/web"));
+ok("disconnecting removes your token", (await call("DELETE", "/api/me/github/token")).status === 200 && !db.prepare("SELECT 1 FROM user_github_tokens").get());
+ok("…and leaves no reader for what you added", (await call("GET", "/api/git/status")).body.repos.find(x => x.repo === "acme/private-svc")?.addedBy.length === 0);
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+' "$WORK/mine.db" "$WORK/fakegh" "$WORK/fakegh-mine.log" "$WORK/fakegh-tokens.log"
 
 echo "=== git: prEvent ==="
 nodecheck "prEvent maps PR state to automation events" '
