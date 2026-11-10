@@ -66,7 +66,7 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
       <span key="ms" className={`bc-chip${editable}`} {...edit('milestone')} title={milestone.name}><IconMilestone size={12} /><span className="bc-chip-text">{milestone.name}</span></span>
     ),
     pr && <span key="pr" className="bc-chip icon" data-pr-state={pr}><PrIcon state={pr} size={12} title={prSummary(issuePrList(snap, issue.id))} /></span>,
-    progress && <span key="s" className="bc-chip"><SubIssueProgress done={progress.done} total={progress.total} size={12} /></span>,
+    progress && <span key="s" className="bc-chip"><SubIssueProgress done={progress.done} total={progress.total} size={12} issueId={issue.id} /></span>,
     ...(d.labels && !grouped('label') ? labels.slice(0, 2) : []).map(l => (
       <span key={l.id} className={`bc-chip${editable}`} {...edit('labels')} title={l.name}><span className="label-dot" style={{ background: l.color }} /><span className="bc-chip-text">{l.name}</span></span>
     )),

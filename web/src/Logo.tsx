@@ -13,6 +13,8 @@
 // the paper cut on dark chrome, the ink cut on light chrome, so the tile always contrasts
 // with the surface it sits on. 'ink' and 'paper' pin a cut for surfaces that ignore the
 // theme (print, export cards).
+import { useId } from 'react';
+
 type Tone = 'theme' | 'ink' | 'paper';
 const TONES: Record<Tone, { ground: string; fg: string; edge: string; edgeOpacity: number }> = {
   ink: { ground: '#14151A', fg: '#F3F1EC', edge: '#fff', edgeOpacity: 0.09 },
@@ -23,7 +25,9 @@ const TONES: Record<Tone, { ground: string; fg: string; edge: string; edgeOpacit
 export function Logo({ size = 18, tone = 'theme' }: { size?: number; tone?: Tone }) {
   const small = size < 24;
   const t = TONES[tone];
-  const uid = (small ? 'bl-logo-s' : 'bl-logo-l') + '-' + tone;
+  // per instance: url(#id) resolves to the first match in the document, so a shared id would
+  // point every logo at one mask and the hover slide would move a node without its gap
+  const uid = (small ? 'bl-logo-s' : 'bl-logo-l') + '-' + tone + useId().replace(/:/g, '');
   const rule = small ? 2.6 : 1.9;
   const ruleX = small ? 4.4 : 6;
   const ruleW = small ? 23.2 : 20;
@@ -38,7 +42,7 @@ export function Logo({ size = 18, tone = 'theme' }: { size?: number; tone?: Tone
       <defs>
         <mask id={uid + '-gap'}>
           <rect width="32" height="32" fill="#fff" />
-          <circle cx={nodeCx} cy={cy} r={gapR} fill="#000" />
+          <circle className="lg-node" cx={nodeCx} cy={cy} r={gapR} fill="#000" />
         </mask>
       </defs>
       {/* the paper cut inverts only the ground. Geometry, register line and the
@@ -53,7 +57,7 @@ export function Logo({ size = 18, tone = 'theme' }: { size?: number; tone?: Tone
       )}
       <g style={{ fill: t.fg }}>
         <rect x={ruleX} y={ruleY} width={ruleW} height={rule} mask={`url(#${uid}-gap)`} />
-        <circle cx={nodeCx} cy={cy} r={nodeR} />
+        <circle className="lg-node" cx={nodeCx} cy={cy} r={nodeR} />
       </g>
     </svg>
   );

@@ -3,13 +3,13 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, visibleList, LIST_GROUP_ORDER, localIsoDate, dateTime } from './store.js';
-import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure, Burst } from './ui.js';
 import { startSubIssue } from './SubIssueComposer.js';
 import { OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { PropertyMenu, PropertyMenuBody, propMenuWidth, PROP_KBD, type PropKind } from './propertyMenus.js';
 import { deleteIssues, archiveIssues, toggleFavoriteIssue, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS } from './actions.js';
-import { useLanding } from './motion.js';
+import { useLanding, useRingClosed } from './motion.js';
 import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, IconTrash, IconArchive, IconCalendar, IconCycle, IconFocus, IconSpark, IconCopy, IconStar, IconUser, IconUsers, IconTag, IconBox, IconEstimate, IconMilestone, IconBlocked, IconBlocks, IconRelated, IconDuplicate, IconSubIssue, IconClock, IconBell, IconList, IconBoard, IconCheck, IconTextAa, IconTeam, IconEdit, IconAttach, IconDoc, IconSla, IconPr, IconSortDir, IconMore, IconLink, IconBranch, IconHandoff, IconExternal, IconSettings } from './icons.js';
 import { slaState, SlaBadge } from './AutomationUI.js';
 import { issuePrList, issuePrState, prSummary, PrIcon } from './GitHubUI.js';
@@ -365,13 +365,16 @@ export function subIssueProgress(issueId: string, snap: Snap): { done: number; t
 }
 
 /** a ring beside the count that fills as sub-issues close; the parent's row and page both show it */
-export function SubIssueProgress(props: { done: number; total: number; size?: number }) {
+export function SubIssueProgress(props: { done: number; total: number; size?: number; issueId?: string }) {
   const size = props.size ?? 13;
   const r = size / 2 - 1.5;
   const c = 2 * Math.PI * r;
   const frac = props.total ? props.done / props.total : 0;
+  // closing the last child is the moment the parent's work is done: the ring pops once
+  const closed = useRingClosed(props.issueId, frac);
   return (
-    <span className={`sub-progress${frac === 1 ? ' complete' : ''}`} title={`${props.done} of ${props.total} sub-issues done`}>
+    <span className={`sub-progress${frac === 1 ? ' complete' : ''}${closed ? ' just-closed' : ''}`} title={`${props.done} of ${props.total} sub-issues done`}>
+      {closed && <Burst count={8} reach={13} />}
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="currentColor" strokeOpacity="0.28" strokeWidth="1.5" strokeDasharray={frac === 0 ? '1.6 1.6' : undefined} />
         {frac > 0 && <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--status-completed)" strokeWidth="1.5"
@@ -496,7 +499,7 @@ export function IssueRow(props: {
       {display.status && state && <StateIcon type={state.type} color={state.color} size={14} morph={becameDone} />}
       <span className="row-title-wrap">
         <span className="row-title">{issue.title}</span>
-        {progress && <SubIssueProgress done={progress.done} total={progress.total} />}
+        {progress && <SubIssueProgress done={progress.done} total={progress.total} issueId={issue.id} />}
         {parent && depth === 0 && (
           <span className="row-parent" title={`Sub-issue of ${parentKey} ${parent.title}`}>
             <IconChevronRight size={10} />{parent.title}

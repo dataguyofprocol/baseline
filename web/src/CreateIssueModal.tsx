@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, refresh, shortDate, isoDaysFromToday } from './store.js';
+import { shake } from './motion.js';
 import { api } from './api.js';
 import { Modal, Menu, MenuItem, MenuSep, useMenu, useInFlight } from './ui.js';
 import { AnimatePresence } from 'framer-motion';
@@ -68,7 +69,7 @@ export function CreateIssueModal() {
   const titleRef = useRef<HTMLInputElement>(null);
   // Create with no title used to do nothing at all: now the title field says what it needs
   const [titleMissing, setTitleMissing] = useState(false);
-  const askForTitle = () => { setTitleMissing(true); titleRef.current?.focus(); };
+  const askForTitle = () => { setTitleMissing(true); titleRef.current?.focus(); shake(titleRef.current); };
   const editorRef = useRef<Editor | null>(null);
   const teamMenu = useMenu();
   const statusMenu = useMenu();

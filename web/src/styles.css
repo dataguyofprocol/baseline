@@ -3013,3 +3013,65 @@ fieldset.admin-locked a { pointer-events: auto; }
 .issue-under-desc .under-desc-btn:hover { color: var(--text-primary); }
 /* the agent's journey under its final summary (core/work.ts renderFinal) */
 .md details > summary { cursor: pointer; color: var(--text-dim); font-size: 12px; }
+
+/* ---------- delight pass: small moments that were earned, and things that answer back ----------
+   Same vocabulary as above (bl-*, --ease, the register indigo); nothing here plays on load. */
+
+/* a count that changed ticks into place, so the eye catches it */
+.nav-item .nav-count, .mw-count { display: inline-block; font-variant-numeric: tabular-nums; animation: bl-tick 220ms var(--ease) both; }
+
+/* the sub-issue ring that just closed pops once */
+.sub-progress { position: relative; }
+.sub-progress.just-closed svg { animation: bl-ring-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.sub-progress.just-closed { color: var(--status-completed); transition: color 600ms var(--ease) 500ms; }
+.sub-progress .burst { left: 6px; }
+@keyframes bl-ring-pop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+
+/* My work: one quiet line that knows the hour, and the week at a glance */
+.mw-hello { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 22px 16px 14px; animation: bl-fade-up 360ms var(--ease) both; }
+.mw-hello-title { margin: 0; font-size: 20px; font-weight: var(--fw-semibold); letter-spacing: -0.02em; color: var(--text-primary); line-height: 1.25; }
+.mw-hello-sub { margin-top: 3px; font-size: 13px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.mw-week { display: inline-flex; align-items: center; gap: 10px; padding: 6px 8px; margin-right: -8px; border-radius: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; flex: none; }
+.mw-week:hover { background: var(--bg-hover); color: var(--text-strong); }
+.mw-week b { color: var(--text-primary); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+.mw-bars { display: inline-flex; align-items: flex-end; gap: 3px; height: 16px; }
+.mw-bars i { width: 4px; border-radius: 2px; background: var(--text-secondary); opacity: 0.7; transform-origin: bottom; animation: bl-grow 420ms var(--ease) both; }
+.mw-bars i.zero { background: var(--text-dim); opacity: 0.4; }
+.mw-bars i.today { background: var(--brand); opacity: 1; }
+.mw-bars i.today.zero { opacity: 0.6; }
+@keyframes bl-grow { from { transform: scaleY(0); } }
+
+/* an answered ask slides away at once; the server catches up behind it */
+.mw-ask.leaving { overflow: hidden; pointer-events: none; animation: bl-leave 240ms var(--ease) both; }
+.mw-closed-row { animation: bl-fade-up 260ms var(--ease) both; }
+.mw-clear { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); animation: bl-fade-up 320ms var(--ease) both; }
+.mw-clear-check { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: var(--green); color: #fff; animation: bl-pop-in 560ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
+/* inbox zero, when it was earned here */
+.empty-illo { position: relative; display: inline-flex; }
+.empty-state > .empty-illo { width: auto; align-self: auto; margin: 0 auto 26px calc((100% - min(360px, 100%)) / 2); }
+.empty-illo > .illo { margin: 0; }
+.empty-illo .burst i { width: 5px; height: 5px; }
+
+/* copy buttons answer in place: the glyph turns into a green check, then back */
+.tb-ok, .tb-ic { display: inline-flex; }
+.tb-ok { color: var(--green); animation: bl-pop-in 380ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes bl-pop-in { from { opacity: 0; transform: scale(0.6) rotate(-90deg); } }
+
+/* a reaction you just added pops; one that was already there on load sits still */
+.reaction-chip .rc-emoji { display: inline-block; }
+.reaction-chip.pop .rc-emoji { animation: bl-emoji-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes bl-emoji-pop { 0% { transform: scale(0.4) rotate(-12deg); } 60% { transform: scale(1.3) rotate(6deg); } 100% { transform: none; } }
+
+/* the keyboard tip toast: key caps inline with the sentence */
+.tip-keys { display: inline-flex; align-items: center; gap: 3px; margin: 0 2px; vertical-align: 1px; }
+.tip-then { font-size: 11px; color: var(--text-dim); margin: 0 2px; }
+
+/* the mark measures: hovering the workspace switch slides its node along the rule and back */
+.ws-switch:hover .lg-node { animation: bl-measure 900ms var(--ease) both; }
+@keyframes bl-measure { 0% { transform: none; } 40% { transform: translateX(6px); } 70% { transform: translateX(-1.5px); } 100% { transform: none; } }
+
+/* a comment you just posted rises into the thread and washes brand for a beat */
+.cmt.landed { animation: bl-fade-up 320ms var(--ease) both, bl-flash 1200ms ease-out 200ms both; border-radius: 8px; }
+/* under the greeting, My work's empty state flows below it instead of covering the page */
+.mw .empty-state { position: relative; inset: auto; }

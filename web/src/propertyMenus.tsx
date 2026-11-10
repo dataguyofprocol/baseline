@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Menu, MenuItem, MenuSep } from './ui.js';
+import { useContext, useEffect, useState } from 'react';
+import { nudgeShortcut } from './tips.js';
+import { Menu, MenuItem, MenuSep, SubmenuContext } from './ui.js';
 import { useApp, STATUS_ORDER, localIsoDate, isoDaysFromToday } from './store.js';
 import { api } from './api.js';
 import { setIssueProps, toggleLabel, moveIssueToTeam, markDuplicate } from './actions.js';
@@ -53,9 +54,17 @@ export function sortedStatesOf(teamId: string) {
 }
 
 /** the menu's content (filter field + values), embedded in a popover or a context-menu flyout */
+const TIP_WHAT: Partial<Record<PropKind, string>> = { status: 'change status', priority: 'set priority', assignee: 'assign', labels: 'add labels', project: 'set the project', cycle: 'set the cycle', estimate: 'set the estimate', due: 'set a due date', remind: 'set a reminder' };
+
 export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClose: () => void }) {
   const snap = useApp(s => s.snap)!;
   const [q, setQ] = useState('');
+  // opened with the mouse a few times: say which key opens it (not a submenu passed over on the way)
+  const inSubmenu = useContext(SubmenuContext);
+  useEffect(() => {
+    const keys = PROP_KBD[props.kind], what = TIP_WHAT[props.kind];
+    if (keys && what && !inSubmenu) nudgeShortcut(`prop:${props.kind}`, keys, what);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const issues = props.issues.map(i => snap.issues.find(x => x.id === i.id) ?? i);
   if (!issues.length) return null;
   const ids = issues.map(i => i.id);

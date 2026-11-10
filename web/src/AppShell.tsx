@@ -10,6 +10,8 @@ import { sidebarVisibility, useDrafts } from './Workspace.js';
 import { InitiativeIcon } from './Initiatives.js';
 import { SetupMenuItem } from './SetupPanel.js';
 import { inboxRows, visibleNotifications } from '../../src/core/inbox.js';
+import { holdPageTitle, setUnread } from './tabTitle.js';
+import { nudgeShortcut } from './tips.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues, IconCycle, IconTeam, IconHelp, IconCaret,
   IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
@@ -138,6 +140,7 @@ export function Sidebar() {
     })
     .filter(Boolean) as Array<{ id: string; label: string; title?: string; icon: React.ReactNode; to: string }>;
 
+  setUnread(unread);
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`} aria-hidden={collapsed}>
       <div className="sidebar-main">
@@ -149,8 +152,8 @@ export function Sidebar() {
           </button>
           <div className="ws-actions">
             <button className="icon-btn ws-collapse" title="Collapse sidebar ([)" onClick={toggleSidebar}><IconSidebar size={15} /></button>
-            <button className="icon-btn" title="Search (/)" onClick={() => navigate('/search')}><IconSearch size={15} /></button>
-            <button className="ws-new" title="New issue (C)" onClick={() => useApp.getState().openCreate()}><IconNew size={14} /></button>
+            <button className="icon-btn" title="Search (/)" onClick={() => { nudgeShortcut('search', '/', 'search'); navigate('/search'); }}><IconSearch size={15} /></button>
+            <button className="ws-new" title="New issue (C)" onClick={() => { nudgeShortcut('create', 'C', 'create an issue from anywhere'); useApp.getState().openCreate(); }}><IconNew size={14} /></button>
           </div>
         </div>
         {workspaceMenu.anchor && (
@@ -352,7 +355,8 @@ function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: 
             </span>
           </span>
           {/* badge styles are cut: a count, always */}
-          {props.badge ? <span className="nav-count">{props.badge}</span> : null}
+          {/* keyed on the number, so a change replays the tick and the eye catches it */}
+          {props.badge ? <span key={props.badge} className="nav-count">{props.badge}</span> : null}
         </>
       )}
     </NavLink>
@@ -375,6 +379,10 @@ export function TopBar(props: {
     : false;
 
   const sidebarCollapsed = useApp(s => s.sidebarCollapsed);
+  const pageLabel = props.crumbs[props.crumbs.length - 1]?.label ?? '';
+  const titleHold = useRef<ReturnType<typeof holdPageTitle> | null>(null);
+  useEffect(() => { titleHold.current = holdPageTitle(pageLabel); return () => titleHold.current?.release(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { titleHold.current?.update(pageLabel); }, [pageLabel]);
 
   return (
     <div className="topbar">

@@ -11,7 +11,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Active item bg #232325, rounded 4px, full-width row
 - ✅ Main area bg #121213; top bar = breadcrumb (workspace › view / issue), star (favorite), more menu
 - ✅ Sub-nav pills row: All issues / Active / Backlog (+ filter count badge); right: Add filter, Display options, side-panel toggle
-- ✅ Tab title pattern: "Workspace › View - App"
+- ✅ Tab title follows the page: "(3) CORE-3 Grouped list virtualization · Baseline". The count is unread inbox rows, and the favicon shows a brand dot while there are any
 - ✅ Team rows: Triage (with count, when on), Issues, Cycles, Projects, Views; "…" menu (archive, settings, copy link)
 - ✅ Search page (`/`), Trash page, team Archive page; ⌘Z undo for every issue change; `[` toggles the sidebar
 - ✅ Team Home (team "…" › Team overview): Overview (icon, name, description, team resources), Documents, Members; right rail with members and Go to links
@@ -145,6 +145,21 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 
 ## 12. Non-UI (agentic core)
 - ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution for agent identities; personal API keys for the REST API (`Authorization: Bearer <key>`, `baseline api-key create|list|revoke`); JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
+
+## Small moments (delight pass)
+The celebrations (bursts, the ring pop, inbox zero, milestones) play only when the moment happens in this tab, never because a page opened on a finished state. Everything respects reduced motion.
+- ✅ My work opens on a greeting that knows the hour and the weekday, plus a one-line summary (needs you · in progress · up next) and a seven-day bar of what you closed. The bar toggles Closed this week
+- ✅ Marking an ask done on My work slides the row out at once; the server catches up behind it. Clearing the last one says "All clear" with a small burst
+- ✅ The sub-issue ring pops and sprays once when its last child closes, from the UI, an agent or a teammate
+- ✅ Inbox zero: reading the last unread row toasts once; emptying the inbox swaps the empty state to "Inbox zero" with a burst
+- ✅ A toast at your 1st, 10th, 25th, 50th, 100th… closed issue (exact hits only, remembered per browser)
+- ✅ Copy buttons on the issue toolbar turn into a green check for a beat
+- ✅ Reactions show at once (optimistic); one you add pops; the picker closes on click
+- ✅ A comment you post rises into the thread with a brief brand wash
+- ✅ Keyboard tips for mouse users: the third mouse-driven use of a property menu, Search, New issue or a copy button toasts its shortcut, once per shortcut
+- ✅ Creating an issue with no title shakes the title field
+- ✅ Changed sidebar and section counts tick into place; relative times on My work and Inbox show the full time on hover
+- ✅ Hovering the workspace switch slides the logo's node along its rule and back
 
 ## Known gaps (deliberate)
 - Slack, SSO, billing and OAuth apps (declined; see JOURNEYS.md › Not built). Writing back to GitHub (linkback comments, statuses, labels) is declined on purpose: the integration stays read-only

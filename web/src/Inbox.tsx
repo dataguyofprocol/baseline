@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApp, relTime, useCursor, registerVisibleList, nameOf, copyText } from './store.js';
+import { useApp, relTime, useCursor, registerVisibleList, nameOf, copyText, dateTime } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, MenuSep, MenuSub, useMenu } from './ui.js';
+import { Menu, MenuItem, MenuSep, MenuSub, useMenu, Burst } from './ui.js';
+import { useEarned } from './motion.js';
 import { IssueDetail } from './IssueDetail.js';
 import { Avatar, StateIcon, teamDisplayIcon } from './pickers.js';
 import { AvatarStack } from './AvatarStack.js';
@@ -256,6 +257,16 @@ export function InboxPage() {
     }
   };
   const unreadCount = rows.filter(r => r.unread).length;
+  // reading the last unread row here is worth a word; opening an inbox that was already read isn't
+  // the whole inbox, not what the Type/From filters leave showing: hiding the unread rows isn't reading them
+  const allUnread = useMemo(() => inboxRows(snap.notifications.filter(n => (!statusMuted || n.type !== 'issueStatusChanged') && (!n.snoozedUntil || n.snoozedUntil <= now))).filter(r => r.unread).length, [snap.notifications, statusMuted, now]);
+  const readAllNow = useEarned(allUnread === 0);
+  const emptiedNow = useEarned(rows.length === 0);
+  useEffect(() => {
+    if (!readAllNow || snap.notifications.length === 0) return;
+    const lines = ['Everything is read. Enjoy the quiet.', 'All read. Back to the good stuff.', 'Nothing new. Go build something.'];
+    useApp.getState().toast({ title: 'Inbox zero', line: lines[Math.floor(Math.random() * lines.length)] });
+  }, [readAllNow]); // eslint-disable-line react-hooks/exhaustive-deps
   const senders = [...new Set(snap.notifications.map(n => n.actorId).filter(Boolean))] as string[];
 
   return (
@@ -288,9 +299,12 @@ export function InboxPage() {
             </div>
           ) : rows.length === 0 ? (
             <div className="empty-state">
-              <Illustration name="inbox" />
-              <div className="empty-title">You’re all caught up</div>
-              <div className="empty-desc">Assignments, mentions, comments and status changes on issues you follow land here.</div>
+              <span className="empty-illo">
+                <Illustration name="inbox" />
+                {emptiedNow && <Burst count={12} reach={46} />}
+              </span>
+              <div className="empty-title">{emptiedNow ? 'Inbox zero' : 'You’re all caught up'}</div>
+              <div className="empty-desc">{emptiedNow ? 'Everything is read and cleared away. Enjoy the quiet.' : 'Assignments, mentions, comments and status changes on issues you follow land here.'}</div>
             </div>
           ) : sectioned.map(({ r: row, sec }, k) => {
             const n = row.lead;
@@ -330,7 +344,7 @@ export function InboxPage() {
                   <div className="inbox-line1">
                     {st && <StateIcon type={st.type} color={st.color} size={12} />}
                     <span className="inbox-title">{issue ? issue.title : projTitle || n.body || 'Issue no longer exists'}</span>
-                    <span className="rel-time">{snoozed ? `Snoozed until ${fmt(new Date(n.snoozedUntil!))}` : relTime(n.type === 'issueReminder' && n.snoozedUntil ? n.snoozedUntil : n.createdAt)}</span>
+                    <span className="rel-time" title={snoozed ? undefined : dateTime(n.createdAt)}>{snoozed ? `Snoozed until ${fmt(new Date(n.snoozedUntil!))}` : relTime(n.type === 'issueReminder' && n.snoozedUntil ? n.snoozedUntil : n.createdAt)}</span>
                   </div>
                   <div className="inbox-line2">
                     {keyOf(n) && <span className="inbox-key">{keyOf(n)}</span>}

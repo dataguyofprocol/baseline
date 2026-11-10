@@ -192,6 +192,9 @@ export function MenuItem(props: {
    portals to body (the parent menu scrolls, so it would clip an absolute child)
    and flips to the left when there's no room on the right. Its MenuItems close
    the whole menu through the shared context. */
+/** true inside a submenu, whose body mounts when the pointer merely passes over its row */
+export const SubmenuContext = createContext(false);
+
 export function MenuSub(props: { icon?: React.ReactNode; label: React.ReactNode; right?: React.ReactNode; width?: number; children: React.ReactNode }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const btn = useRef<HTMLButtonElement>(null);
@@ -212,7 +215,7 @@ export function MenuSub(props: { icon?: React.ReactNode; label: React.ReactNode;
       {rect && createPortal(
         <div className="menu submenu" style={{ left, top: Math.min(rect.top - 6, window.innerHeight - 320), width: w }}
           onPointerEnter={show} onPointerLeave={hideSoon}>
-          {props.children}
+          <SubmenuContext.Provider value={true}>{props.children}</SubmenuContext.Provider>
         </div>,
         document.body,
       )}
@@ -260,6 +263,18 @@ export function RegisterMark({ group }: { group: string }) {
       layoutId={group} className="register-mark" aria-hidden
       transition={{ type: 'spring', stiffness: 560, damping: 44, mass: 0.7 }}
     />
+  );
+}
+
+/** A short spray of dots from the centre of its (relative) parent: for a moment that was earned,
+    such as a ring closing or a list emptying, never for an ordinary save. */
+export function Burst({ count = 10, reach = 15 }: { count?: number; reach?: number }) {
+  if (reducedMotion()) return null;
+  const step = 360 / count;
+  return (
+    <span className="burst" aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => <i key={i} style={{ ['--a' as string]: `${i * step + (i % 2) * (step / 3)}deg`, ['--d' as string]: `${i % 2 ? reach * 0.72 : reach}px` }} />)}
+    </span>
   );
 }
 

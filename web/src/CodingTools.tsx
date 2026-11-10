@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp, copyText } from './store.js';
 import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu, ConfirmIconButton } from './ui.js';
+import { nudgeShortcut } from './tips.js';
 import { IconLink, IconCopyId, IconBranch, IconHandoff, IconChevronDown, IconSpark, IconFolder, IconTools, IconPlus, IconCheck, IconClose } from './icons.js';
 import type { Issue, Location } from '../../src/core/types.js';
 
@@ -54,9 +55,10 @@ export function handoffActions(issue: Issue) {
   const { toast, snap } = useApp.getState();
   const key = `${snap?.teams.find(t => t.id === issue.teamId)?.key ?? 'ISS'}-${issue.number}`;
   const noClipboard = () => toast({ title: 'Clipboard unavailable', line: <>bring the app tab into focus and retry</> });
-  const copy = async (text: string, title: string, line?: React.ReactNode) => {
-    if (await copyText(text)) toast({ title, line });
-    else noClipboard();
+  const copy = async (text: string, title: string, line?: React.ReactNode): Promise<boolean> => {
+    if (await copyText(text)) { toast({ title, line }); return true; }
+    noClipboard();
+    return false;
   };
   /** Preferences › "On git branch copy / on hand-off, move issue to started status": a backlog or
    *  unstarted issue moves to the team's first started state and, if unassigned, to you. ⌥ skips it once. */
@@ -70,15 +72,17 @@ export function handoffActions(issue: Issue) {
   };
   const copyPrompt = async (opts: { skipStart?: boolean } = {}) => {
     const { handoff } = await api.getHandoff(issue.id);
-    if (!(await copyText(handoff.prompt))) return noClipboard();
+    if (!(await copyText(handoff.prompt))) { noClipboard(); return false; }
     const moved = await startOn('startOnHandoff', opts.skipStart);
     toast({ title: `Copied prompt for ${handoff.key}`, line: <>branch: <b>{handoff.branchName}</b>{moved && <> · {moved}</>}</> });
+    return true;
   };
   const copyBranch = async (opts: { skipStart?: boolean } = {}) => {
     const { handoff } = await api.getHandoff(issue.id);
-    if (!(await copyText(handoff.branchName))) return noClipboard();
+    if (!(await copyText(handoff.branchName))) { noClipboard(); return false; }
     const moved = await startOn('startOnBranchCopy', opts.skipStart);
     toast({ title: `Copied branch ${handoff.branchName}`, line: moved ?? undefined });
+    return true;
   };
   const copyUrl = () => copy(`${location.origin}/#/issue/${key}`, 'Copied issue URL');
   const copyId = () => copy(key, `Copied ${key}`);
@@ -200,13 +204,26 @@ export function IssueToolbar(props: { issue: Issue }) {
   const menu = useMenu();
   const navigate = useNavigate();
   const pinned = useApp(s => s.snap?.locations.find(l => l.id === props.issue.locationId));
+  // the button that just copied wears a check for a beat, so the answer is where the click was
+  const [copied, setCopied] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const copying = (which: string, run: () => Promise<unknown> | unknown) => async () => {
+    if ((await run()) === false) return; // no clipboard: the toast already said so
+    setCopied(which);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(null), 1300);
+  };
+  const glyph = (which: string, icon: React.ReactNode) => copied === which
+    ? <span key="ok" className="tb-ok"><IconCheck size={14} /></span>
+    : <span key="ic" className="tb-ic">{icon}</span>;
   return (
     <div className="issue-toolbar">
-      <button className="tb-btn" title="Copy issue URL (⌘⇧,)" onClick={() => void actions.copyUrl()}><IconLink size={15} /></button>
-      <button className="tb-btn" title="Copy issue ID (⌘.)" onClick={() => void actions.copyId()}><IconCopyId size={15} /></button>
-      <button className="tb-btn" title="Copy git branch name (⌘⇧.). Hold ⌥ to leave the status alone" onClick={e => void actions.copyBranch({ skipStart: e.altKey })}><IconBranch size={15} /></button>
+      <button className="tb-btn" title="Copy issue URL (⌘⇧,)" onClick={copying('url', () => { nudgeShortcut('copy-url', '⌘⇧,', 'copy the issue link'); return actions.copyUrl(); })}>{glyph('url', <IconLink size={15} />)}</button>
+      <button className="tb-btn" title="Copy issue ID (⌘.)" onClick={copying('id', () => { nudgeShortcut('copy-id', '⌘.', 'copy the issue ID'); return actions.copyId(); })}>{glyph('id', <IconCopyId size={15} />)}</button>
+      <button className="tb-btn" title="Copy git branch name (⌘⇧.). Hold ⌥ to leave the status alone" onClick={e => void copying('branch', () => { nudgeShortcut('copy-branch', '⌘⇧.', 'copy the branch name'); return actions.copyBranch({ skipStart: e.altKey }); })()}>{glyph('branch', <IconBranch size={15} />)}</button>
       <div className={`tb-split${menu.isOpen ? ' open' : ''}`}>
-        <button className="tb-btn" title="Copy as prompt (⌘⌥P). ⌥-click to leave the status alone" onClick={e => void actions.copyPrompt({ skipStart: e.altKey })}><IconHandoff size={15} /></button>
+        <button className="tb-btn" title="Copy as prompt (⌘⌥P). ⌥-click to leave the status alone" onClick={e => void copying('prompt', () => actions.copyPrompt({ skipStart: e.altKey }))()}>{glyph('prompt', <IconHandoff size={15} />)}</button>
         <button className="tb-btn tb-caret" title="Hand off to a coding agent" onClick={menu.open}><IconChevronDown size={12} /></button>
       </div>
       {menu.anchor && (

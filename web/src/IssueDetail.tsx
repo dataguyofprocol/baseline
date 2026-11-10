@@ -105,19 +105,39 @@ function Reactions(props: { comment: Comment }) {
   return <ReactionChips reactions={props.comment.reactions} onToggle={async emoji => { await api.toggleReaction(props.comment.id, emoji); await useApp.getState().bootstrap(); }} />;
 }
 /** emoji reaction chips (a comment's, an initiative update's): click one to add or remove yours */
-export function ReactionChips(props: { reactions: Record<string, string[]>; onToggle: (emoji: string) => void; children?: React.ReactNode }) {
+export function ReactionChips(props: { reactions: Record<string, string[]>; onToggle: (emoji: string) => void | Promise<unknown>; children?: React.ReactNode }) {
   const snap = useApp(s => s.snap)!;
-  const entries = Object.entries(props.reactions);
+  const me = snap.currentUser.id;
+  // a click shows at once; the next snapshot replaces the guess
+  const [local, setLocal] = useState<Record<string, string[]> | null>(null);
+  useEffect(() => { setLocal(null); }, [props.reactions]);
+  const reactions = local ?? props.reactions;
+  // emoji that were already there on first render don't pop; one that arrives later does
+  const seen = useRef<Set<string> | null>(null);
+  seen.current ??= new Set(Object.keys(props.reactions));
+  const [bumped, setBumped] = useState<string | null>(null);
+  const toggle = (emoji: string) => {
+    const ids = reactions[emoji] ?? [];
+    setBumped(ids.includes(me) ? null : emoji);
+    const next = { ...reactions, [emoji]: ids.includes(me) ? ids.filter(x => x !== me) : [...ids, me] };
+    if (!next[emoji]!.length) delete next[emoji];
+    setLocal(next);
+    void Promise.resolve(props.onToggle(emoji)).catch(() => setLocal(null));
+  };
+  const entries = Object.entries(reactions);
   if (!entries.length && !props.children) return null;
   return (
     <div className="reactions">
-      {entries.map(([emoji, userIds]) => (
-        <button key={emoji} className={`reaction-chip ${userIds.includes(snap.currentUser.id) ? 'mine' : ''}`}
-          title={userIds.map(id => snap.users.find(u => u.id === id)?.name ?? '?').join(', ')}
-          onClick={() => props.onToggle(emoji)}>
-          {emoji} {userIds.length}
-        </button>
-      ))}
+      {entries.map(([emoji, userIds]) => {
+        const fresh = !seen.current!.has(emoji) || bumped === emoji;
+        return (
+          <button key={emoji} className={`reaction-chip ${userIds.includes(me) ? 'mine' : ''}${fresh ? ' pop' : ''}`}
+            title={userIds.map(id => snap.users.find(u => u.id === id)?.name ?? '?').join(', ')}
+            onClick={() => toggle(emoji)}>
+            <span key={userIds.length} className="rc-emoji">{emoji}</span> {userIds.length}
+          </button>
+        );
+      })}
       {props.children}
     </div>
   );
@@ -127,6 +147,8 @@ export function ReactionChips(props: { reactions: Record<string, string[]>; onTo
    comment hides at once, Undo shows it again, and the delete is sent when the toast closes
    (timed out or ×). The set lives at module level so a remount still sees the comment as gone. */
 const pendingCommentDeletes = new Set<string>();
+/* comments posted from this tab: each lands with a rise and a brief brand wash, once */
+const justPosted = new Set<string>();
 
 function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean; onReply?: () => void; resolved?: boolean; onResolve?: () => void }) {
   const snap = useApp(s => s.snap)!;
@@ -138,6 +160,7 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
   const moreMenu = useMenu();
   const [editing, setEditing] = useState(false);
   const [hidden, setHidden] = useState(() => pendingCommentDeletes.has(props.comment.id));
+  const [landed] = useState(() => justPosted.delete(props.comment.id));
   const scheduleDelete = () => {
     moreMenu.close(); // the menu unmounts with the comment, so close it now or Undo brings it back open
     setHidden(true);
@@ -151,7 +174,7 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
   if (hidden) return null;
 
   return (
-    <div className={`cmt${props.reply ? ' reply' : ''}`} id={`comment-${c.id}`}>
+    <div className={`cmt${props.reply ? ' reply' : ''}${landed ? ' landed' : ''}`} id={`comment-${c.id}`}>
       <div className="cmt-head">
         <Avatar user={author} size={props.reply ? 18 : 20} />
         <span className="cmt-author">{nameOf(author)}<Via userId={c.viaUserId} /></span>
@@ -187,7 +210,7 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
           <div className="reaction-grid">
             {REACTION_SET.map(emoji => (
               <button key={emoji} className="reaction-pick" title={emoji}
-                onClick={async () => { await api.toggleReaction(c.id, emoji); await useApp.getState().bootstrap(); reactMenu.close(); }}>{emoji}</button>
+                onClick={async () => { reactMenu.close(); await api.toggleReaction(c.id, emoji); await useApp.getState().bootstrap(); }}>{emoji}</button>
             ))}
           </div>
         </Menu>
@@ -232,7 +255,7 @@ function CommentThread(props: { root: Comment; replies: Comment[]; issueId: stri
       {replying ? (
         <div className="comment-box reply-box">
           <RichEditor value="" autoFocus issueId={props.issueId} placeholder="Leave a reply…" clearOnSubmit
-            onSubmit={async md => { if (isBlank(md)) return; await api.addComment(props.issueId, md, props.root.id); await useApp.getState().bootstrap(); setReplying(false); }}
+            onSubmit={async md => { if (isBlank(md)) return; const { comment } = await api.addComment(props.issueId, md, props.root.id); justPosted.add(comment.id); await useApp.getState().bootstrap(); setReplying(false); }}
             onEscape={() => setReplying(false)} />
           <div className="cbox-foot"><span className="cbox-hint">⌘↵ to reply</span><button className="btn" style={{ height: 24, fontSize: 12 }} onClick={() => setReplying(false)}>Cancel</button></div>
         </div>
@@ -267,7 +290,7 @@ function SubIssuesSection(props: { issue: Issue }) {
         <>
           <div className="subissues-head">
             <button className={`subissues-toggle${open ? '' : ' closed'}`} onClick={() => setOpen(o => !o)}><IconChevronDown size={11} /> Sub-issues</button>
-            <SubIssueProgress done={done} total={children.length} />
+            <SubIssueProgress done={done} total={children.length} issueId={props.issue.id} />
             <span style={{ flex: 1 }} />
             <IssuePickerMenu title="Add existing issue as sub-issue…" teamId={props.issue.teamId} excludeId={props.issue.id}
               onPick={async (child) => { await setIssueProps([child.id], { parentId: props.issue.id }); toast({ title: 'Sub-issue added', line: <>{child.title}</> }); }}>
@@ -321,7 +344,7 @@ function ParentLine(props: { issue: Issue }) {
         <span className="issue-key">{key}</span>
         <span className="parent-line-title">{parent.title}</span>
       </button>
-      {progress && <span className="parent-line-progress"><SubIssueProgress done={progress.done} total={progress.total} /></span>}
+      {progress && <span className="parent-line-progress"><SubIssueProgress done={progress.done} total={progress.total} issueId={parent.id} /></span>}
     </div>
   );
 }
@@ -670,7 +693,8 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const commentEditor = useRef<Editor | null>(null);
   const postComment = async (md: string) => {
     if (isBlank(md)) return;
-    await api.addComment(issue.id, md);
+    const { comment } = await api.addComment(issue.id, md);
+    justPosted.add(comment.id);
     await useApp.getState().bootstrap();
   };
   const go = (delta: 1 | -1) => {

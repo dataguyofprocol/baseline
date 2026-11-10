@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /** the global rule collapses every duration; direct DOM animation has to ask */
 export const reducedMotion = () =>
@@ -73,4 +73,50 @@ export function playExit(ids: string[]): Promise<void> {
   if (nodes.length === 0) return Promise.resolve();
   for (const n of nodes) n.classList.add('leaving');
   return new Promise(r => setTimeout(r, 260));
+}
+
+/** True once `now` turns true during this mount, after having been false: the moment was earned
+    here, not found on load. Celebrations key off it, so reopening a finished page stays quiet. */
+export function useEarned(now: boolean): boolean {
+  const was = useRef(now);
+  const [earned, setEarned] = useState(false);
+  useEffect(() => {
+    if (now && !was.current) setEarned(true);
+    else if (!now) setEarned(false);
+    was.current = now;
+  }, [now]);
+  return earned;
+}
+
+/* Last done/total fraction each parent was drawn with, module-level for the same reason as
+   lastStateById: the parent's row remounts when closing its last child also closes it. */
+const lastFracById = new Map<string, number>();
+
+/** True for a moment after an issue's sub-issue ring closes (its last child finished) */
+export function useRingClosed(issueId: string | undefined, frac: number): boolean {
+  const [closed, setClosed] = useState(() => {
+    const seen = issueId ? lastFracById.get(issueId) : undefined;
+    return seen !== undefined && seen < 1 && frac === 1;
+  });
+  useEffect(() => {
+    if (!issueId) return;
+    const seen = lastFracById.get(issueId);
+    lastFracById.set(issueId, frac);
+    if (seen !== undefined && seen < 1 && frac === 1) setClosed(true);
+  }, [issueId, frac]);
+  useEffect(() => {
+    if (!closed) return;
+    const t = setTimeout(() => setClosed(false), 1100);
+    return () => clearTimeout(t);
+  }, [closed]);
+  return closed;
+}
+
+/** A small sideways "no" on a field that can't be submitted yet: three damped swings, 320ms */
+export function shake(el: Element | null | undefined) {
+  if (!el || reducedMotion()) return;
+  el.animate(
+    { transform: ['translateX(0)', 'translateX(-6px)', 'translateX(5px)', 'translateX(-3px)', 'translateX(1px)', 'translateX(0)'] },
+    { duration: 320, easing: 'ease-out' },
+  );
 }

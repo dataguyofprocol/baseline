@@ -73,6 +73,29 @@ export async function setIssueProps(ids: string[], patch: IssuePatch, opts: { un
   applyLocal(ids, () => patch);
   for (const i of before) await api.updateIssue(i.id, patch);
   await useApp.getState().bootstrap();
+  if (patch.stateId) celebrateClosedMilestone(ids);
+}
+
+/* A word at the round numbers of the work you've closed: the 1st, 10th, 25th, 50th, 100th…
+   Exact hits only, so a workspace that already had 4 done says nothing at the 5th. Remembered
+   per browser, so undoing and redoing doesn't say it twice. */
+const MILESTONES: Record<number, string> = {
+  1: 'The first of many.', 10: 'Double digits. Nice rhythm.', 25: 'A quarter-century of done.',
+  50: 'Halfway to a hundred.', 100: 'Triple digits. Take a bow.', 250: 'Still shipping.', 500: 'Five hundred. Legendary.', 1000: 'A thousand. Unreal.',
+};
+function celebrateClosedMilestone(ids: string[]) {
+  const s = useApp.getState();
+  const snap = s.snap;
+  if (!snap) return;
+  const me = snap.currentUser.id;
+  const done = new Set(snap.states.filter(st => st.type === 'completed').map(st => st.id));
+  if (!ids.some(id => { const i = snap.issues.find(x => x.id === id); return i && i.assigneeId === me && done.has(i.stateId); })) return;
+  const count = snap.issues.filter(i => i.assigneeId === me && done.has(i.stateId) && !i.deletedAt).length;
+  const line = MILESTONES[count];
+  if (!line) return;
+  const key = `baseline:closed-milestone:${me}`;
+  try { if (Number(localStorage.getItem(key) ?? 0) >= count) return; localStorage.setItem(key, String(count)); } catch { /* still worth saying once */ }
+  s.toast({ title: count === 1 ? 'Your first issue, closed' : `${count} issues closed`, line });
 }
 
 /** labels add/remove across issues: if every issue has the label it comes off all, otherwise it goes on all */
