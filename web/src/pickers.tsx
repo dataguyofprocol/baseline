@@ -4,7 +4,7 @@ import { useApp } from './store.js';
 import { api } from './api.js';
 import type { Issue, Priority, Team } from '../../src/core/types.js';
 import { PropertyMenu, type PropKind } from './propertyMenus.js';
-import { StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled, StatusTriage, PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconAgent, IconLoop, IconPr, IconBlocks, IconBlocked, IconRelated, IconDuplicate } from './icons.js';
+import { StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled, StatusTriage, PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconAgent, IconLoop, IconGithub, IconBlocks, IconBlocked, IconRelated, IconDuplicate } from './icons.js';
 
 export function StateIcon({ type, color, size = 14, morph }: { type: string; color?: string; size?: number; morph?: boolean }) {
   // the seeded Todo grey is near-white because it was tuned for dark. Theme it so it
@@ -27,7 +27,7 @@ export function PriorityIcon({ priority, size = 14 }: { priority: Priority; size
 }
 
 /** built-in agent identities (see agentUser() callers in src/core): coding agent, rule runner, GitHub sync */
-const AGENT_GLYPHS: Record<string, typeof IconAgent> = { Agent: IconAgent, Automation: IconLoop, GitHub: IconPr };
+const AGENT_GLYPHS: Record<string, typeof IconAgent> = { Agent: IconAgent, Automation: IconLoop, GitHub: IconGithub };
 
 export function Avatar({ user, size = 20 }: { user?: { name: string; initials: string; color: string; kind?: 'human' | 'agent'; avatarUrl?: string | null } | null; size?: number }) {
   if (!user) {
