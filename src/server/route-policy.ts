@@ -1,34 +1,16 @@
-// Every /api route (and /mcp), with what an API key needs to call it and how a team-limited key is kept to its
-// teams. scripts/test-route-policy.ts fails when a registered route is missing here (or a row names
-// a route that no longer exists), and checks each row against what the middleware actually does:
-// the scope against ApiKeys.missingScope, the team rule by calling the route with a key limited to
-// another team. A new route can't fail open for a team-limited key without someone writing it down.
 
-/** the narrowest key permission that may call the route (as ApiKeys.missingScope decides) */
 export type KeyScope = 'read' | 'write' | 'admin';
 
 export type TeamRule =
-  /** an issue id in the path: the key's teams are checked against the issue's team */
   | 'issue'
-  /** a team id in the path */
   | 'team'
-  /** an uploaded file or attachment id in the path: checked against its issue's (or team's) team */
   | 'file'
-  /** body.teamId, body.teamIds (or body.ids, for bulk) is checked; nothing in the path names a team */
   | 'body'
-  /** a read whose JSON response is filtered down to the key's teams */
   | 'response'
-  /** not team data: the workspace, its people and settings, the caller's own things */
   | 'workspace'
-  /** a key is refused outright (keys can't manage keys or approve CLI sign-ins) */
   | 'keyless'
-  /** the MCP endpoint: keys only, and each tool call is an /api request made with the same key,
-   *  so that route's own row keeps a team-limited key to its teams */
   | 'mcp'
-  /** outside authenticate: signed some other way (GitHub's HMAC) */
   | 'public'
-  /** team data addressed by an id the middleware can't map to a team (a comment, a project, a cycle…).
-   *  A team-limited key is NOT kept to its teams here: known gaps, listed so they stay visible. */
   | 'unchecked';
 
 export interface RoutePolicy { scope: KeyScope; team: TeamRule }
@@ -52,7 +34,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'GET /api/bootstrap': { scope: 'read', team: 'response' },
   'GET /api/search': { scope: 'read', team: 'response' },
 
-  // issues
   'GET /api/issues': { scope: 'read', team: 'response' },
   'POST /api/issues': { scope: 'write', team: 'body' },
   'POST /api/issues/bulk': { scope: 'write', team: 'body' },
@@ -78,27 +59,22 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/issues/:id/open-claude': { scope: 'admin', team: 'issue' },
   'POST /api/issues/:id/comments': { scope: 'write', team: 'issue' },
   'POST /api/issues/:id/relations': { scope: 'write', team: 'issue' },
-  // agent work (core/work.ts); a follow-up's body.teamId is checked too
   'POST /api/issues/:id/work/start': { scope: 'write', team: 'issue' },
   'POST /api/issues/:id/work/progress': { scope: 'write', team: 'issue' },
   'POST /api/issues/:id/work/finish': { scope: 'write', team: 'issue' },
   'POST /api/issues/:id/followups': { scope: 'write', team: 'issue' },
   'POST /api/issues/:id/sub-issues': { scope: 'write', team: 'issue' },
-  // an agent's drafts are the caller's own; proposing names its team in the body (and a source issue the route checks)
   'GET /api/agent-drafts': { scope: 'read', team: 'workspace' },
   'POST /api/agent-drafts': { scope: 'write', team: 'body' },
   'POST /api/agent-issues': { scope: 'write', team: 'body' },
-  // makes the shared "Claude Code" (or Codex…) agent user on first use; known tool names only
   'POST /api/agent-users': { scope: 'write', team: 'workspace' },
   'GET /api/issues/:id/work': { scope: 'read', team: 'issue' },
-  // an op id names no team for the middleware; the route itself refuses a team-limited key's undo outside its teams
   'POST /api/ops/:id/undo': { scope: 'write', team: 'unchecked' },
   'PATCH /api/comments/:id': { scope: 'write', team: 'unchecked' },
   'DELETE /api/comments/:id': { scope: 'write', team: 'unchecked' },
   'DELETE /api/relations/:id': { scope: 'write', team: 'unchecked' },
   'POST /api/git/unlink': { scope: 'write', team: 'unchecked' },
 
-  // images and attachments
   'POST /api/files': { scope: 'write', team: 'unchecked' },
   'GET /api/files/:id/:name?': { scope: 'read', team: 'file' },
   'GET /api/attachments/:id/:name': { scope: 'read', team: 'file' },
@@ -106,7 +82,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'PATCH /api/attachments/:id': { scope: 'write', team: 'file' },
   'DELETE /api/attachments/:id': { scope: 'write', team: 'file' },
 
-  // teams and their setup
   'POST /api/teams': { scope: 'admin', team: 'workspace' },
   'PATCH /api/teams/:id': { scope: 'admin', team: 'team' },
   'DELETE /api/teams/:id': { scope: 'admin', team: 'team' },
@@ -147,7 +122,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'PATCH /api/views/:id': { scope: 'write', team: 'unchecked' },
   'DELETE /api/views/:id': { scope: 'write', team: 'unchecked' },
 
-  // projects, docs, milestones
   'POST /api/projects': { scope: 'write', team: 'body' },
   'PATCH /api/projects/:id': { scope: 'write', team: 'unchecked' },
   'DELETE /api/projects/:id': { scope: 'write', team: 'unchecked' },
@@ -158,7 +132,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'GET /api/projects/:id/update-draft': { scope: 'read', team: 'unchecked' },
   'PUT /api/projects/:id/update-draft': { scope: 'write', team: 'unchecked' },
   'DELETE /api/projects/:id/update-draft': { scope: 'write', team: 'unchecked' },
-  // a person publishes a draft from the web app; a key is refused, whatever its scopes
   'POST /api/projects/:id/update-draft/publish': { scope: 'write', team: 'keyless' },
   'POST /api/projects/:id/links': { scope: 'write', team: 'unchecked' },
   'DELETE /api/project-links/:id': { scope: 'write', team: 'unchecked' },
@@ -176,7 +149,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'PATCH /api/project-statuses/:id': { scope: 'write', team: 'workspace' },
   'DELETE /api/project-statuses/:id': { scope: 'write', team: 'workspace' },
 
-  // initiatives span teams
   'POST /api/initiatives': { scope: 'write', team: 'workspace' },
   'PATCH /api/initiatives/:id': { scope: 'write', team: 'workspace' },
   'DELETE /api/initiatives/:id': { scope: 'write', team: 'workspace' },
@@ -192,7 +164,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'DELETE /api/initiative-labels/:id': { scope: 'write', team: 'workspace' },
 
 
-  // the person's own things
   'POST /api/favorites/toggle': { scope: 'write', team: 'workspace' },
   'GET /api/notifications': { scope: 'read', team: 'unchecked' },
   'POST /api/notifications/:id/read': { scope: 'write', team: 'workspace' },
@@ -202,7 +173,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/notifications/:id/snooze': { scope: 'write', team: 'workspace' },
   'PATCH /api/preferences': { scope: 'write', team: 'workspace' },
 
-  // people and workspace settings
   'POST /api/users': { scope: 'admin', team: 'workspace' },
   'PATCH /api/users/:id': { scope: 'admin', team: 'workspace' },
   'POST /api/users/:id/avatar': { scope: 'admin', team: 'workspace' },
@@ -211,7 +181,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/invites/:id/resend': { scope: 'write', team: 'workspace' },
   'DELETE /api/invites/:id': { scope: 'write', team: 'workspace' },
   'PATCH /api/members/:id': { scope: 'write', team: 'workspace' },
-  // "Ask <name>": a row in an admin's or a team lead's inbox
   'POST /api/access-requests': { scope: 'write', team: 'workspace' },
   'POST /api/members/:id/reset-link': { scope: 'write', team: 'keyless' },
   'PATCH /api/security': { scope: 'write', team: 'workspace' },
@@ -221,7 +190,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/import': { scope: 'admin', team: 'unchecked' },
   'POST /api/seed': { scope: 'admin', team: 'unchecked' },
 
-  // this machine: folders, terminals, locations, automation, git
   'GET /api/terminals': { scope: 'read', team: 'workspace' },
   'POST /api/directories/pick': { scope: 'admin', team: 'workspace' },
   'POST /api/directories/check': { scope: 'admin', team: 'workspace' },
@@ -240,7 +208,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'DELETE /api/github/token': { scope: 'admin', team: 'workspace' },
   'GET /api/github/repos/available': { scope: 'admin', team: 'workspace' },
   'PUT /api/github/repos': { scope: 'admin', team: 'workspace' },
-  // a person's own GitHub connection: their token is theirs to set, never an API key's (an agent's key can't)
   'PUT /api/me/github/token': { scope: 'write', team: 'keyless' },
   'DELETE /api/me/github/token': { scope: 'write', team: 'keyless' },
   'GET /api/me/github/repos/available': { scope: 'read', team: 'keyless' },
@@ -259,10 +226,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'PUT /api/github/issues/follow': { scope: 'admin', team: 'body' },
 };
 
-/** Who may write a team's setup on a hosted server (CORE_FLOW.md › Roles), beyond admins, who may do
- *  all of it: the team's 'lead', any of its 'member's, 'anyone' signed in, or 'admin's only.
- *  Every team-setup write needs a row (index.ts teamGate and members.ts enforce them), and
- *  scripts/test-route-policy.ts calls each one as an admin, a lead, a member and an outsider. */
 export type TeamRole = 'lead' | 'member' | 'anyone' | 'admin';
 export const TEAM_ROLE: Record<string, TeamRole> = {
   'PATCH /api/teams/:id': 'lead',
@@ -287,13 +250,11 @@ export const TEAM_ROLE: Record<string, TeamRole> = {
   'POST /api/teams/:id/leave': 'anyone',
   'POST /api/teams/:id/links': 'anyone',
   'DELETE /api/team-links/:id': 'anyone',
-  // cycles and recurring issues are everyday work; the cycle schedule is PATCH /api/teams/:id
   'POST /api/cycles': 'anyone',
   'PATCH /api/cycles/:id': 'anyone',
   'DELETE /api/cycles/:id': 'anyone',
   'POST /api/recurring': 'anyone',
   'PATCH /api/recurring/:id': 'anyone',
   'DELETE /api/recurring/:id': 'anyone',
-  // PR automations are GitHub's, and GitHub is the admins'
   'PUT /api/git/automation/:teamId': 'admin',
 };

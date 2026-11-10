@@ -6,13 +6,7 @@ import type { GitSync } from './git.js';
 import { agentUser } from './automation.js';
 import type { PullRequest, WebhookConfig, WebhookDelivery } from './types.js';
 
-/* GitHub webhooks, inbound only. GitHub signs each delivery with a shared secret
-   (X-Hub-Signature-256); Baseline checks the signature, drops repeat deliveries
-   (X-GitHub-Delivery) and feeds the event into the same ingest the gh poller uses.
-   No GitHub token is involved: GitHub pushes to us, we never call it back.
-
-   Events: pull_request, pull_request_review, check_suite, push, issues (one-way import), ping.
-   Reviews and checks arrive one at a time, so a PR's review decision and check state are the
+/* Reviews and checks arrive one at a time, so a PR's review decision and check state are the
    latest event's; when the gh poller is also on it reconciles them to GitHub's rollup. */
 
 export const WEBHOOK_PATH = '/api/github/webhook';
@@ -37,7 +31,6 @@ export function migrateWebhooks(db: DatabaseSync): void {
   `);
 }
 
-/** `sha256=<hex>` over the raw body, compared in constant time */
 export function signatureOk(secret: string, raw: string, header: string | undefined | null): boolean {
   if (!secret || !header?.startsWith('sha256=')) return false;
   const want = Buffer.from(`sha256=${createHmac('sha256', secret).update(raw, 'utf8').digest('hex')}`);
@@ -46,11 +39,9 @@ export function signatureOk(secret: string, raw: string, header: string | undefi
 }
 
 export class GitHubWebhooks {
-  /** hosted: BASELINE_PUBLIC_URL's origin, the only address GitHub can reach this server at */
   fixedUrl: string | null = null;
   constructor(private store: Store, private db: DatabaseSync, private git: GitSync) {}
 
-  // ---------- configuration ----------
   private secret(): string | null { return getMeta(this.db, 'githubWebhookSecret') || null; }
   private imports(): Array<{ repo: string; teamId: string }> {
     try { return JSON.parse(getMeta(this.db, 'githubIssueImports') ?? '[]'); } catch { return []; }
@@ -63,7 +54,6 @@ export class GitHubWebhooks {
       events: WEBHOOK_EVENTS, lastDelivery: this.deliveries(1)[0] ?? null, received: n('processed') + n('ignored'), rejected: n('rejected'), imports: this.imports(),
     };
   }
-  /** a new secret, shown once (like an API key); the old one stops working immediately */
   rotateSecret(): string {
     const s = randomBytes(32).toString('hex');
     setMeta(this.db, 'githubWebhookSecret', s);
@@ -86,8 +76,6 @@ export class GitHubWebhooks {
     this.db.prepare('DELETE FROM github_deliveries WHERE id <= (SELECT MAX(id) - 500 FROM github_deliveries)').run();
   }
 
-  // ---------- receiving ----------
-  /** verify, dedupe and apply one delivery; returns the HTTP status and body to answer with */
   receive(h: { event?: string | null; delivery?: string | null; signature?: string | null }, raw: string): { status: number; body: Json } {
     const secret = this.secret();
     if (!secret || !this.store.getFeatures().githubEnabled) return { status: 404, body: { error: 'GitHub webhooks are off in this workspace' } };
@@ -109,12 +97,10 @@ export class GitHubWebhooks {
       this.record({ delivery, event, action, repo, status: detail === null ? 'ignored' : 'processed', detail: detail ?? '' });
       return { status: detail === null ? 202 : 200, body: { ok: true, ...(detail === null ? { ignored: true } : { detail }) } };
     } catch (e) {
-      // not recorded as processed, so GitHub's redelivery can try again
       return { status: 500, body: { error: (e as Error).message } };
     }
   }
 
-  /** what the event did (for the deliveries log), or null when it's not one we use */
   private apply(event: string, p: Json): string | null {
     const repo: string = p.repository?.full_name ?? '';
     switch (event) {
@@ -144,7 +130,7 @@ export class GitHubWebhooks {
         const touched: number[] = [];
         for (const ref of (suite.pull_requests ?? []) as Json[]) {
           const prev = this.stored(repo, ref.number);
-          if (!prev) continue; // a PR we haven't seen: its own pull_request event brings it in
+          if (!prev) continue;
           this.git.ingestPullRequest({ ...prev, checks, updatedAt: suite.updated_at ?? new Date().toISOString() });
           touched.push(ref.number);
         }
@@ -183,8 +169,6 @@ export class GitHubWebhooks {
     };
   }
 
-  // ---------- GitHub Issues → Baseline (one way) ----------
-  /** import a GitHub issue into a team once; labels match the team's labels by name */
   private importOne(repo: string, teamId: string, gi: Json): string | null {
     if (this.db.prepare('SELECT 1 FROM github_issue_imports WHERE repo = ? AND number = ?').get(repo, gi.number)) return null;
     const names = new Set(((gi.labels ?? []) as Json[]).map(l => String(typeof l === 'string' ? l : l.name ?? '').toLowerCase()).filter(Boolean));
@@ -210,7 +194,6 @@ export class GitHubWebhooks {
     this.store.updateIssue(issue.id, { stateId: done }, agentUser(this.store, this.db, 'GitHub'));
     return `closed #${number}`;
   }
-  /** pull a repo's open issues into a team now (gh with the GitHub source, read-only); `follow` keeps importing new ones from webhooks */
   async importIssues(repo: string, teamId: string, follow: boolean): Promise<{ imported: number; skipped: number }> {
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('Repository must look like owner/name');
     if (!this.db.prepare('SELECT 1 FROM teams WHERE id = ?').get(teamId)) throw new Error('Unknown team');

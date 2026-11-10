@@ -7,21 +7,6 @@ import { id } from './util.js';
 import { agentUser } from './automation.js';
 import type { Commit, GithubAuthor, GithubSummary, GitStatus, GithubSource, GithubTokenInfo, IssueCommit, IssuePr, PrAutomation, PrEvent, PrState, PullRequest, TrackedRepo, WorkflowStateType } from './types.js';
 
-/* Git / GitHub, following Linear's GitHub integration (and TEAM_PLAN.md Phase 4):
-   - linking: an issue key in the branch name or PR title links it; magic words in the
-     description decide closing / non-closing / relation-only links, and `ignore KEY` /
-     `skip KEY` opt out. A commit links to its branch's issue and to keys it names, but only a
-     magic word on the default branch closes ("CORE-6: wip" or "does not fix CORE-6" never does);
-   - `KEY-NEW` in a PR's title or description files a new issue in team KEY, started, assigned
-     to the PR's author and linked to the PR;
-   - people: a PR author whose GitHub login matches a user's GitHub username is that user, so
-     the PR's activity is theirs and an unassigned issue it closes is assigned to them;
-   - status automation per team: draft / opened / review / ready / merged map to a state;
-     status only moves forward, canceled issues are never touched, every move is logged;
-   - data: `ingestPullRequest` / `ingestPush` take PRs and commits from any source: `gh pr list`
-     and `git log` (or the commits API) for the tracked repos (polled), and signed GitHub webhooks
-     (webhooks.ts);
-   - read-only: nothing is ever written to GitHub (see `assertReadOnly`). */
 
 const CLOSING = ['close', 'closes', 'closed', 'closing', 'fix', 'fixes', 'fixed', 'fixing', 'resolve', 'resolves', 'resolved', 'resolving', 'complete', 'completes', 'completed', 'completing', 'implement', 'implements', 'implemented', 'implementing'];
 const NON_CLOSING = ['ref', 'refs', 'references', 'part of', 'contributes to', 'toward', 'towards'];
@@ -31,10 +16,8 @@ const KEY = '[A-Za-z][A-Za-z0-9]{0,9}-\\d+';
 
 export type LinkKind = IssuePr['kind'];
 const RANK: Record<LinkKind, number> = { related: 0, ref: 1, closing: 2 };
-/** "does not fix", "doesn't close", "won't resolve", "not yet fixing": a negated closing word only references */
 const NEGATED = /(?:\b(?:not|never|no|without)|n['’]t)\s+(?:[\w-]+\s+){0,2}$/i;
 
-/** magic-word links in free text, and the keys `ignore` / `skip` opt out of */
 function wordLinks(text: string) {
   const out = new Map<string, LinkKind>();
   const put = (k: string, kind: LinkKind) => { const key = k.toUpperCase(); const cur = out.get(key); if (!cur || RANK[kind] > RANK[cur]) out.set(key, kind); };
@@ -52,22 +35,16 @@ function wordLinks(text: string) {
   return { out, skipped, put };
 }
 
-/** issue keys a branch name carries, in order: `parth/core-12-fix-login`, `feat/CORE-12`, `core-12`.
- *  A key sits between separators, so `score-14x` names nothing. Pure. */
 export function branchKeys(branch: string): string[] {
   return [...new Set([...branch.matchAll(new RegExp(`(?:^|[/_.-])(${KEY})(?=$|[/_.-])`, 'gi'))].map(m => m[1].toUpperCase()))];
 }
-/** the one issue a branch is for: its first key naming a real issue (`known`), so a title word like
- *  `fix-404` or a username like `ada-2/` can't win over the key; without `known`, the first key */
 function branchIssue(branch: string, known?: (key: string) => boolean): string | undefined {
   const keys = branchKeys(branch);
   return known ? keys.find(known) : keys[0];
 }
 
-/** every issue key a PR links, and how it links; pure, so tests and webhooks can reuse it */
 export function parseLinks(pr: { branch: string; title: string; body: string }, known?: (key: string) => boolean): Map<string, LinkKind> {
   const { out, skipped, put } = wordLinks(`${pr.title}\n${pr.body}`);
-  // a key in the branch name or the title links it as closing (unless a word above said otherwise)
   const fromBranch = branchIssue(pr.branch, known);
   if (fromBranch && !out.has(fromBranch)) put(fromBranch, 'closing');
   for (const k of pr.title.match(new RegExp(`\\b${KEY}\\b`, 'g')) ?? []) if (!out.has(k.toUpperCase())) put(k, 'closing');
@@ -75,9 +52,6 @@ export function parseLinks(pr: { branch: string; title: string; body: string }, 
   return out;
 }
 
-/** every issue key a commit links. Unlike a PR, a commit closes only with a magic word ("fixes CORE-12"):
- *  a bare key ("CORE-6: wip") is a reference, and so is the branch it's on, which ties the commit to that
- *  branch's issue with no key in the message. Bare keys are upper case, so `sha-256` isn't one. Pure. */
 export function parseCommitLinks(c: { branch: string; message: string }, known?: (key: string) => boolean): Map<string, LinkKind> {
   const { out, skipped, put } = wordLinks(c.message);
   for (const k of c.message.match(/\b[A-Z][A-Z0-9]{0,9}-\d+\b/g) ?? []) if (!out.has(k)) put(k, 'ref');
@@ -88,17 +62,13 @@ export function parseCommitLinks(c: { branch: string; message: string }, known?:
 }
 
 const NEW_KEY = /\[?\(?\b([A-Z][A-Z0-9]{0,9})-NEW\b\)?\]?:?/g;
-/** team keys a PR asks a new issue for, with `KEY-NEW` in its title or description. Pure.
- *  Upper case only, so prose like "brand-new" never files anything. */
 export function parseNewIssueKeys(pr: { title: string; body: string }): string[] {
   return [...new Set([...`${pr.title}\n${pr.body}`.matchAll(NEW_KEY)].map(m => m[1]))];
 }
-/** the PR title without its `KEY-NEW` markers: "[ENG-NEW] Fix login" → "Fix login" */
 export function titleFromPr(title: string): string {
   return title.replace(NEW_KEY, ' ').replace(/\s+/g, ' ').replace(/^[\s:|–—-]+|[\s:|–—-]+$/g, '').trim();
 }
 
-/** the furthest event a PR has reached; closed-unmerged PRs don't count */
 export function prEvent(pr: Pick<PullRequest, 'state' | 'reviewDecision' | 'checks'>): PrEvent | null {
   if (pr.state === 'merged') return 'merged';
   if (pr.state === 'closed') return null;
@@ -110,12 +80,8 @@ export function prEvent(pr: Pick<PullRequest, 'state' | 'reviewDecision' | 'chec
 const EVENT_RANK: Record<PrEvent, number> = { draft: 1, opened: 2, review: 3, ready: 4, merged: 5 };
 const TYPE_RANK: Record<WorkflowStateType, number> = { triage: 0, backlog: 1, unstarted: 2, started: 3, completed: 4, canceled: 5 };
 
-/* Read-only by design: Baseline never writes to GitHub. It adds no comments, statuses, labels, branches
-   or pushes. Every `gh` / `git` call goes through `run`, which only lets these read commands
-   through, so a future change can't start writing by accident. Webhooks need no credentials. */
 const GH_READ = [['--version'], ['auth', 'status'], ['pr', 'list'], ['pr', 'view'], ['issue', 'list'], ['issue', 'view'], ['repo', 'view'], ['api']];
 const GIT_READ = [['--version'], ['remote', 'get-url'], ['symbolic-ref'], ['log'], ['rev-parse']];
-/** gh api flags that send a body or pick a method: any of them can turn a read into a write */
 const GH_API_WRITE_FLAGS = /^(-X|--method|-f|-F|--field|--raw-field|--input)(=|$)/;
 export function assertReadOnly(cmd: string, args: string[]): void {
   const allowed = cmd === 'gh' ? GH_READ : cmd === 'git' ? GIT_READ : [];
@@ -125,7 +91,6 @@ export function assertReadOnly(cmd: string, args: string[]): void {
     for (let i = 1; i < args.length; i++) {
       const m = GH_API_WRITE_FLAGS.exec(args[i]);
       if (!m) continue;
-      // `-X GET` / `--method=GET` stay reads; anything else (a body, another method) is refused
       const method = m[2] === '=' ? args[i].slice(args[i].indexOf('=') + 1) : args[i + 1];
       if (!/^(-X|--method)$/.test(m[1]) || method?.toUpperCase() !== 'GET') throw new Error(`read-only GitHub integration: \`gh api ${args[i]}\` would write`);
     }
@@ -139,15 +104,12 @@ export const run = (cmd: string, args: string[], cwd?: string, env?: Record<stri
 });
 
 export const NO_SOURCE = 'Add a read-only GitHub token in Settings › Integrations › GitHub to sync';
-/** classic-token scopes that only read; anything else (repo, workflow, gist, user, …) can write */
 const READ_SCOPE = /^(read:[\w:]+|user:email)$/;
-/** what `gh api -i user` says about a token: its login, expiry, and (classic tokens only) scopes.
- *  Refuses a classic token that can write. Pure, so it is tested with fixture responses. */
 export function parseTokenCheck(raw: string): { login: string; expiresAt: string | null; scopes: string[] | null } {
   const [head = '', ...rest] = raw.replace(/\r\n/g, '\n').split('\n\n');
   const headers = new Map(head.split('\n').slice(1).map(l => { const i = l.indexOf(':'); return [l.slice(0, i).trim().toLowerCase(), l.slice(i + 1).trim()] as const; }));
   let login = '';
-  try { login = String(JSON.parse(rest.join('\n\n')).login ?? ''); } catch { /* not a user */ }
+  try { login = String(JSON.parse(rest.join('\n\n')).login ?? ''); } catch { }
   if (!login) throw new Error('GitHub didn\'t say whose token this is');
   const scopeHeader = headers.get('x-oauth-scopes');
   const scopes = scopeHeader === undefined ? null : scopeHeader.split(',').map(x => x.trim()).filter(Boolean);
@@ -159,13 +121,11 @@ export function parseTokenCheck(raw: string): { login: string; expiresAt: string
 }
 
 const REPO = /^[\w.-]+\/[\w.-]+$/;
-/** `refs/remotes/origin/feat/core-12` or `refs/heads/feat/core-12` → `feat/core-12` */
 export const refBranch = (ref = '') => ref.trim().replace(/^refs\/(?:heads\/|remotes\/[^/]+\/|tags\/)?/, '');
 interface StoredToken { token: string; login: string; expiresAt: string | null }
 
 export class GitSync {
   private syncing = false;
-  /** a hosted server has no gh sign-in and no folders of its own: it reads with a token or not at all */
   hosted = false;
   constructor(private store: Store, private db: DatabaseSync) {}
 
@@ -181,40 +141,32 @@ export class GitSync {
     return { pullRequests, issuePrs, commits, issueCommits };
   }
 
-  // ---------- team automation ----------
   automation(teamId: string): PrAutomation {
     const states = this.rows<{ id: string; name: string; type: WorkflowStateType }>('SELECT id, name, type FROM states WHERE team_id = ? ORDER BY position', teamId);
     const started = states.find(s => s.type === 'started' && !/review/i.test(s.name))?.id ?? null;
-    // every team has an In Review state (db.ts ensureReviewStates); one that deleted it falls back to started
     const review = states.find(s => /review/i.test(s.name))?.id ?? started;
     const done = states.find(s => s.type === 'completed')?.id ?? null;
     const defaults: PrAutomation = { draft: started, opened: started, review, ready: null, merged: done, branchRules: [] };
     try { return { ...defaults, ...JSON.parse(getMeta(this.db, `prAutomation:${teamId}`) ?? '{}') }; } catch { return defaults; }
   }
   setAutomation(teamId: string, patch: Partial<PrAutomation>): void { setMeta(this.db, `prAutomation:${teamId}`, JSON.stringify({ ...this.automation(teamId), ...patch })); }
-  /** "In Review" on every team that has no review state. New teams are made with one and a migration
-   *  adds it to old ones, so this only matters to callers that build teams by hand */
   ensureInReview(): void { ensureReviewStates(this.db); }
 
-  // ---------- ingest ----------
   private issueByKey(key: string): { id: string; teamId: string; assigneeId: string | null } | undefined {
     const i = this.store.getByKey(key);
     return i && !i.deletedAt ? { id: i.id, teamId: i.teamId, assigneeId: i.assigneeId } : undefined;
   }
-  /** the user whose GitHub username is this login (case-insensitive) */
   userByGithub(login: string | null | undefined): string | undefined {
     if (!login?.trim()) return undefined;
     return (this.db.prepare("SELECT id FROM users WHERE github_username != '' AND lower(github_username) = lower(?) ORDER BY rowid LIMIT 1").get(login.trim().replace(/^@/, '')) as { id: string } | undefined)?.id;
   }
-  /** `KEY-NEW`: one issue per PR and team, started and assigned to the author; later syncs
-   *  return the same issue (or nothing once it's deleted) so it's never filed twice */
   private issueFromPr(pr: PullRequest, teamKey: string, author: string | undefined, actor: string): string | null {
     const team = this.db.prepare('SELECT id, key FROM teams WHERE upper(key) = ?').get(teamKey) as { id: string; key: string } | undefined;
     if (!team) return null;
     const memo = `prNewIssue:${pr.repo}#${pr.number}:${team.key}`;
     const made = getMeta(this.db, memo);
     if (made) { const i = this.store.getIssue(made); return i && !i.deletedAt ? `${team.key}-${i.number}` : null; }
-    if (pr.state === 'closed') return null; // a PR closed unmerged asks for nothing
+    if (pr.state === 'closed') return null;
     const issue = this.store.createIssue({
       teamId: team.id, title: titleFromPr(pr.title) || `PR #${pr.number}`,
       description: `Created from [${pr.repo}#${pr.number}](${pr.url}).`,
@@ -223,7 +175,6 @@ export class GitSync {
     setMeta(this.db, memo, issue.id);
     return `${team.key}-${issue.number}`;
   }
-  /** upsert a PR, (re)link it to the issues it names, and apply status automation */
   ingestPullRequest(input: Omit<PullRequest, 'id'>): PullRequest {
     const prev = this.db.prepare('SELECT * FROM pull_requests WHERE repo = ? AND number = ?').get(input.repo, input.number) as { id: string; state: PrState; review_decision: string | null } | undefined;
     const pr: PullRequest = { ...input, id: prev?.id ?? id('pr') };
@@ -238,28 +189,21 @@ export class GitSync {
       const issue = this.issueByKey(key);
       if (!issue) continue;
       const link = this.db.prepare('SELECT kind, dismissed FROM issue_prs WHERE issue_id = ? AND pr_id = ?').get(issue.id, pr.id) as { kind: LinkKind; dismissed: number } | undefined;
-      if (link?.dismissed) continue; // an unlinked PR is never re-linked
+      if (link?.dismissed) continue;
       if (!link) {
         this.db.prepare('INSERT INTO issue_prs (issue_id, pr_id, kind, dismissed) VALUES (?, ?, ?, 0)').run(issue.id, pr.id, kind);
         this.store.logActivity({ issueId: issue.id, type: 'prLinked', data: { pr: `${pr.repo}#${pr.number}`, title: pr.title, kind, url: pr.url } }, actor);
-        // the PR's author is working on what it closes: an unassigned issue becomes theirs (once,
-        // at link time, so a later hand-unassign sticks)
         if (kind === 'closing' && author && !issue.assigneeId && pr.state !== 'closed') this.store.updateIssue(issue.id, { assigneeId: author }, actor);
       } else if (link.kind !== kind) this.db.prepare('UPDATE issue_prs SET kind = ? WHERE issue_id = ? AND pr_id = ?').run(kind, issue.id, pr.id);
       const changed = !prev || prev.state !== pr.state || (prev.review_decision ?? null) !== pr.reviewDecision;
       if (changed) {
         const what = pr.state === 'merged' ? 'merged' : pr.state === 'closed' ? 'closed' : pr.reviewDecision === 'approved' ? 'approved' : pr.reviewDecision === 'changes_requested' ? 'changes requested' : prev ? 'updated' : 'opened';
-        // the assignee and everyone following the issue. The "actor" is the PR's author, so a review
-        // or merge (by someone else) reaches them too; their own opening or pushing doesn't
         this.store.notifyEach([issue.assigneeId, ...this.store.subscribers(issue.id)], 'prActivity', { actorId: actor, issueId: issue.id, body: `PR #${pr.number} ${what}: ${pr.title}`, selfToo: what !== 'opened' && what !== 'updated' });
       }
       this.applyAutomation(issue.id);
     }
     return pr;
   }
-  /** commits link to their branch's issue and the keys they name. Only a closing word on the default
-   *  branch counts as merged; work on a feature branch moves the issue to started; a bare reference
-   *  on the default branch only links */
   ingestPush(commits: Array<Commit & { onDefaultBranch?: boolean }>): number {
     const bot = agentUser(this.store, this.db, 'GitHub');
     const known = (k: string) => !!this.issueByKey(k);
@@ -281,7 +225,6 @@ export class GitSync {
   }
   unlink(issueId: string, prId: string): void { this.db.prepare('UPDATE issue_prs SET dismissed = 1 WHERE issue_id = ? AND pr_id = ?').run(issueId, prId); }
 
-  /** move the issue to the state its least-advanced closing PR has earned */
   applyAutomation(issueId: string): void {
     const issue = this.store.getIssue(issueId);
     if (!issue) return;
@@ -308,7 +251,6 @@ export class GitSync {
     this.store.logActivity({ issueId, type: 'prStateMoved', data: { why } }, actor);
   }
 
-  // ---------- reading GitHub: the source, the token, the tracked repos ----------
   private storedToken(): StoredToken | null {
     try { const t = JSON.parse(getMeta(this.db, 'githubToken') || 'null') as StoredToken | null; return t?.token ? t : null; } catch { return null; }
   }
@@ -317,7 +259,6 @@ export class GitSync {
     if (t) return { kind: 'token', token: t.token };
     return this.hosted ? { kind: 'none' } : { kind: 'login' };
   }
-  /** every gh call: read-only (run), with the source's credentials */
   gh(args: string[], source: GithubSource = this.source()): Promise<string> {
     if (source.kind === 'none') return Promise.reject(new Error(NO_SOURCE));
     return run('gh', args, undefined, source.kind === 'token' ? { GH_TOKEN: source.token, GH_PROMPT_DISABLED: '1' } : undefined);
@@ -334,17 +275,11 @@ export class GitSync {
     catch (e) { const m = (e as Error).message; throw new Error(/ENOENT/.test(m) ? 'The GitHub CLI (gh) isn\'t installed on this server' : `GitHub didn't accept that token: ${m}`); }
     const { login, expiresAt } = parseTokenCheck(raw);
     setMeta(this.db, 'githubToken', JSON.stringify({ token, login, expiresAt } satisfies StoredToken));
-    // a working token is the decision to use GitHub: no separate switch to find
     this.store.setFeatures({ githubEnabled: true });
     return this.tokenInfo()!;
   }
   removeToken(): void { setMeta(this.db, 'githubToken', ''); }
 
-  // ---------- each person's own GitHub connection ----------
-  // Hosted, every member can connect their own read-only token and add repos it can read. A repo
-  // someone added is read only with an added-by person's token, so Baseline never reads a repo as
-  // someone who didn't choose it. The admin's workspace token (above) still reads the repos picked
-  // with it. On a laptop the gh sign-in reads everything, as before.
   private userToken(userId: string): StoredToken | null {
     const r = this.db.prepare("SELECT t.token, t.login, t.expires_at FROM user_github_tokens t JOIN users u ON u.id = t.user_id WHERE t.user_id = ? AND COALESCE(u.status, 'active') = 'active'").get(userId) as { token: string; login: string; expires_at: string | null } | undefined;
     return r ? { token: r.token, login: r.login, expiresAt: r.expires_at } : null;
@@ -353,7 +288,6 @@ export class GitSync {
     const t = this.userToken(userId);
     return t && { hint: `…${t.token.slice(-4)}`, login: t.login, expiresAt: t.expiresAt };
   }
-  /** check a token the way the workspace one is checked (it must work and be read-only), then keep it as theirs */
   async saveUserToken(userId: string, input: string): Promise<GithubTokenInfo> {
     const token = input.trim();
     if (!/^[\w-]{20,255}$/.test(token)) throw new Error('That doesn\'t look like a GitHub token');
@@ -365,31 +299,25 @@ export class GitSync {
       .run(userId, token, login, expiresAt, new Date().toISOString());
     return this.userTokenInfo(userId)!;
   }
-  /** disconnect: their token goes, and so do they as a reader of the repos they added */
   removeUserToken(userId: string): void {
     this.db.prepare('DELETE FROM user_github_tokens WHERE user_id = ?').run(userId);
     const readers = this.readers();
     for (const k of Object.keys(readers)) readers[k] = readers[k]!.filter(u => u !== userId);
     setMeta(this.db, 'githubRepoReaders', JSON.stringify(readers));
   }
-  /** what this person reads GitHub as: their own token; on a laptop, the gh sign-in */
   private sourceFor(userId: string): GithubSource {
     const t = this.userToken(userId);
     if (t) return { kind: 'token', token: t.token };
     return this.hosted ? { kind: 'none' } : { kind: 'login' };
   }
-  /** repo (lower case) → the people who added it with their own connection */
   private readers(): Record<string, string[]> {
     try { return JSON.parse(getMeta(this.db, 'githubRepoReaders') ?? '{}') ?? {}; } catch { return {}; }
   }
-  /** repos this person's own connection can see, most recently pushed first */
   async availableFor(userId: string): Promise<string[]> {
     const source = this.sourceFor(userId);
     if (source.kind === 'none') throw new Error('Connect your GitHub account first');
     return (await this.gh(['api', '--paginate', 'user/repos?per_page=100&sort=pushed', '--jq', '.[].full_name'], source)).split('\n').map(r => r.trim()).filter(Boolean);
   }
-  /** add repos to what Baseline reads, as this person: each must be readable with their connection.
-   *  A repo isn't anyone's team's: a PR links to whatever issues it names, in any team */
   async addReposFor(userId: string, repos: string[]): Promise<void> {
     const source = this.sourceFor(userId);
     if (source.kind === 'none') throw new Error('Connect your GitHub account first');
@@ -407,11 +335,8 @@ export class GitSync {
     }
     setMeta(this.db, 'githubRepos', JSON.stringify(picked));
     setMeta(this.db, 'githubRepoReaders', JSON.stringify(readers));
-    // adding a repo is the decision to use GitHub, as picking one in settings is
     if (picked.length) this.store.setFeatures({ githubEnabled: true });
   }
-  /** stop reading a repo as this person. It stops being read when nobody is left to read it as;
-   *  an admin can stop it outright */
   removeRepoFor(userId: string, repo: string, admin: boolean): void {
     const k = repo.toLowerCase();
     const readers = this.readers();
@@ -422,11 +347,8 @@ export class GitSync {
     if (!left.length) setMeta(this.db, 'githubRepos', JSON.stringify(this.picked().filter(p => p.toLowerCase() !== k)));
     setMeta(this.db, 'githubRepoReaders', JSON.stringify(readers));
   }
-  /** what a tracked repo is read as: one of the people who added it; a repo nobody added that way
-   *  (picked with the workspace token, or a laptop location) uses the workspace source */
   private repoSource(repo: string): GithubSource {
     const added = this.readers()[repo.toLowerCase()];
-    // added by people, even if they've all disconnected since: only their tokens ever read it
     if (added) {
       for (const u of added) { const t = this.userToken(u); if (t) return { kind: 'token', token: t.token }; }
       return this.hosted ? { kind: 'none' } : { kind: 'login' };
@@ -443,14 +365,12 @@ export class GitSync {
     const seen = new Set<string>();
     const kept = repos.filter(r => !seen.has(r.toLowerCase()) && seen.add(r.toLowerCase()));
     setMeta(this.db, 'githubRepos', JSON.stringify(kept));
-    // with one team there's nothing to choose: its repos are its own
     const teams = this.rows<{ id: string }>('SELECT id FROM teams');
     const map = this.repoTeams();
     if (teams.length === 1) for (const r of kept) map[r.toLowerCase()] ??= teams[0].id;
     setMeta(this.db, 'githubRepoTeams', JSON.stringify(map));
     if (kept.length) this.store.setFeatures({ githubEnabled: true });
   }
-  /** repo (lower case) → the team whose work it holds */
   repoTeams(): Record<string, string> {
     try { return JSON.parse(getMeta(this.db, 'githubRepoTeams') ?? '{}') ?? {}; } catch { return {}; }
   }
@@ -461,11 +381,9 @@ export class GitSync {
     if (teamId) map[repo.toLowerCase()] = teamId; else delete map[repo.toLowerCase()];
     setMeta(this.db, 'githubRepoTeams', JSON.stringify(map));
   }
-  /** what the source can see, most recently pushed first */
   async available(): Promise<string[]> {
     return (await this.gh(['api', '--paginate', 'user/repos?per_page=100&sort=pushed', '--jq', '.[].full_name'])).split('\n').map(r => r.trim()).filter(Boolean);
   }
-  /** picked repos and (laptop only) your locations' GitHub origins, once each; a checkout's path lets git log read it */
   async repos(): Promise<TrackedRepo[]> {
     const located = this.hosted ? [] : (await Promise.all(this.store.listLocations().map(async l => ({ repo: await this.remoteOf(l.path), path: l.path, location: l.name })))).filter(l => l.repo);
     const out = new Map<string, TrackedRepo>();
@@ -478,8 +396,6 @@ export class GitSync {
     return [...out.values()];
   }
 
-  // ---------- what syncing found: the payoff, and who the PR authors are ----------
-  /** PR authors in synced data, newest activity first, each with the member they are or probably are */
   authors(repos?: Set<string>): GithubAuthor[] {
     const counts = new Map<string, { author: string; n: number }>();
     for (const p of this.rows<{ author: string; repo: string }>("SELECT author, repo FROM pull_requests WHERE author != '' ORDER BY updated_at DESC")) {
@@ -506,14 +422,13 @@ export class GitSync {
   async status(): Promise<GitStatus> {
     const source = this.source();
     let ghInstalled = false; let ghUser: string | null = null;
-    try { await run('gh', ['--version']); ghInstalled = true; if (source.kind === 'login') ghUser = (await this.gh(['api', 'user', '--jq', '.login'], source)).trim() || null; } catch { /* not installed or not signed in */ }
+    try { await run('gh', ['--version']); ghInstalled = true; if (source.kind === 'login') ghUser = (await this.gh(['api', 'user', '--jq', '.login'], source)).trim() || null; } catch { }
     return { source: source.kind, token: this.tokenInfo(), ghInstalled, ghUser, repos: await this.repos(), lastSyncAt: getMeta(this.db, 'gitLastSync'), lastError: getMeta(this.db, 'gitLastError') };
   }
   private async remoteOf(path: string): Promise<string | null> {
     if (!existsSync(path)) return null;
     try { const url = (await run('git', ['remote', 'get-url', 'origin'], path)).trim(); return /github\.com[:/](.+?)(?:\.git)?$/.exec(url)?.[1] ?? null; } catch { return null; }
   }
-  /** recent PRs (gh) and commits (git log in a checkout, else the commits API) for every tracked repo */
   async sync(): Promise<{ prs: number; commits: number; error?: string }> {
     const repos = await this.repos();
     if (this.source().kind === 'none' && !repos.some(r => this.repoSource(r.repo).kind !== 'none')) return { prs: 0, commits: 0, error: NO_SOURCE };
@@ -522,7 +437,6 @@ export class GitSync {
     let prs = 0; let commits = 0; const errors: string[] = [];
     try {
       for (const { repo, path } of repos) {
-        // each repo as someone who chose it (repoSource); one nobody can read any more is reported, not skipped silently
         const source = this.repoSource(repo);
         if (source.kind === 'none') { errors.push(`${repo}: nobody who added it has a working GitHub connection`); continue; }
         try {
@@ -553,7 +467,6 @@ export class GitSync {
     const others = parse(await run('git', ['log', '--all', '--source', '--since=30.days', '-n', '300', fmt], path).catch(() => ''), false).filter(c => !seen.has(c.sha));
     return [...onDefault, ...others];
   }
-  /** the default branch's last 30 days, for a repo with no checkout here */
   private async apiCommits(repo: string, source: GithubSource): Promise<Array<Commit & { onDefaultBranch: boolean }>> {
     const branch = (await this.gh(['api', `repos/${repo}`, '--jq', '.default_branch'], source)).trim();
     const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
@@ -563,9 +476,6 @@ export class GitSync {
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-/** the one member a GitHub login most likely belongs to: best when it equals their username, email name or
- *  full name ("bob-smith"), then first name + initial ("bobs"), then when it contains their first name ("octo-bob").
- *  Null when nobody or several people fit equally; it's a suggestion a person confirms. Pure. */
 export function suggestMember(login: string, people: Array<{ id: string; name: string; email: string; username: string }>): string | null {
   const l = norm(login);
   if (l.length < 3) return null;

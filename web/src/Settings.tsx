@@ -24,7 +24,6 @@ import { reorder } from './Projects.js';
 export const SETTINGS_NAV: Array<{ sec: string; items: Array<[string, string]> }> = [
   { sec: 'Personal', items: [['Preferences', 'preferences'], ['Profile', 'profile'], ['Notifications', 'notifications'], ['Account & API keys', 'account'], ['Keyboard shortcuts', 'shortcuts']] },
   { sec: 'Issues', items: [['Labels', 'labels'], ['Templates', 'templates'], ['SLAs', 'slas']] },
-  // project labels and named project statuses are cut from the UI (CORE_FLOW.md › Core vs niche); their data stays
   { sec: 'Projects', items: [['Updates', 'project-updates']] },
   { sec: 'Features', items: [['Features', 'features'], ['Initiatives', 'initiatives'], ['Loops', 'loops']] },
   { sec: 'Integrations', items: [['GitHub', 'github']] },
@@ -40,20 +39,12 @@ const SETTINGS_ICONS: Record<string, React.ReactNode> = {
   workspace: <IconSettings size={14} />, teams: <IconTeam size={14} />, members: <IconUsers size={14} />, handoff: <IconAgent size={14} />, data: <IconArchive size={14} />,
 };
 
-// hosted, these pages set up the workspace: only admins see them in the nav (matches the server's adminOnly
-// routes; api = /api/features). Labels and templates are each team's members' and team setup its lead's
-// (TeamSettingsPage); Security and Members gate their own admin-only controls.
 const ADMIN_SECTIONS = new Set(['workspace', 'data', 'slas', 'project-labels', 'project-statuses', 'project-updates',
   'initiatives', 'loops', 'api', 'features', 'workspace-security']);
-// GitHub is everyone's: a member connects their own account and adds repos there; the workspace's
-// GitHub setup on that page stays the admins' (GitHubSettings)
-// a team's lead (or an admin) sets these up; a member doesn't see them in the team's hub
 const LEAD_TEAM_PAGES = new Set(['general', 'statuses', 'triage', 'workflow']);
-// pages that are a feature's own, hidden until Settings › Features turns it on
 const FEATURE_PAGE: Record<string, keyof WorkspaceFeatures> = {
   templates: 'templatesEnabled', slas: 'slasEnabled', 'project-updates': 'projectUpdatesEnabled', initiatives: 'initiativesEnabled', loops: 'loopsEnabled',
 };
-/** what the settings nav offers this person: features that are on, and (hosted) only the pages they can use */
 export function settingsPageShown(snap: Snapshot, key: string): boolean {
   const f = FEATURE_PAGE[key];
   if (f && !snap.workspace.features[f]) return false;
@@ -67,7 +58,6 @@ const STATE_TYPES: Array<[WorkflowStateType, string]> = [
 ];
 const STATE_COLORS = ['#95a2b3', '#8a8f98', '#f2c94c', '#5e6ad2', '#7d8084', '#4cb782', '#eb5757', '#f2994a', '#c770f4', '#3b82f6'];
 
-/** the page /settings opens on: Workspace for whoever can change it, Preferences for a member */
 function useSection(): string {
   const { section } = useParams();
   const member = useApp(s => s.snap?.workspace.auth === 'hosted' && !s.snap.currentUser.admin);
@@ -79,7 +69,6 @@ export function SettingsLayout() {
   const section = useSection();
   const snap = useApp(s => s.snap)!;
   const [q, setQ] = useState('');
-  // a page reached by its link that this person can't change: its controls, locked, under who to ask
   const lockable = !teamKey && ADMIN_SECTIONS.has(section);
   const lockTeam = teamKey ? snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase()) : undefined;
   const teamLevel = !lockTeam || !page ? null : LEAD_TEAM_PAGES.has(page) ? 'lead' : page === 'labels' || page === 'templates' ? 'member' : null;
@@ -133,7 +122,6 @@ function SettingsPage() {
       {!teamKey && section === 'preferences' && <PreferencesSettings />}
       {!teamKey && section === 'profile' && <ProfileSettings />}
       {!teamKey && section === 'notifications' && <NotificationSettings key={sub ?? ''} />}
-      {/* "security" was this page's old address, beside the workspace's Security page: it moves on to the one it meant */}
       {!teamKey && section === 'security' && <Navigate to={`/settings/account${sub ? `/${sub}` : ''}`} replace />}
       {section === 'account' && (sub === 'new-api-key' ? <NewApiKey /> : <SecuritySettings />)}
       {section === 'api' && <ApiAdminSettings />}
@@ -163,7 +151,6 @@ function WorkspaceSettings() {
   const hosted = snap.workspace.auth === 'hosted';
   const people = snap.users.filter(u => u.kind === 'human' && u.status !== 'suspended');
   const [name, setName] = useState(snap.workspace.name);
-  // a blank name would leave the top nav empty: put the old one back instead of saving it
   const save = async () => {
     const next = name.trim();
     if (!next) { setName(snap.workspace.name); useApp.getState().toast({ title: 'The workspace needs a name', line: `Kept “${snap.workspace.name}”.` }); return; }
@@ -179,7 +166,6 @@ function WorkspaceSettings() {
         <input className="text-input" aria-label="Workspace name" value={name} onChange={e => setName(e.target.value)} onBlur={save} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setName(snap.workspace.name); }} />
       </div>
       <div className="field-row">
-        {/* people, not the agent identity that works in every team */}
         <div><div className="field-label">Members</div><div className="field-help">{people.length} member{people.length === 1 ? '' : 's'}{hosted ? '' : ' in this local workspace'}.</div></div>
         <span style={{ color: 'var(--text-secondary)' }}>{hosted ? <Link to="/settings/members">Manage members</Link> : people.map(u => u.name).join(', ')}</span>
       </div>
@@ -191,7 +177,6 @@ function WorkspaceSettings() {
   );
 }
 
-/* ---------------- teams: rename + workflow states CRUD + cycles ---------------- */
 function TeamsSettings() {
   const snap = useApp(s => s.snap)!;
   const [name, setName] = useState('');
@@ -231,7 +216,6 @@ function TeamsSettings() {
   );
 }
 
-/* Linear's "Create a new team": name, identifier derived from it (editable), then straight to the team */
 function NewTeamSettings() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -414,7 +398,6 @@ function TeamSettingsPage(props: { teamKey: string }) {
   const f = snap.workspace.features;
   const now = new Date().toISOString();
   const running = snap.cycles.find(c => c.teamId === team.id && c.startsAt <= now && c.endsAt >= now);
-  // "Off" read as "no cycles" while one ran: say what's off, the schedule
   const cycleMeta = team.autoCycles ? `Every ${team.cycleDuration === 1 ? 'week' : `${team.cycleDuration} weeks`}` : running ? `Cycle ${running.number} running · auto-schedule off` : 'Auto-schedule off';
   const leads = snap.users.filter(u => team.leadIds.includes(u.id));
   const people = snap.users.filter(u => u.kind === 'human' && u.status !== 'suspended' && team.memberIds.includes(u.id));
@@ -430,7 +413,6 @@ function TeamSettingsPage(props: { teamKey: string }) {
       <div className="card set-list">
         {canLead && link('general', <IconSettings size={14} />, 'General', `Name, identifier, description${f.estimatesEnabled ? ' and estimates' : ''}`, '')}
         {link('members', <IconUsers size={14} />, 'Members', 'Manage team members', `${humans} member${humans === 1 ? '' : 's'}`)}
-        {/* a laptop has one person, who is every role */}
         {snap.workspace.auth === 'hosted' && <div className="set-row notif-row">
           <span className="notif-icon"><IconShieldUser size={14} /></span>
           <div style={{ flex: 1 }}><div className="field-label">Team lead</div><div className="field-help">Sets up the team: name, statuses, triage, cycles and automations.{leads.length ? '' : ' No lead yet, so workspace admins do.'}</div></div>
@@ -510,7 +492,6 @@ function SettingSwitch(props: { on: boolean; onChange: (v: boolean) => void; lab
   return <button className={`switch${props.on ? ' on' : ''}`} role="switch" aria-checked={props.on} aria-label={props.label} onClick={() => props.onChange(!props.on)}><span /></button>;
 }
 
-/* ---------------- account ---------------- */
 function PreferencesSettings() {
   const snap = useApp(s => s.snap)!;
   const theme = useApp(s => s.theme);
@@ -642,8 +623,6 @@ function ProfileSettings() {
   );
 }
 
-// Priority inbox, its categories and per-category browser push are cut (CORE_FLOW.md › Core vs niche):
-// the inbox is one list, and browser notifications are one switch. Stored choices stay in the data.
 function NotificationSettings() {
   const snap = useApp(s => s.snap)!;
   const push = snap.workspace.preferences.push;
@@ -672,7 +651,6 @@ function NotificationSettings() {
   );
 }
 
-/** Settings › Features: what a small team doesn't need on day one stays off until the workspace turns it on */
 function FeaturesSettings() {
   const snap = useApp(s => s.snap)!;
   const f = snap.workspace.features;
@@ -693,7 +671,6 @@ function FeaturesSettings() {
   );
 }
 
-/** a team's workflow states (team settings › Issue statuses): add, reorder, recolour, delete */
 function TeamStateList(props: { teamId: string }) {
   const snap = useApp(s => s.snap)!;
   const team = snap.teams.find(t => t.id === props.teamId)!;
@@ -708,7 +685,6 @@ function TeamStateList(props: { teamId: string }) {
     setStName(''); setAddingState(false);
     await useApp.getState().bootstrap();
   };
-  // renumber the whole list so a failed or tied swap can't leave two states on one position
   const moveState = (stateId: string, dir: -1 | 1) => reorder(states, stateId, dir, (id, position) => api.updateState(id, { position }));
   return (
     <div style={{ marginBottom: 28 }}>
@@ -743,8 +719,6 @@ function TeamStateList(props: { teamId: string }) {
   );
 }
 
-/** a team's cycles, listed in team settings › Cycles (what was left of an older all-in-one team
- *  editor whose header, team menu and workflow-state list no page rendered any more) */
 function TeamCycleList(props: { teamId: string }) {
   const snap = useApp(s => s.snap)!;
   const team = snap.teams.find(t => t.id === props.teamId)!;
@@ -782,7 +756,6 @@ function addDaysIso(iso: string, n: number): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
 
-/* Linear-style create-cycle modal: big name field + calendar pill pickers */
 export function NewCycleModal(props: { teamId: string; number: number; onClose: () => void }) {
   const toast = useApp(s => s.toast);
   const { busy, guard } = useInFlight();
@@ -950,7 +923,6 @@ function StateRow(props: { stateId: string; onMove: (dir: -1 | 1) => void; canUp
   );
 }
 
-/* ---------------- members ---------------- */
 function MembersSettings() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
@@ -1004,7 +976,6 @@ function MembersSettings() {
   );
 }
 
-/** a member's GitHub login: their pull requests are attributed to them and assign them */
 function GithubLoginInput(props: { userId: string; value: string }) {
   const [draft, setDraft] = useState(props.value);
   useEffect(() => { setDraft(props.value); }, [props.value]);
@@ -1016,10 +987,8 @@ function GithubLoginInput(props: { userId: string; value: string }) {
   );
 }
 
-/* ---------------- labels CRUD ---------------- */
 function LabelsSettings(props: { onlyTeamId?: string } = {}) {
   const snap = useApp(s => s.snap)!;
-  // labels and templates are each team's members' to change: hosted, a member sees the teams they're on
   const teams = props.onlyTeamId ? snap.teams.filter(t => t.id === props.onlyTeamId) : editableTeams(snap);
   const toast = useApp(s => s.toast);
   const [name, setName] = useState('');
@@ -1104,7 +1073,6 @@ function LabelsSettings(props: { onlyTeamId?: string } = {}) {
   );
 }
 
-/* ---------------- handoff (prompt template for coding agents) ---------------- */
 function HandoffSettings() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
@@ -1124,7 +1092,6 @@ function HandoffSettings() {
     toast({ title: 'Template reset to default' });
   };
 
-  // live preview against a real issue so you see exactly what gets pasted
   const sample = snap.issues[0];
   const preview = sample
     ? buildHandoff(sample, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels }, draft || DEFAULT_PROMPT_TEMPLATE)
@@ -1138,7 +1105,6 @@ function HandoffSettings() {
         an interactive session in a terminal window, in the issue's location. Every issue works in exactly one location; nothing runs without one.
       </div>
       <LocationsSettings />
-      {/* the terminal Claude Code opens in belongs to this machine; a hosted workspace leaves that to the companion */}
       {snap.workspace.auth !== 'hosted' && <ClaudeCodeSettings />}
       <h2 className="settings-h2">Prompt template</h2>
       <div className="field-help" style={{ marginBottom: 10 }}>
@@ -1175,11 +1141,9 @@ function HandoffSettings() {
   );
 }
 
-/* where "Open in Claude Code" launches, and the directory it falls back to */
 function ClaudeCodeSettings() {
   const ws = useApp(s => s.snap)!.workspace;
   const toast = useApp(s => s.toast);
-  // null until the server says which terminals this Mac has; none found (off macOS) lists them all
   const [installed, setInstalled] = useState<TerminalApp[] | null>(null);
   useEffect(() => { void api.installedTerminals().then(r => setInstalled(r.installed)).catch(() => setInstalled([])); }, []);
   const choices = !installed?.length ? [...TERMINAL_APPS] : installed.includes(ws.terminalApp) ? installed : [ws.terminalApp, ...installed];
@@ -1200,10 +1164,8 @@ function ClaudeCodeSettings() {
   );
 }
 
-/* ---------------- issue templates ---------------- */
 function TemplatesSettings(props: { onlyTeamId?: string } = {}) {
   const snap = useApp(s => s.snap)!;
-  // labels and templates are each team's members' to change: hosted, a member sees the teams they're on
   const teams = props.onlyTeamId ? snap.teams.filter(t => t.id === props.onlyTeamId) : editableTeams(snap);
   const toast = useApp(s => s.toast);
   const [teamId, setTeamId] = useState(props.onlyTeamId ?? teams[0]?.id ?? '');
@@ -1295,7 +1257,6 @@ function DataSettings() {
   const toast = useApp(s => s.toast);
   const snap = useApp(s => s.snap)!;
   const fileRef = useRef<HTMLInputElement>(null);
-  // picking a file only stages it: replacing every issue, project and member takes a second, explicit press
   const [staged, setStaged] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
   const importFile = async (file: File) => {
@@ -1332,7 +1293,6 @@ function DataSettings() {
         <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: 'none' }}
           onChange={e => { const f = e.target.files?.[0]; if (f) setStaged(f); e.target.value = ''; }} />
       </div>
-      {/* a team server refuses to reseed itself, so it doesn't offer to */}
       {snap.workspace.auth !== 'hosted' && <div className="field-row">
         <div><div className="field-label">Reset sample workspace</div><div className="field-help">Wipes everything and reseeds the demo data.</div></div>
         <ConfirmButton label="Reset" confirmLabel="Wipe all data?" onConfirm={async () => { await api.reseed(); await useApp.getState().bootstrap(); toast({ title: 'Workspace reset' }); }} />

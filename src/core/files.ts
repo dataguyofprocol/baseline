@@ -6,27 +6,20 @@ import type { FileOwnerType, StoredFile } from './types.js';
 import { FILE_OWNER_TYPES } from './types.js';
 import { id as newId, nowIso } from './util.js';
 
-/* Images: profile pictures and pictures pasted into descriptions, comments and
-   docs. They are small by design (Baseline doesn't host file attachments; link to them instead), so
-   the bytes live in SQLite next to everything else: one database file is the whole backup.
-   A file lives as long as its owner; gc() deletes those whose owner is gone. */
 
 export class FileError extends Error {
   constructor(message: string, readonly status: 400 | 404 | 413 | 415) { super(message); }
 }
 
-/** pictures pasted into editors, and profile pictures */
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 interface FileRow { id: string; name: string; mime: string; size: number; sha256: string; owner_type: string; owner_id: string; uploaded_by: string | null; created_at: string }
 const META_COLS = 'id, name, mime, size, sha256, owner_type, owner_id, uploaded_by, created_at';
 
-/** the table that must hold an owner's id for the owner to exist */
 const OWNER_TABLE: Record<Exclude<FileOwnerType, 'workspace'>, string> = {
   issue: 'issues', doc: 'documents', project: 'projects', initiative: 'initiatives', team: 'teams', avatar: 'users',
 };
 
-/** what image the bytes are, or null when they aren't one we take */
 export function sniffImage(b: Buffer): string | null {
   const at = (o: number, sig: number[]) => b.length >= o + sig.length && sig.every((x, i) => b[o + i] === x);
   const ascii = (o: number, s: string) => b.length >= o + s.length && b.toString('latin1', o, o + s.length) === s;
@@ -46,7 +39,6 @@ export function cleanFileName(name: string | undefined, fallback: string): strin
   return clean || fallback;
 }
 
-/** an image opened directly (an SVG especially) runs no script and gets no same-origin access */
 export function fileHeaders(f: Pick<StoredFile, 'name' | 'mime' | 'sha256'>): Record<string, string> {
   const ascii = f.name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
   const image = f.mime.startsWith('image/');
@@ -89,7 +81,6 @@ export class FileService {
     return !!this.db.prepare(`SELECT 1 FROM ${OWNER_TABLE[type as Exclude<FileOwnerType, 'workspace'>]} WHERE id = ?`).get(ownerId);
   }
 
-  /** store an image; the bytes decide its type, whatever the upload claimed */
   upload(i: { data: Buffer; name?: string; ownerType: FileOwnerType; ownerId: string; uploadedBy?: string | null; maxBytes?: number }): StoredFile {
     const max = i.maxBytes ?? MAX_IMAGE_BYTES;
     if (!i.data.length) throw new FileError('The image is empty', 400);
@@ -112,7 +103,6 @@ export class FileService {
   remove(fileId: string): void { this.db.prepare('DELETE FROM files WHERE id = ?').run(fileId); }
   removeOwner(type: FileOwnerType, ownerId: string): void { this.db.prepare('DELETE FROM files WHERE owner_type = ? AND owner_id = ?').run(type, ownerId); }
 
-  /** delete files whose owner no longer exists (types this version doesn't know are left alone); returns how many went */
   gc(): number {
     let n = 0;
     for (const [type, table] of Object.entries(OWNER_TABLE)) {
@@ -121,10 +111,6 @@ export class FileService {
     return n;
   }
 
-  /* Before the files table, uploads sat in `attachments/<id>/<name>` beside the database (one
-     folder shared by every database there). Copy in what this database references, keeping
-     each upload's id so URLs already pasted into descriptions keep working; the old folder is
-     left as it was, since another database may still use it. */
   migrateLegacy(): number {
     const dir = this.legacyDir;
     if (!dir || !existsSync(dir)) return 0;
@@ -135,7 +121,6 @@ export class FileService {
       const path = join(dir, fileId, name);
       if (!/^[\w-]+$/.test(fileId) || name.includes('/') || !existsSync(path)) return null;
       const data = readFileSync(path);
-      // uploads from before images-only keep working: images inline, anything else as a download
       const mime = sniffImage(data) ?? 'application/octet-stream';
       moved++;
       return this.insert(fileId, data, cleanFileName(name, 'file'), mime, ownerType, ownerId, uploadedBy, createdAt ?? nowIso());

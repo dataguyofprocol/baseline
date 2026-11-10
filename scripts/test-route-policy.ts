@@ -1,8 +1,3 @@
-// Every registered /api route must have a row in src/server/route-policy.ts, and every row must match
-// what the middleware does: the key permission it needs, and how a key limited to one team is kept
-// out of another team's data (by calling the route with such a key). Throwaway database.
-//
-//   npx tsx scripts/test-route-policy.ts
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,12 +26,10 @@ let pass = 0, fail = 0;
 const problems: string[] = [];
 const check = (ok: boolean, what: string) => { if (ok) pass++; else { fail++; problems.push(what); } };
 
-// the routes Hono has, as "METHOD /path" (app.use middleware shows up as ALL)
 const registered = [...new Set(app.routes.filter(r => r.method !== 'ALL' && (r.path.startsWith('/api') || r.path === '/mcp')).map(r => `${r.method} ${r.path}`))];
 for (const r of registered) check(r in ROUTE_POLICY, `${r} is registered but has no row in src/server/route-policy.ts`);
 for (const r of Object.keys(ROUTE_POLICY)) check(registered.includes(r), `${r} has a policy row but no route`);
 
-/** a concrete path for a route pattern, with its first parameter set to `first` */
 const pathFor = (pattern: string, first: string) => {
   let used = false;
   return pattern.replace(/:[A-Za-z]+(\{([^}]*)\})?\??|\*/g, (_m, _g, alts?: string) => {
@@ -56,7 +49,6 @@ const call = (method: string, path: string, body?: unknown) => app.fetch(new Req
 }));
 const teamRefusal = async (res: Response) => res.status === 403 && /team/.test(((await res.json().catch(() => ({}))) as { error?: string }).error ?? '');
 
-/** start_issue on the other team's issue, over raw Streamable HTTP with the team-limited key: the issue is invisible to it, and unchanged */
 let mcpResult: boolean | undefined;
 async function mcpRefusesOtherTeam(): Promise<boolean> {
   if (mcpResult !== undefined) return mcpResult;
@@ -76,7 +68,6 @@ async function mcpRefusesOtherTeam(): Promise<boolean> {
 }
 const stateBefore = store.getIssue(foreign.id)!.stateId;
 
-// which path shapes the middleware maps to a team (mirrors ApiKeys.teamAllowed)
 const NAMES_ISSUE = /^\/api\/issues\/:/;
 const NAMES_TEAM = /^\/api\/(teams|git\/automation)\/:/;
 const NAMES_FILE = /^\/api\/(files|attachments|emoji-files)\/:/;
@@ -112,7 +103,6 @@ for (const route of registered.filter(r => r in ROUTE_POLICY)) {
   }
 }
 
-// ---- team roles: every team-setup write, as an admin, the team's lead, one of its members and an outsider ----
 const TEAM_SETUP = /^(POST|PATCH|PUT|DELETE) \/api\/(teams\/:|team-links|states|labels|issue-templates|cycles|recurring|git\/automation)/;
 for (const r of registered.filter(r => TEAM_SETUP.test(r))) check(r in TEAM_ROLE, `${r} writes a team's setup but has no row in TEAM_ROLE (src/server/route-policy.ts)`);
 for (const r of Object.keys(TEAM_ROLE)) check(registered.includes(r), `${r} has a TEAM_ROLE row but no route`);
@@ -121,7 +111,6 @@ for (const r of Object.keys(TEAM_ROLE)) check(registered.includes(r), `${r} has 
   const lead = person('Lea'), member = person('Mem'), outsider = person('Out'), other = person('Oth');
   const cookieOf = (userId: string) => `__Host-baseline_session=${accounts.createSession(userId).token}`;
   const as = { admin: cookieOf(owner.id), lead: cookieOf(lead.id), member: cookieOf(member.id), outsider: cookieOf(outsider.id) };
-  /** a fresh team (each call may delete or reshape it) that Lea leads and Mem is on, with one of each row */
   const fixture = () => {
     const t = store.createTeam(`R${Math.random().toString(36).slice(2, 6)}`, 'Roles');
     for (const u of store.getTeam(t.id)!.leadIds) store.setTeamLead(t.id, u, false);
@@ -161,7 +150,6 @@ for (const r of Object.keys(TEAM_ROLE)) check(registered.includes(r), `${r} has 
     const [method, pattern] = route.split(' ') as [string, string];
     for (const who of ROLES) {
       const f = fixture();
-      // members/:userId and leads/:userId act on someone else on the team (removing yourself is anyone's)
       const path = pathFor(pattern, idFor(pattern, f)).replace(/\/x$/, `/${other.id}`);
       const res = await send(as[who], method, path, bodyFor(route, f));
       const ok = res.status !== 403;

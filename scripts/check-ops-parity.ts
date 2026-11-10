@@ -1,16 +1,3 @@
-// The agent surface is one list, OPERATIONS (src/ops/index.ts). This fails when
-//   - an op has no `baseline agent` command, or `baseline agent` has a command that is no op
-//     (read from the real CLI's --help, so a wiring mistake shows);
-//   - a generated command lacks an argument or flag for an input field, or a field can't be a flag;
-//   - an op is not an MCP tool of `baseline mcp` with the same description, an input schema with
-//     exactly its fields, an output schema, and annotations from its effect (asked over MCP);
-//   - the block `baseline connect` writes misses an op, isn't idempotent, or leaves a stale block;
-//   - an op module reaches past the Baseline client (store, database, server, process, console);
-//   - the "Agent loop" block in skills/baseline/SKILL.md, or the hand-off brief's {{tracking}} text
-//     (src/core/tracking.ts), differs from the one generated from OPERATIONS. `--write`
-//     regenerates them instead (npm run gen:skill).
-//
-//   npx tsx scripts/check-ops-parity.ts [--write]
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,11 +13,9 @@ import { ALLOWED_TOOLS, CLAUDE_HOOKS, HARNESSES, planConnect, type FileEdit } fr
 import { OP_ALIASES } from '../src/ops/operation.js';
 
 const root = join(import.meta.dirname, '..');
-/** `baseline agent` commands that are settings, not agent operations */
 const NOT_OPS = ['config', 'help'];
 const problems: string[] = [];
 
-// 1. the real CLI's command list
 const help = spawnSync('npx', ['tsx', 'src/cli/index.ts', 'agent', '--help'], { cwd: root, encoding: 'utf8', env: { ...process.env, BASELINE_DB: '/nonexistent/never-opened.db' } });
 if (help.status !== 0) problems.push(`\`baseline agent --help\` failed: ${help.stderr.trim()}`);
 const listed = (help.stdout.split('Commands:')[1] ?? '').split('\n').map(l => /^ {2}(\S+)/.exec(l)?.[1]).filter((x): x is string => !!x);
@@ -39,7 +24,6 @@ for (const v of verbs) if (!listed.includes(v)) problems.push(`op ${v.replace(/-
 for (const c of listed) if (!verbs.includes(c) && !NOT_OPS.includes(c)) problems.push(`\`baseline agent ${c}\` is not an operation: add it to OPERATIONS, or to NOT_OPS here if it is a setting`);
 if (new Set(OPERATIONS.map(o => o.name)).size !== OPERATIONS.length) problems.push('two operations share a name');
 
-// 2. every input field is an argument or a flag of its generated command
 const agent = new Command('agent');
 mountOperations(agent, async () => { throw new Error('not run'); });
 for (const op of OPERATIONS as readonly AnyOperation[]) {
@@ -58,14 +42,12 @@ for (const op of OPERATIONS as readonly AnyOperation[]) {
   if (!flags.includes('--json')) problems.push(`${op.name}: no --json`);
 }
 
-// 3. op bodies reach Baseline only: no store, database or server, and no process state (stdout is MCP's protocol)
 for (const f of readdirSync(join(root, 'src/ops')).filter(f => f.endsWith('.ts'))) {
   const text = readFileSync(join(root, 'src/ops', f), 'utf8');
   if (/from '\.\.\/(server\/[^']+|core\/(store|db|work))\.js'/.test(text)) problems.push(`src/ops/${f} imports the server, the store or the database; operations go through the Baseline client`);
   if (/\bprocess\.|console\./.test(text)) problems.push(`src/ops/${f} touches process or console; the front door (CLI or MCP) passes what an op needs in its context`);
 }
 
-// 4. the skill's agent loop, generated
 const START = '<!-- agent-loop:start — generated from src/ops/index.ts by `npm run gen:skill`; edit the operations, not this block -->';
 const END = '<!-- agent-loop:end -->';
 const block = [
@@ -89,7 +71,6 @@ else {
   }
 }
 
-// 5. the hand-off brief's {{tracking}} text, generated (core runs in the browser too, so it can't import the registry)
 const trackingPath = join(root, 'src/core/tracking.ts');
 const tracking = [
   '// Generated from src/ops/index.ts by `npm run gen:skill`; edit the operations (or src/ops/guide.ts), not this file.',
@@ -98,13 +79,12 @@ const tracking = [
   '',
 ].join('\n');
 let trackingNow = '';
-try { trackingNow = readFileSync(trackingPath, 'utf8'); } catch { /* absent: written below, or reported */ }
+try { trackingNow = readFileSync(trackingPath, 'utf8'); } catch { }
 if (trackingNow !== tracking) {
   if (process.argv.includes('--write')) { writeFileSync(trackingPath, tracking); console.log('✓ regenerated src/core/tracking.ts'); }
   else problems.push('src/core/tracking.ts (the hand-off {{tracking}} text) is stale: run `npm run gen:skill`');
 }
 
-// 6. every op is a tool of the real MCP server, asked over the protocol
 {
   const server = createMcpServer({ connect: async () => { throw new Error('not run'); }, as: undefined, session: undefined });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -119,7 +99,7 @@ if (trackingNow !== tracking) {
     if (t.description !== op.description) problems.push(`${op.name}: the MCP tool's description differs from the op's`);
     const props = Object.keys(t.inputSchema.properties ?? {}).sort().join();
     let fields: ReturnType<typeof fieldsOf> = [];
-    try { fields = fieldsOf(op); } catch { /* reported in 2 */ }
+    try { fields = fieldsOf(op); } catch { }
     if (props !== fields.map(f => f.name).sort().join()) problems.push(`${op.name}: the MCP input schema has ${props}; the op's fields are ${fields.map(f => f.name).sort().join()}`);
     const required = [...(t.inputSchema.required ?? [])].sort().join();
     if (required !== fields.filter(f => f.required).map(f => f.name).sort().join()) problems.push(`${op.name}: the MCP input schema requires ${required || 'nothing'}, the op ${fields.filter(f => f.required).map(f => f.name).join(',') || 'nothing'}`);
@@ -132,9 +112,7 @@ if (trackingNow !== tracking) {
   await client.close();
 }
 
-// 7. the block `baseline connect` writes: every op, idempotent, and a stale block is replaced
 for (const harness of HARNESSES) {
-  // the MCP config is usually committed: nothing from this machine, no database, no key
   for (const entry of [{ transport: 'stdio' }, { transport: 'http', url: 'https://baseline.example.com/mcp' }] as const) {
     const all = planConnect(harness, entry, () => null, { team: 'ENG' });
     for (const e of all) if (/\/Users\/|\/home\/|--db|node_modules|tsx/.test(e.after)) problems.push(`baseline connect ${harness} (${entry.transport}) puts a machine path in ${e.path}`);
@@ -154,7 +132,6 @@ for (const harness of HARNESSES) {
   const doc = harness === 'claude' ? 'CLAUDE.md' : 'AGENTS.md';
   const text = files.get(doc) ?? '';
   if (harness === 'claude') {
-    // Claude Code: a short block (the MCP instructions are the full guide), the hooks and the allow-list
     if (text.split('\n').length > 8) problems.push(`the CLAUDE.md block is ${text.split('\n').length} lines; it should stay about 5`);
     for (const name of ['next_issue', 'find_issues', 'propose_issue', 'create_issue', 'start_issue', 'post_progress', 'finish_issue']) if (!text.includes(`\`${name}\``)) problems.push(`the CLAUDE.md block doesn't name ${name}`);
     const settings = JSON.parse(files.get('.claude/settings.json') ?? '{}');
@@ -170,7 +147,6 @@ for (const harness of HARNESSES) {
   apply(planConnect(harness, server, p => files.get(p) ?? null));
   if (files.get(doc) !== `# notes\n\n${harness === 'claude' ? claudeBlock() : agentBlock()}\n\nmore notes\n`) problems.push(`baseline connect ${harness} doesn't replace a stale block in ${doc} in place`);
 }
-// a retired tool name still answers, through the op that replaced it
 for (const [old, now] of Object.entries(OP_ALIASES)) if (!OPERATIONS.some(o => o.name === now) || OPERATIONS.some(o => o.name === old)) problems.push(`alias ${old} → ${now} is broken`);
 
 if (problems.length) { for (const p of problems) console.error(`✗ ${p}`); process.exit(1); }

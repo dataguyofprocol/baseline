@@ -1,5 +1,3 @@
-/* Journey harness: drives the running Baseline app the way a person would (keys, clicks,
-   typing) and checks the result in the UI and through /api/bootstrap. One row per journey. */
 (() => {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
@@ -33,7 +31,6 @@
     async ctx(el) { const r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 10 })); await sleep(500); },
     async hover(el) { for (const n of ['mouseover', 'mouseenter']) el.dispatchEvent(new MouseEvent(n, { bubbles: true })); el.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true })); el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await sleep(350); },
     rows: () => t.qa('[data-issue-row]').length,
-    /** click a menu trigger until its menu is really open (a fading menu can swallow the first click) */
     async openMenu(sel, ms = 450) { for (let i = 0; i < 4; i++) { await t.waitClosed(); await t.click(sel, ms); if (t.menuOpen()) return; } throw new Error('menu did not open: ' + sel); },
     rowSwitch(label) { const r = [...document.querySelectorAll('.menu:not(.closing) .dopts-row, .menu:not(.closing) .menu-item')].find(e => e.textContent.trim().startsWith(label)); return r?.querySelector('[role=switch], .switch, button') ?? r; },
     async waitClosed() { for (let i = 0; i < 20 && document.querySelector('.menu.closing'); i++) await sleep(60); },
@@ -50,7 +47,6 @@
     if (errs.length) t.ok('page errors during the run', false, errs.slice(0, 5).join(' | '));
     localStorage.setItem('__harness', JSON.stringify(results)); return t.report(); };
 
-  /* ================= 1. shell & navigation ================= */
   S('shell', async t => {
     await t.nav('/inbox');
     await t.run('1.1 Sidebar: Inbox, My issues, Workspace (Projects, Views, More), Favorites, Your teams', () => {
@@ -116,7 +112,6 @@
     });
   });
 
-  /* ================= 2. capture work ================= */
   S('create', async t => {
     await t.run('2.1 C opens the modal: team, title, rich description, properties, draft, create-more, ⌘↵', async () => {
       await t.nav('/team/CORE/all', 700); await t.press('c', {}, 650); const m = t.q('.cm-root'); if (!m) t.fail('no modal');
@@ -162,7 +157,6 @@
     });
   });
 
-  /* ================= 3. triage ================= */
   S('triage', async t => {
     const s0 = await t.snap(); const ago = s0.teams.find(x => x.key === 'AGO'); const tri = s0.states.find(x => x.teamId === ago.id && x.type === 'triage');
     for (const title of ['Harness triage A', 'Harness triage B', 'Harness triage C', 'Harness triage D']) await t.post('/api/issues', { teamId: ago.id, title, stateId: tri.id });
@@ -196,7 +190,6 @@
     });
   });
 
-  /* ================= 4. issue page ================= */
   S('issue', async t => {
     await t.run('4.1 Breadcrumb names the source list; "n / total"; J/K moves through it', async () => {
       await t.nav('/team/CORE/active', 900); await t.press('j', {}, 300); await t.press('Enter', {}, 950); const h1 = location.hash; const top = t.q('.topbar').innerText; const pos = /(\d+)\s*\/\s*(\d+)/.exec(top);
@@ -239,7 +232,6 @@
       s = await t.snap(); const c2 = s.comments.find(x => x.id === c.id); const reply = s.comments.find(x => x.parentId === c.id);
       await t.post(`/api/comments/${c.id}`, { resolved: false }, 'PATCH'); await t.sync(); await t.nav('/issue/CORE-5', 900);
       const r = t.qa('.cmt').find(e => e.innerText.includes('Harness reply')); await t.click(r.querySelector('[title="More"]'), 400); const menu = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Delete'), 900);
-      // delete waits out its Undo toast before it reaches the server
       await sleep(7000); s = await t.snap(); const gone = !s.comments.some(x => x.body.includes('Harness reply'));
       if (!Object.keys(c2.reactions).length || !reply || !c2.resolvedAt || !menu.includes('Edit') || !gone) t.fail(`react ${Object.keys(c2.reactions).length} reply ${!!reply} resolved ${!!c2.resolvedAt} edit ${menu.includes('Edit')} deleted ${gone}`);
       return 'posted, reacted, replied, resolved, edit offered, deleted';
@@ -320,7 +312,6 @@
     });
   });
 
-  /* ================= 5. lists, filters, views ================= */
   S('lists', async t => {
     const clear = async () => { await t.closeAll(); const c = t.byText('Clear'); if (c) await t.click(c, 500); };
     await t.nav('/team/CORE/all', 900); await clear();
@@ -373,7 +364,7 @@
     });
     await t.run('5.9 Archive and Trash pages', async () => {
       const core = (await t.snap()).teams.find(x => x.key === 'CORE'); const { issue } = await t.post('/api/issues', { teamId: core.id, title: 'Harness trash me' }); await fetch(`/api/issues/${issue.id}`, { method: 'DELETE' }); await t.sync();
-      await t.nav('/trash', 900); const listed = t.text().includes('Harness trash me'); const btns = t.qa('button').map(b => (b.title || b.textContent).trim()).join(' '); // row actions show on hover, so count them in the DOM
+      await t.nav('/trash', 900); const listed = t.text().includes('Harness trash me'); const btns = t.qa('button').map(b => (b.title || b.textContent).trim()).join(' ');
       await t.nav('/team/CORE/archive', 900); const arch = t.text().includes('Archive');
       if (!listed || !/Restore/.test(btns) || !/Empty trash/.test(btns) || !arch) t.fail(`listed ${listed} restore ${/Restore/.test(btns)} empty ${/Empty trash/.test(btns)} archive ${arch}`); return 'trash: Restore, Delete forever, Empty trash; archive page';
     });
@@ -387,7 +378,6 @@
     });
   });
 
-  /* ================= 6. projects ================= */
   S('projects', async t => {
     const P = async () => (await t.snap()).projects.find(x => x.name === 'Agent Handoff');
     await t.run('6.1 Projects list: health, priority, lead, target, issues, status %, labels', async () => {
@@ -453,7 +443,6 @@
     });
   });
 
-  /* ================= 7. cycles ================= */
   S('cycles', async t => {
     await t.run('7.1 Cycles page: timeline with current / upcoming / previous, capacity, success', async () => {
       await t.nav('/team/CORE/cycles', 900); const txt = t.text(); const miss = ['Current', 'Upcoming'].filter(x => !txt.includes(x)); if (miss.length) t.fail('missing ' + miss); return txt.split('\n').slice(0, 8).join(' · ').slice(0, 120);
@@ -469,7 +458,6 @@
     });
   });
 
-  /* ================= 8. inbox ================= */
   S('inbox', async t => {
     await t.run('8.1 Inbox keys: U read/unread, H snooze, ⌫ delete; row menu', async () => {
       await t.nav('/inbox', 900); const sel = () => t.q('.inbox-row.selected'); if (!sel()) t.fail('no selection');
@@ -512,7 +500,6 @@
     });
   });
 
-  /* ================= 9. settings & workspace pages ================= */
   S('settings', async t => {
     await t.run('9.1 Settings nav: Personal · Issues · Projects · Features · Administration · Your teams (project labels/statuses cut)', async () => {
       await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Updates', 'Features', 'Account & API keys', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
@@ -568,7 +555,6 @@
     });
   });
 
-  /* ================= 11. initiatives, SLAs, loops, GitHub ================= */
   S('more', async t => {
     await t.run('11.1 Initiatives: sidebar, G then N, create, add project, post update, status', async () => {
       await t.nav('/inbox', 500); if (!t.q('.sidebar').innerText.includes('Initiatives')) t.fail('no sidebar item');
@@ -620,7 +606,6 @@
     });
   });
 
-  /* ================= 12. second side-by-side pass ================= */
   S('parity', async t => {
     await t.run('12.1 Create modal: Linear chrome (team key chip, pill properties, no scrim), V opens it full screen', async () => {
       await t.nav('/team/CORE/all', 600); await t.press('c', {}, 600); const head = t.q('.cm-header .cm-team')?.innerText.trim(); const scrim = getComputedStyle(t.q('.overlay')).backgroundColor; const pill = getComputedStyle(t.q('.cm-pills .prop-chip')).borderRadius; const assignee = t.qa('.cm-pills .prop-chip').map(b => b.innerText.trim()).find(x => /Assignee|Parth/.test(x));
@@ -697,7 +682,6 @@
     });
   });
 
-  /* ================= 10. every route renders without errors ================= */
   S('routes', async t => {
     await t.run('10.1 Every route renders without console errors', async () => {
       const s = await t.snap(); const p = s.projects[0].id; const d = s.docs[0].id; const cyc = s.cycles.find(x => x.teamId === s.teams[0].id).id;

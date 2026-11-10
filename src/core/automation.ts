@@ -7,17 +7,13 @@ import { DEFAULT_TEAM_WORKFLOW, type Issue, type Loop, type LoopAction, type Loo
 const ts = () => new Date().toISOString();
 const HOUR = 3600_000;
 
-/** an agent identity automatic changes are attributed to (never the person whose request ran the tick) */
 export function agentUser(store: Store, db: DatabaseSync, name: string): string {
   const row = db.prepare("SELECT id FROM users WHERE kind = 'agent' AND name = ?").get(name) as { id: string } | undefined;
   return row?.id ?? store.createUser(name, '', false, 'agent').id;
 }
 
-/* SLAs (deadlines from rules) and Loops (workflows that run on a schedule or when issues change). */
 export class Automation {
-  /** set by the server: opens an interactive Claude Code session for an issue (the CLI has none) */
   launcher: ((issueId: string) => Promise<void>) | null = null;
-  /** why a run with no launcher skips the Claude Code action */
   launcherMissing = 'the app isn’t running';
   private running = false;
 
@@ -40,24 +36,22 @@ export class Automation {
     return { slaRules, loops, loopRuns, teamSubscriptions: this.teamSubscriptions(), teamWorkflows: this.teamWorkflows() };
   }
 
-  // ================= team workflows & automations =================
   teamWorkflows(): Record<string, TeamWorkflow> {
     let saved: Record<string, Partial<TeamWorkflow>> = {};
-    try { saved = JSON.parse(getMeta(this.db, 'teamWorkflows') ?? '{}'); } catch { /* defaults */ }
+    try { saved = JSON.parse(getMeta(this.db, 'teamWorkflows') ?? '{}'); } catch { }
     const out: Record<string, TeamWorkflow> = {};
     for (const t of this.rows<{ id: string }>('SELECT id FROM teams')) out[t.id] = { ...DEFAULT_TEAM_WORKFLOW, ...(saved[t.id] ?? {}) };
     return out;
   }
   setTeamWorkflow(teamId: string, patch: Partial<TeamWorkflow>): TeamWorkflow {
     let saved: Record<string, Partial<TeamWorkflow>> = {};
-    try { saved = JSON.parse(getMeta(this.db, 'teamWorkflows') ?? '{}'); } catch { /* start over */ }
+    try { saved = JSON.parse(getMeta(this.db, 'teamWorkflows') ?? '{}'); } catch { }
     saved[teamId] = { ...DEFAULT_TEAM_WORKFLOW, ...(saved[teamId] ?? {}), ...patch };
     setMeta(this.db, 'teamWorkflows', JSON.stringify(saved));
     return saved[teamId] as TeamWorkflow;
   }
   private wfRunning = false;
   private closed = (stateId: string) => { const t = this.stateType(stateId); return t === 'completed' || t === 'canceled'; };
-  /** auto-close parents / sub-issues and re-order on status changes, as the Automation agent */
   private applyWorkflow(before: Issue | null, after: Issue): void {
     if (!before || before.stateId === after.stateId || this.wfRunning) return;
     const wf = this.teamWorkflows()[after.teamId];
@@ -66,7 +60,6 @@ export class Automation {
     try {
       const bot = () => agentUser(this.store, this.db, 'Automation');
       const type = this.stateType(after.stateId);
-      // re-order: an issue moving forward lands at the top (or bottom) of its new status; a hand-placed drop wins
       if (wf.reorder !== 'none' && before.sortOrder === after.sortOrder) {
         const order = ['triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled'];
         const forward = order.indexOf(type ?? '') >= order.indexOf(this.stateType(before.stateId) ?? '');
@@ -89,7 +82,6 @@ export class Automation {
       }
     } finally { this.wfRunning = false; }
   }
-  /** hourly: close stale issues and archive long-closed ones */
   private sweepWorkflows(now: Date): void {
     const last = getMeta(this.db, 'workflowSweepAt');
     if (last && now.getTime() - Date.parse(last) < HOUR) return;
@@ -105,7 +97,6 @@ export class Automation {
         const cutoff = monthsAgo(wf.archiveMonths);
         const done = this.rows<{ id: string; project_id: string | null }>('SELECT id, project_id FROM issues WHERE team_id = ? AND deleted_at IS NULL AND archived_at IS NULL AND COALESCE(completed_at, canceled_at) < ?', teamId, cutoff);
         for (const i of done) {
-          // an issue in a project waits until the project itself has been closed that long
           if (i.project_id) {
             const p = this.db.prepare('SELECT status, completed_at FROM projects WHERE id = ?').get(i.project_id) as { status: string; completed_at: string | null } | undefined;
             if (p && !((p.status === 'completed' || p.status === 'canceled') && (p.completed_at ?? '') < cutoff)) continue;
@@ -116,8 +107,6 @@ export class Automation {
     }
   }
 
-  // ================= team bell =================
-  /** someone's team bells (the acting person's by default), by team */
   teamSubscriptions(userId = this.store.actor()): Record<string, TeamSubscription> {
     const rows = this.rows<{ team_id: string; issue_added: number; issue_closed: number; triage: number }>('SELECT * FROM team_subscriptions WHERE user_id = ?', userId);
     return Object.fromEntries(rows.map(r => [r.team_id, { issueAdded: !!r.issue_added, issueClosed: !!r.issue_closed, triage: !!r.triage }]));
@@ -127,7 +116,6 @@ export class Automation {
     this.db.prepare('INSERT INTO team_subscriptions (team_id, user_id, issue_added, issue_closed, triage) VALUES (?, ?, ?, ?, ?) ON CONFLICT(team_id, user_id) DO UPDATE SET issue_added = excluded.issue_added, issue_closed = excluded.issue_closed, triage = excluded.triage')
       .run(teamId, userId, v.issueAdded ? 1 : 0, v.issueClosed ? 1 : 0, v.triage ? 1 : 0);
   }
-  /** each person with the team's bell on hears about the events they chose, but never about their own */
   private notifyTeam(before: Issue | null, after: Issue, actorId?: string): void {
     const type = this.stateType(after.stateId);
     const key = this.store.keyOf(after);
@@ -140,7 +128,6 @@ export class Automation {
     }
   }
 
-  // ================= SLAs =================
   createSlaRule(input: { name: string; teamId?: string | null; priorities?: Priority[]; labelIds?: string[]; hours: number }): SlaRule {
     const r: SlaRule = { id: id('sla'), name: input.name.trim(), teamId: input.teamId ?? null, priorities: input.priorities ?? [], labelIds: input.labelIds ?? [], hours: input.hours, enabled: true, createdAt: ts() };
     this.db.prepare('INSERT INTO sla_rules (id, name, team_id, priorities, labels, hours, enabled, created_at) VALUES (?,?,?,?,?,?,1,?)').run(r.id, r.name, r.teamId, JSON.stringify(r.priorities), JSON.stringify(r.labelIds), r.hours, r.createdAt);
@@ -170,7 +157,6 @@ export class Automation {
       && (!r.priorities.length || r.priorities.includes(i.priority))
       && (!r.labelIds.length || r.labelIds.some(l => i.labelIds.includes(l))));
   }
-  /** the deadline starts when an issue first matches a rule; closing it clears the SLA */
   applySla(i: Issue): void {
     const type = this.stateType(i.stateId);
     const cur = this.db.prepare('SELECT sla_rule_id, sla_breaches_at FROM issues WHERE id = ?').get(i.id) as { sla_rule_id: string | null; sla_breaches_at: string | null } | undefined;
@@ -195,7 +181,6 @@ export class Automation {
     }
   }
 
-  // ================= Loops =================
   createLoop(input: { name: string; teamId?: string | null; trigger: LoopTrigger; actions: LoopAction[] }): Loop {
     const l: Loop = { id: id('loop'), name: input.name.trim(), teamId: input.teamId ?? null, trigger: input.trigger, actions: input.actions, enabled: true, lastRunAt: null, createdAt: ts() };
     this.db.prepare('INSERT INTO loops (id, name, team_id, trigger, actions, enabled, last_run_at, created_at) VALUES (?,?,?,?,?,1,NULL,?)').run(l.id, l.name, l.teamId, JSON.stringify(l.trigger), JSON.stringify(l.actions), l.createdAt);
@@ -231,7 +216,6 @@ export class Automation {
       if (now.getTime() - last >= every[l.trigger.cadence]) this.runLoop(l.id, null, now);
     }
   }
-  /** run a loop's actions on an issue (or, for schedules, on the issue its createIssue action files) */
   runLoop(loopId: string, issueId: string | null, now = new Date()): LoopRun {
     const l = this.snapshot().loops.find(x => x.id === loopId);
     if (!l) throw new Error('Unknown loop');
@@ -266,7 +250,6 @@ export class Automation {
     this.db.prepare('INSERT INTO loop_runs (id, loop_id, issue_id, ok, detail, created_at) VALUES (?,?,?,?,?,?)').run(run.id, loopId, target, ok ? 1 : 0, run.detail, run.createdAt);
     this.db.prepare('UPDATE loops SET last_run_at = ? WHERE id = ?').run(now.toISOString(), loopId);
     if (target) this.store.logActivity({ issueId: target, type: 'loopRan', data: { loop: l.name, detail: run.detail } }, bot);
-    // loops are workspace settings, so a failing one is the admins' to look at
     if (!ok) this.store.notifyEach(this.rows<{ id: string }>("SELECT id FROM users WHERE admin = 1 AND kind != 'agent' AND status = 'active'").map(u => u.id), 'loopFailed', { actorId: bot, issueId: target, body: `${l.name}: ${run.detail}` });
     return run;
   }

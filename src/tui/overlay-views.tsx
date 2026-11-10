@@ -1,4 +1,3 @@
-// What draws over the screen: the space menu, a picker with no field on screen, / find, compose forms and help.
 import { Box, Text } from 'ink';
 import { findCtx, findSections, menuCtxFor } from './commands.js';
 import { agentPreview, helpSections, introLines, MENUS, rowLabel, SUBMENU } from './menus.js';
@@ -31,7 +30,6 @@ function rightAlign(left: Seg[], right: Seg[], width: number): Line {
   return [...out, { text: ' '.repeat(Math.max(1, width - used - rw)) }, ...right];
 }
 
-/** every key, by task, in two columns when there is room */
 export function helpLines(width: number): Line[] {
   const sections = helpSections().map(sec => {
     const keyW = Math.max(10, ...sec.rows.filter(r => !r.sub).map(r => displayWidth(r.key) + 2));
@@ -60,7 +58,6 @@ function truncLine(l: Line, width: number): Line {
   return out;
 }
 
-/** `onFindRows`: how many / results are on screen, which PgDn moves by */
 interface Props { s: TuiState; data: TuiData; contexts: Context[]; cols: number; rows: number; now: number; onHelpMax: (n: number) => void; onFindRows: (n: number) => void; tabs: number; target: string; tmux: boolean }
 
 export function OverlayView(p: Props) {
@@ -81,7 +78,6 @@ function place(cols: number, rows: number, width: number, height: number) {
   return { width: w, left: Math.max(0, Math.floor((cols - w) / 2)), top: Math.max(0, Math.min(Math.floor((rows - height) / 3), rows - height - 1)) };
 }
 
-/** the picker floating over the list, when no detail pane or issue page shows the field it changes */
 function PickerView({ data, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'picker' }> }) {
   const issue = data.issueById.get(o.issueId);
   const lines = pickerLines(o, data, Math.min(44, cols - 4), floatingPickerRows(rows), `${PICKER_TITLE[o.field]} · ${issue ? data.keyOf(issue) : ''}`);
@@ -94,7 +90,6 @@ function PickerView({ data, cols, rows, o }: Props & { o: Extract<Overlay, { kin
   );
 }
 
-/** `/`: a prompt at the bottom with the results panel above it, over the lower part of the screen */
 function FindView({ s, data, cols, rows, now, o, onFindRows }: Props & { o: Extract<Overlay, { kind: 'find' }> }) {
   const sections = findSections(s, o.query.value, now);
   const items = findItems(sections);
@@ -163,13 +158,11 @@ function ComposeView({ data, contexts, cols, rows, o }: Props & { o: Extract<Ove
   return <Modal title="Rename" subtitle={key} rows={lines} width={width} left={1} top={sheetTop(rows, lines.length + 4)} footer={hintLine(contexts)} />;
 }
 
-/** a sheet sits on the bottom of the screen, just above the toast line and the footer */
 const sheetTop = (rows: number, height: number) => Math.max(0, rows - 2 - height);
 const sheetRoom = (rows: number) => Math.max(4, Math.floor((rows - 2) * 0.6) - 4);
 
 const chip = (k: string): Seg => keySeg(k);
 
-/** what rises from the bottom: anything typed or confirmed, and the lists / opens. esc closes it without saving */
 function SheetView({ s, data, contexts, cols, rows, now, sheet, tmux }: Props & { sheet: Sheet }) {
   const width = cols - 2;
   const inner = width - 4;
@@ -178,7 +171,6 @@ function SheetView({ s, data, contexts, cols, rows, now, sheet, tmux }: Props & 
   const key = issue ? data.keyOf(issue) : '';
   let title = '';
   let body: Line[] = [];
-  /** list rows with the one under the cursor lit, windowed to the room there is */
   const list = (items: Line[], cursor: number, max: number): Line[] => {
     const start = Math.max(0, Math.min(cursor - max + 1, items.length - max));
     return items.slice(start, start + max).map((l, i) => (start + i === cursor ? l.map(x => ({ ...x, bg: x.bg ?? theme.selBg })) : l));
@@ -275,7 +267,6 @@ function SheetView({ s, data, contexts, cols, rows, now, sheet, tmux }: Props & 
 
 export const helpRows = (rows: number) => Math.max(3, rows - 6);
 
-/** the first-launch card; ? shows it again with every key below it, scrolled with ↑↓ */
 function HelpView({ data, cols, rows, o, onHelpMax, tabs, target }: Props & { o: Extract<Overlay, { kind: 'help' }> }) {
   const width = Math.min(cols - 2, o.intro ? 84 : 104);
   const inner = width - 4;
@@ -290,7 +281,6 @@ function HelpView({ data, cols, rows, o, onHelpMax, tabs, target }: Props & { o:
   return <Modal title={o.intro ? 'Welcome' : 'Keys'} subtitle={max ? (scroll < max ? '↑↓ for more' : 'end') : undefined} rows={lines} width={width} left={left} top={o.intro ? top : Math.min(top, 1)} />;
 }
 
-/** the space menu over the list: the issue on top, a row per letter with the field's value beside it, sections ruled off */
 function MenuView({ s, cols, rows, now, o }: Props & { o: Extract<Overlay, { kind: 'menu' }> }) {
   const mc = menuCtxFor(s, o.issueId, now);
   if (!mc) return null;

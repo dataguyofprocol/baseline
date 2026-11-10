@@ -1,4 +1,3 @@
-// The issue page and the detail pane as pre-wrapped lines, so scrolling is exact at any width. Pure.
 import { PRIORITY_LABELS, type ActivityItem, type Issue } from '../core/types.js';
 import type { WorkThread } from '../core/work-types.js';
 import type { TuiData } from './data.js';
@@ -16,12 +15,10 @@ function section(title: string, width: number, count?: number, right: Seg[] = []
   return [[], [{ text: '──', color: theme.border }, { text: head, bold: true }, { text: '─'.repeat(Math.max(0, width - head.length - 2 - (rw ? rw + 2 : 0))), color: theme.border }, ...(rw ? [{ text: '  ' }, ...right] : [])]];
 }
 
-/** the fields this TUI can change, as undo and the ✓ saved marker name them */
 export type FieldId = 'state' | 'assignee' | 'priority' | 'labels' | 'project' | 'title' | 'description';
 
 export interface FieldRow { field: FieldId; key: string | null; label: string; value: Seg[] }
 
-/** what is drawn over the plain issue: a picker open under a field, the ✓ saved marker, the title being edited */
 export interface IssueUi { saved?: FieldId | null; picker?: { field: FieldId; lines: Line[] } | null; title?: Line[] | null }
 
 const LABEL_W = 12;
@@ -57,8 +54,6 @@ function fieldLine(r: FieldRow, ui: IssueUi): Line {
 
 const greyed = (l: Line): Line => l.map(x => ({ ...x, color: theme.muted, bg: undefined, bold: false }));
 
-
-/** the field rows, with an open picker drawn under its field and the rows below it greyed out */
 function fieldBlock(issue: Issue, data: TuiData, now: number, ui: IssueUi, extra: Line[]): Line[] {
   const out: Line[] = [];
   let below = false;
@@ -73,7 +68,6 @@ function dimRow(label: string, value: Seg[]): Line {
   return [{ text: '  ' }, { text: padEnd(label, LABEL_W), color: theme.muted }, ...value.map(x => ({ ...x, color: x.color ?? theme.muted }))];
 }
 
-/** the rarely-set fields, on the full page only, each only when it has a value */
 function moreRows(issue: Issue, data: TuiData): Line[] {
   const cycle = issue.cycleId ? data.cycles.find(c => c.id === issue.cycleId) : undefined;
   const milestone = issue.milestoneId ? data.milestones.find(m => m.id === issue.milestoneId) : undefined;
@@ -108,8 +102,6 @@ const rightAlign = (left: Seg[], right: Seg[], width: number): Line => {
 const MORE_LINE: Line = [{ text: 'more ↓ enter for the whole issue', color: theme.muted }];
 export const AGENT_LINE: Line = [keySeg('w'), { text: ' Work on it with an agent   ' }, keySeg('c'), { text: ' copy' }];
 
-/** the detail pane beside the list: the issue under the cursor cut to `height` rows. The fields and the agent line
- *  always show; the description, the latest comment and the last change share what is left */
 export function paneLines(issue: Issue, data: TuiData, width: number, height: number, now: number, ui: IssueUi = {}): Line[] {
   const w = Math.max(12, width);
   const top: Line[] = [...headLines(issue, data, w, ui, 2), [], ...fieldBlock(issue, data, now, ui, [])];
@@ -142,7 +134,6 @@ export function paneLines(issue: Issue, data: TuiData, width: number, height: nu
   } else if (issue.description.trim()) cut = true;
   if (room >= commentBlock.length) { middle.push(...commentBlock); room -= commentBlock.length; } else if (last) cut = true;
   if (room >= activityBlock.length) middle.push(...activityBlock); else cut = true;
-  // the page keys stay with the list, so a cut pane says where the rest is
   const bottom: Line[] = [cut ? MORE_LINE : [], AGENT_LINE];
   return [...top, ...middle, ...bottom].slice(0, height);
 }
@@ -166,7 +157,6 @@ function threadLines(t: WorkThread, data: TuiData, width: number, now: number): 
   return lines;
 }
 
-/** who did the agent's work: "Claude Code via Parth" */
 export function threadWho(t: WorkThread, data: TuiData): string {
   const agent = data.userById.get(t.agentId)?.name ?? 'Agent';
   const person = t.personId !== t.agentId ? data.userById.get(t.personId)?.name.split(/\s+/)[0] : undefined;
@@ -175,7 +165,6 @@ export function threadWho(t: WorkThread, data: TuiData): string {
 
 const CHECKS: Record<string, Seg> = { success: { text: '✓', color: theme.ok }, failure: { text: '✕', color: theme.error }, pending: { text: '…', color: theme.warn } };
 
-/** the PR as one line: "#41 Cmd+K scoring · open · checks ✓ · 3 commits" */
 export function prSegs(issueId: string, data: TuiData, withTitle = true): Seg[] {
   const pr = prOf(data, issueId);
   if (!pr) return [];
@@ -188,7 +177,6 @@ export function prSegs(issueId: string, data: TuiData, withTitle = true): Seg[] 
 const fieldRow = (label: string, width: number, color?: string) => (text: string | null): Line[] =>
   text ? markdownLines(text, width - 12).map((l, i) => [{ text: i ? ' '.repeat(12) : `  ${padEnd(label, 10)}`, color: theme.muted }, ...(color ? l.map(x => ({ ...x, color })) : l)]) : [];
 
-/** the top of the issue page when an agent finished it for you or got stuck: what it did, its PR and what it noticed */
 function agentSection(issue: Issue, data: TuiData, t: WorkThread, ask: 'review' | 'blocked', width: number, now: number): Line[] {
   const meta = `${threadWho(t, data)} · ${ask === 'blocked' ? 'asked' : 'finished'} ${relTime(t.state.status === 'finished' ? t.state.finishedAt : t.updatedAt, now, { ago: true })} · ${t.branch}`;
   const out: Line[] = [...section(ask === 'blocked' ? 'The agent is blocked' : 'What the agent did', width), [{ text: truncate(meta, width), color: theme.muted }]];
@@ -205,7 +193,6 @@ function agentSection(issue: Issue, data: TuiData, t: WorkThread, ask: 'review' 
   return out;
 }
 
-/** the decision keys under an agent's work */
 export function reviewKeys(ask: 'review' | 'blocked', drafts: number): Line {
   const k = (key: string, label: string): Seg[] => [keySeg(key), { text: ` ${label}   ` }];
   return ask === 'blocked'
@@ -213,7 +200,6 @@ export function reviewKeys(ask: 'review' | 'blocked', drafts: number): Line {
     : [...k('d', 'Done'), ...k('b', 'Send back'), ...(drafts ? k('f', 'File follow-ups') : []), ...k('w', 'Agent again'), ...k('o', 'PR'), ...k('m', 'Comment')];
 }
 
-/** the issue page as lines, and where each comment starts (so a mention opens scrolled to it) */
 export interface DetailLayout { lines: Line[]; anchors: Record<string, number> }
 
 export function detailLayout(issue: Issue, data: TuiData, threads: readonly WorkThread[], width: number, now: number, ui: IssueUi & { focusComment?: string } = {}): DetailLayout {
@@ -244,7 +230,6 @@ export function detailLayout(issue: Issue, data: TuiData, threads: readonly Work
     }
   }
 
-  // the agent's work shown at the top isn't repeated here
   const others = threads.filter(t => !(ask && t.id === mine?.id));
   if (others.length) {
     lines.push(...section('Agent work', w, others.length));
@@ -268,7 +253,6 @@ export function detailLayout(issue: Issue, data: TuiData, threads: readonly Work
         { text: `  ${relTime(c.createdAt, now, { ago: true })}${c.editedAt ? ' (edited)' : ''}${c.resolvedAt ? ' · resolved' : ''}`, color: theme.muted },
         ...(focus ? [{ text: '   mentions you', color: theme.accent }] : [])];
       const body = markdownLines(c.body, w - indent.length - 2).map((l): Line => [{ text: `${indent}  ` }, ...l]);
-      // the comment a mention opened at is lit, like a row under the cursor
       const lit = (l: Line): Line => (focus ? l.map(x => ({ ...x, bg: x.bg ?? theme.selBg })) : l);
       lines.push(lit(head), ...body.map(lit));
     }
@@ -285,8 +269,6 @@ export function detailLayout(issue: Issue, data: TuiData, threads: readonly Work
   return { lines, anchors };
 }
 
-// ---------- Today's detail pane ----------
-
 const paneHead = (issue: Issue, data: TuiData, w: number): Line[] => {
   const st = data.stateById.get(issue.stateId);
   const team = data.teamById.get(issue.teamId);
@@ -299,7 +281,6 @@ const paneHead = (issue: Issue, data: TuiData, w: number): Line[] => {
 
 const keysLine = (...pairs: Array<[string, string]>): Line => pairs.flatMap(([k, l], i) => [...(i ? [{ text: '   ' }] : []), keySeg(k), { text: ` ${l}` }]);
 
-/** the agent's work in a few rows: who and how it stands, then summary, did, left, PR and what it noticed */
 function agentPaneRows(issue: Issue, data: TuiData, t: WorkThread, w: number, now: number): Line[] {
   const ask = threadAsk(t);
   const status: Seg = ask === 'blocked' ? { text: 'blocked', color: theme.error } : ask === 'review' ? { text: t.state.status === 'finished' && t.state.outcome === 'done' ? 'done' : 'ready for review', color: theme.ok }
@@ -320,8 +301,6 @@ function agentPaneRows(issue: Issue, data: TuiData, t: WorkThread, w: number, no
   return out;
 }
 
-/** what the pane beside Today shows for the row under the cursor: the agent's work and the keys that decide it for
- *  a review or a blocked agent, the comment for a mention, an agent at work for In flight; else the issue as on a list */
 export function todayPaneLines(row: { kind: 'need'; row: NeedRow } | { kind: 'flight'; row: FlightRow; pane: boolean; starting?: boolean } | { kind: 'next'; row: NextRow }, data: TuiData, width: number, height: number, now: number, ui: IssueUi = {}): Line[] {
   const w = Math.max(12, width);
   const issue = row.row.issue;
@@ -348,11 +327,6 @@ export function todayPaneLines(row: { kind: 'need'; row: NeedRow } | { kind: 'fl
   return [...note, ...paneLines(issue, data, w, height - note.length, now, ui)];
 }
 
-// ---------- the picker, drawn under its field ----------
-
-/** a bordered dropdown: the filter, then numbered options (1-9 pick, the cursor row lit). `title` heads the border
- *  when it floats over the list instead of opening under a field */
-/** the options a dropdown shows at once; floating over a short terminal it shows fewer */
 export const PICKER_ROWS = 9;
 export const floatingPickerRows = (rows: number) => Math.max(3, Math.min(PICKER_ROWS, rows - 10));
 

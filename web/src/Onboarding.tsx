@@ -5,11 +5,6 @@ import { LineFrame } from './SignIn.js';
 import { markArrival, reducedMotion } from './arrival.js';
 import { setupItems, setupHome } from './SetupPanel.js';
 
-/* The way in after naming the first team, so one calm form doesn't turn straight into the full page:
- *  1. the bridge: the same line, now carrying the setup steps as stops (start one, or look around);
- *  2. the tour: the issues page with one area lit at a time and a card saying what it is.
- * Both hand over through sessionStorage marks, since the team screen unmounts as the team appears. */
-
 const BRIDGE = 'bl-bridge';
 const TOUR = 'bl-tour';
 const SETUP_STEP = 'bl-setup-step';
@@ -17,23 +12,17 @@ const TOUR_EVENT = 'baseline:tour';
 
 const store = {
   get: (k: string) => { try { return sessionStorage.getItem(k); } catch { return null; } },
-  set: (k: string, v: string) => { try { sessionStorage.setItem(k, v); } catch { /* private mode: the flow is skipped */ } },
-  del: (k: string) => { try { sessionStorage.removeItem(k); } catch { /* nothing kept */ } },
+  set: (k: string, v: string) => { try { sessionStorage.setItem(k, v); } catch { } },
+  del: (k: string) => { try { sessionStorage.removeItem(k); } catch { } },
 };
 const take = (k: string) => { const v = store.get(k); if (v !== null) store.del(k); return v; };
 
-/** the team screen, right before it creates the team: show the bridge next */
 export const markBridge = () => store.set(BRIDGE, '1');
 export const clearBridge = () => store.del(BRIDGE);
 export const bridgePending = () => store.get(BRIDGE) === '1';
-/** the setup step the bridge asked to open, read once by the Getting started group */
 export const takeSetupStep = () => take(SETUP_STEP);
-/** the help menu's "Take the tour" */
 export const startTour = () => window.dispatchEvent(new Event(TOUR_EVENT));
 
-/* ---------------- the bridge ---------------- */
-
-/** what each step is for, in one line (each step's own panel says more) */
 const WHY: Record<string, string> = {
   agent: 'Point your agent at an issue and it does the bookkeeping: starts it, names the branch, posts progress and hands it back for review.',
   invite: 'Assign, mention and triage together. Everyone connects their own agent, and its work shows under their name.',
@@ -99,8 +88,6 @@ export function Bridge({ onDone }: { onDone: () => void }) {
   );
 }
 
-/* ---------------- the tour ---------------- */
-
 interface Stop { target: string; title: string; body: string }
 const STOPS: Stop[] = [
   { target: '.ob-list', title: 'Setup, in any order', body: 'Each step is here as a row. Do them now, skip any of them, and they stay until they’re done. The help menu brings the group back if you close it.' },
@@ -112,7 +99,6 @@ const STOPS: Stop[] = [
 
 const CARD_W = 340, GAP = 14, PAD = 6;
 
-/** Lives in the app: starts once after the bridge's "Show me around first", or from the help menu. */
 export function Tour() {
   const navigate = useNavigate();
   const snap = useApp(s => s.snap);
@@ -122,15 +108,12 @@ export function Tour() {
 
   const begin = useCallback((delay: number) => {
     window.setTimeout(() => {
-      // only the parts this page shows (Getting started may be closed)
       const here = STOPS.filter(s => document.querySelector(s.target));
       if (here.length) { setStops(here); setAt(0); }
     }, delay);
   }, []);
 
-  // after the bridge: wait for the arrival to clear and the page to settle
   useEffect(() => { if (take(TOUR) === '1') begin(1100); }, [begin]);
-  // from the help menu: back to the team's issues with Getting started open, then begin
   useEffect(() => {
     const on = () => {
       if (!snap) return;
@@ -160,7 +143,6 @@ export function Tour() {
   const back = () => setAt(Math.max(0, at - 1));
   useEffect(() => {
     if (!stops) return;
-    // the tour owns the keys while it's open: Esc leaves, arrows move
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
       else if (e.key === 'ArrowRight' || e.key === 'Enter') next();
@@ -175,7 +157,6 @@ export function Tour() {
   if (!stops || !stop || !rect) return null;
   const n = stops.length;
   const spot = { left: rect.left - PAD, top: rect.top - PAD, width: rect.width + PAD * 2, height: rect.height + PAD * 2 };
-  // the card goes below the lit area, else above it, else beside it; always inside the window
   const vw = window.innerWidth, vh = window.innerHeight, cardH = 210;
   let left = spot.left, top = spot.top + spot.height + GAP;
   if (top + cardH > vh) top = spot.top - cardH - GAP;

@@ -19,7 +19,6 @@ import {
 } from './icons.js';
 import { startTour } from './Onboarding.js';
 
-/** Panel-with-a-left-rail glyph: the standard "toggle the nav" affordance. */
 function IconSidebar({ size = 15 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
@@ -45,7 +44,6 @@ function useSectionState(): [Record<string, boolean>, (id: string, fallback?: bo
 export function Sidebar() {
   const snap = useApp(s => s.snap);
   const resolvedTheme = useApp(s => s.resolvedTheme);
-  // ? opens the help menu from anywhere
   const helpMenu = useMenu();
   const helpRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -64,19 +62,15 @@ export function Sidebar() {
   const [teamMenuFor, setTeamMenuFor] = useState<string | null>(null);
   const drafts = useDrafts();
   if (!snap) return null;
-  // hosted: the teams you're on, as in Linear (everyone else's are a click away in Teams); a laptop,
-  // where there's one person, sees them all
   const hosted = snap.workspace.auth === 'hosted';
   const yourTeams = hosted ? snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id)) : snap.teams;
   const triageState = (teamId: string) => snap.states.find(s => s.teamId === teamId && s.type === 'triage');
   const triageCount = (teamId: string) => { const st = triageState(teamId); return st ? snap.issues.filter(i => i.stateId === st.id).length : 0; };
   const menuTeam = snap.teams.find(t => t.id === teamMenuFor);
   const nowIso = new Date().toISOString();
-  // the badge counts inbox rows (one per issue), as the inbox shows them
   const unread = inboxRows(visibleNotifications(snap.notifications, nowIso).filter(n => n.type !== 'issueStatusChanged' || snap.workspace.preferences.notify.statusChanged !== false)).filter(r => r.unread).length;
   const me = snap.currentUser;
   const isOpen = (id: string, fallback = true) => sections[id] ?? fallback;
-  // each item always shows, shows only with a badge, or sits in More (SIDEBAR_DEFAULTS)
   const f = snap.workspace.features;
   const ALL = [
     { key: 'my-work', to: '/my-work', icon: <IconHome />, label: 'My work', badge: 0, section: 'personal' },
@@ -293,7 +287,6 @@ export function Sidebar() {
   );
 }
 
-/* Linear's section header: the label, then a small caret that turns when the section folds */
 function SectionHeader(props: { label: string; open: boolean; onToggle: () => void; action?: React.ReactNode }) {
   const btn = (
     <button className={`nav-section${props.open ? ' open' : ''}`} onClick={props.onToggle} aria-expanded={props.open}>
@@ -304,7 +297,6 @@ function SectionHeader(props: { label: string; open: boolean; onToggle: () => vo
   return props.action ? <div className="nav-section-row">{btn}{props.action}</div> : btn;
 }
 
-/* Linear's sidebar preview: rest on a favorite project and its card appears beside it */
 function ProjectHoverCard(props: { projectId: string; children: React.ReactNode }) {
   const snap = useApp(s => s.snap)!;
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -350,14 +342,11 @@ function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: 
         <>
           {props.icon}
           <span className="nav-label">
-            {/* the mark sits outside .nav-text's ellipsis clip, sized to the label */}
             <span className="nav-text-wrap">
               <span className="nav-text">{props.label}</span>
               {(active ?? isActive) && <RegisterMark group="nav" />}
             </span>
           </span>
-          {/* badge styles are cut: a count, always */}
-          {/* keyed on the number, so a change replays the tick and the eye catches it */}
           {props.badge ? <span key={props.badge} className="nav-count">{props.badge}</span> : null}
         </>
       )}
@@ -366,9 +355,6 @@ function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: 
 }
 
 
-/* ---------------- top bar ---------------- */
-/** the workspace's top-level pages: their title is set large on the top bar's hairline, with the
- *  register under it (the same 2px mark the selected tab uses). Everything deeper keeps the crumb. */
 const HEADING_PAGES = new Set(['Inbox', 'My issues', 'Initiatives', 'Projects', 'Views']);
 
 export function TopBar(props: {
@@ -423,7 +409,6 @@ export function TopBar(props: {
             <IconStar size={14} filled={faved} />
           </button>
         )}
-        {/* Linear keeps the page's "…" beside the title, and only on pages that have actions */}
         {props.more && <button className="icon-btn topbar-more" title="More" onClick={menu.open}><IconMore size={15} /></button>}
       </div>
       <div className="topbar-right">
@@ -431,7 +416,6 @@ export function TopBar(props: {
       </div>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close}>
-          {/* only the page's own actions: Settings, shortcuts and theme live in the sidebar footer */}
           {props.more}
         </Menu>
       )}

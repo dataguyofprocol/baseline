@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# End-to-end test suite for the baseline CLI.
-# Runs every project/task command against throwaway scratch databases and never
-# touches the live workspace at ~/.baseline/baseline.db.
-#
-#   scripts/test-cli.sh            # build + test via node dist
-#   scripts/test-cli.sh --no-build # skip the tsc build step
 set -o pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,13 +14,12 @@ DB="$WORK/demo.db"
 
 PASS=0; FAIL=0; FAILED_NAMES=()
 
-# a coding tool runs this suite: its marker would make agent commands write as "Claude Code"
 unset CLAUDECODE BASELINE_URL BASELINE_TOKEN BASELINE_AS
-export BASELINE_DB="$DB"                          # exercised env-var path
-b() { $BIN "$@"; }                                # run against scratch DB
+export BASELINE_DB="$DB"
+b() { $BIN "$@"; }
 newdb() { BASELINE_DB="$WORK/db$1.db" $BIN team list >/dev/null 2>&1; echo "$WORK/db$1.db"; }
 
-check() { # check <name> <expected-substring> <cli-args…>
+check() {
   local name="$1" expect="$2"; shift 2
   local out rc
   out=$(b "$@" 2>/dev/null); rc=$?
@@ -40,7 +33,7 @@ check() { # check <name> <expected-substring> <cli-args…>
   fi
 }
 
-checkon() { # checkon <db> <name> <expected-substring> <cli-args…>
+checkon() {
   local db="$1" name="$2" expect="$3"; shift 3
   local out rc
   out=$(BASELINE_DB="$db" $BIN "$@" 2>/dev/null); rc=$?
@@ -54,7 +47,7 @@ checkon() { # checkon <db> <name> <expected-substring> <cli-args…>
   fi
 }
 
-check_absent() { # check_absent <name> <unwanted-substring> <args…>
+check_absent() {
   local name="$1" unwanted="$2"; shift 2
   local out rc
   out=$(b "$@" 2>/dev/null); rc=$?
@@ -68,17 +61,17 @@ check_absent() { # check_absent <name> <unwanted-substring> <args…>
   fi
 }
 
-check_rc() { # check_rc <name> <expected-exit-code> <cli-args…>
+check_rc() {
   local name="$1" want="$2"; shift 2
   b "$@" >/dev/null 2>&1; local rc=$?
   if [[ $rc -eq $want ]]; then PASS=$((PASS+1)); else echo "FAIL  $name: exit $rc, expected $want"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
 }
 
-jsonq() { # jsonq <file|-> <node-expr using d>
+jsonq() {
   node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('$1','utf8'));($2)?process.exit(0):process.exit(1)" 2>/dev/null
 }
 
-check_json() { # check_json <name> <json-file> <node-expr using d>
+check_json() {
   local name="$1" file="$2" expr="$3"
   if jsonq "$file" "$expr"; then PASS=$((PASS+1)); else echo "FAIL  $name: json assertion failed: $expr"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
 }
@@ -300,7 +293,6 @@ check  "handoff suggests report-back" "baseline agent finish-issue $KEY" issue h
 b issue handoff "$KEY" --json > "$WORK/h.json"
 check_json "handoff json shape" "$WORK/h.json" "d.key==='$KEY'&&d.title==='renamed issue'&&(d.branchName==='$BRANCH'||d.branchName.endsWith('/$BRANCH'))&&d.prompt.includes('renamed issue')&&d.url.includes('/#/issue/')"
 check_rc "handoff unknown issue" 1 issue handoff "NOPE-99"
-# --copy failure path: strip PATH so no clipboard helper exists (avoids clobbering the real clipboard)
 NODE_BIN=$(command -v node)
 if PATH="" "$NODE_BIN" bin/baseline.js issue handoff "$KEY" --copy >/dev/null 2>&1; then
   echo "FAIL  handoff --copy missing-clipboard error path"; FAIL=$((FAIL+1))
@@ -318,13 +310,11 @@ fi
 BASELINE_AS=Agent b issue comment "$KEY" "flag wins" --as Ada >/dev/null
 if b issue comments "$KEY" | grep -q "Ada Osei .*flag wins"; then PASS=$((PASS+1)); else echo "FAIL  --as overrides BASELINE_AS"; FAILED_NAMES+=("--as overrides BASELINE_AS"); FAIL=$((FAIL+1)); fi
 if b issue comments "$KEY" | grep -q "Agent .*attributed via env$"; then PASS=$((PASS+1)); else echo "FAIL  BASELINE_AS name attribution"; FAILED_NAMES+=("BASELINE_AS name attribution"); FAIL=$((FAIL+1)); fi
-# an agent writes for this machine's user: "Agent via <you>"; a person's own write has no via
 check "issue show: an agent's comment reads <agent> via <person>" "— Agent via " issue show "$KEY"
 if b issue show "$KEY" | grep -q "^— Ada Osei (c_.*flag wins"; then PASS=$((PASS+1)); else echo "FAIL  issue show: a person's comment has no via"; FAILED_NAMES+=("person comment no via"); FAIL=$((FAIL+1)); fi
 check "issue show --json: via on an agent's comment" '"via": "' issue show "$KEY" --json
 VIAJSON=$(b issue show "$KEY" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{const d=JSON.parse(s);const c=d.comments.find(c=>c.body==='attributed via env');console.log(c.author+'|'+(c.viaUserId?'id':'none')+'|'+d.comments.find(c=>c.body==='flag wins').viaUserId)})")
 if [[ "$VIAJSON" == "Agent|id|null" ]]; then PASS=$((PASS+1)); else echo "FAIL  issue show --json viaUserId (got $VIAJSON)"; FAILED_NAMES+=("json viaUserId"); FAIL=$((FAIL+1)); fi
-# a command that still opens the database directly records the via too
 VIAKEY=$(b issue create "agent archives this" -t CORE --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).key))")
 BASELINE_AS=Agent b issue archive "$VIAKEY" >/dev/null
 ARCHVIA=$(b issue show "$VIAKEY" --json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{const a=JSON.parse(s).activity.find(a=>a.type==='archived');console.log(a.user+' via '+a.via)})")
@@ -507,7 +497,7 @@ else
   echo "FAIL  store createProject fields"; cat "$WORK/store-out.txt"; FAILED_NAMES+=("store createProject fields"); FAIL=$((FAIL+1))
 fi
 
-nodecheck() { # nodecheck <name> <module-script> [args…]: passes when the script exits 0
+nodecheck() {
   local name="$1" script="$2"; shift 2
   if node --input-type=module -e "$script" "$@" > "$WORK/nodecheck.txt" 2>&1; then PASS=$((PASS+1)); else echo "FAIL  $name"; sed 's/^/      /' "$WORK/nodecheck.txt"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
 }
@@ -1002,17 +992,14 @@ check "user list shows the GitHub username" "github:ada-gh" user list
 echo "=== connect ==="
 CREPO="$WORK/connect-repo"; mkdir -p "$CREPO"
 printf '{ "mcpServers": { "other": { "command": "x" } } }\n' > "$CREPO/.mcp.json"
-# a PATH with node and nothing else of this machine's, so no installed `baseline` is found
 mkdir -p "$WORK/nodeonly"; ln -sf "$(command -v node)" "$WORK/nodeonly/node"
 NOPATH="$WORK/nodeonly:/usr/bin:/bin"
-# `baseline` is not on that PATH: connect refuses and writes nothing
 NOPATH_OUT=$(PATH="$NOPATH" $BIN connect claude --dir "$CREPO" 2>&1); NOPATH_RC=$?
 if [[ $NOPATH_RC -ne 0 && "$NOPATH_OUT" == *"not on your PATH"* && "$NOPATH_OUT" == *"npm install -g"* && "$NOPATH_OUT" == *"claude mcp add --scope local"* && ! -e "$CREPO/CLAUDE.md" ]] && ! grep -q baseline "$CREPO/.mcp.json"; then PASS=$((PASS+1)); else echo "FAIL  connect without baseline on PATH refuses, says how to install, writes nothing"; echo "      got: $NOPATH_OUT"; FAILED_NAMES+=("connect not on PATH"); FAIL=$((FAIL+1)); fi
-# a stand-in `baseline` on PATH, as after npm install -g
 mkdir -p "$WORK/shim"; printf '#!/bin/sh\nexit 0\n' > "$WORK/shim/baseline"; chmod +x "$WORK/shim/baseline"
 SHIMPATH="$WORK/shim:$PATH"
 cs() { PATH="$SHIMPATH" $BIN "$@"; }
-ccheck() { # ccheck <name> <expected-substring> <args…>: connect with `baseline` on PATH
+ccheck() {
   local name="$1" expect="$2"; shift 2
   local out; out=$(cs "$@" 2>&1); local rc=$?
   if [[ $rc -eq 0 && "$out" == *"$expect"* ]]; then PASS=$((PASS+1)); else echo "FAIL  $name (exit $rc)"; echo "      got: $(echo "$out" | head -3 | tr '\n' '|')"; FAILED_NAMES+=("$name"); FAIL=$((FAIL+1)); fi
@@ -1030,7 +1017,6 @@ ccheck "connect pi again changes nothing" "nothing changed" connect pi --dir "$C
 DB_OUT=$(cs connect pi --dir "$CREPO" --db "$WORK/x.db" 2>&1); DB_RC=$?
 if [[ $DB_RC -ne 0 && "$DB_OUT" == *"BASELINE_DB"* ]] && ! grep -rq -- '--db\|x\.db' "$CREPO"; then PASS=$((PASS+1)); else echo "FAIL  connect --db is refused, and no database path lands in the repo"; FAILED_NAMES+=("connect --db"); FAIL=$((FAIL+1)); fi
 if ! grep -rqE "$WORK|/Users/|node_modules" "$CREPO/.mcp.json" "$CREPO/.codex/config.toml" "$CREPO/.pi/mcp.json"; then PASS=$((PASS+1)); else echo "FAIL  shared MCP configs hold a machine path"; FAILED_NAMES+=("connect machine paths"); FAIL=$((FAIL+1)); fi
-# --remote: the server's /mcp URL, the key read from $BASELINE_TOKEN, never written
 RREPO="$WORK/remote-repo"; mkdir -p "$RREPO"
 RTOKEN="bl_secret_never_in_files"
 for agent in claude codex pi; do
@@ -1057,7 +1043,6 @@ if [[ $rc -ne 0 && "$out" == *"doesn't exist"* && ! -e "$WORK/never.db" ]]; then
 if [[ -z "$(ls -A "$EHOME")" ]]; then ok; else bad "nothing was written under an empty HOME (no ~/.baseline database)" "$(ls -A "$EHOME")"; fi
 
 echo "=== agent loop v2: tools over the CLI ==="
-# commands run from inside a scratch repo need the CLI by absolute path
 ABIN="node $PWD/bin/baseline.js"
 LDB="$WORK/loop.db"; BASELINE_DB="$LDB" $BIN team list >/dev/null 2>&1
 lb() { BASELINE_DB="$LDB" $BIN "$@"; }
@@ -1110,7 +1095,6 @@ git -C "$LREPO" checkout -q -b side; echo y >> "$LREPO/f.txt"
 S3=$(inrepo agent start-issue CORE-5 --json)
 [[ $(echo "$S3" | jget d.git.status) == manual && $(echo "$S3" | jget d.git.command) == "git checkout $B5" && "$(git -C "$LREPO" branch --show-current)" == side ]] && ok || bad "a dirty tree on another branch: nothing switched, the exact command returned" "$S3"
 git -C "$LREPO" checkout -q -- f.txt; git -C "$LREPO" checkout -q main
-# someone else's issue
 ADA=$(lb issue create "Ada's started work" -t CORE -a Ada -s "In Progress" --json | jget d.key)
 out=$(lb agent start-issue "$ADA" 2>&1); rc=$?
 [[ $rc -ne 0 && "$out" == *"Ada"* && "$out" == *"take_over"* ]] && ok || bad "start-issue on another person's issue refuses and says whose" "$out"

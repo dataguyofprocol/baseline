@@ -24,16 +24,11 @@ function teamFromKey(teamKey: string) {
   return snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase());
 }
 
-/* ================= triage =================
-   Issues filed into the team from outside (agents, the CLI, other people) wait here.
-   Left: the queue, oldest first. Right: the issue. 1 accepts, 2 marks a duplicate,
-   3 declines. Each decision moves the cursor to the next one. */
 export function TriagePage() {
   const { teamKey = '' } = useParams();
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const team = teamFromKey(teamKey);
-  // triage is the team's setup, so its lead's (or an admin's) to turn on
   const canLead = useCanLead(team?.id ?? null);
   const cursor = useCursor(s => s.index);
   const dup = useMenu();
@@ -49,7 +44,6 @@ export function TriagePage() {
   }, [snap.issues, triageState, prefs.filters, prefs.orderBy]);
   const pool = useMemo(() => triageState ? snap.issues.filter(i => i.stateId === triageState.id) : [], [snap.issues, triageState]);
   const snoozedCount = all.filter(i => i.snoozedUntil && i.snoozedUntil > nowIso).length;
-  // snoozed issues leave the queue until their snooze time passes
   const queue = useMemo(() => showSnoozed ? all : all.filter(i => !i.snoozedUntil || i.snoozedUntil <= nowIso), [all, showSnoozed, nowIso]);
   const snoozeMenu = useMenu();
   const createTriage = () => team && triageState && useApp.getState().openCreate({ teamId: team.id, stateId: triageState.id });
@@ -62,7 +56,6 @@ export function TriagePage() {
   const accept = (i: Issue) => void triageDecide(i, 'accept');
   const decline = (i: Issue) => void triageDecide(i, 'decline');
 
-  // the triage keys take precedence over the global 1-9 status shortcuts while this page is up
   const currentRef = useRef(current);
   currentRef.current = current;
   useEffect(() => {
@@ -189,9 +182,6 @@ function TriageSnooze(props: { onPick: (d: Date | null) => void; snoozed: boolea
   );
 }
 
-/* ================= archive (team) & trash (workspace) ================= */
-/** a list the snapshot doesn't carry (archive, trash). A failed fetch says so with a Retry
- *  instead of leaving the page blank for good. */
 function useServerList(load: () => Promise<{ issues: Issue[] }>, deps: unknown[]) {
   const [issues, setIssues] = useState<Issue[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -318,11 +308,7 @@ export function TrashPage() {
   );
 }
 
-/* ================= search =================
-   Linear's search page: one field, results update as you type, filters and display
-   options apply on top. Matches titles, descriptions, IDs and comments. */
 type SearchTab = 'all' | 'issues' | 'projects' | 'initiatives' | 'documents';
-/** the matched words in bold, as Linear's results show them */
 function Bolded({ text, words }: { text: string; words: string[] }) {
   if (!words.length) return <>{text}</>;
   const re = new RegExp(`(${words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
@@ -332,7 +318,6 @@ function Bolded({ text, words }: { text: string; words: string[] }) {
 export function SearchPage() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
-  // the query lives in the address (#/search?q=…), so a search can be shared and Back returns to it
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(() => params.get('q') ?? sessionStorage.getItem('baseline:search') ?? '');
   useEffect(() => { if ((params.get('q') ?? '') !== q.trim()) setParams(q.trim() ? { q: q.trim() } : {}, { replace: true }); }, [q]);
@@ -342,10 +327,9 @@ export function SearchPage() {
   const displayBtn = useMenu();
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); void api.archivedIssues().then(r => setArchived(r.issues)).catch(() => {}); }, []);
-  useEffect(() => { try { sessionStorage.setItem('baseline:search', q); sessionStorage.setItem('baseline:searchTab', tab); } catch { /* ignore */ } }, [q, tab]);
+  useEffect(() => { try { sessionStorage.setItem('baseline:search', q); sessionStorage.setItem('baseline:searchTab', tab); } catch { } }, [q, tab]);
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const hit = (hay: string) => words.length > 0 && words.every(w => hay.toLowerCase().includes(w));
-  // Linear searches archived issues too
   const issues = useMemo(() => {
     if (!words.length) return [];
     const commentText = new Map<string, string>();
@@ -363,7 +347,6 @@ export function SearchPage() {
   const counts: Record<SearchTab, number> = { all: issues.length + projects.length + initiatives.length + docs.length, issues: issues.length, projects: projects.length, initiatives: initiatives.length, documents: docs.length };
   const keyOf = (i: Issue) => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`;
   type Row = { id: string; kind: string; icon: React.ReactNode; title: string; right: React.ReactNode; at: string; to: string; snippet?: string };
-  /** when the title doesn't hold every word, the bit of body text that does: why the row matched */
   const snippetOf = (title: string, ...bodies: string[]) => {
     if (words.every(w => title.toLowerCase().includes(w))) return undefined;
     for (const body of bodies) {

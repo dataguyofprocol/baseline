@@ -1,6 +1,3 @@
-// What `/` offers for a query: things to do with the issue under the cursor, view changes, and issues.
-// Every query word has to start a word of a result, so "done" finds "Move CORE-4 to Done" and
-// "assign ada" finds "Assign CORE-4 to Ada Osei". Pure.
 import { PRIORITY_LABELS, STATE_TYPE_LABELS, type Issue, type Priority } from '../core/types.js';
 import type { TuiData } from './data.js';
 import type { FieldId } from './detail.js';
@@ -20,27 +17,20 @@ export type FindRun =
 export interface FindItem {
   id: string;
   label: string;
-  /** the key that does the same from the list ("s", or "w h" through a submenu) */
   key?: string;
-  /** a dim note after the label */
   detail?: string;
   run: FindRun;
-  /** set on issue results */
   issue?: Issue;
-  /** the agent preview shows under the panel while this row is selected */
   agent?: boolean;
-  /** what the query words are matched against */
   search: string;
 }
 
 export interface FindSection { title: string; items: FindItem[] }
 
-/** shown under an empty prompt, as things to type */
 export const FIND_SUGGESTIONS = ['standup', 'projects', 'notifications', 'assign …', 'new …'];
 
 const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 
-/** how well `query` matches `text`: null unless every query word starts a word of the text; whole words and early words score higher */
 export function wordMatch(query: string, text: string): number | null {
   const q = words(query);
   if (!q.length) return 0;
@@ -134,7 +124,6 @@ export function issueResults(query: string, data: TuiData, limit: number): FindI
   return pool.slice(0, limit).map(i => ({ id: `issue:${i.id}`, label: i.title, search: i.title, issue: i, run: { route: { kind: 'issue', issueId: i.id } } }));
 }
 
-/** the sections `/` shows for `query`, about `issue` (the one under the cursor) when there is one */
 export function findResults(query: string, s: Pick<TuiState, 'route' | 'stack' | 'groupBy' | 'preset'>, data: TuiData, issue: Issue | undefined, mc: MenuCtx | undefined, now: number, team: { id: string; name: string } | undefined): FindSection[] {
   if (!query.trim()) return [{ title: 'Recently updated', items: issueResults('', data, 6) }];
   const sections: FindSection[] = [];
@@ -142,7 +131,6 @@ export function findResults(query: string, s: Pick<TuiState, 'route' | 'stack' |
   const title = /^\s*new\s+(.+)$/i.exec(query)?.[1]?.trim();
   if (title && team) doWith.push({ id: 'create', label: `Create “${title}” in ${team.name}`, search: query, key: keyText('create'), run: { create: title } });
   else if (/^\s*new\s*$/i.test(query)) doWith.push({ id: 'create', label: 'New issue…', search: 'new', key: keyText('create'), run: { command: 'create' } });
-  // a query that is an issue key is looking for that issue, not for things to do
   const isKey = /^\s*[a-z]+-?\d+\s*$/i.test(query) && data.issues.some(i => data.keyOf(i).toLowerCase().replace('-', '').startsWith(query.trim().toLowerCase().replace('-', '')));
   if (issue && !title && !isKey) doWith.push(...ranked(issueActions(issue, data, mc), query, 6));
   if (doWith.length) sections.push({ title: issue && !doWith.some(x => x.id === 'create') ? `Do with ${data.keyOf(issue)}` : 'Do', items: doWith });

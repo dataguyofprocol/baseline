@@ -1,8 +1,3 @@
-// The hosted MCP endpoint: the same tools as `baseline mcp`, over Streamable HTTP at /mcp on the
-// Baseline server. `authenticate` has already verified the bearer key (principal.ts refuses /mcp
-// without one). Each tool call is then made as an /api request with that same key, through this
-// app's own fetch, so the key's scopes, its teams and the publish refusal apply exactly as they do
-// for the CLI: this file adds no authorization of its own beyond binding a session to its key.
 import { randomUUID } from 'node:crypto';
 import type { Context, Hono } from 'hono';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
@@ -12,7 +7,6 @@ import { principalOf } from '../server/principal.js';
 import { createMcpServer } from './server.js';
 
 export const MCP_PATH = '/mcp';
-/** sent on initialize to write as a different agent user than the workspace's Agent, like BASELINE_AS for `baseline mcp` */
 export const AS_HEADER = 'baseline-as';
 
 interface Session { keyId: string; transport: WebStandardStreamableHTTPServerTransport; server: Server; seen: number }
@@ -25,7 +19,6 @@ const requests = (body: unknown): Array<{ method?: string; id?: unknown }> =>
 
 export function mountMcpHttp(app: Hono): void {
   const sessions = new Map<string, Session>();
-  // a client that goes away without DELETE leaves its session behind; drop it after a quiet while
   setInterval(() => {
     const cutoff = Date.now() - IDLE_MS;
     for (const [id, s] of sessions) if (s.seen < cutoff) { sessions.delete(id); void s.transport.close(); }
@@ -39,7 +32,6 @@ export function mountMcpHttp(app: Hono): void {
 
     if (sessionId) {
       const s = sessions.get(sessionId);
-      // another key's session is answered like an unknown one: a session id is not a credential
       if (!s || s.keyId !== p.key.id) return rpcError(c, 404, -32001, 'Session not found: initialize a new session');
       s.seen = Date.now();
       return s.transport.handleRequest(c.req.raw, { parsedBody: body });

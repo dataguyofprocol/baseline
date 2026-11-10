@@ -9,7 +9,6 @@ export default defineConfig({
     port: 5183,
     proxy: {
       '/api': { target: `http://localhost:${process.env.BASELINE_PORT ?? 7327}`, changeOrigin: true },
-      // Google sign-in (hosted mode) starts and returns under /auth
       '/auth': { target: `http://localhost:${process.env.BASELINE_PORT ?? 7327}`, changeOrigin: true },
     },
   },

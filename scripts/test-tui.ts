@@ -1,8 +1,3 @@
-// The terminal UI: its pure view-model, reducer, keymap, menus and / results, and end-to-end runs of the
-// real App rendered by Ink against a scratch database, every write read back through a fresh client.
-// Runs against a throwaway local database under $TMPDIR and never touches ~/.baseline.
-//
-//   npm run test:tui
 import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -39,7 +34,6 @@ import { editField, emptyField, fieldOf } from '../src/tui/textfield.js';
 
 const work = mkdtempSync(join(tmpdir(), 'baseline-tui-test-'));
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));
-// the TUI's state files go under $HOME/.baseline/tui; never the real one
 const home = join(work, 'home');
 process.env.HOME = home;
 delete process.env.BASELINE_TUI_STATE_DIR;
@@ -59,7 +53,6 @@ const bl = await connect({ db: dbPath });
 const data = await fetchData(bl);
 const now = Date.now();
 const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
-/** the list most tests run on: the first team's */
 const TEAM = { kind: 'team' as const, teamId: data.teams[0]!.id };
 const TEAM_KEY = `team:${data.teams[0]!.id}`;
 
@@ -120,7 +113,6 @@ const TEAM_KEY = `team:${data.teams[0]!.id}`;
   check('markdown: fenced code is dim', md.some(l => l[0]?.dim && l[0].text.includes('const x = 1;')));
 }
 
-// ---------- Today, on a workspace where the morning has happened ----------
 const morningPath = join(work, 'morning.db');
 { const db = openDb(morningPath); seedWorkspace(db); db.close(); }
 const morning = await seedMorning(morningPath);
@@ -172,7 +164,6 @@ const mdata = await fetchData(mbl);
     contextsFor(run(st, { type: 'threads', issueId: morning.blocked, threads: [] }))[0] === 'detail');
 }
 
-// ---------- the reducer's side of the morning: opening what needs you, deciding, moving on ----------
 {
   const st = run(initialState(), { type: 'loaded', data: mdata, at: now });
   const needs = issueNeeds(mdata, now);
@@ -677,7 +668,6 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
 }
 
 {
-  // page keys end to end: a team list in a short terminal, then an issue with a 200-line description
   const team = data.teams[0];
   const longBody = Array.from({ length: 200 }, (_, i) => `- Line ${String(i + 1).padStart(3, '0')} of the long description`).join('\n');
   const long = await bl.createIssue({ teamId: team.id, title: 'A very long read', description: longBody }, data.currentUser.id);
@@ -706,7 +696,6 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
   const rows = listRowsFor(route, live, DEFAULT_VIEW);
   const canRest = rows.map(r => r.kind === 'issue' || r.selectable);
   const first = canRest.indexOf(true), last = canRest.lastIndexOf(true);
-  // the drawn row a page lands on: the target, else the nearest row the cursor can rest on past it, else before it
   const landing = (from: number, delta: number) => {
     const t = Math.max(0, Math.min(rows.length - 1, from + delta));
     for (let i = t; i >= 0 && i < rows.length; i += Math.sign(delta)) if (canRest[i]) return i;
@@ -767,7 +756,6 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
 }
 
 {
-  // the morning end to end: review CORE-4 and file a follow-up, answer the blocked agent, reply to Ada, start from Up next
   const stdout = new FakeStdout();
   stdout.rows = 40;
   const stdin = new FakeStdin();
@@ -811,7 +799,6 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
     live.drafts.filter(d => d.fromIssueId === morning.review).length === 1 && live.issues.some(i => i.title === followupsOf(mdata, morning.review)[0]!.title));
   check('…and it left Needs you', !issueNeeds(live, Date.now()).some(r => r.issue.id === morning.review));
 
-  // auto-advance: the item now in the reviewed one's place opens without a key
   const after = needs.filter(r => r.issue.id !== morning.review);
   const plan = [after[Math.min(idx, after.length - 1)]!];
   check(`after Done the next thing that needs me opens by itself (${key(plan[0]!.issue.id)})`, await waitFor('next item', f => new RegExp(`› ${key(plan[0]!.issue.id)}`).test(f.split('\n')[0]!) && /needs you/.test(f.split('\n')[0]!)));
@@ -895,7 +882,6 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
 }
 
 {
-  // send finished work back with a note, then undo it
   const path = join(work, 'sendback.db');
   { const db = openDb(path); seedWorkspace(db); db.close(); }
   const m = await seedMorning(path);
@@ -927,7 +913,6 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
   live = await fetchData(sbl);
   check('u puts it back In Review', live.stateById.get(live.issueById.get(m.review)!.stateId)?.name === 'In Review');
 
-  // open it from the team list (not Needs you any more): b sends it back, the page stays
   stdin.press('/');
   await waitFor('find', f => f.includes('try typing'));
   stdin.press(key);

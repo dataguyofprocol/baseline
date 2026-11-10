@@ -1,6 +1,3 @@
-// What the TUI is showing, kept in a small file per workspace directory and target, so an agent in the
-// next pane can read it (`baseline context`) and the next `baseline` reopens where you left off.
-// No Ink or React here: the CLI imports it.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
@@ -12,15 +9,11 @@ import type { Route } from './state.js';
 
 export interface ContextRow { key: string; title: string; state: string; assignee: string | null; priority: string }
 
-/** the part of the file the App knows: what is on screen */
 export interface SessionContext {
   route: Route;
-  /** the routes `esc` walks back through */
   stack: Route[];
-  /** "Today › CORE-4" */
   showing: string;
   openIssue: { key: string; title: string } | null;
-  /** the list display options, restored on the next start */
   display: { groupBy: GroupBy; preset: Preset };
   list: { title: string; groupBy: GroupBy; preset: Preset; rows: ContextRow[]; cursorKey: string | null } | null;
 }
@@ -30,9 +23,7 @@ export interface SessionFile extends SessionContext {
   updatedAt: string;
   pid: number;
   cwd: string;
-  /** the git toplevel of cwd, or cwd: what "this directory" means */
   workspace: string;
-  /** "db:<path>" or "url:<origin>" */
   target: string;
 }
 
@@ -63,7 +54,6 @@ function parse(path: string): SessionFile | null {
 
 export const readSession = (workspace: string, target: string, dir = stateDir()) => parse(sessionPath(workspace, target, dir));
 
-/** this directory's file (the given target's first), else the most recently updated one anywhere */
 export function findSession(workspace: string, target: string | null, dir = stateDir()): { file: SessionFile; path: string; here: boolean } | null {
   let names: string[];
   try { names = readdirSync(dir).filter(n => n.endsWith('.json')); } catch { return null; }
@@ -76,7 +66,6 @@ export function findSession(workspace: string, target: string | null, dir = stat
   return all[0] ? { ...all[0], here: false } : null;
 }
 
-/** debounced, atomic (temp file + rename) writes of the latest context; flush() on exit */
 export function sessionWriter(path: string, meta: Pick<SessionFile, 'cwd' | 'workspace' | 'target'>, delayMs = 300) {
   let latest: SessionContext | null = null;
   let timer: NodeJS.Timeout | null = null;
@@ -91,7 +80,6 @@ export function sessionWriter(path: string, meta: Pick<SessionFile, 'cwd' | 'wor
       writeFileSync(tmp, `${JSON.stringify(file, null, 2)}\n`);
       renameSync(tmp, path);
     } catch {
-      // a read-only home must not take the TUI down; the context is a convenience
     }
   };
   return {
@@ -107,7 +95,6 @@ export function sessionWriter(path: string, meta: Pick<SessionFile, 'cwd' | 'wor
   };
 }
 
-/** true the first time the TUI starts for this user (state dir), and never again: the card shows once */
 export function takeFirstLaunch(dir = stateDir()): boolean {
   const flag = join(dir, 'intro-seen');
   if (existsSync(flag)) return false;
@@ -115,7 +102,6 @@ export function takeFirstLaunch(dir = stateDir()): boolean {
     mkdirSync(dir, { recursive: true });
     writeFileSync(flag, `${new Date().toISOString()}\n`);
   } catch {
-    // unwritable: show the card now, and again next time, rather than never
   }
   return true;
 }
@@ -137,7 +123,6 @@ function ago(iso: string, now: number): string {
 const GROUP_LABEL: Record<GroupBy, string> = { status: 'by status', assignee: 'by assignee', priority: 'by priority', project: 'by project', none: 'no grouping' };
 const PRESET_NAME: Record<Preset, string> = { active: 'Active', backlog: 'Backlog', all: 'All' };
 
-/** the file as Markdown for an agent: what is open, and the list with the cursor row marked */
 export function contextMarkdown(f: SessionFile, opts: { now: number; alive: boolean; here: boolean }): string {
   const out = [`- Showing: ${f.showing} (baseline tui, pid ${f.pid}, ${opts.alive ? 'open' : 'closed'}, updated ${ago(f.updatedAt, opts.now)})`];
   out.push(`- Open issue: ${f.openIssue ? `${f.openIssue.key} ${f.openIssue.title}` : 'none (a list has focus)'}`);
@@ -153,8 +138,6 @@ export function contextMarkdown(f: SessionFile, opts: { now: number; alive: bool
 
 export interface Restored { route: Route; stack: Route[]; groupBy: GroupBy; preset: Preset; cursorKey: string | null }
 
-/** where to reopen, from a file whose ids are checked against what still exists; routes that vanished (and the
- *  My work, Inbox and Projects tabs of older versions) fall back to Today */
 export function restoreFrom(f: SessionFile, exists: { issue: (id: string) => boolean; team: (id: string) => boolean; project: (id: string) => boolean }): Restored {
   const ok = (r: Route | undefined): r is Route => !!r && (
     r.kind === 'today' ||
@@ -171,16 +154,12 @@ export function restoreFrom(f: SessionFile, exists: { issue: (id: string) => boo
   };
 }
 
-// ---------- tmux panes ----------
-
 export interface PaneRecord { id: string; at: string }
 
 /** pane ids (%3) are numbered per tmux server, so the file is per target and per server ($TMUX: socket,pid,session) */
 const panesPath = (target: string, server: string, dir: string) => join(dir, `panes-${createHash('sha1').update(`${target}\0${server}`).digest('hex').slice(0, 10)}.json`);
 export const tmuxServer = (env: NodeJS.ProcessEnv = process.env) => (env.TMUX ? env.TMUX.split(',').slice(0, 2).join(',') : null);
 
-/** issue → the tmux pane this TUI started its agent in, for this target on this tmux server; `alive` drops the
- *  ones that are gone. Outside tmux there are none */
 export function readPanes(target: string, opts: { server?: string | null; alive?: (paneId: string) => boolean; dir?: string } = {}): Record<string, PaneRecord> {
   const server = opts.server === undefined ? tmuxServer() : opts.server;
   if (!server) return {};
@@ -195,7 +174,6 @@ export function readPanes(target: string, opts: { server?: string | null; alive?
   }
 }
 
-/** remembers (or, with null, forgets) the pane an issue's agent runs in */
 export function rememberPane(target: string, issueId: string, pane: PaneRecord | null, opts: { server?: string | null; dir?: string } = {}): void {
   const server = opts.server === undefined ? tmuxServer() : opts.server;
   if (!server) return;
@@ -209,6 +187,5 @@ export function rememberPane(target: string, issueId: string, pane: PaneRecord |
     writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
     renameSync(tmp, path);
   } catch {
-    // a read-only home only loses the way back to the pane
   }
 }

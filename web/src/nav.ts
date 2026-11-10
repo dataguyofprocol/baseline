@@ -1,9 +1,6 @@
 import { useApp, visibleList, useCursor, useSelection } from './store.js';
 import type { Issue } from '../../src/core/types.js';
 
-/* Where an open issue was opened from: the list you came from gives the issue page its
-   breadcrumb origin ("My issues › CORE-12 …") and its J/K order ("3 / 27"). */
-
 export interface Origin { label: string; to: string }
 
 let lastList: Origin | null = null;
@@ -11,7 +8,6 @@ let navIds: string[] = [];
 let navOrigin: Origin | null = null;
 let navRoute = '';
 
-/** label for a list route, as its breadcrumb reads */
 export function labelForPath(path: string): string | null {
   const snap = useApp.getState().snap;
   if (!snap) return null;
@@ -35,17 +31,13 @@ export function labelForPath(path: string): string | null {
   return null;
 }
 
-/** RouteSettle calls this on every navigation */
 export function noteRoute(path: string) {
   if (path.startsWith('/issue/') || path.startsWith('/settings')) return;
   const label = labelForPath(path);
   if (label) lastList = { label, to: path };
 }
 
-/** the issue page asks where it came from; the list is captured the first time an issue in it opens */
 export function navFor(issueId: string): { ids: string[]; origin: Origin | null } {
-  // recapture when the issue left the captured list, or when a different list (opened since)
-  // also holds it: otherwise the first list that ever contained it ("Inbox") sticks for good
   if (!navIds.includes(issueId) || (visibleList.route !== navRoute && visibleList.issues.some(i => i.id === issueId))) {
     const ids = visibleList.issues.map(i => i.id);
     if (ids.includes(issueId)) { navIds = ids; navOrigin = lastList; navRoute = visibleList.route; }
@@ -54,9 +46,6 @@ export function navFor(issueId: string): { ids: string[]; origin: Origin | null 
   return { ids: navIds, origin: navOrigin };
 }
 
-/** where the issue page goes after the issue is archived or deleted: the list it was opened
- *  from, else the last list visited, else the team's issues. Never history back, which from a
- *  deep link leaves the app and from a peek leaves the list. */
 export function exitPathFor(issue: Issue): string {
   if (navOrigin) return navOrigin.to;
   if (lastList) return lastList.to;
@@ -64,15 +53,12 @@ export function exitPathFor(issue: Issue): string {
   return team ? `/team/${team.key}/all` : '/inbox';
 }
 
-/** next/previous issue in the list the open issue came from */
 export function neighbour(issueId: string, delta: 1 | -1): string | null {
   const i = navIds.indexOf(issueId);
   if (i < 0) return null;
   return navIds[i + delta] ?? null;
 }
 
-/** the issue keyboard shortcuts act on, in Linear's order: the peeked issue, the open
- *  issue page, the selection, then the row under the cursor (hover or J/K) */
 export function shortcutTargets(): Issue[] {
   const s = useApp.getState();
   const snap = s.snap;
@@ -86,7 +72,6 @@ export function shortcutTargets(): Issue[] {
   return c ? [c] : [];
 }
 
-/** the issue whose full page is open, if any */
 export function pageIssue(): Issue | null {
   const m = /^#\/issue\/([^/?]+)/.exec(location.hash);
   if (!m) return null;
@@ -98,7 +83,6 @@ export function pageIssue(): Issue | null {
 
 
 export function listIssueAtCursor(): Issue | null {
-  // only the list on the current page counts
   if (visibleList.route && visibleList.route !== location.hash.split('?')[0]) return null;
   const { index } = useCursor.getState();
   if (index < 0 || index >= visibleList.issues.length) return null;

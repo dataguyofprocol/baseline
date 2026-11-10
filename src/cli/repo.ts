@@ -1,17 +1,11 @@
-// The repo a local front door (the CLI, `baseline mcp`, the hooks) runs in: git, read and
-// branch switching, and the committed .baseline.json that `baseline connect` writes. Only the
-// front doors import this; ops get it as OpContext.local.
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Checkout, LocalRepo } from '../ops/operation.js';
 
-/** .baseline.json at the repo root: committed, so every teammate's agent maps the repo to one team */
 export const REPO_CONFIG = '.baseline.json';
 export interface RepoConfig {
-  /** the team key this repo's work belongs to */
   team?: string;
-  /** the UserPromptSubmit nudge ("no Baseline issue is active…"); default on */
   promptHook?: boolean;
 }
 
@@ -25,7 +19,6 @@ export function repoRoot(cwd: string): string | null {
   return r.ok ? r.out : null;
 }
 
-/** the checked-out branch; null when detached or not a repo */
 export function currentBranch(cwd: string): string | null {
   const r = git(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
   return r.ok && r.out ? r.out : null;
@@ -41,7 +34,6 @@ export function readRepoConfig(root: string | null): RepoConfig {
 
 const hasRef = (cwd: string, ref: string) => git(cwd, ['rev-parse', '--verify', '--quiet', ref]).ok;
 
-/** where a new branch starts: the local default branch, else origin's, else nothing (HEAD) */
 function defaultBase(cwd: string): { local: string | null; ref: string | null } {
   const head = git(cwd, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
   const name = head.ok ? head.out.replace(/^origin\//, '') : ['main', 'master', 'trunk'].find(b => hasRef(cwd, `refs/heads/${b}`)) ?? null;
@@ -50,9 +42,6 @@ function defaultBase(cwd: string): { local: string | null; ref: string | null } 
   return hasRef(cwd, `refs/remotes/origin/${name}`) ? { local: name, ref: `origin/${name}` } : { local: null, ref: null };
 }
 
-/** Switch to the issue's branch when nothing can be lost: a clean tree (untracked files are fine), or
- *  uncommitted work on the default branch, which comes along to the new branch. Anything else is the
- *  person's call, so it returns the command instead of running it. */
 export function checkoutBranch(cwd: string, branch: string): Checkout {
   const manual = (command: string, note: string): Checkout => ({ status: 'manual', branch, command, note });
   const root = repoRoot(cwd);
@@ -75,7 +64,6 @@ export function checkoutBranch(cwd: string, branch: string): Checkout {
   }
   const base = defaultBase(root);
   if (dirty) {
-    // uncommitted work started on the default branch belongs on the issue's branch
     if (cur && cur === base.local) return run(['checkout', '-b', branch], 'created', `from ${cur}, with your uncommitted changes`);
     return manual(`git checkout -b ${branch}${base.ref ? ` ${base.ref}` : ''}`, `you are on ${cur ?? 'a detached HEAD'} with uncommitted changes; commit or stash them first`);
   }
@@ -91,7 +79,6 @@ export function localRepo(cwd = process.cwd()): LocalRepo {
   };
 }
 
-/** issue keys a branch name carries ("parth/core-12-fix-login" → CORE-12), for the team keys given */
 export function keysInBranch(branch: string, teamKeys: readonly string[]): string[] {
   const keys = new Set(teamKeys.map(k => k.toLowerCase()));
   const out: string[] = [];

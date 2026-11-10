@@ -1,4 +1,3 @@
-// The whole app state and the one reducer that changes it.
 import type { Handoff, Issue, Priority } from '../core/types.js';
 import type { FieldId } from './detail.js';
 import type { MenuId } from './menus.js';
@@ -11,8 +10,6 @@ import {
 } from './model.js';
 import { emptyField, type TextField } from './textfield.js';
 
-/** Today, a team's list, a project's list (from /), and the issue page. An issue page opened from Needs you
- *  (`needs`) counts "n of N" and moves on to the next item after a decision; `focusComment` is where it opens */
 export type Route =
   | { kind: 'today' }
   | { kind: 'team'; teamId: string }
@@ -25,15 +22,11 @@ export interface IssueDraft { teamId: string; stateId: string; priority: Priorit
 export const DRAFT_FIELDS = ['title', 'team', 'state', 'priority', 'assignee', 'project'] as const;
 export type DraftField = typeof DRAFT_FIELDS[number];
 
-/** the start sheet's options, in the order they are numbered */
 export const START_CHOICES = ['pane', 'here', 'copy', 'none'] as const;
-/** how an answer to a blocked agent runs it again */
 export const RERUN_CHOICES = ['pane', 'here', 'comment'] as const;
 
-/** what rises from the bottom: anything typed or confirmed, and the lists / opens */
 export type Sheet =
   | { type: 'start'; issueId: string; cursor: number; branch: { name: string; exists: boolean } | null }
-  /** a note: a comment (m), a reply to a mention, a send-back, or an answer to a blocked agent (`rerun` indexes RERUN_CHOICES) */
   | { type: 'note'; purpose: 'comment' | 'reply' | 'sendBack' | 'answer'; issueId: string; input: TextField; parentId: string | null; to: string | null; rerun: number }
   | { type: 'followups'; issueId: string; ids: string[]; ticked: string[]; cursor: number }
   | { type: 'standup'; text: string | null; error: string | null }
@@ -42,21 +35,16 @@ export type Sheet =
 
 export type Overlay =
   | { kind: 'none' }
-  /** `intro` is the first-launch card alone; ? adds every key below it */
   | { kind: 'help'; scroll: number; intro?: boolean }
   | { kind: 'find'; query: TextField; cursor: number }
-  /** `selected` is the labels picker's set */
   | { kind: 'picker'; field: PickerField; issueId: string; query: TextField; cursor: number; selected: string[] }
   | { kind: 'compose'; target: 'issue'; field: DraftField; input: TextField; draft: IssueDraft }
   | { kind: 'compose'; target: 'title'; issueId: string; input: TextField }
   | { kind: 'sheet'; sheet: Sheet }
-  /** the space menu; `path` is the submenus stepped into, `cursor` the row ↑↓ is on */
   | { kind: 'menu'; path: MenuId[]; issueId: string; cursor: number };
 
-/** `undo` offers u: the toast of a change that is on the undo stack */
 export interface Toast { id: number; tone: 'ok' | 'error' | 'info'; text: string; undo?: boolean }
 
-/** one field change made from this TUI, with what it replaced */
 export interface UndoEntry { issueId: string; key: string; field: FieldId; before: Partial<Issue>; after: Partial<Issue>; label: string }
 export const UNDO_LIMIT = 20;
 
@@ -65,13 +53,10 @@ export interface TuiState {
   route: Route;
   stack: Route[];
   overlay: Overlay;
-  /** per route: the selected row in a list, or the scroll offset of a detail page */
   cursor: Record<string, number>;
-  /** per route and group id: whether that group is open (unset: the grouping's default, Done and Canceled folded) */
   expanded: Record<string, boolean>;
   groupBy: GroupBy;
   preset: Preset;
-  /** an issue key to put the list cursor on once data arrives (reopening where the last session left off) */
   restoreCursor: string | null;
   toast: Toast | null;
   status: 'loading' | 'ready' | 'error';
@@ -79,13 +64,9 @@ export interface TuiState {
   syncedAt: number | null;
   syncing: boolean;
   threads: Record<string, WorkThread[]>;
-  /** per issue: its prompt, branch and link, fetched when a menu or / needs them */
   handoffs: Record<string, Handoff>;
-  /** newest last */
   undo: UndoEntry[];
-  /** the field that just changed, marked ✓ saved for a moment */
   saved: { issueId: string; field: FieldId; id: number } | null;
-  /** issue → the tmux pane this TUI started its agent in (on this tmux server) */
   panes: Record<string, Pane>;
 }
 
@@ -107,10 +88,8 @@ export function initialState(route: Route = TODAY, stack: Route[] = [], start: {
   };
 }
 
-/** whether Today's "Done this week" is open */
 export const doneOpen = (s: Pick<TuiState, 'expanded'>) => s.expanded[expandKey(TODAY, DONE_GROUP)] ?? false;
 
-/** the issue page a Needs you row opens: at what the agent did, or (a mention) at the comment with the reply sheet open */
 export function openNeed(s: TuiState, row: NeedRow & { issue: Issue }, stack: Route[]): TuiState {
   const route: Route = { kind: 'issue', issueId: row.issue.id, needs: true, ...(row.kind === 'mention' && row.commentId ? { focusComment: row.commentId } : {}) };
   const cursor = { ...s.cursor };
@@ -133,7 +112,6 @@ export type Action =
   | { type: 'back' }
   | { type: 'move'; delta: number; count: number }
   | { type: 'moveTo'; index: number }
-  /** `from`: where the page is before its first scroll */
   | { type: 'scroll'; delta: number; max: number; from?: number }
   | { type: 'toggleGroup'; groupId: string }
   | { type: 'setView'; groupBy?: GroupBy; preset?: Preset }
@@ -141,7 +119,6 @@ export type Action =
   | { type: 'openOverlay'; overlay: Overlay }
   | { type: 'closeOverlay' }
   | { type: 'editInput'; input: TextField }
-  /** ↑↓ wrap around; `clamp` (a page, the first or last row) stops at the ends */
   | { type: 'overlayMove'; delta: number; count: number; clamp?: boolean }
   | { type: 'pickerToggle'; id: string }
   | { type: 'menuPush'; menu: MenuId }
@@ -157,11 +134,9 @@ export type Action =
   | { type: 'patchIssue'; issueId: string; patch: Partial<Issue> }
   | { type: 'markRead'; ids: string[] | 'all'; read: boolean }
   | { type: 'threads'; issueId: string; threads: WorkThread[] }
-  /** after a decision on Needs you item `index`: open the item now at that place, or go back to Today when none is left */
   | { type: 'advance'; index: number; at: number }
   | { type: 'openNeed'; issueId: string; at: number }
   | { type: 'setSheet'; sheet: Sheet }
-  /** a pane an agent was started in; null forgets it (it is gone) */
   | { type: 'pane'; issueId: string; pane: Pane | null }
   | { type: 'toast'; toast: Toast }
   | { type: 'clearToast'; id: number };
@@ -172,15 +147,12 @@ export const listViewOf = (s: Pick<TuiState, 'expanded' | 'groupBy' | 'preset'>,
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
-/** keep each route's cursor on the same row when the rows under it change (new data, a fold, another grouping);
- *  an issue that a fold hid hands the cursor to its group's header */
 function remapCursors(before: TuiState, after: TuiState, now: number): Record<string, number> {
   const cursor = { ...after.cursor };
   if (!after.data) return cursor;
   for (const r of [after.route, ...after.stack]) {
     const k = routeKey(r);
     if (r.kind === 'issue') continue;
-    // a list nobody has moved in yet has its cursor on the first row, and that row is followed too
     if (cursor[k] === undefined) { if (r !== after.route) continue; cursor[k] = 0; }
     const prev = before.data ? selectableIds(r, before.data, listViewOf(before, r), now)[cursor[k]] : undefined;
     const rows = isListRoute(r) ? listRowsFor(r, after.data, listViewOf(after, r)) : null;
@@ -192,19 +164,16 @@ function remapCursors(before: TuiState, after: TuiState, now: number): Record<st
   return cursor;
 }
 
-/** a change to what the lists show, with every cursor kept on its row */
 function relist(s: TuiState, next: TuiState, now = Date.now()): TuiState {
   return { ...next, cursor: remapCursors(s, next, now) };
 }
 
-/** the row under a list route's cursor: an issue, or a folded group's header */
 export function cursorRow(s: TuiState, route: Route = s.route): ListRow | undefined {
   if (!s.data || !isListRoute(route)) return undefined;
   const rows = listRowsFor(route, s.data, listViewOf(s, route)).filter(isSelectable);
   return rows[Math.min(s.cursor[routeKey(route)] ?? 0, Math.max(0, rows.length - 1))];
 }
 
-/** the cursor of a list route moved onto an issue, opening its group if it was folded */
 function selectIn(s: TuiState, route: Route, issueId: string): TuiState {
   if (!s.data || !isListRoute(route)) return s;
   const group = listGroups(route, s.data, listViewOf(s, route)).find(g => g.issues.some(i => i.id === issueId));
@@ -215,7 +184,6 @@ function selectIn(s: TuiState, route: Route, issueId: string): TuiState {
   return at < 0 ? s : { ...s, expanded, cursor: { ...s.cursor, [routeKey(route)]: at } };
 }
 
-/** fold or open one group of the current list */
 function fold(s: TuiState, groupId: string): TuiState {
   if (!s.data || !isListRoute(s.route)) return s;
   return relist(s, { ...s, expanded: { ...s.expanded, [expandKey(s.route, groupId)]: !expandedFn(s, s.route)(groupId) } });
@@ -231,7 +199,6 @@ export function reducer(s: TuiState, a: Action): TuiState {
         const listRoute = [next.route, ...[...next.stack].reverse()].find(isListRoute);
         next = { ...(issue && listRoute ? selectIn(next, listRoute, issue.id) : next), restoreCursor: null };
       }
-      // an issue that vanished (deleted, archived, moved out of reach) can't stay open
       if (next.route.kind === 'issue' && !a.data.issueById.has(next.route.issueId)) {
         const back = reducer(next, { type: 'back' });
         return { ...back, toast: { id: a.at, tone: 'info', text: 'That issue is gone (archived or deleted)' } };
@@ -247,7 +214,6 @@ export function reducer(s: TuiState, a: Action): TuiState {
     case 'switchView':
       return { ...s, stack: [], route: a.route, overlay: { kind: 'none' } };
     case 'back': {
-      // a team or project list goes back to Today, so Today is never more than two presses away
       if (!s.stack.length) return s.route.kind === 'team' || s.route.kind === 'project' ? { ...s, route: TODAY, overlay: { kind: 'none' } } : s;
       const stack = s.stack.slice(0, -1);
       return { ...s, route: s.stack[s.stack.length - 1], stack, overlay: { kind: 'none' } };

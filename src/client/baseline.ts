@@ -1,5 +1,3 @@
-// The client the CLI (and next, an MCP server) calls. Method names are the Store methods they
-// replace; each maps to exactly one route, so authorization is always the server's.
 import type { ApiKeyScope, Comment, Handoff, Issue, Location, Priority, Project, ProjectUpdate, Snapshot, SnapshotSection, User } from '../core/types.js';
 import type {
   AgentDraft, AgentDraftKind, CreateIssueResult, ProposeResult, SubIssuesResult,
@@ -18,7 +16,6 @@ export interface NewIssue {
   teamId: string; title: string; description?: string; stateId?: string; priority?: Priority;
   assigneeId?: string | null; projectId?: string | null; parentId?: string | null; labelIds?: string[];
   estimate?: number | null; dueDate?: string | null; cycleId?: string | null; milestoneId?: string | null;
-  /** omitted: a sub-issue inherits its parent's; null: explicitly none */
   locationId?: string | null;
 }
 
@@ -26,7 +23,6 @@ export type IssuePatch = Partial<Pick<Issue,
   'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' |
   'cycleId' | 'locationId' | 'milestoneId' | 'estimate' | 'dueDate' | 'labelIds'>>;
 
-/** who this client acts as, and within what limits (null: unrestricted) */
 export interface Me {
   user: User;
   workspace: { id: string; name: string };
@@ -36,69 +32,35 @@ export interface Me {
   keyId: string | null;
 }
 
-/**
- * Writes take ids, never issue keys: only getByKey takes a key. `actorId` is who the write is
- * attributed to (from --as / BASELINE_AS); the server honors it or refuses the write.
- * Every method returns core/types shapes and throws BaselineError for anything the server refused.
- */
 export interface Baseline {
   readonly target: Target;
-  /** GET /api/bootstrap?sections=, only the parts a command reads */
   snapshot<K extends SnapshotSection>(sections: readonly K[]): Promise<Pick<Snapshot, K>>;
-  /** GET /api/me */
   me(): Promise<Me>;
-  /** GET /api/issues/by-key/:key, archived and deleted included; undefined when there's none */
   getByKey(key: string): Promise<Issue | undefined>;
-  /** GET /api/issues/:id */
   getIssue(id: string): Promise<Issue | undefined>;
-  /** GET /api/issues */
   listIssues(filter: IssueFilter): Promise<Issue[]>;
-  /** GET /api/issues/:id/handoff */
   handoffFor(issueId: string): Promise<Handoff | undefined>;
-  /** GET /api/search */
   search(q: string): Promise<{ issues: Issue[]; projects: Project[] }>;
-  /** POST /api/issues */
   createIssue(input: NewIssue, actorId?: string): Promise<Issue>;
-  /** PATCH /api/issues/:id */
   updateIssue(id: string, patch: IssuePatch, actorId?: string): Promise<Issue>;
-  /** POST /api/issues/:id/comments; with no actorId, the request's own person writes it */
   addComment(issueId: string, actorId: string | undefined, body: string, parentId: string | null): Promise<Comment>;
-  /** POST /api/projects/:id/updates; with no actorId, the request's own person writes it */
   addProjectUpdate(projectId: string, actorId: string | undefined, body: string, health?: Project['health']): Promise<ProjectUpdate>;
-  /** POST /api/locations with a path on the server's disk; a hosted server refuses */
   createLocation(path: string): Promise<Location>;
-  /** DELETE /api/me/key revokes the key this client authenticates with */
   revokeOwnKey(): Promise<void>;
-  /** POST /api/notifications/:id/read; read false marks it unread again. Always the request's own inbox */
   markNotificationRead(notificationId: string, read?: boolean): Promise<void>;
-  /** POST /api/notifications/read-all */
   markAllNotificationsRead(): Promise<void>;
 
-  // Agent work (core/work.ts). Each is one route and one server transaction; a repeat that changes
-  // nothing answers with opId null. `session` is BASELINE_SESSION, or null for the default lane.
-  /** POST /api/issues/:id/work/start */
   startWork(issueId: string, input: { session: string | null; takeOver?: boolean }, actorId?: string): Promise<StartWorkResult>;
-  /** POST /api/issues/:id/work/progress */
   postProgress(issueId: string, input: ProgressPatch & { session: string | null; links: readonly string[] }, actorId?: string): Promise<ProgressResult>;
-  /** POST /api/issues/:id/work/finish */
   finishWork(issueId: string, input: { session: string | null; outcome: WorkOutcome; summary: string; left?: string; links: readonly string[] }, actorId?: string): Promise<FinishWorkResult>;
-  /** POST /api/issues/:id/followups */
   fileFollowup(sourceIssueId: string, input: { session: string | null; title: string; description?: string; teamId?: string }, actorId?: string): Promise<FollowupResult>;
-  /** GET /api/issues/:id/work */
   workThreads(issueId: string): Promise<WorkThread[]>;
-  /** PUT /api/projects/:id/update-draft, which never publishes */
   draftProjectUpdate(projectId: string, input: { body?: string; health?: Health }, actorId?: string): Promise<DraftResult>;
-  /** POST /api/ops/:id/undo */
   undoOp(opId: string, actorId?: string): Promise<UndoResult>;
-  /** POST /api/issues/:id/sub-issues */
   createSubIssues(parentId: string, input: { session: string | null; titles: readonly string[] }, actorId?: string): Promise<SubIssuesResult>;
-  /** POST /api/agent-drafts: a proposal only the person sees */
   propose(input: { session: string | null; kind: AgentDraftKind; teamId: string; title: string; description?: string; priority?: number; fromIssueId?: string }, actorId?: string): Promise<ProposeResult>;
-  /** GET /api/agent-drafts: the requesting person's drafts */
   drafts(filter: { status?: 'pending' | 'filed'; kind?: AgentDraftKind; fromIssueId?: string }): Promise<AgentDraft[]>;
-  /** POST /api/agent-issues: create what the person said yes to (a draft, or fields) */
   createAgentIssue(input: { session: string | null; teamId: string; draftId?: string; title?: string; description?: string; priority?: number; projectId?: string | null; start?: boolean }, actorId?: string): Promise<CreateIssueResult>;
-  /** POST /api/agent-users: the coding tool's own agent user, made on first use */
   ensureAgentUser(name: string): Promise<User>;
 }
 

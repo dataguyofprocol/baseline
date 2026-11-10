@@ -1,4 +1,3 @@
-// Domain model shared by server, CLI and web surfaces.
 import type { ProjectUpdateDraft } from './work-types.js';
 
 export type WorkflowStateType = 'triage' | 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled';
@@ -18,17 +17,11 @@ export interface User {
   color: string;
   admin: boolean;
   kind: 'human' | 'agent';
-  /** job title or role (Settings › Profile) */
   title?: string;
-  /** one word, like a nickname, used for {username} in branch names */
   username?: string;
-  /** GitHub login (Settings › Profile): PRs by this login are attributed to and assign this user */
   githubUsername?: string;
-  /** uploaded profile picture, or the Google one on a hosted server (null/'' = show initials) */
   avatarUrl?: string | null;
-  /** suspended people can't sign in; their work stays */
   status: 'active' | 'suspended';
-  /** when they joined the workspace (null for people from before this was recorded) */
   createdAt: string | null;
   lastSeenAt: string | null;
 }
@@ -41,34 +34,23 @@ export interface Team {
   color: string;
   description: string;
   position: number;
-  /** issues from agents and other teams wait in a Triage state until someone accepts them */
   triageEnabled: boolean;
-  /** cycle automation: keep the current cycle plus `cycleUpcoming` future ones scheduled */
   autoCycles: boolean;
   /** weeks per cycle */
   cycleDuration: number;
   /** weeks of cooldown between cycles */
   cycleCooldown: number;
-  /** how many future cycles automation keeps scheduled */
   cycleUpcoming: number;
-  /** unfinished issues move into the next cycle when a cycle ends */
   cycleRollover: boolean;
   estimateScale: EstimateScale;
-  /** people who belong to the team (its "Your teams" entry); anyone can still open the team */
   memberIds: string[];
-  /** members who lead the team: they own its name, statuses, triage, templates, labels, membership and
-   *  cycle schedule. Its creator by default; a team with none is led by the workspace admins */
   leadIds: string[];
-  /** issues can be estimated with zero points */
   estimateZero?: boolean;
-  /** the scale goes further (13, 21… / 32, 64…) */
   estimateExtended?: boolean;
-  /** unestimated issues count as 1 point in totals */
   estimateCountUnestimated?: boolean;
 }
 
 export type EstimateScale = 'none' | 'linear' | 'exponential' | 'fibonacci' | 'tshirt';
-/** point values offered for each scale; t-shirt sizes store their point equivalents */
 export const ESTIMATE_SCALES: Record<EstimateScale, Array<{ value: number; label: string }>> = {
   none: [],
   linear: [1, 2, 3, 4, 5].map(v => ({ value: v, label: String(v) })),
@@ -83,13 +65,11 @@ const EXTENDED: Record<EstimateScale, Array<{ value: number; label: string }>> =
   fibonacci: [13, 21].map(v => ({ value: v, label: String(v) })),
   tshirt: [[13, 'XXL'], [21, 'XXXL']].map(([v, l]) => ({ value: v as number, label: l as string })),
 };
-/** the points a team offers, with its zero / extended options applied */
 export function teamScale(team: Pick<Team, 'estimateScale' | 'estimateZero' | 'estimateExtended'> | undefined): Array<{ value: number; label: string }> {
   const scale = team?.estimateScale ?? 'fibonacci';
   if (scale === 'none') return [];
   return [...(team?.estimateZero ? [{ value: 0, label: '0' }] : []), ...ESTIMATE_SCALES[scale], ...(team?.estimateExtended ? EXTENDED[scale] : [])];
 }
-/** an issue's weight in point totals: unestimated counts as 1 where the team says so */
 export function pointsOf(issue: { estimate: number | null; teamId: string }, teams: Array<Pick<Team, 'id' | 'estimateCountUnestimated'>>): number {
   return issue.estimate ?? (teams.find(t => t.id === issue.teamId)?.estimateCountUnestimated ? 1 : 0);
 }
@@ -124,15 +104,10 @@ export interface Issue {
   projectId: string | null;
   cycleId: string | null;
   parentId: string | null;
-  /** where coding agents work on this issue, one location per task (null = not set) */
   locationId: string | null;
-  /** project milestone this issue counts toward (only meaningful with a project) */
   milestoneId: string | null;
-  /** who created it (null for issues older than creator tracking) */
   creatorId: string | null;
-  /** triage: hidden from the queue until this time */
   snoozedUntil: string | null;
-  /** SLA: the rule that applies and when it breaches (cleared once the issue closes) */
   slaRuleId?: string | null;
   slaBreachesAt?: string | null;
   estimate: number | null;
@@ -151,25 +126,21 @@ export interface Comment {
   id: string;
   issueId: string;
   userId: string;
-  /** the person an agent user wrote this for ("Agent via Parth"); null when a person wrote it */
   viaUserId: string | null;
   body: string;
   createdAt: string;
   editedAt: string | null;
-  /** emoji -> user ids */
   reactions: Record<string, string[]>;
   resolvedAt: string | null;
   /** thread root this comment replies to (null = top-level comment) */
   parentId: string | null;
 }
 
-/** a link or an uploaded file hanging off an issue */
 export interface Attachment {
   id: string;
   issueId: string;
   userId: string;
   kind: 'link' | 'file';
-  /** links: the target; files: the app URL serving the file */
   url: string;
   title: string;
   mime: string;
@@ -177,11 +148,9 @@ export interface Attachment {
   createdAt: string;
 }
 
-/** what an uploaded file belongs to; the file is deleted when its owner is */
 export type FileOwnerType = 'issue' | 'doc' | 'project' | 'initiative' | 'team' | 'avatar' | 'workspace';
 export const FILE_OWNER_TYPES: FileOwnerType[] = ['issue', 'doc', 'project', 'initiative', 'team', 'avatar', 'workspace'];
 
-/** an uploaded image (profile picture, picture pasted into an editor); its bytes live in SQLite */
 export interface StoredFile {
   id: string;
   name: string;
@@ -193,17 +162,14 @@ export interface StoredFile {
   ownerId: string;
   uploadedBy: string | null;
   createdAt: string;
-  /** the app URL serving it */
   url: string;
 }
 
-/** issue → users who get notified about it */
 export interface Subscription {
   issueId: string;
   userId: string;
 }
 
-/** Team-scoped starter text for new issues. Empty title = leave the title alone on apply. */
 export interface IssueTemplate {
   id: string;
   teamId: string;
@@ -214,7 +180,6 @@ export interface IssueTemplate {
   createdAt: string;
 }
 
-/** Ready-to-paste prompt + branch for handing an issue to a coding agent. */
 export interface Handoff {
   key: string;
   title: string;
@@ -234,28 +199,21 @@ export interface Project {
   id: string;
   teamId: string | null;
   name: string;
-  /** one-line summary shown under the name and in lists */
   summary: string;
   description: string;
   icon: string;
   color: string;
   status: ProjectStatus;
   health: ProjectHealth;
-  /** 0 = no priority, 1 = urgent … 4 = low (same scale as issues) */
   priority: Priority;
-  /** locations this project's work happens in (a location can serve several projects) */
   locationIds: string[];
   startDate: string | null;
   targetDate: string | null;
   leadId: string | null;
   memberIds: string[];
-  /** workspace project labels (Settings › Projects › Labels) */
   labelIds: string[];
-  /** initiatives this project belongs to (derived) */
   initiativeIds?: string[];
-  /** the named status (Settings › Projects › Statuses); `status` is its category */
   statusId: string | null;
-  /** how often updates are expected; null follows the workspace schedule */
   updateCadence: UpdateCadence | null;
   position: number;
   createdAt: string;
@@ -266,47 +224,31 @@ export interface Project {
 export type UpdateCadence = 'none' | 'weekly' | 'biweekly' | 'monthly';
 export const UPDATE_CADENCE_LABELS: Record<UpdateCadence, string> = { none: 'No expectation for updates', weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month' };
 
-/* ---------- initiatives ---------- */
 export type InitiativeStatus = 'proposed' | 'planned' | 'active' | 'completed' | 'canceled';
-/** how precise a target date is: Linear lets a target be a day, a month, a quarter, a half or a year */
 export type DateResolution = 'day' | 'month' | 'quarter' | 'half' | 'year';
-/** a strategic effort grouping projects (and sub-initiatives), with its own updates and health */
 export interface Initiative {
   id: string; name: string; description: string; icon: string; color: string;
-  /** one-line summary shown under the name in lists and on the overview */
   summary: string;
   status: InitiativeStatus; health: ProjectHealth | null; ownerId: string | null; targetDate: string | null;
   /** targetDate is the last day of this period (null = a plain day) */
   targetResolution: DateResolution | null;
   parentId: string | null; projectIds: string[]; position: number; createdAt: string; updatedAt: string;
-  /** sequential number, shown as I-12 */
   number: number;
-  /** 0 = no priority, 1 = urgent … 4 = low (same scale as projects) */
   priority: Priority;
-  /** initiative labels (Settings › Initiatives) */
   labelIds: string[];
-  /** the team that leads the initiative */
   teamId: string | null;
-  /** how often the owner is expected to post an update; null follows the workspace schedule */
   updateCadence: UpdateCadence | null;
 }
-/** an initiative's key: I-12 */
 export const initiativeKey = (ini: Pick<Initiative, 'number'>) => `I-${ini.number}`;
 export interface InitiativeUpdate {
   id: string; initiativeId: string; userId: string; body: string; health: ProjectHealth | null; createdAt: string;
-  /** emoji -> user ids */
   reactions: Record<string, string[]>;
 }
-/** workspace initiative label (Settings › Initiatives) */
 export interface InitiativeLabel { id: string; name: string; color: string; description: string; createdAt: string }
-/** a resource link on an initiative */
 export interface InitiativeLink { id: string; initiativeId: string; url: string; title: string; createdAt: string }
 
-/* ---------- SLAs ---------- */
-/** an automation rule: issues matching it get a deadline `hours` after they start matching */
 export interface SlaRule { id: string; name: string; teamId: string | null; priorities: Priority[]; labelIds: string[]; hours: number; enabled: boolean; createdAt: string }
 
-/* ---------- loops (automations) ---------- */
 export type LoopTrigger = { kind: 'schedule'; cadence: 'hourly' | 'daily' | 'weekly' } | { kind: 'issueCreated' } | { kind: 'labelAdded'; labelId: string } | { kind: 'statusChanged'; stateType: WorkflowStateType };
 export type LoopAction =
   | { kind: 'assign'; userId: string }
@@ -315,29 +257,18 @@ export type LoopAction =
   | { kind: 'status'; stateType: WorkflowStateType }
   | { kind: 'createIssue'; title: string; description: string }
   | { kind: 'claudeCode' };
-/** a workflow that runs on a schedule or when issues change; Linear calls these "Agent workflows" */
 export interface Loop { id: string; name: string; teamId: string | null; trigger: LoopTrigger; actions: LoopAction[]; enabled: boolean; lastRunAt: string | null; createdAt: string }
 export interface LoopRun { id: string; loopId: string; issueId: string | null; ok: boolean; detail: string; createdAt: string }
 
-/* ---------- git / GitHub (Linear's GitHub integration rules; TEAM_PLAN.md Phase 4) ---------- */
-/** a GitHub webhook delivery as Baseline handled it (Settings › GitHub shows the recent ones) */
 export interface WebhookDelivery { id: number; delivery: string; event: string; action: string | null; repo: string | null; status: 'processed' | 'ignored' | 'rejected'; detail: string; receivedAt: string }
-export interface WebhookConfig { enabled: boolean; secretHint: string | null; publicUrl: string; /** hosted: publicUrl is BASELINE_PUBLIC_URL's and can't be edited */ fixedUrl: boolean; events: readonly string[]; lastDelivery: WebhookDelivery | null; received: number; rejected: number; imports: Array<{ repo: string; teamId: string }> }
-/** where GitHub reads come from, decided once in GitSync.source() */
+export interface WebhookConfig { enabled: boolean; secretHint: string | null; publicUrl: string; fixedUrl: boolean; events: readonly string[]; lastDelivery: WebhookDelivery | null; received: number; rejected: number; imports: Array<{ repo: string; teamId: string }> }
 export type GithubSource =
-  /** hosted with no token: webhooks only */
   | { kind: 'none' }
-  /** laptop: the person's own `gh` sign-in */
   | { kind: 'login' }
-  /** an admin-pasted read-only token, passed to gh as GH_TOKEN */
   | { kind: 'token'; token: string };
-/** what the web app sees of a saved token (never the token itself) */
 export interface GithubTokenInfo { hint: string; login: string; expiresAt: string | null }
-/** a repository Baseline syncs: picked in settings, or a location's origin (laptop only) */
-export interface TrackedRepo { repo: string; path: string | null; via: 'picked' | 'location'; location: string | null; /** who added it with their own GitHub connection: hosted reads it only with one of their tokens (empty: the workspace token's) */ addedBy: string[]; /** the team this repo's work belongs to (Settings › GitHub) */ teamId: string | null }
-/** what syncing found, for the GitHub page's payoff line: "23 open PRs, 9 linked, 3 people matched" */
+export interface TrackedRepo { repo: string; path: string | null; via: 'picked' | 'location'; location: string | null; addedBy: string[]; teamId: string | null }
 export interface GithubSummary { repos: number; openPrs: number; linkedPrs: number; authors: number; peopleMatched: number }
-/** a PR author seen in synced repos, and the member they probably are (for members with no GitHub username yet) */
 export interface GithubAuthor { login: string; prs: number; userId: string | null; suggestedUserId: string | null }
 export interface GitStatus {
   source: GithubSource['kind']; token: GithubTokenInfo | null; ghInstalled: boolean; ghUser: string | null;
@@ -349,35 +280,27 @@ export interface PullRequest {
   branch: string; base: string; author: string; reviewDecision: 'approved' | 'changes_requested' | 'review_required' | null;
   checks: 'success' | 'failure' | 'pending' | null; updatedAt: string; mergedAt: string | null;
 }
-/** closing links move the issue; ref links only show; related links add a relation-style mention */
 export interface IssuePr { issueId: string; prId: string; kind: 'closing' | 'ref' | 'related'; dismissed: boolean }
 export interface Commit { sha: string; repo: string; message: string; author: string; branch: string; committedAt: string }
 export interface IssueCommit { issueId: string; sha: string }
 export interface TeamSubscription { issueAdded: boolean; issueClosed: boolean; triage: boolean }
-/** a team's Workflows & automations (Linear's auto-close, auto-archive and re-order settings) */
 export interface TeamWorkflow {
-  /** close an open parent when its last sub-issue closes */
   closeParent: boolean;
-  /** close the open sub-issues when their parent closes */
   closeSubIssues: boolean;
-  /** close issues nobody has touched in `staleMonths` */
   closeStale: boolean;
   staleMonths: number;
   /** the status stale issues move to (null: the team's first canceled status) */
   staleStateId: string | null;
   /** archive closed issues this many months after they closed (0: never) */
   archiveMonths: number;
-  /** where an issue lands in its new status column when its status moves forward */
   reorder: 'first' | 'last' | 'none';
 }
 export const DEFAULT_TEAM_WORKFLOW: TeamWorkflow = { closeParent: true, closeSubIssues: false, closeStale: false, staleMonths: 6, staleStateId: null, archiveMonths: 6, reorder: 'first' };
 export type ApiKeyScope = 'read' | 'write' | 'createIssues' | 'createComments' | 'admin';
-/** a personal API key; the token itself is shown once and never stored */
 export interface ApiKey {
   id: string;
   name: string;
   userId: string;
-  /** last four characters of the token */
   hint: string;
   /** null = full access */
   scopes: ApiKeyScope[] | null;
@@ -399,47 +322,32 @@ export type PrEvent = 'draft' | 'opened' | 'review' | 'ready' | 'merged';
 /** per team: which workflow state each PR event moves a closing-linked issue to (null = no action) */
 export type PrAutomation = Record<PrEvent, string | null> & { branchRules: Array<{ pattern: string; event: PrEvent; stateId: string | null }> };
 
-/** workspace project label; a label with isGroup holds others (parentId) */
 export interface ProjectLabel { id: string; name: string; color: string; description: string; parentId: string | null; isGroup: boolean; createdAt: string }
 
-/** a named project status inside one of the six categories */
 export interface ProjectStatusDef { id: string; type: ProjectStatus; name: string; color: string; description: string; position: number }
 
-/** the bell on a project page: which project events reach your inbox */
 export interface ProjectSubscription { projectId: string; userId: string; issueAdded: boolean; issueClosed: boolean; comments: boolean; updates: boolean }
 
 
 
 
-/** workspace feature settings (Settings › Features and Settings › Projects) */
 export interface WorkspaceFeatures {
-  /** default project update schedule */
   updateCadence: UpdateCadence;
-  /** default initiative update schedule (Settings › Initiatives) */
   initiativeUpdateCadence: UpdateCadence;
   initiativesEnabled: boolean;
-  /** git / GitHub: poll `gh` for pull requests in your locations' repos */
   githubEnabled: boolean;
-  /** branch name format for "Copy git branch": {issueIdentifier} {issueTitle} {username} */
   branchFormat: string;
-  /** who may create personal API keys */
   apiKeyCreation: 'all' | 'admins';
-  /** when BASELINE_HOST opens Baseline to the network, requests from other devices need an API key */
   apiKeyRequiredRemote: boolean;
-  // Settings › Features: weight a small team doesn't need on day one. Off until the workspace turns it
-  // on; a workspace that already has the data starts with it on (Store.getFeatures)
   estimatesEnabled: boolean;
   cyclesEnabled: boolean;
   templatesEnabled: boolean;
   documentsEnabled: boolean;
   recurringEnabled: boolean;
-  /** project update cadence, reminders and digests */
   projectUpdatesEnabled: boolean;
-  /** cut from the default UI; kept behind a switch because existing rules keep running */
   slasEnabled: boolean;
   loopsEnabled: boolean;
 }
-/** the Settings › Features switches (initiativesEnabled is one too), in the order the page shows them */
 export const FEATURE_SWITCHES: Array<[keyof WorkspaceFeatures, string, string]> = [
   ['cyclesEnabled', 'Cycles', 'Time-boxed iterations per team, with an optional auto-schedule'],
   ['estimatesEnabled', 'Estimates', 'Points on issues, and point totals on boards and cycles'],
@@ -451,27 +359,20 @@ export const FEATURE_SWITCHES: Array<[keyof WorkspaceFeatures, string, string]> 
   ['slasEnabled', 'SLAs', 'Deadlines by priority, with breach notifications'],
   ['loopsEnabled', 'Loops', 'Automations that run when an issue changes'],
 ];
-/** who may join a hosted workspace without a personal invite, and who may invite */
 export interface WorkspaceSecurity {
-  /** Google Workspace domains (e.g. acme.dev) whose accounts join as members on first sign-in */
   approvedDomains: string[];
-  /** teams people joining through an approved domain are added to */
   domainTeamIds: string[];
   whoCanInvite: 'admins' | 'members';
-  /** members can invite too while the workspace has fewer than SMALL_WORKSPACE people */
   smallTeamInvites: boolean;
 }
 export const DEFAULT_SECURITY: WorkspaceSecurity = { approvedDomains: [], domainTeamIds: [], whoCanInvite: 'admins', smallTeamInvites: true };
 export const SMALL_WORKSPACE = 10;
 
 export type AuthMode = 'local' | 'hosted';
-/** a hosted server always offers 'password'; 'google' when a Google OAuth client is configured */
 export type SignInMethod = 'password' | 'google';
-/** shared with the web app so its forms ask for what the server will accept */
 export const PASSWORD_MIN = 10;
 export const isEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
-/** a pending invite as admins see it (joining still needs the invited Google account, or typing the invited address) */
 export interface Invite {
   id: string;
   email: string;
@@ -484,24 +385,16 @@ export interface Invite {
   link: string;
 }
 
-/** a team's shareable join link: anyone who opens it can make an account on that team, until an admin revokes it */
 export interface TeamJoinLink { teamId: string; link: string; createdBy: string | null; createdAt: string }
 
-/** one person in an invite request: someone already in the workspace, or an address */
 export type InviteEntry = { kind: 'member'; userId: string } | { kind: 'email'; email: string };
 
-/** what happened to one person in an invite request. Someone already in the workspace isn't invited
- *  again: they're added to the requested teams ('added-to-teams', `teamIds` = the ones added), or were
- *  on all of them ('already-on-teams'), or no teams were asked for ('already-in-workspace'). */
 export interface InviteResult {
   email: string;
   status: 'invited' | 'added-to-teams' | 'already-on-teams' | 'already-in-workspace' | 'invalid';
-  /** the existing person this entry named */
   userId?: string;
-  /** added-to-teams: the teams they were just added to; already-on-teams: the requested teams */
   teamIds?: string[];
   invite?: Invite;
-  /** 'off': no SMTP on this server, so share the link instead */
   emailed?: 'sent' | 'failed' | 'off';
   error?: string;
 }
@@ -509,11 +402,9 @@ export interface InviteResult {
 export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', initiativesEnabled: false, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false,
   estimatesEnabled: false, cyclesEnabled: false, templatesEnabled: false, documentsEnabled: false, recurringEnabled: false, projectUpdatesEnabled: false, slasEnabled: false, loopsEnabled: false };
 
-/** a directory on this machine that coding agents can work in, usually a git repo */
 export interface Location {
   id: string;
   name: string;
-  /** absolute path */
   path: string;
   createdAt: string;
 }
@@ -528,7 +419,6 @@ export interface Milestone {
   createdAt: string;
 }
 
-/** a document: a markdown page that lives on a project or a team */
 export interface Doc {
   id: string;
   title: string;
@@ -542,7 +432,6 @@ export interface Doc {
   updatedAt: string;
 }
 
-/** a resource link on a team's home page */
 export interface TeamLink {
   id: string;
   teamId: string;
@@ -551,7 +440,6 @@ export interface TeamLink {
   createdAt: string;
 }
 
-/** an issue that files itself again on a cadence (Linear's recurring issues) */
 export interface RecurringIssue {
   id: string;
   teamId: string;
@@ -562,12 +450,10 @@ export interface RecurringIssue {
   labelIds: string[];
   projectId: string | null;
   cadence: 'daily' | 'weekly' | 'biweekly' | 'monthly';
-  /** when the next copy is created */
   nextAt: string;
   createdAt: string;
 }
 
-/** a resource on a project: a link to a doc, a design, a repo… */
 export interface ProjectLink {
   id: string;
   projectId: string;
@@ -580,7 +466,6 @@ export interface ProjectUpdate {
   id: string;
   projectId: string;
   userId: string;
-  /** the person an agent user wrote this for ("Agent via Parth"); null when a person wrote it */
   viaUserId: string | null;
   body: string;
   health: ProjectHealth | null;
@@ -607,18 +492,14 @@ export interface SavedView {
   orderBy: OrderBy;
   layout: 'list' | 'board';
   position: number;
-  /** 'projects' views save the projects page's filters and display instead of issue filters */
   kind: 'issues' | 'projects';
-  /** the projects page options (filters, grouping, ordering, layout, properties) for project views */
   projectOptions: Record<string, unknown> | null;
-  /** who saved it */
   ownerId: string | null;
-  /** false: only its owner sees it (a personal view) */
   shared: boolean;
 }
 
 export interface ViewFilters {
-  states?: string[];        // state ids
+  states?: string[];
   stateTypes?: WorkflowStateType[];
   priority?: Priority[];
   /** user ids; 'none' = unassigned, 'me' = the current user */
@@ -631,25 +512,20 @@ export interface ViewFilters {
   /** cycle ids; 'none' = no cycle, 'current' = the team's running cycle */
   cycleIds?: string[];
   milestoneIds?: string[];
-  /** SLA status */
   sla?: Array<'breached' | 'risk' | 'ok' | 'none'>;
-  /** linked pull request state */
   prs?: Array<'open' | 'draft' | 'merged' | 'none'>;
   /** estimate values; -1 = no estimate */
   estimates?: number[];
   due?: Array<'overdue' | 'today' | 'week' | 'month' | 'none' | 'any'>;
   created?: 'day' | 'week' | 'month' | 'quarter';
   updated?: 'day' | 'week' | 'month' | 'quarter';
-  /** structure filters */
   hierarchy?: Array<'parent' | 'subissue' | 'standalone'>;
   relations?: Array<'blocked' | 'blocking' | 'related' | 'duplicate'>;
   /** user ids following the issue; 'me' = the current user */
   subscriberIds?: string[];
   links?: Array<'any' | 'none'>;
   query?: string;
-  /** fields negated by the pill's "is not" operator */
   not?: string[];
-  /** advanced filter: conditions combined with and/or, groups nest */
   advanced?: FilterGroup;
 }
 
@@ -673,38 +549,26 @@ export type NotificationType =
   | 'issueMentioned'
   | 'issueStatusChanged'
   | 'issueReplied'
-  /** a reminder you set on an issue ("Remind me", ⇧H), held back until its time */
   | 'issueReminder'
   | 'projectUpdate'
-  /** project bell: an issue joined the project / was completed or canceled / the description or a comment changed */
   | 'projectIssueAdded'
   | 'projectIssueClosed'
   | 'projectChanged'
-  /** you lead a project whose update is due */
   /** you own an initiative whose update is due; body is `<initiativeId>|<text>` */
   | 'initiativeUpdateReminder'
   | 'projectUpdateReminder'
-  /** the person's summary of new updates on projects they lead, are a member of, or follow */
   | 'updatesDigest'
-  /** an issue assigned to you breached (or is about to breach) its SLA */
   | 'slaBreached'
-  /** a pull request linked to an issue you follow opened, got reviewed or merged */
   | 'prActivity'
-  /** a loop failed to run */
   | 'loopFailed'
-  /** team bell: an issue was added to a team you follow, closed, or landed in its triage */
   | 'teamActivity'
   /** someone added you to a team; body is "<teamId>|<team name>" */
   | 'teamMemberAdded'
-  /** someone reacted to your comment */
   | 'commentReacted'
   /** someone else changed a document you wrote; body is "<docId>|<title>" */
   | 'docChanged'
-  /** raised by the app itself with no human actor, so the inbox row signs with the tile */
   | 'systemUpdate'
-  /** an agent finished work on an issue you own (or it works for you): "Ready for your review: …" / "Done: …" */
   | 'agentFinished'
-  /** an agent stopped before finishing, or reported a blocker: "Stopped: …" / "Blocked: …" */
   | 'agentBlocked'
   /** someone asked you (an admin or a team lead) to change a setting they can't; body is "<settings path>|<what>" */
   | 'accessRequested';
@@ -717,7 +581,6 @@ export interface Notification {
   projectId: string | null;
   body: string;
   readAt: string | null;
-  /** hidden from the inbox until this time */
   snoozedUntil: string | null;
   createdAt: string;
 }
@@ -736,7 +599,6 @@ export interface ActivityItem {
   issueId: string | null;
   projectId: string | null;
   userId: string;
-  /** the person an agent user wrote this for ("Agent via Parth"); null when a person wrote it */
   viaUserId: string | null;
   type: ActivityType;
   data: Record<string, unknown>;
@@ -747,82 +609,52 @@ export interface Workspace {
   id: string;
   name: string;
   createdAt: string;
-  /** resolved handoff prompt template (meta value or code default) */
   handoffPromptTemplate: string;
-  /** macOS app that interactive Claude Code sessions open in */
   terminalApp: TerminalApp;
-  /** the workspace's agent user; agent sessions write as it, on a person's behalf */
   agentUserId: string | null;
-  /** the server's home directory, so the web app can show paths as ~/… (server memory) */
   homeDir?: string;
-  /** 'local' = this machine only, no sign-in; 'hosted' = people sign in (see signInMethods) */
   auth?: AuthMode;
-  /** hosted only: the ways people can sign in here */
   signInMethods?: SignInMethod[];
-  /** hosted only: the server sends email, so invite and reset links are emailed as well as copyable */
   mail?: boolean;
-  /** set when BASELINE_HOST opens the server to other devices */
   lanHost?: string;
-  /** whether the person asking may invite new people (hosted: Accounts.canInvite) */
   canInvite?: boolean;
   preferences: Preferences;
   features: WorkspaceFeatures;
   security: WorkspaceSecurity;
 }
 
-/** per-install preferences (one person per local install) */
 export interface Preferences {
-  /** where the app opens */
   homeView: 'my-work' | 'inbox' | 'my-issues' | 'team';
   /** 0 = Sunday, 1 = Monday */
   firstDayOfWeek: 0 | 1;
-  /** which events raise inbox notifications */
   notify: {
     assigned: boolean;
     statusChanged: boolean;
     comments: boolean;
     mentions: boolean;
   };
-  /** how people's names show: full name, or first name only */
   displayNames: 'full' | 'first';
-  /** turn :) and friends into emoji as you type */
   convertEmoticons: boolean;
-  /** the key that sends a comment: Enter (⇧↵ for a new line) or ⌘↵ */
   sendCommentsOn: 'enter' | 'mod-enter';
   fontSize: 'small' | 'default' | 'large';
-  /** show the hand cursor on clickable things */
   pointerCursors: boolean;
-  /** always underline links in text content */
   underlineLinks: boolean;
-  /** new issues start assigned to you */
   autoAssign: boolean;
-  /** moving an unassigned issue to a started status assigns it to you */
   assignOnStart: boolean;
-  /** copying an issue's git branch moves an unstarted / backlog issue to started and assigns you */
   startOnBranchCopy: boolean;
-  /** the same for Copy as prompt and Open in Claude Code */
   startOnHandoff: boolean;
-  /** Settings › Notifications: how often the project updates summary lands in your inbox */
   updatesSummary: 'daily' | 'weekly' | 'off';
-  /** Settings › Notifications › Browser: browser notifications, and which kinds */
   push: { browser: boolean; types: Record<NotifyCategory, boolean> };
-  /** Customize sidebar: badge style, and when each item shows (hidden ones move to More) */
   sidebar: { badgeStyle: 'count' | 'dot' | 'none'; items: Record<string, SidebarVisibility> };
-  /** first-run setup: the panel on the team's issues view, reopened from the help menu */
   gettingStarted: GettingStarted;
 }
-/** a preferences change: nested groups merge, so a patch names only what it changes */
 export type PreferencesPatch = Partial<Omit<Preferences, 'gettingStarted'>> & { gettingStarted?: Partial<GettingStarted> };
 export interface GettingStarted {
-  /** 'pending' shows the setup panel on the team's issues view */
   onboarding: 'pending' | 'done';
-  /** 'create' set up a new workspace; 'join' is someone arriving in one that already has teams */
   flow: 'create' | 'join';
-  /** when setup began: only issues made after it count as your first */
   since: string | null;
 }
 export type SidebarVisibility = 'show' | 'badged' | 'hide';
-/** the kinds Linear's notification settings speak in */
 export type NotifyCategory = 'agentWork' | 'assignments' | 'statusChanges' | 'comments' | 'mentions' | 'reactions' | 'subscriptions' | 'documents' | 'updates' | 'reminders' | 'loops' | 'triage';
 export function notifyCategory(type: NotificationType, body = ''): NotifyCategory | null {
   switch (type) {
@@ -853,14 +685,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
   push: { browser: false, types: { agentWork: true, assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
 };
 
-/** macOS terminals interactive sessions can open in, by app name (`open -a <name>`) */
 export const TERMINAL_APPS = ['Terminal', 'iTerm', 'Ghostty', 'Warp', 'kitty', 'Alacritty', 'WezTerm'] as const;
 export type TerminalApp = typeof TERMINAL_APPS[number];
 export function toTerminalApp(v: unknown): TerminalApp {
   return TERMINAL_APPS.includes(v as TerminalApp) ? v as TerminalApp : 'Terminal';
 }
 
-/** Full client snapshot. Workspaces are small, so the web app boots from one payload. */
 export interface Snapshot {
   workspace: Workspace;
   users: User[];
@@ -891,7 +721,6 @@ export interface Snapshot {
   issuePrs: IssuePr[];
   commits: Commit[];
   issueCommits: IssueCommit[];
-  /** the team bell: which team events reach your inbox */
   teamSubscriptions: Record<string, TeamSubscription>;
   teamWorkflows: Record<string, TeamWorkflow>;
   recurring: RecurringIssue[];
@@ -903,23 +732,15 @@ export interface Snapshot {
   favorites: Favorite[];
   notifications: Notification[];
   activity: ActivityItem[];
-  /** current user for this local install */
   currentUser: User;
-  /** project updates an agent drafted for the requesting person, never anyone else's. Only
-   *  GET /api/bootstrap fills it: the store's own snapshot doesn't know who is asking. */
   updateDrafts?: ProjectUpdateDraft[];
-  /** the requesting person's own API keys, without tokens. Filled by GET /api/bootstrap only */
   myApiKeys?: ApiKey[];
-  /** how many invites the requesting person has sent. Filled by GET /api/bootstrap only */
   invitesSent?: number;
-  /** the requesting person's own GitHub connection (login and the token's last four, never the token).
-   *  Filled by GET /api/bootstrap only */
   myGithub?: GithubTokenInfo | null;
 }
 
 export type SnapshotSection = keyof Snapshot;
-/** every part of a Snapshot, by name: `GET /api/bootstrap?sections=` accepts exactly these
- *  (a Record over keyof Snapshot, so a new part that isn't listed here fails the build) */
+/** every part of a Snapshot, by name: `GET /api/bootstrap?sections=` accepts exactly these */
 const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   workspace: true, users: true, teams: true, states: true, labels: true, templates: true, issues: true, comments: true,
   attachments: true, subscriptions: true, relations: true, projects: true, projectLinks: true, docs: true, teamLinks: true,

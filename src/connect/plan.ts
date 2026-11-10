@@ -1,10 +1,3 @@
-// `baseline connect claude|codex|pi`: what to change in a repo so its coding agent keeps Baseline
-// current. For Claude Code that is plain, committed files: .mcp.json, the hooks and an allow-list in
-// .claude/settings.json, the repo's team in .baseline.json, and a short CLAUDE.md block. Pure: it gets the files' current text and returns their new text; src/cli/connect.ts
-// reads and writes them. Every edit merges into what is there, and planning over its own result
-// changes nothing, so running connect again is a no-op. The MCP configs it writes are often
-// committed, so they hold no machine paths, databases or tokens: `baseline mcp` found on PATH, or
-// the server's /mcp URL with the key read from an environment variable.
 import { agentBlock, BLOCK_END, BLOCK_START, claudeBlock } from '../ops/guide.js';
 import { OPERATIONS } from '../ops/index.js';
 
@@ -13,50 +6,38 @@ export type Harness = (typeof HARNESSES)[number];
 
 export const HARNESS_NAME: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex', pi: 'pi' };
 
-/** the MCP server connect writes: `baseline mcp` on PATH (local), or a Baseline server's /mcp endpoint (remote) */
 export type McpServerEntry = { transport: 'stdio' } | { transport: 'http'; url: string };
 
 export const STDIO_COMMAND = { command: 'baseline', args: ['mcp'] } as const;
-/** the environment variable a remote entry reads the API key from; never the key itself */
 export const TOKEN_ENV = 'BASELINE_TOKEN';
-/** what `baseline mcp` reads from its environment (src/client/target.ts, src/mcp/server.ts) */
 const FORWARDED_ENV = ['BASELINE_DB', 'BASELINE_URL', 'BASELINE_TOKEN', 'BASELINE_AS', 'BASELINE_SESSION'] as const;
 
-/** one file connect would write; `before` null means it doesn't exist yet */
 export interface FileEdit {
-  /** relative to the repo */
   path: string;
   before: string | null;
   after: string;
   what: string;
 }
 
-/** a file connect must not overwrite: its text isn't what its format says it is */
 export class ConnectError extends Error {}
 
-/** the MCP server's name in every harness config, so tools show as mcp__baseline__start_issue */
 export const SERVER_NAME = 'baseline';
 
 const tool = (name: string) => `mcp__${SERVER_NAME}__${name}`;
-/** the reads, and the writes that change nothing a person has to review and that undo reverses */
 const REVERSIBLE = ['start_issue', 'post_progress', 'create_sub_issues', 'propose_issue', 'propose_followup'];
 export const ALLOWED_TOOLS = OPERATIONS.filter(o => o.effect.kind === 'read' || REVERSIBLE.includes(o.name)).map(o => tool(o.name));
 
-/** the Claude Code hooks: the context at session start, the nudge to track work, the reminder to post progress */
 export const CLAUDE_HOOKS = [
   ['SessionStart', 'baseline hook session-start'],
   ['UserPromptSubmit', 'baseline hook prompt'],
   ['Stop', 'baseline hook stop'],
 ] as const;
-/** the repo's committed Baseline settings (src/cli/repo.ts reads it) */
 export const REPO_CONFIG_PATH = '.baseline.json';
 
 export interface ConnectOptions {
-  /** the team this repo's work belongs to, written to .baseline.json */
   team?: string;
 }
 
-/** Every edit for one harness, including those that change nothing (the caller filters). */
 export function planConnect(harness: Harness, server: McpServerEntry, read: (path: string) => string | null, opts: ConnectOptions = {}): FileEdit[] {
   const edit = (path: string, what: string, change: (before: string | null) => string): FileEdit => {
     const before = read(path);
@@ -72,7 +53,6 @@ export function planConnect(harness: Harness, server: McpServerEntry, read: (pat
     case 'claude': return [
       edit('.mcp.json', `the ${SERVER_NAME} MCP server (${about})`, b => mergeJson(b, '.mcp.json', o => setKey(o, ['mcpServers', SERVER_NAME],
         server.transport === 'stdio' ? { type: 'stdio', ...stdio } : { type: 'http', url: server.url, headers: bearer }))),
-      // committed, so every teammate gets the server, the hooks and the allow-list, not just the person who ran connect
       edit('.claude/settings.json', `enables the ${SERVER_NAME} server; runs the Baseline hooks; ${ALLOWED_TOOLS.map(t => t.split('__')[2]).join(', ')} run without asking (the rest ask)`,
         b => mergeJson(b, '.claude/settings.json', o => addHooks(addToList(addToList(o, ['enabledMcpjsonServers'], [SERVER_NAME]), ['permissions', 'allow'], ALLOWED_TOOLS)))),
       ...repoConfig,
@@ -90,7 +70,6 @@ export function planConnect(harness: Harness, server: McpServerEntry, read: (pat
       block('AGENTS.md'),
     ];
     case 'pi': return [
-      // direct: eight small tools the model should see, not have to find through codemode or tool search
       edit('.pi/mcp.json', `the ${SERVER_NAME} MCP server (${about}), its tools shown to the model directly`, b => mergeJson(b, '.pi/mcp.json', o => setKey(o, ['mcpServers', SERVER_NAME], {
         ...(server.transport === 'stdio' ? stdio : { url: server.url, headers: bearer }),
         exposure: 'direct',
@@ -102,9 +81,7 @@ export function planConnect(harness: Harness, server: McpServerEntry, read: (pat
   }
 }
 
-// ---------------------------------------------------------------- markdown block
 
-/** the block in place of an older one, or appended after a blank line; the rest of the file untouched */
 export function upsertBlock(before: string | null, path: string, block = agentBlock()): string {
   if (before === null || !before.trim()) return `${block}\n`;
   const marker = BLOCK_START.slice(0, BLOCK_START.indexOf(' ('));
@@ -114,13 +91,11 @@ export function upsertBlock(before: string | null, path: string, block = agentBl
   return before.slice(0, at) + block + before.slice(end + BLOCK_END.length);
 }
 
-// ---------------------------------------------------------------- JSON
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 type JsonObject = { [k: string]: Json };
 const isObject = (v: unknown): v is JsonObject => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** parse, change, and print 2-space JSON; unchanged content keeps the file's own formatting */
 function mergeJson(before: string | null, path: string, change: (o: JsonObject) => JsonObject): string {
   let o: unknown = {};
   if (before !== null && before.trim()) {
@@ -150,7 +125,6 @@ function setKey(o: JsonObject, path: readonly string[], value: Json): JsonObject
   return o;
 }
 
-/** each Baseline hook once, beside whatever hooks the repo already has */
 function addHooks(o: JsonObject): JsonObject {
   const hooks = at(o, ['hooks'], 'hooks');
   for (const [event, command] of CLAUDE_HOOKS) {
@@ -171,14 +145,11 @@ function addToList(o: JsonObject, path: readonly string[], values: readonly stri
   return o;
 }
 
-// ---------------------------------------------------------------- TOML
 
 const tomlString = (s: string) => JSON.stringify(s);
 
-/** `[mcp_servers.baseline]` or `[mcp_servers."baseline"]`, and its subtables such as `.env` */
 const tableHeader = (line: string): string | undefined => /^\s*\[\s*([^\][]+?)\s*\]\s*(#.*)?$/.exec(line)?.[1]?.replace(/"([^"]*)"/g, '$1');
 
-/** our table in place of any older one (and its subtables), or appended; every other line untouched */
 export function upsertTomlTable(before: string | null, table: string, body: readonly string[]): string {
   const section = [`[${table}]`, ...body];
   const lines = before === null ? [] : before.replace(/\n$/, '').split('\n');

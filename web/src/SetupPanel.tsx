@@ -9,13 +9,8 @@ import { StatusDone, StatusStarted, StatusTodo, IconChevronDown, IconChevronRigh
 import type { Snapshot } from '../../src/core/types.js';
 import { takeSetupStep } from './Onboarding.js';
 
-/* Setup happens inside the app, as a "Getting started" group at the top of the team's issues while
-   gettingStarted.onboarding is 'pending': a welcome, one row per step, and the open step beside them.
-   The rows look like issues but are not records. The help menu item reopens the same group. */
-
 type SetupItemId = 'agent' | 'invite' | 'github' | 'issue';
 interface SetupCtx { hosted: boolean; admin: boolean; canInvite: boolean }
-/** `teamId`: the team whose issues the group sits on, null on My issues */
 type BodyProps = { teamId: string | null; eyebrow: string; onDone: () => void };
 
 const SETUP_ITEMS: Array<{ id: SetupItemId; title: string; minutes: number; when(c: SetupCtx): boolean; done(s: Snapshot): boolean; Body: ComponentType<BodyProps> }> = [
@@ -24,7 +19,6 @@ const SETUP_ITEMS: Array<{ id: SetupItemId; title: string; minutes: number; when
     id: 'invite', title: 'Invite your team', minutes: 1, when: c => c.hosted && c.canInvite, Body: InviteBody,
     done: s => !!s.invitesSent || teammates(s).length > 0,
   },
-  // everyone's (hosted, each person connects their own read-only token), so done is per person
   { id: 'github', title: 'Connect GitHub', minutes: 3, when: () => true, done: s => s.workspace.auth === 'hosted' ? !!s.myGithub : s.workspace.features.githubEnabled, Body: GitHubBody },
   {
     id: 'issue', title: 'Write your first issue', minutes: 0.5, when: () => true, Body: IssueBody,
@@ -45,20 +39,16 @@ const myTeams = (s: Snapshot) => s.teams.filter(t => t.memberIds.includes(s.curr
 const teammates = (s: Snapshot) => s.users.filter(u => u.kind === 'human' && u.status === 'active' && u.id !== s.currentUser.id);
 const issueKey = (s: Snapshot, i: { teamId: string; number: number }) => `${s.teams.find(t => t.id === i.teamId)?.key ?? 'ISS'}-${i.number}`;
 
-/** the first issue you wrote since setup began */
 function firstIssue(s: Snapshot) {
   const since = s.workspace.preferences.gettingStarted.since ?? s.workspace.createdAt;
   return s.issues.find(i => i.creatorId === s.currentUser.id && i.createdAt > since && !i.deletedAt) ?? null;
 }
 
-/** where the group lives for this person: their first team's issues, or My issues without a team */
 export function setupHome(s: Snapshot): string {
   const team = myTeams(s)[0];
   return team ? `/team/${team.key}/all` : '/my-issues';
 }
 
-/** When your agent last reached Baseline: a key of yours used over MCP, or (local stdio, which has
- *  no key) anything it wrote as "Agent via you". */
 function agentConnection(s: Snapshot): { name: string | null; at: string } | null {
   const me = s.currentUser.id;
   const key = (s.myApiKeys ?? []).filter(k => k.lastUsedAt).sort((a, b) => b.lastUsedAt!.localeCompare(a.lastUsedAt!))[0];
@@ -67,18 +57,14 @@ function agentConnection(s: Snapshot): { name: string | null; at: string } | nul
   return wrote ? { name: null, at: wrote.createdAt } : null;
 }
 
-/** For the page that hosts the group: whether it shows and is expanded, so the page can drop its
- *  own empty-state call to action while the group offers one. */
 export function useSetupPanel() {
   const shown = useApp(s => s.snap!.workspace.preferences.gettingStarted.onboarding === 'pending');
   const [expanded, setExpanded] = useState(true);
   const [wasShown, setWasShown] = useState(shown);
-  // reopened from the help menu: open it fully
   if (shown !== wasShown) { setWasShown(shown); if (shown) setExpanded(true); }
   return { shown, expanded, setExpanded };
 }
 
-/** a key in this team's format, for the examples */
 function demoKey(snap: Snapshot, teamId: string | null, next = false): string {
   const team = snap.teams.find(t => t.id === teamId) ?? myTeams(snap)[0];
   const key = team?.key ?? 'WEB';
@@ -95,7 +81,6 @@ export function SetupPanel(props: { teamId: string | null; expanded: boolean; se
   const snap = useApp(s => s.snap)!;
   const items = setupItems(snap);
   const firstOpen = items.find(i => !i.isDone)?.id ?? null;
-  // the bridge after naming the first team can ask for a step to be open (Onboarding.tsx)
   const [open, setOpen] = useState<SetupItemId | null>(() => {
     const asked = takeSetupStep();
     return asked && items.some(i => i.id === asked) ? asked as SetupItemId : firstOpen;
@@ -105,14 +90,11 @@ export function SetupPanel(props: { teamId: string | null; expanded: boolean; se
   const justDone = useJustDone(items);
   const { expanded, setExpanded } = props;
 
-  // a step that finished inline hands over to the next one, after its check has had a moment. Invite and
-  // GitHub finish inside their own dialog, which moving on would close mid-flow, so they stay put.
   useEffect(() => {
     if (!justDone.size || !open || !justDone.has(open) || open === 'invite' || open === 'github') return;
     const t = setTimeout(() => setOpen(items.find(i => !i.isDone)?.id ?? null), 1400);
     return () => clearTimeout(t);
   }, [justDone]);
-  // everything done: let the finish line be read, then tuck the group away
   useEffect(() => {
     if (!allDone) return;
     const t = setTimeout(() => void setGettingStarted({ onboarding: 'done' }), 6000);
@@ -175,7 +157,6 @@ export function SetupPanel(props: { teamId: string | null; expanded: boolean; se
   );
 }
 
-/** what a done row says after its title */
 function doneLine(s: Snapshot, id: SetupItemId): string {
   if (id === 'agent') { const c = agentConnection(s); return c ? `· ${c.name ?? 'Your agent'} connected` : ''; }
   if (id === 'invite') { const n = teammates(s).length; return n ? `· ${n} joined` : '· Invites sent'; }
@@ -191,7 +172,6 @@ function RowStatus({ id, done, morph, next }: { id: SetupItemId; done: boolean; 
   return <span className={`ob-status${next ? ' next' : ''}`} role="img" aria-label="To do"><StatusTodo size={14} /></span>;
 }
 
-/** items that flipped to done since the group mounted, for the moment after they flip */
 function useJustDone(items: Array<{ id: SetupItemId; isDone: boolean }>) {
   const seen = useRef(new Map(items.map(i => [i.id, i.isDone])));
   const [fresh, setFresh] = useState<ReadonlySet<SetupItemId>>(new Set());
@@ -207,7 +187,6 @@ function useJustDone(items: Array<{ id: SetupItemId; isDone: boolean }>) {
   return fresh;
 }
 
-/* ================= the welcome, and the finish line ================= */
 function Welcome({ items, teamId }: { items: Array<{ id: SetupItemId; minutes: number; isDone: boolean }>; teamId: string | null }) {
   const snap = useApp(s => s.snap)!;
   const first = snap.currentUser.name.split(' ')[0] || snap.currentUser.name;
@@ -238,7 +217,6 @@ function Welcome({ items, teamId }: { items: Array<{ id: SetupItemId; minutes: n
   );
 }
 
-/** an example issue that moves by itself, the way issues will once setup is done */
 function LiveExample({ issueKey: key, github }: { issueKey: string; github: boolean }) {
   const lines = github
     ? ['Waiting in Todo', 'Your agent started it', 'Its pull request is in review', 'Merged. Nobody touched the status.']
@@ -274,7 +252,6 @@ function Finale({ teamId }: { teamId: string | null }) {
   );
 }
 
-/** the help menu's way back to the group, with the same progress */
 export function SetupMenuItem() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -290,7 +267,6 @@ function SetupDots({ items }: { items: Array<{ id: SetupItemId; isDone: boolean 
   return <span className="ob-dots" aria-hidden="true">{items.map(it => <i key={it.id} className={it.isDone ? 'on' : undefined} />)}</span>;
 }
 
-/* ================= shared body layout ================= */
 function StepHead({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
   return (
     <div className="ob-head">
@@ -301,7 +277,6 @@ function StepHead({ eyebrow, title, children }: { eyebrow: string; title: string
   );
 }
 
-/* ================= agent ================= */
 const HARNESSES = [['claude', 'Claude Code'], ['codex', 'Codex'], ['mcp', 'Any MCP client']] as const;
 type Harness = typeof HARNESSES[number][0];
 
@@ -312,7 +287,6 @@ function connectSnippet(h: Exclude<Harness, 'mcp'>, url: string, token: string):
   return { where: 'Add this to ~/.codex/config.toml', text: `[mcp_servers.baseline]\nurl = "${url}"\nhttp_headers = { Authorization = "Bearer ${token}" }` };
 }
 
-// a key's token is shown once, so it outlives the group closing or the page changing
 let minted: { keyId: string; token: string } | null = null;
 
 function AgentBody({ eyebrow }: BodyProps) {
@@ -420,7 +394,6 @@ function CopyIcon({ text, what }: { text: string; what: string }) {
   return <button className="icon-btn" aria-label={`Copy ${what}`} title={`Copy ${what}`} onClick={() => void copyWithToast(text, what)}><IconCopy size={12} /></button>;
 }
 
-/* ================= invite ================= */
 function InviteBody({ teamId, eyebrow }: BodyProps) {
   const snap = useApp(s => s.snap)!;
   const [inviting, setInviting] = useState(false);
@@ -451,7 +424,6 @@ function InviteBody({ teamId, eyebrow }: BodyProps) {
   );
 }
 
-/* ================= GitHub ================= */
 function GitHubBody({ eyebrow }: BodyProps) {
   const snap = useApp(s => s.snap)!;
   const [open, setOpen] = useState(false);
@@ -485,7 +457,6 @@ function GitHubBody({ eyebrow }: BodyProps) {
   );
 }
 
-/* ================= first issue ================= */
 function IssueBody({ teamId, eyebrow }: BodyProps) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);

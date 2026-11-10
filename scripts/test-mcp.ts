@@ -1,14 +1,3 @@
-// `baseline mcp` over the real protocol: spawns the CLI's MCP server on a scratch database, runs
-// initialize, tools/list and tools/call through the SDK's client, then re-reads the database.
-// Checks that every op is a tool with its schemas and annotations, that Claude Code writes as "Claude Code via
-// <person>" and any other client as the workspace's "Agent via <person>" (BASELINE_AS picks another agent user),
-// that with no login and no database it refuses instead of seeding one, that repeated progress converges on one comment
-// edited in place, that errors are tool errors listing valid values, and that stdout has only protocol messages.
-// Then the hosted endpoint, /mcp over Streamable HTTP: keys only, the same tools, a key's scopes and
-// teams enforced by every tool, and the whole work loop re-read from the database.
-// Runs against a throwaway database and never touches ~/.baseline.
-//
-//   npx tsx scripts/test-mcp.ts
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,7 +24,6 @@ const check = (name: string, ok: boolean, detail: unknown = '') => {
   console.log(`${ok ? '✓' : '✗'} ${name}${ok || detail === '' ? '' : `  — ${typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 600)}`}`);
 };
 
-// a workspace with one unstarted, unassigned issue
 const { store: store0, db: db0 } = createApp(dbPath, { mode: 'local' }, { configured: false, send: async () => {} });
 const owner = store0.snapshot().currentUser;
 const team = store0.snapshot().teams[0]!;
@@ -58,7 +46,6 @@ const call = async (client: Client, name: string, args: Record<string, unknown>)
   return r as { isError?: boolean; content: Array<{ type: string; text: string }>; structuredContent?: Record<string, any> };
 };
 
-// ---------- no login, no database: a loud refusal, never a sample workspace ----------
 {
   const home = join(work, 'empty-home');
   mkdirSync(home);
@@ -75,7 +62,6 @@ const call = async (client: Client, name: string, args: Record<string, unknown>)
   check('…and nothing was written under HOME (no ~/.baseline database)', !existsSync(join(home, '.baseline')) && readdirSync(home).length === 0, readdirSync(home));
 }
 
-// ---------- initialize, tools/list ----------
 const claude = await session('claude-code');
 check('initialize: server is baseline, with instructions naming the work loop', claude.getServerVersion()?.name === 'baseline' && /start_issue/.test(claude.getInstructions() ?? ''));
 const { tools } = await claude.listTools();
@@ -90,7 +76,6 @@ for (const op of OPERATIONS as readonly AnyOperation[]) {
 check('reads are readOnlyHint, undo destructiveHint, writes neither', tools.filter(t => t.annotations?.readOnlyHint).map(t => t.name).join() === 'next_issue,find_issues,get_issue,list_issues,my_activity'
   && tools.filter(t => t.annotations?.destructiveHint).map(t => t.name).join() === 'undo');
 
-// ---------- the work loop ----------
 const s = await call(claude, 'start_issue', { issue: K });
 check(`start_issue ${K}: In Progress, attributed to "Claude Code via the person" (made on first use), structuredContent`, !s.isError && s.structuredContent?.state === 'In Progress'
   && s.structuredContent?.attributed_to === `Claude Code via ${owner.name}` && /Started/.test(s.content[0]!.text), s);
@@ -102,7 +87,6 @@ check('post_progress twice: created, then rewritten', p1.structuredContent?.crea
 const f = await call(claude, 'finish_issue', { issue: K, outcome: 'done', summary: 'MCP server wired; scripts/test-mcp.ts passes' });
 check('finish_issue done: Done', !f.isError && f.structuredContent?.state === 'Done', f);
 
-// ---------- the new tools, each over stdio, and undo of each new write ----------
 {
   const tool = (name: string, args: Record<string, unknown>) => call(claude, name, args);
   const n = await tool('next_issue', {});
@@ -122,7 +106,6 @@ check('finish_issue done: Done', !f.isError && f.structuredContent?.state === 'D
   const fin = await tool('finish_issue', { issue: ci.structuredContent?.key, outcome: 'stopped', summary: 'half way', left: 'the closing' });
   check('finish_issue over MCP lists the pending follow-ups', fin.structuredContent?.pending_followups.length === 2 && /Ask the person once/.test(fin.content[0]!.text), fin);
   const undos = await Promise.all([fin, sub, legacy, pf].map(x => tool('undo', { op_id: x.structuredContent?.op_id })));
-  // a fresh proposal, created and undone before anyone writes on it (a commented issue isn't deleted by undo)
   const pi2 = await tool('propose_issue', { title: 'Log MCP client names', team: team.key });
   const ci2 = await tool('create_issue', { draft_id: pi2.structuredContent?.draft_id });
   const undoCi = await tool('undo', { op_id: ci2.structuredContent?.op_id });
@@ -130,7 +113,6 @@ check('finish_issue done: Done', !f.isError && f.structuredContent?.state === 'D
   check('undo over MCP reverses finish, sub-issues, follow-up notes, the created issue and the proposal', [...undos, undoCi, undoPi].every(u => !u.isError && !!u.structuredContent?.op_id), [...undos, undoCi, undoPi].map(u => u.content[0]!.text));
 }
 
-// ---------- errors are tool errors, with valid values ----------
 const bad = await call(claude, 'list_issues', { state: 'Doing' });
 check('an unknown state is a tool error listing the valid states', !!bad.isError && /valid states: open, all/.test(bad.content[0]!.text), bad);
 const badKey = await call(claude, 'get_issue', { issue: 'not a key' });
@@ -139,7 +121,6 @@ const unknownTool = await call(claude, 'publish_update', {});
 check('an unknown tool lists the valid tools', !!unknownTool.isError && /Valid tools: next_issue, find_issues, get_issue/.test(unknownTool.content[0]!.text), unknownTool);
 await claude.close();
 
-// ---------- identity ----------
 const stranger = await session('some-other-client', { BASELINE_SESSION: 'other' });
 const sr = await call(stranger, 'get_issue', { issue: K });
 const sw = await call(stranger, 'post_progress', { issue: K, did: 'Another client looked too' });
@@ -158,7 +139,6 @@ const cw = await call(codex, 'post_progress', { issue: K, did: 'Codex via BASELI
 check('BASELINE_AS naming a coding tool makes its agent user: "Codex via <person>"', cw.structuredContent?.attributed_to === `Codex via ${owner.name}`, cw);
 await codex.close();
 
-// ---------- the database, read again ----------
 const db = openDb(dbPath);
 const rows = db.prepare(`SELECT u.name agent, c.body, c.via_user_id via FROM comments c JOIN users u ON u.id = c.user_id WHERE c.issue_id = ? ORDER BY c.created_at`).all(todo.id) as Array<{ agent: string; body: string; via: string }>;
 const cc = rows.filter(r => r.agent === 'Claude Code'), ag = rows.filter(r => r.agent === 'Agent');
@@ -172,9 +152,6 @@ const acts = db.prepare("SELECT COUNT(*) n FROM activity WHERE issue_id = ? AND 
 check('activity rows by Claude Code are via the person ("Claude Code via <person>" in the log)', acts.n > 0, acts);
 db.close();
 
-// ================================================================ hosted: Streamable HTTP at /mcp
-// A hosted (Google sign-in) server, called through its own fetch: the Host check, keys only, a
-// session bound to its key, and every tool call made as an /api request with that key.
 const ORIGIN = 'https://baseline.example.com';
 const httpDbPath = join(work, 'http.db');
 const hosted = createApp(httpDbPath, { mode: 'hosted', publicUrl: new URL(ORIGIN), google: null, ownerEmail: '' }, { configured: false, send: async () => {} });
@@ -204,14 +181,12 @@ const raw = (headers: Record<string, string>, body: unknown) => hostedFetch(`${O
 });
 const INIT = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'claude-code', version: '0' } } };
 
-// ---------- who may open a session ----------
 check('/mcp without a key: 401, even with no cookie to fall back to', (await raw({}, INIT)).status === 401);
 check('/mcp with a bad key: 401', (await raw({ authorization: 'Bearer bl_nope' }, INIT)).status === 401);
 check('/mcp on another Host: refused before the key is looked at', (await hosted.app.fetch(new Request('https://evil.example.com/mcp', { method: 'POST', headers: { authorization: `Bearer ${fullKey.token}`, 'content-type': 'application/json' }, body: JSON.stringify(INIT) }))).status === 403);
 const discover = await raw({ authorization: `Bearer ${fullKey.token}` }, { jsonrpc: '2.0', id: 'd', method: 'server/discover', params: {} });
 check('a server/discover probe gets "method not found", so a 2026-07-28 client falls back to initialize', ((await discover.json()) as { error?: { code: number } }).error?.code === -32601);
 
-// ---------- initialize, tools/list ----------
 const { client: hc, transport: ht } = await httpSession('claude-code', fullKey.token);
 check('HTTP initialize: server is baseline, a session id, the agent guide as instructions', hc.getServerVersion()?.name === 'baseline' && !!ht.sessionId && /start_issue/.test(hc.getInstructions() ?? ''));
 const hTools = (await hc.listTools()).tools;
@@ -219,7 +194,6 @@ check(`HTTP tools/list: the same ${OPERATIONS.length} tools as stdio, schemas an
 const hijack = await raw({ authorization: `Bearer ${readKey.token}`, 'mcp-session-id': ht.sessionId!, 'mcp-protocol-version': '2025-06-18' }, { jsonrpc: '2.0', id: 9, method: 'tools/list' });
 check('another key can\'t use this session: 404, like an unknown session', hijack.status === 404);
 
-// ---------- every tool, the whole loop ----------
 const hl = await call(hc, 'list_issues', { assignee: 'any', state: 'all' });
 check('list_issues over HTTP', !hl.isError && hl.structuredContent?.issues.some((i: { key: string }) => i.key === HK), hl);
 const hg = await call(hc, 'get_issue', { issue: HK });
@@ -244,13 +218,11 @@ check('there is no publish tool', !!noPublish.isError && /Unknown tool/.test(noP
 const pub = await hostedFetch(`${ORIGIN}/api/projects/${hProject.id}/update-draft/publish`, { method: 'POST', headers: { authorization: `Bearer ${fullKey.token}`, 'content-type': 'application/json' }, body: '{}' });
 check('the same key is refused for publishing the draft (403)', pub.status === 403);
 
-// ---------- the Baseline-As header picks another agent user ----------
 const { client: pc } = await httpSession('pi', fullKey.token, { [AS_HEADER]: 'Reviewer Bot' });
 const pp = await call(pc, 'post_progress', { issue: HK, did: 'Reviewer Bot checked the HTTP endpoint' });
 check('a Baseline-As header writes as that agent user: "Reviewer Bot via Ada Owner"', pp.structuredContent?.attributed_to === 'Reviewer Bot via Ada Owner', pp);
 await pc.close();
 
-// ---------- a key's limits apply to every tool ----------
 const { client: tc } = await httpSession('codex-mcp-client', teamKey.token);
 const tl = await call(tc, 'list_issues', { assignee: 'any', state: 'all' });
 const ts = await call(tc, 'start_issue', { issue: OK });
@@ -264,7 +236,6 @@ check('a read-only key: reads work, a write is a tool error naming the missing p
 await rc.close();
 await hc.close();
 
-// ---------- a real socket, local mode ----------
 {
   const local = createApp(join(work, 'socket.db'), { mode: 'local' }, { configured: false, send: async () => {} });
   const lk = local.store.ext.apiKeys.create({ name: 'socket', userId: local.store.snapshot().currentUser.id });
@@ -286,7 +257,6 @@ await hc.close();
   local.db.close();
 }
 
-// ---------- the hosted database, read again ----------
 const hdb = openDb(httpDbPath);
 const one = <T>(sql: string, ...p: string[]) => hdb.prepare(sql).get(...p) as T;
 const agentId = (name: string) => one<{ id: string }>('SELECT id FROM users WHERE name = ? AND kind = \'agent\'', name).id;

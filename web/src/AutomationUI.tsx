@@ -10,7 +10,6 @@ const refresh = () => useApp.getState().bootstrap();
 const PRIORITIES: Array<[Priority, string]> = [[1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low'], [0, 'No priority']];
 const fmtHours = (h: number) => h % 24 === 0 ? `${h / 24} day${h === 24 ? '' : 's'}` : `${h} hour${h === 1 ? '' : 's'}`;
 
-/* ================= SLA badge (rows, cards, issue rail) ================= */
 export function slaState(i: Pick<Issue, 'slaBreachesAt'>): 'breached' | 'risk' | 'ok' | null {
   if (!i.slaBreachesAt) return null;
   const left = new Date(i.slaBreachesAt).getTime() - Date.now();
@@ -25,14 +24,12 @@ export function SlaBadge({ issue, long = false }: { issue: Pick<Issue, 'slaBreac
   return <span className={`sla-badge ${st}`} title={`${label} · due ${dateTime(issue.slaBreachesAt!)}`}><IconSla size={12} />{long ? label : st === 'breached' ? 'Breached' : txt}</span>;
 }
 
-/* ================= Settings › Issues › SLAs ================= */
 export function SlaSettings() {
   const snap = useApp(s => s.snap)!;
   const [name, setName] = useState('');
   const [hours, setHours] = useState('24');
   const [prio, setPrio] = useState<Priority[]>([1]);
   const [teamId, setTeamId] = useState('');
-  // the form below doubles as the editor: Edit on a rule loads it here and the button saves instead of adding
   const [editing, setEditing] = useState<string | null>(null);
   const resetForm = () => { setEditing(null); setName(''); setHours('24'); setPrio([1]); setTeamId(''); };
   const create = () => exclusive('sla-create', async () => {
@@ -75,7 +72,6 @@ export function SlaSettings() {
   );
 }
 
-/* ================= Settings › Loops ================= */
 const TRIGGERS: Array<[LoopTrigger['kind'], string]> = [['issueCreated', 'An issue is created'], ['labelAdded', 'A label is added'], ['statusChanged', 'Status changes to'], ['schedule', 'On a schedule']];
 const STATE_TYPES: Array<[WorkflowStateType, string]> = [['backlog', 'Backlog'], ['unstarted', 'Todo'], ['started', 'In Progress'], ['completed', 'Done'], ['canceled', 'Canceled']];
 const ACTIONS: Array<[LoopAction['kind'], string]> = [['comment', 'Post a comment'], ['assign', 'Assign to'], ['label', 'Add label'], ['status', 'Move to'], ['createIssue', 'Create an issue'], ['claudeCode', 'Open in Claude Code']];
@@ -90,7 +86,6 @@ export function triggerText(t: LoopTrigger, labels: Array<{ id: string; name: st
 export function LoopsSettings() {
   const snap = useApp(s => s.snap)!;
   const [draft, setDraft] = useState<{ name: string; teamId: string; trigger: LoopTrigger; actions: LoopAction[] } | null>(null);
-  // set while the editor holds an existing loop (loops could only be created, run, toggled or deleted)
   const [editingId, setEditingId] = useState<string | null>(null);
   const runs = (id: string) => snap.loopRuns.filter(r => r.loopId === id);
   const newDraft = () => { setEditingId(null); setDraft({ name: '', teamId: '', trigger: { kind: 'issueCreated' }, actions: [{ kind: 'comment', body: 'Thanks, {issue.key} is on our radar.' }] }); };

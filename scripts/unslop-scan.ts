@@ -1,11 +1,3 @@
-// Finds unslop punctuation (em dashes, en dashes, curly quotes) in comments and user-facing text.
-// Kept: a dash that is the whole value (an empty cell, `?? '—'`), the whole separator between two
-// values (`${key} — ${title}`), or the CLI comment byline a test asserts (`"— Ada"`). Curly quotes
-// and en-dash number ranges in UI text also stay, because they follow Linear's typography.
-//
-//   npx tsx scripts/unslop-scan.ts               lists every hit to fix; exits 1 if there are any
-//   npx tsx scripts/unslop-scan.ts --summary     counts by kind and directory
-//   npx tsx scripts/unslop-scan.ts --code-hash   one hash per file of everything but its comments
 import ts from 'typescript';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -29,7 +21,6 @@ const isScript = (file: string) => /\.(ts|tsx|js|mjs)$/.test(file);
 const parse = (file: string, src: string) => ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true,
   file.endsWith('.tsx') ? ts.ScriptKind.TSX : file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS);
 
-/** [start, end, keep] for each string, template piece and JSX text node */
 function textSpans(file: string, src: string): Array<[number, number, boolean]> {
   const sf = parse(file, src);
   const spans: Array<[number, number, boolean]> = [];
@@ -43,7 +34,6 @@ function textSpans(file: string, src: string): Array<[number, number, boolean]> 
   return spans;
 }
 
-/** shell has no parser here: a line is a comment line or it is text */
 const SH_COMMENT = /^\s*#|\s#\s/;
 const cssComments = (src: string) => [...src.matchAll(/\/\*[\s\S]*?\*\//g)].map(m => [m.index!, m.index! + m[0].length]);
 

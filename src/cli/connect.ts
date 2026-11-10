@@ -1,6 +1,3 @@
-// `baseline connect claude|codex|pi [--dir <repo>] [--team <key>] [--remote] [--dry-run]`: one
-// command, after which the repo's coding agent keeps Baseline current. The plan is src/connect/plan.ts; this file
-// reads, prints and writes it.
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
@@ -16,15 +13,12 @@ const onPath = (name: string) => (process.env.PATH ?? '').split(delimiter).some(
   try { accessSync(join(d, name), constants.X_OK); return true; } catch { return false; }
 });
 
-/** this very install, by absolute path: only ever printed, for a config that belongs to one person */
 function selfCommand(): string[] {
   const entry = realpathSync(process.argv[1]!);
   if (entry.endsWith('.ts')) return [join(resolve(dirname(entry), '../..'), 'node_modules/.bin/tsx'), entry, 'mcp'];
   return [process.execPath, entry, 'mcp'];
 }
 
-/** the agent's own per-person way to add a server, outside the repo's shared files; it carries
- *  BASELINE_DB along, so a server added from a shell on a scratch database uses that database */
 const dbEnv = (flag: string) => process.env.BASELINE_DB?.trim() ? ` ${flag} BASELINE_DB=${JSON.stringify(resolve(process.env.BASELINE_DB.trim()))}` : '';
 const PERSONAL_ADD: Record<Harness, (cmd: string) => string> = {
   claude: cmd => `claude mcp add --scope local${dbEnv('-e')} ${SERVER_NAME} -- ${cmd}   (only you, only this repo; kept in ~/.claude.json)`,
@@ -32,15 +26,13 @@ const PERSONAL_ADD: Record<Harness, (cmd: string) => string> = {
   pi: cmd => `pi mcp add ${SERVER_NAME} -- ${cmd}   (only you, every repo; kept in ~/.pi/agent/mcp.json)`,
 };
 
-/** The team the repo maps to: --team; else the one already in .baseline.json; else, when this CLI is
- *  connected, the person's only team, or one they pick at a terminal. undefined: leave it unmapped. */
 async function teamFor(flags: ConnectFlags, dir: string): Promise<{ team?: string; note?: string }> {
   let teams: Array<{ key: string; name: string; mine: boolean }> | undefined;
   try {
     const bl = await connectAgent({});
     const snap = await bl.snapshot(['teams', 'currentUser']);
     teams = snap.teams.map(t => ({ key: t.key, name: t.name, mine: t.memberIds.includes(snap.currentUser.id) }));
-  } catch { /* not connected or unreachable: take --team as given */ }
+  } catch { }
   if (flags.team) {
     const t = teams?.find(x => x.key.toLowerCase() === flags.team!.toLowerCase());
     if (teams && !t) return fail(`Unknown team "${flags.team}". Valid keys: ${teams.map(x => x.key).join(', ')}`);
@@ -64,14 +56,12 @@ async function teamFor(flags: ConnectFlags, dir: string): Promise<{ team?: strin
 
 const SHARED_FILE: Record<Harness, string> = { claude: '.mcp.json', codex: '.codex/config.toml', pi: '.pi/mcp.json' };
 
-/** --dir, else the git repo the shell is in, else the shell's directory */
 function repoDir(flag: string | undefined): string {
   if (flag) return resolve(flag.replace(/^~(?=\/|$)/, process.env.HOME ?? '~'));
   const git = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
   return git.status === 0 ? git.stdout.trim() : process.cwd();
 }
 
-/** removed and added lines, enough to see what a dry run would change */
 function diff(before: string, after: string): string {
   const a = before.split('\n'), b = after.split('\n');
   const inA = new Set(a), inB = new Set(b);
@@ -80,7 +70,6 @@ function diff(before: string, after: string): string {
 
 const fail = (message: string): never => { console.error(`error: ${message}`); process.exit(1); };
 
-/** the server entry to write, or a refusal that says what to do instead */
 function serverEntry(harness: Harness, flags: ConnectFlags): McpServerEntry {
   const shared = SHARED_FILE[harness];
   if (flags.db) {
@@ -96,9 +85,8 @@ function serverEntry(harness: Harness, flags: ConnectFlags): McpServerEntry {
     return { transport: 'http', url: new URL('/mcp', target.url).toString() };
   }
   if (!onPath('baseline')) {
-    // already logged in to a server: that's the one-line fix, so say only that
     let loggedIn: string | null = null;
-    try { const t = targetFor({}); if (t.kind === 'remote') loggedIn = t.url.origin; } catch { /* not logged in */ }
+    try { const t = targetFor({}); if (t.kind === 'remote') loggedIn = t.url.origin; } catch { }
     if (loggedIn) fail(`\`baseline\` is not on your PATH, so the agent couldn't start \`baseline mcp\`. You're logged in to ${loggedIn}: run \`baseline connect ${harness} --remote\` to connect over its /mcp URL instead, or install the CLI globally and run connect again.`);
     fail(`\`baseline\` is not on your PATH. connect writes \`baseline mcp\` to ${shared}, which is usually committed, so it never writes a path from this machine there.\n` +
       'Install the CLI, then run connect again: in the Baseline checkout, `npm run build && npm install -g .`\n' +

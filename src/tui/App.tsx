@@ -1,4 +1,3 @@
-// The root component: owns the reducer, the poll loop and the single input handler.
 import { Box, Text, useApp, useInput, useStdout, useWindowSize, type Key } from 'ink';
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import type { Baseline } from '../client/index.js';
@@ -21,7 +20,6 @@ import { editField, type TextField } from './textfield.js';
 import { SPINNER, theme } from './theme.js';
 import { fieldBlock, LineView } from './ui.js';
 
-/** from this width the list gets a detail pane beside it */
 const WIDE_COLS = 100;
 
 export interface AppProps {
@@ -29,22 +27,14 @@ export interface AppProps {
   actorId?: string;
   route?: Route;
   stack?: Route[];
-  /** list display and cursor to start with (a restored session), and whether to open on the first-launch card */
   start?: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null; intro?: boolean };
-  /** told what the screen shows whenever that changes, for `baseline context` */
   onContext?: (c: SessionContext) => void;
-  /** the native clipboard (tests pass a fake so they leave the real one alone) */
   clipboard?: (text: string) => boolean;
-  /** ms between background refetches; agents write to the same database from other processes */
   pollMs?: number;
-  /** tmux panes this TUI started agents in (issue → pane), and where a new one is remembered (null: forgotten) */
   panes?: Record<string, Pane>;
   onPane?: (issueId: string, pane: Pane | null) => void;
-  /** the git repo an issue starts in; tests pass one that touches no repo */
   repo?: (cwd: string) => LocalRepo;
-  /** whether new tmux panes are possible (default: $TMUX is set) */
   tmux?: boolean;
-  /** the In flight spinner turns (tests switch it off so frames stay still) */
   animate?: boolean;
 }
 
@@ -111,7 +101,6 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
     try {
       dispatch({ type: 'threads', issueId, threads: await bl.workThreads(issueId) });
     } catch {
-      // a key without access to agent work still shows the rest of the issue
     }
   }, [bl]);
 
@@ -121,7 +110,6 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
     dispatch({ type: 'syncStart' });
     try {
       const data = await fetchData(bl);
-      // a write began while this was in flight; its own refetch will land after it
       if (epoch.current !== started) return;
       dispatch({ type: 'loaded', data, at: Date.now() });
       const r = stateRef.current.route;
@@ -144,7 +132,6 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
 
   const openIssue = state.route.kind === 'issue' ? state.route.issueId : null;
 
-  // the agent and copy menus show the branch and the command before you pick, so fetch the handoff as they open
   const wantsHandoff = state.overlay.kind === 'menu' && state.overlay.path.some(m => m === 'agent' || m === 'copy') ? state.overlay.issueId
     : state.overlay.kind === 'find' && state.data ? targetIssue(state, Date.now())?.id ?? null : null;
   useEffect(() => {
@@ -169,7 +156,6 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
 
   const context = useMemo(() => (onContext ? contextOf(state, Date.now()) : null),
     [onContext, state.data, state.route, state.stack, state.cursor, state.expanded, state.groupBy, state.preset]);
-  // a refetch rebuilds the same context; only a real change is worth a write
   const contextJson = context ? JSON.stringify(context) : '';
   useEffect(() => { if (context && onContext) onContext(context); }, [contextJson]);
 
@@ -187,10 +173,8 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const threads = openIssue ? state.threads[openIssue] : undefined;
   const o = state.overlay;
   const cursorIssue = data ? targetIssue(state, Date.now()) : undefined;
-  // a picker opens under its field wherever that field is on screen: the detail pane, or the issue page
   const onScreen = (id: string) => (hasPane && cursorIssue?.id === id) || openIssue === id;
   const inlineOn = o.kind === 'picker' && onScreen(o.issueId) ? o : null;
-  // so does a title being edited: it is edited where it is shown
   const titleOn = o.kind === 'compose' && o.target === 'title' && onScreen(o.issueId) ? o : null;
   const saved = state.saved;
   const issueUi = (width: number, issueId: string | undefined): IssueUi => ({
@@ -205,9 +189,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
     const issue = data.issueById.get(openIssue);
     return issue ? detailLayout(issue, data, threads ?? data.threads.get(openIssue) ?? [], contentW, state.syncedAt ?? Date.now(), { ...pageUi, focusComment }) : null;
   }, [data, openIssue, threads, contentW, state.syncedAt, pageUi, focusComment]);
-  // a page opened at a comment can scroll that comment up to the top, clear of the reply sheet below it
   const detail = layoutOf ? (focusComment ? [...layoutOf.lines, ...Array.from({ length: Math.max(0, rows - 8) }, (): Line => [])] : layoutOf.lines) : null;
-  // a mention opens scrolled to its comment (a little above it), until you scroll yourself
   const focusAt = focusComment && layoutOf ? layoutOf.anchors[focusComment] : undefined;
   const detailStart = focusAt !== undefined ? Math.max(0, focusAt - 4) : 0;
   const pinned = detail && pageUi.picker ? detail.indexOf(pageUi.picker.lines[0]) - 1 : undefined;
@@ -277,7 +259,6 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const list = r.kind === 'today' ? <TodayScreen s={state} data={data} width={listW} height={bodyH} now={now} dim={dim} animate={animate} />
     : r.kind === 'issue' ? <DetailScreen s={state} lines={detail} width={contentW} height={bodyH} pinned={pinned} start={detailStart} />
     : <ListScreen s={state} data={data} width={listW} height={bodyH} now={now} dim={dim} />;
-  // a picker or a title being edited opens in the pane's field rows, so the pane shows the plain issue then
   const paneLinesFor = !inlineOn && !titleOn && tRow && tRow.kind !== 'doneHeader' && tRow.kind !== 'done'
     ? todayPaneLines(tRow.kind === 'flight' ? { kind: 'flight', row: tRow.row, pane: !!state.panes[tRow.id], starting: paneStarting(data, tRow.id, state.panes[tRow.id]) } : tRow, data, paneW - 3, bodyH, now, paneUi)
     : undefined;
@@ -308,7 +289,6 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
 
 const indent = (lines: Line[]): Line[] => lines.map(l => [{ text: '  ' }, ...l]);
 
-/** what an open overlay is about, bold at the start of the footer */
 function overlayTitle(s: TuiState, data: TuiData | null): string {
   const o = s.overlay;
   const key = (id: string) => { const i = data?.issueById.get(id); return i ? data!.keyOf(i) : ''; };
@@ -321,12 +301,9 @@ function overlayTitle(s: TuiState, data: TuiData | null): string {
   }
 }
 
-/** the footer's keys: the active contexts' hints from the keymap, after the open overlay's title; "1-9" is cut to
- *  the tabs or options there are */
 function footerLeft(s: TuiState, data: TuiData | null, contexts: Context[], tabCount: number): Seg[] {
   const o = s.overlay;
   if (o.kind === 'menu') {
-    // which-key: the letters this menu answers to, after the keys that led here
     const keys = MENUS[o.path[o.path.length - 1]].rows.map(r => r.key).join(' ');
     return [{ text: `${menuTrail(o.path).join(' › ')} › `, bold: true }, { text: '_', color: theme.accent, bold: true }, { text: `   waiting for the next key: ${keys}`, color: theme.muted }];
   }
@@ -341,7 +318,6 @@ function footerLeft(s: TuiState, data: TuiData | null, contexts: Context[], tabC
   return [...(title ? [{ text: title, bold: true }, { text: '   ' }] : []), ...hintSegs(hints)];
 }
 
-/** where the data lives, the way the first-launch card says it */
 function cardTarget(bl: Baseline): string {
   const t = bl.target;
   return t.kind === 'local' ? `local · ${tildePath(t.dbPath)}` : `server · ${t.url.host}`;

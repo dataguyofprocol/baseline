@@ -1,14 +1,3 @@
-// Agent work: the server side of the agent operations (src/ops). An extension module like
-// planning or git (extensions.ts): its own tables, plugged into the store, no UI of its own.
-//
-// - work_threads: one row per (issue, agent, person, session). It holds the living progress
-//   comment, the branch, the last progress fields and the links already attached. Repeated calls
-//   converge on it, and two agents (or two sessions) never share a row or a comment.
-// - agent_ops: one row per agent write that changed something. Its activity rows carry its id
-//   (activity.op_id), which is what undo replays; before/after hold what activity doesn't
-//   (the thread, the comment text, the draft).
-// - project_update_drafts: a status update an agent drafted. A separate table, so nothing that
-//   reads project_updates can show a draft. Only a person publishes one, from the web app.
 import type { DatabaseSync } from 'node:sqlite';
 import { attributing, currentOp, type Attribution } from './actor.js';
 import { appBaseUrl } from './handoff.js';
@@ -105,7 +94,6 @@ export class WorkError extends Error {
   constructor(readonly status: 400 | 403 | 404 | 409, readonly code: 'invalid' | 'not-found' | 'forbidden' | 'conflict' | 'needs-human', message: string) { super(message); }
 }
 
-/** whose work a thread is: the agent (or the person themself), the person, and the session */
 export interface Lane { agentId: string; personId: string; sessionKey: string | null }
 
 export function laneOf(who: Attribution, sessionKey: string | null): Lane {
@@ -115,7 +103,6 @@ export function laneOf(who: Attribution, sessionKey: string | null): Lane {
 type OpName = 'start_issue' | 'post_progress' | 'file_followup' | 'finish_issue' | 'draft_project_update' | 'undo'
   | 'propose_issue' | 'propose_followup' | 'create_issue' | 'create_sub_issues';
 
-/** what activity rows don't hold, so undo can put it back: the thread row, the living comment's text, the drafts */
 interface OpState { thread?: WorkThread | null; commentBody?: string | null; draft?: ProjectUpdateDraft | null; agentDraft?: AgentDraft | null }
 
 interface ThreadRow {
@@ -141,7 +128,6 @@ const OUTCOME_HEADING: Record<WorkOutcome, string> = { in_review: 'Finished: rea
 export class Work {
   constructor(private store: Store, private db: DatabaseSync) {}
 
-  // ---------- reads ----------
   threads(issueId: string): WorkThread[] {
     return (this.db.prepare('SELECT * FROM work_threads WHERE issue_id = ? ORDER BY started_at').all(issueId) as unknown as ThreadRow[]).map(mapThread);
   }
@@ -151,27 +137,21 @@ export class Work {
     return r ? mapDraft(r) : null;
   }
 
-  /** every draft waiting for this person, newest first; nobody else's */
   draftsFor(personId: string): ProjectUpdateDraft[] {
     return (this.db.prepare('SELECT * FROM project_update_drafts WHERE person_id = ? ORDER BY updated_at DESC').all(personId) as unknown as DraftRow[]).map(mapDraft);
   }
 
-  /** the lane an op was written in, so the route can check who may undo it */
   opOwner(opId: string): { actorId: string; personId: string; teamId: string | null } | undefined {
     const r = this.db.prepare('SELECT o.actor_id, o.person_id, i.team_id FROM agent_ops o LEFT JOIN issues i ON i.id = o.issue_id WHERE o.id = ?').get(opId) as { actor_id: string; person_id: string; team_id: string | null } | undefined;
     return r && { actorId: r.actor_id, personId: r.person_id, teamId: r.team_id };
   }
 
-  // ---------- the work loop ----------
-  /** Moves a not-started issue to the team's first started state and assigns the person if nobody
-   *  is assigned; opens (or reopens) this lane's thread. Nothing to do: no writes, opId null. */
   start(issueId: string, lane: Lane, who: Attribution, baseUrl?: string, opts: { takeOver?: boolean } = {}): StartWorkResult {
     return this.write(who, () => {
       const issue = this.liveIssue(issueId);
       const key = this.store.keyOf(issue);
       const type = this.store.stateType(issue.stateId);
       const warnings: string[] = [];
-      // another person's open issue is theirs: nothing moves until the person says to take it over
       const othersOwn = !!issue.assigneeId && issue.assigneeId !== lane.personId && this.store.userKind(issue.assigneeId) === 'human' && !(type && CLOSED.has(type));
       if (othersOwn && !opts.takeOver) {
         throw new WorkError(409, 'needs-human', `${key} is ${this.userName(issue.assigneeId)}'s (${this.stateName(issue.stateId)}), so nothing changed. Ask the person whether to take it over from ${this.userName(issue.assigneeId)}; if they say yes, call start_issue again with take_over: true.`);
@@ -197,8 +177,6 @@ export class Work {
     });
   }
 
-  /** The lane's living comment: created on the first call, rewritten in place after (quietly: an
-   *  edit notifies nobody). Fields merge: omitted keeps, "" clears. New links are attached once. */
   progress(issueId: string, lane: Lane, patch: ProgressPatch, links: readonly string[], who: Attribution, baseUrl?: string): ProgressResult {
     return this.write(who, () => {
       const issue = this.liveIssue(issueId);
@@ -225,8 +203,6 @@ export class Work {
     });
   }
 
-  /** The final word: the living comment becomes the summary, the state follows the outcome
-   *  (never backwards out of a closed state), the thread closes. Same outcome and text again: no writes. */
   finish(issueId: string, lane: Lane, input: { outcome: WorkOutcome; summary: string; left?: string; links: readonly string[] }, who: Attribution, baseUrl?: string): FinishWorkResult {
     return this.write(who, () => {
       if (input.outcome === 'stopped' && !input.left?.trim()) throw new WorkError(400, 'invalid', 'outcome "stopped" needs left: what remains to be done');
@@ -248,7 +224,6 @@ export class Work {
       const summary = input.summary.trim();
       const left = input.left?.trim() || null;
       const allLinks = [...new Set([...(before?.links ?? []), ...input.links])];
-      // the journey stays under the summary (collapsed), and a status that didn't follow the outcome says why
       const stays = input.outcome === 'in_review' && !target && type && !CLOSED.has(type) && !this.inReviewState(issue.teamId)
         ? `${key} stays ${this.stateName(issue.stateId)}: its team has no In Review status.` : null;
       const body = renderFinal(input.outcome, summary, left, allLinks, { last: before?.progress ?? null, stays });
@@ -277,9 +252,6 @@ export class Work {
     });
   }
 
-  /** New work found along the way. It lands in the team's Triage state (Backlog when triage is
-   *  off), where a person accepts or declines it, related to the issue it came from. The same title from the same
-   *  lane and issue again returns the first one. */
   followup(sourceIssueId: string, lane: Lane, input: { title: string; description?: string; teamId?: string }, who: Attribution, baseUrl?: string): FollowupResult {
     return this.write(who, () => {
       const source = this.liveIssue(sourceIssueId);
@@ -294,7 +266,6 @@ export class Work {
       let created: Issue | undefined;
       const opId = this.op('file_followup', lane, { issueId: source.id, dedupeKey }, () => {
         created = this.store.createIssue({ teamId: team.id, title: input.title.trim(), description: input.description, stateId: triage, projectId: source.projectId }, who.actorId);
-        // "related" is stored one way (store.setRelation), and an issue page lists its own rows: both pages should show the link
         this.store.setRelation(created.id, source.id, 'related', who.actorId);
         this.store.setRelation(source.id, created.id, 'related', who.actorId);
         return { resultId: created.id };
@@ -303,9 +274,6 @@ export class Work {
     });
   }
 
-  // ---------- new issues: proposed, then created on the person's yes ----------
-  /** The agent user for a coding tool ("Claude Code"), made the first time that tool writes. Only
-   *  the known tools (AGENT_HARNESSES): any other name must already be a user. */
   ensureHarnessAgent(name: string): User {
     const h = harnessNamed(name);
     if (!h) throw new WorkError(404, 'not-found', `"${name}" is not a coding tool Baseline knows; agent users made on first use are for those tools only`);
@@ -320,7 +288,6 @@ export class Work {
     return this.store.snapshot().users.find(u => u.id === row!.id)!;
   }
 
-  /** a person's drafts, newest first; nobody else's */
   agentDrafts(personId: string, filter: { status?: 'pending' | 'filed'; kind?: AgentDraftKind; fromIssueId?: string } = {}): AgentDraft[] {
     return (this.db.prepare('SELECT * FROM agent_drafts WHERE person_id = ? ORDER BY created_at DESC, rowid DESC').all(personId) as unknown as AgentDraftRow[])
       .map(mapAgentDraft)
@@ -331,8 +298,6 @@ export class Work {
     return r ? mapAgentDraft(r) : null;
   }
 
-  /** Store a proposed issue (or a follow-up noted mid-work) as a draft for the person. Nothing the
-   *  team sees changes. The same title again (same kind, source issue and person) returns the first. */
   propose(lane: Lane, input: { kind: AgentDraftKind; teamId: string; title: string; description?: string; priority?: number; fromIssueId?: string }, who: Attribution): ProposeResult {
     return this.write(who, () => {
       const team = this.store.getTeam(input.teamId);
@@ -354,10 +319,6 @@ export class Work {
     });
   }
 
-  /** Create an issue the person said yes to: from a draft (exactly its text) or from fields. A new
-   *  issue is assigned to the person and, with start, starts now with a work thread open on it. A
-   *  follow-up goes to Triage (Backlog when triage is off), unassigned, related to its source. A
-   *  filed draft, or the same title from the same lane again, returns the issue made the first time. */
   createIssue(lane: Lane, input: { draftId?: string; teamId: string; title?: string; description?: string; priority?: number; projectId?: string | null; start?: boolean }, who: Attribution, baseUrl?: string): CreateIssueResult {
     return this.write(who, () => {
       const draft = input.draftId ? this.agentDraft(input.draftId) : null;
@@ -389,7 +350,6 @@ export class Work {
           stateId, assigneeId: followup ? null : lane.personId, projectId: input.projectId ?? source?.projectId ?? null,
         }, who.actorId);
         if (followup && source && !source.deletedAt) {
-          // "related" is stored one way (store.setRelation), and an issue page lists its own rows: both pages should show the link
           this.store.setRelation(created.id, source.id, 'related', who.actorId);
           this.store.setRelation(source.id, created.id, 'related', who.actorId);
         }
@@ -401,14 +361,11 @@ export class Work {
         const thread = start ? this.saveThread(created.id, lane, null, { branch: this.store.handoffFor(created.id, baseUrl)!.branchName, state: { status: 'active' } }) : undefined;
         return { resultId: created.id, ...(agentDraft ? { agentDraft } : {}), ...(thread ? { thread } : {}) };
       });
-      // the op belongs to the new issue, so undo's team check sees the right team
       this.db.prepare('UPDATE agent_ops SET issue_id = ? WHERE id = ?').run(created!.id, opId);
       return reply(created!, opId, start, false);
     });
   }
 
-  /** Split the issue being worked on: each title becomes a sub-issue with the parent's assignee,
-   *  project, milestone and cycle. A title the parent already has as a sub-issue is skipped. */
   subIssues(parentId: string, lane: Lane, titles: readonly string[], who: Attribution): SubIssuesResult {
     return this.write(who, () => {
       const parent = this.liveIssue(parentId);
@@ -441,9 +398,6 @@ export class Work {
     });
   }
 
-  // ---------- project status ----------
-  /** One draft per (project, person), replaced on each call. Never published here: the publish
-   *  route takes a person's browser session only. */
   draftUpdate(projectId: string, lane: Lane, input: { body?: string; health?: Health }, who: Attribution, baseUrl?: string): DraftResult {
     return this.write(who, () => {
       const project = this.store.snapshot().projects.find(p => p.id === projectId);
@@ -464,8 +418,6 @@ export class Work {
     });
   }
 
-  /** the person publishes their draft: it becomes a project update by them, and the draft is gone.
-   *  `edits` is what the person changed in the composer before publishing. */
   publishDraft(projectId: string, personId: string, edits: { body?: string; health?: Health } = {}): ProjectUpdateDraft & { updateId: string } {
     return this.store.transaction(() => {
       const stored = this.draft(projectId, personId);
@@ -481,10 +433,6 @@ export class Work {
     return Number(this.db.prepare('DELETE FROM project_update_drafts WHERE project_id = ? AND person_id = ?').run(projectId, personId).changes) > 0;
   }
 
-  // ---------- undo ----------
-  /** Replays the op's activity rows backwards. A field someone changed since (an issue's state or
-   *  assignee, a filed issue a person touched) refuses the whole undo; the thread, the living
-   *  comment and a draft are put back only when nothing changed them since, else left as they are. */
   undo(opId: string, who: Attribution): UndoResult {
     return this.write(who, () => {
       const op = this.db.prepare('SELECT * FROM agent_ops WHERE id = ?').get(opId) as OpRow | undefined;
@@ -540,7 +488,6 @@ export class Work {
           default: leftAsIs.push(`${row.type} on ${key}`);
         }
       }
-      // a living comment this op only edited goes back to its earlier text
       const commentId = after.thread?.commentId;
       if (commentId && commentId !== createdComment && typeof before.commentBody === 'string') {
         const c = this.db.prepare('SELECT body FROM comments WHERE id = ?').get(commentId) as { body: string } | undefined;
@@ -581,20 +528,15 @@ export class Work {
     });
   }
 
-  // ---------- internals ----------
-  /** The outcome of an agent's work is news to the issue's owner: the assignee, else the person the
-   *  agent works for. These are the only moves an agent reports to the person it acts for. */
   private report(issueId: string, lane: Lane, who: Attribution, type: 'agentFinished' | 'agentBlocked', body: string): void {
     const owner = this.store.getIssue(issueId)?.assigneeId ?? lane.personId;
     this.store.notifyEach([owner], type, { actorId: who.actorId, issueId, body, selfToo: who.actor === 'agent' });
   }
 
-  /** one SQLite transaction, under the write's attribution */
   private write<T>(who: Attribution, fn: () => T): T {
     return attributing.run(who, () => this.store.transaction(fn));
   }
 
-  /** runs one op's writes under its id (stamped on every activity row they log) and records it */
   private op(name: OpName, lane: Lane,
     at: { issueId?: string; projectId?: string; threadBefore?: WorkThread | null; commentBefore?: string | null; draftBefore?: ProjectUpdateDraft | null; agentDraftBefore?: AgentDraft | null; dedupeKey?: string; undoes?: string },
     fn: () => OpState & { resultId?: string }): string {
@@ -662,17 +604,14 @@ export class Work {
       .run(d.status, d.issueId, d.title, d.description, d.priority, d.updatedAt, d.id);
   }
 
-  /** where agent-found work waits for a person: Triage, or Backlog on a team with triage off */
   private intakeState(teamId: string): string | undefined {
     return this.store.stateOfType(teamId, 'triage') ?? this.store.stateOfType(teamId, 'backlog') ?? this.store.stateOfType(teamId, 'unstarted');
   }
 
-  /** the lane's comment, unless a person deleted it (then the next write starts a new one) */
   private livingComment(t: WorkThread | null): { id: string; body: string } | undefined {
     return t?.commentId ? this.db.prepare('SELECT id, body FROM comments WHERE id = ?').get(t.commentId) as { id: string; body: string } | undefined : undefined;
   }
 
-  /** links not yet attached to the issue, each once */
   private unattached(issueId: string, links: readonly string[]): string[] {
     const have = new Set((this.db.prepare('SELECT url FROM attachments WHERE issue_id = ?').all(issueId) as Array<{ url: string }>).map(r => r.url));
     return [...new Set(links)].filter(u => !have.has(u));
@@ -688,7 +627,6 @@ export class Work {
     if (!userId) return 'nobody';
     return (this.db.prepare('SELECT name FROM users WHERE id = ?').get(userId) as { name: string } | undefined)?.name ?? '?';
   }
-  /** "Agent via Parth Batra", or the person's own name */
   private attributedTo(who: Attribution): string {
     return who.actor === 'agent' ? `${this.userName(who.actorId)} via ${this.userName(who.viaUserId)}` : this.userName(who.actorId);
   }
@@ -696,7 +634,6 @@ export class Work {
     return `${appBaseUrl(baseUrl)}/#/issue/${this.store.keyOf(issue)}`;
   }
 
-  /** what happened in a project since its last published update (since it started, if none) */
   private facts(project: Project): DraftFacts {
     const since = (this.db.prepare('SELECT MAX(created_at) at FROM project_updates WHERE project_id = ?').get(project.id) as { at: string | null }).at;
     const from = since ?? project.createdAt;
@@ -718,7 +655,6 @@ export class Work {
   }
 }
 
-// ---------- pure helpers ----------
 function mapThread(r: ThreadRow): WorkThread {
   return {
     id: r.id, issueId: r.issue_id, agentId: r.agent_id, personId: r.person_id, sessionKey: r.session_key || null, commentId: r.comment_id, branch: r.branch,
@@ -737,13 +673,11 @@ function mapDraft(r: DraftRow): ProjectUpdateDraft {
   return { projectId: r.project_id, personId: r.person_id, authorId: r.author_id, body: r.body, health: r.health, updatedAt: r.updated_at };
 }
 
-/** omitted keeps the last value, "" clears it */
 export function mergeProgress(prev: ProgressFields, patch: ProgressPatch): ProgressFields {
   const pick = (k: keyof ProgressFields) => { const v = patch[k]; return v === undefined ? prev[k] : (v.trim() || null); };
   return { did: pick('did'), left: pick('left'), blocked: pick('blocked') };
 }
 
-/** "PR #12 (o/r)" for a GitHub pull request, else the URL */
 export function linkTitle(url: string): string {
   const m = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(url);
   return m ? `PR #${m[2]} (${m[1]})` : url;
@@ -752,8 +686,6 @@ export function linkTitle(url: string): string {
 const section = (title: string, text: string | null) => text ? [`**${title}:** ${text}`] : [];
 const linkList = (links: readonly string[]) => links.length ? [`**Links:** ${links.map(u => `[${linkTitle(u)}](${u})`).join(', ')}`] : [];
 
-/** The living comment while the work goes on. Fixed headings, so a person scans it and the next
- *  session resumes from it. */
 export function renderProgress(p: ProgressFields, links: readonly string[]): string {
   return ['**Progress**', ...section('Did', p.did), ...section('Left', p.left), ...section('Blocked', p.blocked), ...linkList(links)].join('\n\n');
 }
@@ -765,12 +697,10 @@ export function renderFinal(outcome: WorkOutcome, summary: string, left: string 
   return [`**${OUTCOME_HEADING[outcome]}**`, ...(o.stays ? [`_${o.stays}_`] : []), summary, ...section('Left', left), ...linkList(links), ...last].join('\n\n');
 }
 
-/** the dedupe key for a follow-up title: case, punctuation and a leading "fix:" / "todo:" don't count */
 export function normalizeTitle(title: string): string {
   return title.toLowerCase().replace(/^\s*(fix|todo|bug|chore)\s*:\s*/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
-/** one "**Completed:** CORE-1 Fix login, CORE-2 Add SSO" line per group that has any */
 export function composeDraft(f: DraftFacts): string {
   const groups = [['Completed', f.completed], ['In review', f.inReview], ['In progress', f.inProgress], ['Blocked', f.blocked], ['New', f.filed]] as const;
   const named = (k: string) => f.titles?.[k] ? `${k} ${f.titles[k]}` : k;

@@ -1,4 +1,3 @@
-// Child processes that take over the terminal while Ink is suspended: a coding agent, or $EDITOR.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,22 +5,19 @@ import { join } from 'node:path';
 import type { Target } from '../client/index.js';
 import { tildePath } from './model.js';
 
-/** $BASELINE_AGENT split on whitespace (so "claude --model opus" works), with the prompt as the last argument */
 export function agentCommand(prompt: string, env = process.env): string[] {
   const words = (env.BASELINE_AGENT?.trim() || 'claude').split(/\s+/);
   return [...words, prompt];
 }
 
-/** where the agent runs: the issue's location when it exists on this disk, else here */
 export function agentCwd(locationPath: string | undefined, cwd = process.cwd()): { cwd: string; note: string | null } {
   if (!locationPath) return { cwd, note: null };
   try {
     if (statSync(locationPath).isDirectory()) return { cwd: locationPath, note: null };
-  } catch { /* missing: fall through */ }
+  } catch {}
   return { cwd, note: `Location ${tildePath(locationPath)} isn't on this disk; running in the current directory.` };
 }
 
-/** the command as a person would type it, with the prompt cut to its first line */
 export function shellPreview(cmd: readonly string[], width: number): string {
   const quote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
   const shown = cmd.map((a, i) => (i === cmd.length - 1 && a.includes('\n') ? `${a.split('\n')[0]}…` : a));
@@ -29,10 +25,8 @@ export function shellPreview(cmd: readonly string[], width: number): string {
   return line.length > width ? `${line.slice(0, width - 1)}…` : line;
 }
 
-/** the variables that point an agent's `baseline` calls at the TUI's own target, whatever chose it.
- *  Every key is set (an empty value reads as unset) because a tmux split starts from the tmux
- *  server's environment, not this process's, so nothing can be left to inheritance. A target from
- *  the config file clears all three and lets the agent's CLI read the same file. */
+/** Every key is set (an empty value reads as unset) because a tmux split starts from the tmux
+ *  server's environment, not this process's, so nothing can be left to inheritance. */
 export function targetEnv(target: Target): Record<'BASELINE_DB' | 'BASELINE_URL' | 'BASELINE_TOKEN', string> {
   if (target.kind === 'local') return { BASELINE_DB: target.dbPath, BASELINE_URL: '', BASELINE_TOKEN: '' };
   if (target.source === 'env') return { BASELINE_DB: '', BASELINE_URL: target.url.origin, BASELINE_TOKEN: target.token };
@@ -55,8 +49,6 @@ export function runInTerminal(cmd: readonly string[], opts: { cwd: string; env: 
   return { ok: r.status === 0, message: r.signal ? `${cmd[0]} stopped (${r.signal})` : `${cmd[0]} exited${r.status ? ` with code ${r.status}` : ''}` };
 }
 
-/** the tmux command that runs `cmd` in a split beside this pane, pointed at the same target agentEnv uses;
- *  it prints the new pane's id, so the TUI can go back to it */
 export function paneCommand(cmd: readonly string[], opts: { cwd: string; target: Target; issueKey: string }): string[] {
   const vars = { BASELINE_ISSUE: opts.issueKey, ...targetEnv(opts.target) };
   const env = Object.entries(vars).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
@@ -71,20 +63,17 @@ export function runInPane(cmd: readonly string[], opts: { cwd: string; target: T
   return r.status === 0 ? { ok: true, message: 'started', ...(/^%\d+$/.test(paneId) ? { paneId } : {}) } : { ok: false, message: `tmux split-window failed: ${(r.stderr || '').trim() || `exit ${r.status}`}` };
 }
 
-/** whether a tmux pane is still open on this server */
 export function paneAlive(paneId: string): boolean {
   const r = spawnSync('tmux', ['display-message', '-p', '-t', paneId, '#{pane_id}'], { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' });
   return r.status === 0 && r.stdout.trim() === paneId;
 }
 
-/** brings a tmux pane this TUI started to the front (its window, then the pane); false when it is gone */
 export function focusPane(paneId: string): boolean {
   if (!paneAlive(paneId)) return false;
   spawnSync('tmux', ['select-window', '-t', paneId], { stdio: 'ignore' });
   return spawnSync('tmux', ['select-pane', '-t', paneId], { stdio: 'ignore' }).status === 0;
 }
 
-/** whether `branch` exists in the git repo at `cwd` (locally or on origin); null outside a repo */
 export function branchExists(cwd: string, branch: string): boolean | null {
   const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' });
   if (top.status !== 0) return null;
@@ -92,7 +81,6 @@ export function branchExists(cwd: string, branch: string): boolean | null {
   return has(`refs/heads/${branch}`) || has(`refs/remotes/origin/${branch}`);
 }
 
-/** opens `text` in $VISUAL / $EDITOR and returns what was saved, or null when the editor failed */
 export function editInEditor(text: string, name: string): { text: string | null; error: string | null } {
   const editor = (process.env.VISUAL || process.env.EDITOR || 'vi').trim().split(/\s+/);
   const dir = mkdtempSync(join(tmpdir(), 'baseline-'));

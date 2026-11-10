@@ -1,4 +1,3 @@
-// ~/.baseline/config.json: the CLI's login. Holds a key, so it is written 0600 and refused when others can read it.
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -22,7 +21,6 @@ export function readConfig(path = CONFIG_PATH): ConfigRead {
   return ok ? { kind: 'ok', config: c as CliConfig } : { kind: 'invalid', reason: 'it is missing fields' };
 }
 
-/** atomic: a temp file at 0600, then a rename over the old one */
 export function writeConfig(config: CliConfig, path = CONFIG_PATH): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.${process.pid}.tmp`;

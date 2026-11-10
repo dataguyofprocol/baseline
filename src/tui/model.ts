@@ -1,4 +1,3 @@
-// Pure view-model: what each screen shows, computed from TuiData. No Ink, no I/O, so it is testable.
 import { homedir } from 'node:os';
 import stringWidth from 'string-width';
 import { PRIORITY_LABELS, STATE_TYPE_LABELS, type ActivityItem, type Issue, type Notification, type NotificationType, type Priority, type Project, type ProjectStatus, type WorkflowState, type WorkflowStateType } from '../core/types.js';
@@ -9,8 +8,6 @@ import { DONE_GROUP, todayModel, todayRows } from './today.js';
 import type { Route } from './state.js';
 import { priorityGlyph, STATE_ICON } from './theme.js';
 
-// ---------- text ----------
-
 export interface Seg { text: string; color?: string; bg?: string; bold?: boolean; dim?: boolean; italic?: boolean; underline?: boolean; strike?: boolean; inverse?: boolean }
 export type Line = Seg[];
 
@@ -20,7 +17,6 @@ export const displayWidth = (s: string): number => stringWidth(s);
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 const graphemes = (s: string) => Array.from(segmenter.segment(s), g => g.segment);
 
-/** cut to `width` cells, ending in an ellipsis when something was cut; never splits a grapheme */
 export function truncate(s: string, width: number): string {
   if (width <= 0) return '';
   if (displayWidth(s) <= width) return s;
@@ -44,7 +40,6 @@ export const padStart = (s: string, width: number) => {
 
 export const lineWidth = (line: Line) => line.reduce((n, s) => n + displayWidth(s.text), 0);
 
-/** greedy word wrap of styled segments; words wider than the line are broken */
 export function wrapSegs(segs: Line, width: number, indent = ''): Line[] {
   const lines: Line[] = [];
   const room = Math.max(1, width);
@@ -91,8 +86,6 @@ export const wrap = (text: string, width: number, style: Omit<Seg, 'text'> = {})
 
 export const tildePath = (p: string) => { const h = homedir(); return p === h || p.startsWith(`${h}/`) ? `~${p.slice(h.length)}` : p; };
 
-// ---------- time ----------
-
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export function relTime(iso: string, now: number, { ago = false } = {}): string {
@@ -107,7 +100,6 @@ export function relTime(iso: string, now: number, { ago = false } = {}): string 
   return `${MONTHS[d.getMonth()]} ${d.getDate()}${d.getFullYear() === n.getFullYear() ? '' : ` ${d.getFullYear()}`}`;
 }
 
-/** a due date as a short label and how urgent it is */
 export function dueLabel(due: string, now: number): { text: string; tone: 'overdue' | 'soon' | 'later' } {
   const [y, m, d] = due.slice(0, 10).split('-').map(Number);
   const today = new Date(now); today.setHours(0, 0, 0, 0);
@@ -116,12 +108,7 @@ export function dueLabel(due: string, now: number): { text: string; tone: 'overd
   return { text, tone: days < 0 ? 'overdue' : days <= 2 ? 'soon' : 'later' };
 }
 
-// ---------- issues ----------
-
-/** Linear's list order; triage first because it is waiting on a decision */
 export const STATE_ORDER: WorkflowStateType[] = ['triage', 'started', 'unstarted', 'backlog', 'completed', 'canceled'];
-/** a status group: a state type, or 'review' for the started state named In Review (the one an agent's
- *  finished work moves to), which a team list shows first */
 export type StatusGroup = WorkflowStateType | 'review';
 const STATUS_ORDER: StatusGroup[] = ['review', ...STATE_ORDER];
 export const isReviewState = (st: Pick<WorkflowState, 'type' | 'name'> | undefined) => st?.type === 'started' && st.name.trim().toLowerCase() === 'in review';
@@ -138,10 +125,7 @@ export function issuesForRoute(route: Route, data: TuiData): Issue[] {
   }
 }
 
-// ---------- display options: preset filter and grouping ----------
-
 export type Preset = 'active' | 'backlog' | 'all';
-/** shift-tab's order */
 export const PRESETS: Preset[] = ['active', 'backlog', 'all'];
 export const PRESET_LABEL: Record<Preset, string> = { active: 'Active', backlog: 'Backlog', all: 'All' };
 const PRESET_TYPES: Record<Preset, ReadonlySet<WorkflowStateType> | null> = {
@@ -154,20 +138,15 @@ export function presetIssues(issues: readonly Issue[], preset: Preset, data: Pic
 }
 
 export type GroupBy = 'status' | 'assignee' | 'priority' | 'project' | 'none';
-/** D's order */
 export const GROUP_BYS: GroupBy[] = ['status', 'assignee', 'priority', 'project', 'none'];
 
 type GroupData = Pick<TuiData, 'stateById' | 'userById' | 'projectById' | 'currentUser'>;
 
 interface GroupMode {
-  /** how the list header names it: "by priority" */
   label: string;
   key: (i: Issue, data: GroupData) => string;
-  /** sorts group keys; the list shows groups in this order */
   order: (a: string, b: string, data: GroupData) => number;
-  /** the group's header icon and name; null for a mode without headers */
   header: ((key: string, issues: readonly Issue[], data: GroupData) => { icon: Seg[]; label: string }) | null;
-  /** folded until opened */
   folded: (key: string) => boolean;
 }
 
@@ -226,7 +205,6 @@ export function sortIssues(issues: readonly Issue[]): Issue[] {
   return [...issues].sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.sortOrder - b.sortOrder || a.number - b.number);
 }
 
-/** a group's id is "<groupBy>:<key>", so fold state never leaks between groupings */
 export interface IssueGroup { id: string; key: string; groupBy: GroupBy; label: string; icon: Seg[]; issues: Issue[] }
 
 export function groupIssues(issues: readonly Issue[], data: GroupData, groupBy: GroupBy = 'status'): IssueGroup[] {
@@ -256,7 +234,6 @@ export type ListRow =
   | { kind: 'group'; id: string; group: IssueGroup; expanded: boolean; selectable: boolean }
   | { kind: 'issue'; id: string; issue: Issue };
 
-/** group headers and issue rows. The cursor stops on a folded header, and on the header of a group that folds by default, so enter can fold it back */
 export function listRows(groups: readonly IssueGroup[], isExpanded: (groupId: string) => boolean): ListRow[] {
   const rows: ListRow[] = [];
   for (const g of groups) {
@@ -268,7 +245,6 @@ export function listRows(groups: readonly IssueGroup[], isExpanded: (groupId: st
   return rows;
 }
 
-/** how a list route is shown: the preset, the grouping and which groups are open */
 export interface ListView { groupBy: GroupBy; preset: Preset; isExpanded: (groupId: string) => boolean }
 export const DEFAULT_VIEW: ListView = { groupBy: 'status', preset: 'all', isExpanded: defaultExpanded };
 
@@ -276,13 +252,10 @@ export const listGroups = (route: Route, data: TuiData, view: ListView) => group
 export const listRowsFor = (route: Route, data: TuiData, view: ListView) => listRows(listGroups(route, data, view), view.isExpanded);
 export const isSelectable = (r: ListRow) => r.kind === 'issue' || r.selectable;
 
-/** where the cursor goes for an issue: its row, or the header of the folded group hiding it */
 export function rowIdFor(rows: readonly ListRow[], issueId: string): string | undefined {
   if (rows.some(r => r.kind === 'issue' && r.id === issueId)) return issueId;
   return rows.find(r => r.kind === 'group' && r.selectable && r.group.issues.some(i => i.id === issueId))?.id;
 }
-
-// ---------- notifications (from /) ----------
 
 const VERBS: Record<NotificationType, string> = {
   issueAssignedToYou: 'assigned you', issueAssigned: 'assigned', issueCommented: 'commented', issueMentioned: 'mentioned you',
@@ -295,7 +268,6 @@ const VERBS: Record<NotificationType, string> = {
 };
 const BODY_HAS_ID: ReadonlySet<NotificationType> = new Set(['initiativeUpdateReminder', 'teamMemberAdded', 'docChanged', 'accessRequested']);
 
-/** one row per issue (the web inbox's rows): the newest headline, how many it merges, unread while any is */
 export interface NotificationRow {
   id: string;
   notification: Notification;
@@ -327,8 +299,6 @@ export function notificationRows(data: TuiData, now: number): NotificationRow[] 
   });
 }
 
-// ---------- projects ----------
-
 const PROJECT_STATUS_ORDER: ProjectStatus[] = ['started', 'planned', 'backlog', 'paused', 'completed', 'canceled'];
 
 export interface ProjectRow { id: string; project: Project; done: number; total: number; lead: string | null }
@@ -356,13 +326,10 @@ export function progressBar(done: number, total: number, width: number): { fille
   return { filled: '█'.repeat(n), empty: '░'.repeat(width - n) };
 }
 
-// ---------- tabs ----------
-
 export interface Tab { id: string; label: string; route: Route; count: number | null }
 
 export const openIssue = (data: Pick<TuiData, 'stateById'>) => (i: Issue) => !CLOSED_TYPES.has(data.stateById.get(i.stateId)?.type ?? 'backlog');
 
-/** Today, then every team */
 export function allTabs(data: TuiData, now: number): Tab[] {
   return [
     { id: 'today', label: 'Today', route: { kind: 'today' }, count: todayModel(data, now).needs.length || null },
@@ -373,8 +340,6 @@ export function allTabs(data: TuiData, now: number): Tab[] {
 export const tabText = (t: Tab, n: number) => `${n} ${t.label}${t.count ? ` ${t.count}` : ''}`;
 export const TAB_GAP = 3;
 
-/** the tabs that fit in `width` and in the digits 1-9: Today always, teams in order while they fit
- *  (the active team kept in), and how many teams were left out (reachable through /) */
 export function visibleTabs(data: TuiData, now: number, width: number, activeId: string | null): { tabs: Tab[]; hidden: number } {
   const all = allTabs(data, now);
   const teams = all.filter(t => t.route.kind === 'team');
@@ -389,7 +354,6 @@ export function visibleTabs(data: TuiData, now: number, width: number, activeId:
   return { tabs: build(shown), hidden: teams.length - shown.length };
 }
 
-/** which tab a route belongs to (an issue belongs to whatever it was opened from; a project from / to none) */
 export function tabIdFor(route: Route, stack: readonly Route[]): string | null {
   for (const r of [route, ...[...stack].reverse()]) {
     if (r.kind === 'today') return 'today';
@@ -399,22 +363,16 @@ export function tabIdFor(route: Route, stack: readonly Route[]): string | null {
   return null;
 }
 
-// ---------- cursor targets ----------
-
-/** the ids the cursor moves over on a route, in order; the reducer keeps the cursor on the same id across refetches */
 export function selectableIds(route: Route, data: TuiData, view: ListView, now: number): string[] {
   if (isListRoute(route)) return listRowsFor(route, data, view).filter(isSelectable).map(r => r.id);
   if (route.kind === 'today') return todayRows(todayModel(data, now), view.isExpanded(DONE_GROUP)).map(r => r.id);
   return [];
 }
 
-// ---------- fuzzy ----------
-
 export interface FuzzyMatch { score: number; indices: number[] }
 
 const isBoundary = (text: string, i: number) => i === 0 || /[^a-z0-9]/i.test(text[i - 1]) || (/[a-z]/.test(text[i - 1]) && /[A-Z]/.test(text[i]));
 
-/** subsequence match; word starts, runs and early matches score higher */
 export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
   const q = query.toLowerCase().replace(/\s+/g, '');
   if (!q) return { score: 0, indices: [] };
@@ -453,7 +411,6 @@ export function fuzzyFilter<T>(items: readonly T[], query: string, text: (t: T) 
   return out.sort((a, b) => b.match.score - a.match.score);
 }
 
-/** split text into plain and matched runs for highlighting; `offset` shifts indices that were computed on a longer string */
 export function highlight(text: string, indices: readonly number[], offset = 0): Array<{ text: string; hit: boolean }> {
   const hits = new Set(indices.map(i => i - offset));
   const runs: Array<{ text: string; hit: boolean }> = [];
@@ -464,8 +421,6 @@ export function highlight(text: string, indices: readonly number[], offset = 0):
   });
   return runs;
 }
-
-// ---------- activity ----------
 
 export function activityText(a: ActivityItem, data: TuiData): string {
   const d = a.data as Record<string, unknown>;
@@ -504,8 +459,6 @@ export function activityText(a: ActivityItem, data: TuiData): string {
   }
 }
 
-// ---------- markdown ----------
-
 function inlineSegs(text: string, base: Omit<Seg, 'text'> = {}): Seg[] {
   const segs: Seg[] = [];
   const re = /(`[^`]+`)|(\*\*[^*]+\*\*|__[^_]+__)|(\*[^*\s][^*]*\*|_[^_\s][^_]*_)|(~~[^~]+~~)|(\[([^\]]+)\]\(([^)\s]+)\))/g;
@@ -526,7 +479,6 @@ function inlineSegs(text: string, base: Omit<Seg, 'text'> = {}): Seg[] {
   return segs;
 }
 
-/** a pipe table with aligned columns; the header row bold, cells cut to fit */
 function tableLines(block: string[], width: number): Line[] {
   const rows = block.map(l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()))
     .filter(cells => !cells.every(c => /^:?-{2,}:?$/.test(c)));
@@ -541,7 +493,6 @@ function tableLines(block: string[], width: number): Line[] {
   ]));
 }
 
-/** Markdown as terminal lines: headings bold, bullets and quotes indented, code dim; links keep their url */
 export function markdownLines(md: string, width: number): Line[] {
   const out: Line[] = [];
   let fence = false;

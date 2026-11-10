@@ -1,6 +1,3 @@
-// My work: the home page. One screen across every team you're on, in the order a morning goes:
-// what needs you (reviews, mentions, an agent that finished or got stuck, triage), what you're in
-// the middle of, and what's next. The inbox stays one click away as "all notifications".
 import { useEffect, useMemo, useState } from 'react';
 import { Burst } from './ui.js';
 import { useEarned, reducedMotion } from './motion.js';
@@ -15,7 +12,6 @@ import type { Issue, Notification } from '../../src/core/types.js';
 import { needsYou } from '../../src/core/inbox.js';
 import { EmptyState } from './EmptyState.js';
 
-/** A greeting that knows the hour and the day of the week: one quiet line, no banner. */
 function greeting(first: string, d = new Date()): string {
   const h = d.getHours(), day = d.getDay();
   if (h >= 22 || h < 5) return `Working late, ${first}`;
@@ -25,7 +21,6 @@ function greeting(first: string, d = new Date()): string {
   return `Good ${h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening'}, ${first}`;
 }
 
-/** Seven bars, one per day ending today, for the issues you closed. Today's bar is the brand. */
 function WeekBars({ closed }: { closed: Issue[] }) {
   const days = Array.from({ length: 7 }, (_, k) => {
     const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (6 - k));
@@ -47,7 +42,6 @@ function WeekBars({ closed }: { closed: Issue[] }) {
   );
 }
 
-/** Urgent first, No priority last (0 is "none") */
 const byPriority = (a: Issue, b: Issue) => (a.priority || 5) - (b.priority || 5) || a.sortOrder - b.sortOrder;
 
 export function MyWorkPage() {
@@ -66,10 +60,8 @@ export function MyWorkPage() {
   const closed = mine.filter(i => (typeOf(i) === 'completed' || typeOf(i) === 'canceled') && (i.completedAt ?? i.updatedAt) > weekAgo)
     .sort((a, b) => (b.completedAt ?? b.updatedAt).localeCompare(a.completedAt ?? a.updatedAt));
 
-  // rows marked done here: they slide out at once and stay gone while the server catches up
   const [cleared, setCleared] = useState<Set<string>>(() => new Set());
   const [leaving, setLeaving] = useState<Set<string>>(() => new Set());
-  // one row per issue (its newest ask), so an agent run or a thread reads as one thing to do
   const asks = useMemo(() => {
     const seen = new Map<string, Notification[]>();
     for (const n of snap.notifications) {
@@ -79,16 +71,13 @@ export function MyWorkPage() {
     }
     return [...seen.values()].map(ns => ns.sort((a, b) => b.createdAt.localeCompare(a.createdAt))).sort((a, b) => b[0]!.createdAt.localeCompare(a[0]!.createdAt));
   }, [snap.notifications, cleared]);
-  // an issue that needs you (say, an agent finished it for your review) shows once, up there
   const askIds = new Set(asks.map(ns => ns[0]!.issueId).filter(Boolean));
   const inProgress = started.filter(i => !askIds.has(i.id));
-  // triage waiting on the teams you're on
   const triage = snap.teams.filter(t => t.memberIds.includes(me) && t.triageEnabled).map(t => {
     const st = snap.states.find(s => s.teamId === t.id && s.type === 'triage');
     return { team: t, count: st ? snap.issues.filter(i => i.stateId === st.id && !i.deletedAt).length : 0 };
   }).filter(x => x.count > 0);
 
-  // J/K and the issue shortcuts run over the two work lists, top to bottom
   const listed = useMemo(() => [...inProgress, ...upNext], [inProgress.map(i => i.id).join(), upNext.map(i => i.id).join()]);
   const cursor = useCursor(s => s.index);
   useEffect(() => { registerVisibleList(listed, ''); }, [listed]);
@@ -103,7 +92,6 @@ export function MyWorkPage() {
     }
     setCleared(c => new Set([...c, ...ids]));
     try { await write; } catch {
-      // the server said no: put the row back and say so
       setCleared(c => new Set([...c].filter(x => !ids.includes(x))));
       setLeaving(l => new Set([...l].filter(x => x !== ns[0]!.id)));
       useApp.getState().toast({ title: 'Couldn’t mark that as read' });
@@ -114,7 +102,6 @@ export function MyWorkPage() {
     const issue = snap.issues.find(i => i.id === ns[0]!.issueId);
     void done(ns, false);
     if (issue) navigate(`/issue/${keyOf(issue)}`);
-    // an access request's body is "<settings path>|<what>": open the setting it asks about
     else if (ns[0]!.type === 'accessRequested') navigate(ns[0]!.body.split('|')[0] || '/settings');
     else navigate('/inbox');
   };
@@ -142,7 +129,6 @@ export function MyWorkPage() {
   };
   const myTeam = snap.teams.find(t => t.memberIds.includes(me)) ?? snap.teams[0];
   const nothing = !asks.length && !triage.length && !inProgress.length && !upNext.length;
-  // the last thing waiting on you was answered on this screen: say so, once
   const clearedNow = useEarned(!asks.length && !triage.length);
   const first = snap.currentUser.name.split(/\s+/)[0] || snap.currentUser.name;
   const needCount = asks.length + triage.length;

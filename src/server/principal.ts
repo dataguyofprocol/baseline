@@ -1,4 +1,3 @@
-// Who a request is: one middleware decides it for every /api request, in both modes.
 import type { Context, MiddlewareHandler } from 'hono';
 import { actingUser, attributionOf, type Attribution } from '../core/actor.js';
 import type { ApiKeys } from '../core/apikeys.js';
@@ -7,11 +6,8 @@ import { API_KEY_SCOPES, type ApiKey } from '../core/types.js';
 import type { AuthConfig, Sessions } from './auth.js';
 
 export type Principal =
-  /** Authorization: Bearer <key>, in either mode: acts as the key's owner, within its scopes and teams */
   | { via: 'key'; key: ApiKey; userId: string }
-  /** a hosted cookie session */
   | { via: 'session'; userId: string }
-  /** local mode without a key: this machine's own app, which may act as anyone */
   | { via: 'local' };
 
 /** A request the server answers with an error. Thrown from a handler, it becomes `{ error, code }`. */
@@ -29,13 +25,8 @@ export const originHostOf = (c: Context): string | null => {
 };
 const isRead = (method: string) => method === 'GET' || method === 'HEAD';
 
-/** a key can't mint, list or approve keys, or set passwords: those doors need a person (cookie or this machine) */
-// a person's GitHub connection is theirs: an API key (an agent's) can't set it or read repos as them
 const KEYLESS = /^\/api\/(api-keys|cli-auth|me\/password|me\/github|members\/[^/]+\/reset-link)(\/|$)/;
-/** an agent drafts project updates with a key; only a person (cookie or this machine) publishes one */
 const PUBLISH = /^\/api\/projects\/[^/]+\/update-draft\/publish$/;
-/** the hosted MCP endpoint: keys only. Its tool calls are /api requests made with the same key,
- *  so scopes, teams and response scoping are applied there, per call, not to the MCP envelope */
 const MCP = '/mcp';
 const needsKey = (c: Context) => c.json({ error: 'Baseline\'s MCP endpoint needs an API key: send Authorization: Bearer <key> (create one in Settings › Account & API keys)', code: 'unauthorized' }, 401);
 
@@ -47,19 +38,11 @@ export function principalOf(c: Context): Principal {
   return p;
 }
 
-/** the person a request acts as: the key's or session's owner, else this machine's current user */
 export function principalUser(c: Context, store: Store): string {
   const p = principalOf(c);
   return p.via === 'local' ? store.actor() : p.userId;
 }
 
-/**
- * Whom a write is attributed to, given the actor the client asked for (`actorId` / `userId` in the body).
- * Local mode honors any user; an agent there acts for this machine's current user. A key or a
- * session acts as its owner, or as an agent user on its owner's behalf (--as "Agent" is
- * recorded as "Agent via <owner>"); asking for another person is refused, never silently rewritten.
- * undefined: nothing was asked and no key is involved, so the store's own default applies.
- */
 export function attributedActor(c: Context, requested: unknown, store: Store): Attribution | undefined {
   const p = principalOf(c);
   if (typeof requested !== 'string' || !requested) {
@@ -75,11 +58,9 @@ export function attributedActor(c: Context, requested: unknown, store: Store): A
 
 export interface AuthenticateDeps {
   auth: AuthConfig;
-  /** hosted only */
   sessions: Sessions | null;
   apiKeys: ApiKeys;
   store: Store;
-  /** local mode opened to the LAN with BASELINE_HOST */
   lanOpen: boolean;
 }
 
@@ -111,7 +92,6 @@ export function authenticate(d: AuthenticateDeps): MiddlewareHandler {
       ? await c.req.json().catch(() => null) as Record<string, unknown> | null : null;
     if (!apiKeys.teamAllowed(key, path, body)) return forbid(c, 'This API key can’t access that team');
     principals.set(c.req.raw, { via: 'key', key, userId: key.userId });
-    // the store's own writes (activity, notifications) are by the key's owner too
     await actingUser.run(key.userId, next);
     if (key.teamIds && (c.res.headers.get('content-type') ?? '').includes('application/json')) {
       const scoped = apiKeys.scopeResponse(key, await c.res.json());
@@ -133,7 +113,6 @@ export function authenticate(d: AuthenticateDeps): MiddlewareHandler {
       principals.set(c.req.raw, { via: 'session', userId: session.userId });
       return actingUser.run(session.userId, next);
     }
-    // A Host that isn't loopback means a LAN client or a DNS-rebinding page
     if (!d.lanOpen && !isLoopback(host)) return forbid(c, 'Baseline only accepts requests from this machine (set BASELINE_HOST to change that)');
     if (header) return withKey(c, next, header);
     if (c.req.path === MCP) return needsKey(c);

@@ -7,8 +7,6 @@ import { PropertyMenu, type PropKind } from './propertyMenus.js';
 import { StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled, StatusTriage, PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconAgent, IconLoop, IconGithub, IconBlocks, IconBlocked, IconRelated, IconDuplicate } from './icons.js';
 
 export function StateIcon({ type, color, size = 14, morph }: { type: string; color?: string; size?: number; morph?: boolean }) {
-  // the seeded Todo grey is near-white because it was tuned for dark. Theme it so it
-  // doesn't vanish on a light ground
   const style = color ? { color: color.toLowerCase() === '#e2e2e2' ? 'var(--status-todo-ink)' : color } : undefined;
   if (type === 'triage') return <StatusTriage size={size} style={style ?? { color: '#fc7840' }} />;
   if (type === 'backlog') return <StatusBacklog size={size} style={style} />;
@@ -26,7 +24,6 @@ export function PriorityIcon({ priority, size = 14 }: { priority: Priority; size
   return <PrioNone size={size} style={{ color: 'var(--text-dim)' }} />;
 }
 
-/** built-in agent identities (see agentUser() callers in src/core): coding agent, rule runner, GitHub sync */
 const AGENT_GLYPHS: Record<string, typeof IconAgent> = { Agent: IconAgent, Automation: IconLoop, GitHub: IconGithub };
 
 export function Avatar({ user, size = 20 }: { user?: { name: string; initials: string; color: string; kind?: 'human' | 'agent'; avatarUrl?: string | null } | null; size?: number }) {
@@ -34,13 +31,9 @@ export function Avatar({ user, size = 20 }: { user?: { name: string; initials: s
     return <span className="avatar placeholder" style={{ width: size, height: size }}><IconUser size={12} /></span>;
   }
   if (user.kind === 'agent') {
-    // agents are tools, not people: a neutral rounded square (never a saturated
-    // person-coloured disc) so a glance separates them from human avatars
     return (
       <span className="avatar agent" title={`${user.name} (agent)`} style={{ width: size, height: size, borderRadius: Math.max(4, Math.round(size * 0.3)) }}>
         {(() => {
-          // the square already says "agent"; the inside says which one. Built-in
-          // identities get their own glyph, hand-made agents their initials
           const Glyph = AGENT_GLYPHS[user.name];
           return Glyph ? <Glyph size={Math.max(10, Math.round(size * 0.66))} />
             : <span style={{ fontSize: size * 0.4, fontWeight: 600 }}>{user.initials}</span>;
@@ -67,8 +60,6 @@ function AvatarImg({ url, initials }: { url: string; initials: string }) {
 
 type MenuChildren = (p: { isOpen: boolean; open: (e: React.MouseEvent) => void }) => React.ReactNode;
 
-/* property menus over one issue, opened from any trigger (the rail, chips). The
-   menus themselves are in propertyMenus.tsx so keyboard, palette and rail share them */
 function propMenu(kind: PropKind) {
   return function IssuePropMenu(props: { issue: Issue; children: MenuChildren }) {
     const { anchor, open, close, isOpen } = useMenu();
@@ -94,21 +85,14 @@ export function teamDisplayIcon(team: Team) {
   return <span className="ws-avatar" style={{ background: team.color, borderRadius: 4, fontSize: 10 }}>{team.icon?.match(/\p{Emoji}/u) ? team.icon : team.key[0]}</span>;
 }
 
-/* ================================================================
-   Additional property menus: due date, estimate, cycle, parent,
-   relations, project properties, generic issue search picker
-   ================================================================ */
-
 export function MenuInput(props: { value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean }) {
   return <div className="menu-input"><input autoFocus={props.autoFocus} placeholder={props.placeholder} value={props.value} onChange={e => props.onChange(e.target.value)} spellCheck={false} /></div>;
 }
 
-/** month calendar grid shared by DueDateMenu and the palette's bulk due-date page */
 export function CalendarGrid(props: { selected?: string; onPick: (iso: string) => void }) {
   const today = new Date();
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const y = cursor.getFullYear(), m = cursor.getMonth();
-  // the week starts where Preferences says (Monday by default)
   const weekStart = useApp.getState().snap?.workspace.preferences.firstDayOfWeek ?? 1;
   const firstDow = (new Date(y, m, 1).getDay() - weekStart + 7) % 7;
   const days = new Date(y, m + 1, 0).getDate();
@@ -138,7 +122,6 @@ export function CalendarGrid(props: { selected?: string; onPick: (iso: string) =
   );
 }
 
-/** searchable issue picker, used for parents, relations and attaching sub-issues */
 export function IssuePickerMenu(props: {
   title: string;
   teamId?: string;
@@ -200,7 +183,6 @@ export function AddRelationMenu(props: { issue: Issue; children: MenuChildren })
       {anchor && phase === 'type' && (
         <Menu anchor={anchor} onClose={() => { setAnchor(null); setPhase('type'); }} width={220}>
           <div className="menu-header"><span>Add relationship…</span></div>
-          {/* plain rows, not MenuItem: MenuItem closes its menu, which cleared the anchor before the issue picker could open */}
           {RELATION_TYPES.map(([value, label, icon]) => (
             <button key={value} className="menu-item" onClick={e => { e.stopPropagation(); setType(value); setPhase('issue'); }}>
               <span className="mi-icon">{icon}</span><span className="mi-label">{label}</span>

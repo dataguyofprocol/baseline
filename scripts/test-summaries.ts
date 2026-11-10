@@ -1,8 +1,3 @@
-// The project updates summary: each person's inbox gets one notification counting new updates on
-// projects they lead, are a member of, or follow, on their own schedule (Preferences.updatesSummary).
-// Runs against a throwaway local-mode database and never touches ~/.baseline.
-//
-//   npx tsx scripts/test-summaries.ts
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,13 +15,11 @@ const check = (name: string, ok: boolean, detail = '') => {
 };
 const DAY = 86400000;
 const summaries = (userId: string) => db.prepare("SELECT body, created_at FROM notifications WHERE type = 'updatesDigest' AND user_id = ? ORDER BY created_at").all(userId) as Array<{ body: string; created_at: string }>;
-/** an update posted at a chosen time, so the test owns the summary window */
 const postAt = (projectId: string, authorId: string, body: string, at: Date) => {
   const u = store.addProjectUpdate(projectId, authorId, body);
   db.prepare('UPDATE project_updates SET created_at = ? WHERE id = ?').run(at.toISOString(), u.id);
 };
 
-// far enough ahead that the sample workspace's own updates fall outside every window
 const t0 = new Date(Date.now() + 60 * DAY);
 const person = store.createUser('Summary Person', 'summary@example.com');
 const author = store.createUser('Update Author', 'author@example.com');
@@ -51,7 +44,6 @@ const notMine = store.createProject({ name: 'Summary: not on it' });
 }
 
 {
-  // leading a project and following one (updates on) count too; following without updates does not
   const led = store.createProject({ name: 'Summary: leads it', leadId: person.id });
   const followed = store.createProject({ name: 'Summary: follows it' });
   const muted = store.createProject({ name: 'Summary: follows, updates off' });
@@ -81,7 +73,6 @@ const notMine = store.createProject({ name: 'Summary: not on it' });
 }
 
 {
-  // a database from before the rename keeps its old summaries, under the new type
   db.prepare("INSERT INTO notifications (id, user_id, type, actor_id, issue_id, project_id, body, created_at) VALUES ('n_old_pulse', ?, 'pulseDigest', NULL, NULL, NULL, '3 project updates since your last summary', ?)").run(person.id, new Date().toISOString());
   db.close();
   const reopened = createApp(dbPath, { mode: 'local' }, { configured: false, send: async () => {} });

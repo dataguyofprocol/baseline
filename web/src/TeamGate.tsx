@@ -7,8 +7,6 @@ import { markBridge, clearBridge } from './Onboarding.js';
 
 const keyFromName = (name: string) => name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'TEAM';
 
-/** Every issue lives in a team, so a workspace with none asks for one before anything else. The
- *  team's key is the word on the line, and its first issue numbers are marked along it. */
 export function TeamGate() {
   const snap = useApp(s => s.snap)!;
   const hosted = snap.workspace.auth === 'hosted';
@@ -22,13 +20,9 @@ export function TeamGate() {
     const n = name.trim(), k = key.trim().toUpperCase();
     if (busy || !n || !k) return;
     setBusy(true); setError('');
-    // marked before the write: the server's live update mounts the app as soon as the team exists.
-    // The first team goes on to the bridge (its setup steps on the same line); a later one arrives
-    // straight in the app, which plays the line climbing into its top bar from this mark
     if (useApp.getState().snap?.teams.length === 0) markBridge(); else markArrival();
     try {
       await api.createTeam({ key: k, name: n });
-      // the router mounts after the refresh, so it starts on this address
       window.location.hash = `#/team/${k}/all`;
       await refresh();
     } catch (err) {

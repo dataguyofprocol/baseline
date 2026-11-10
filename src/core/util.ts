@@ -15,15 +15,12 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
-/** Midpoint between two floats with a fallback spread for unbounded ends. */
 export function midSort(prev: number | null, next: number | null): number {
   const a = prev ?? (next !== null ? next - 2048 : 0);
   const b = next ?? a + 2048;
   return (a + b) / 2;
 }
 
-/** '' stays '' (unset); `~/x` expands; anything else resolves to an absolute path, so the
- *  existence checks and the launcher's `cd` see the same directory */
 export function normalizeDir(dir: string | null | undefined): string {
   const d = String(dir ?? '').trim();
   if (!d) return '';

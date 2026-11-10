@@ -1,4 +1,3 @@
-// What the CLI and the MCP server import from src/client. Transports and HttpBaseline stay internal.
 import { existsSync } from 'node:fs';
 import { DEFAULT_DB_PATH } from '../core/db.js';
 import type { Issue } from '../core/types.js';
@@ -16,7 +15,6 @@ export * as resolve from './resolve.js';
 export { ResolveError } from './resolve.js';
 export * as views from './views.js';
 
-/** this invocation's target: --db, then the environment, then `baseline login`'s config, then the default database */
 export function targetFor(flags: { db?: string }): Target {
   return resolveTarget(flags, process.env, readConfig(), DEFAULT_DB_PATH);
 }
@@ -28,12 +26,6 @@ export async function connect(flags: { db?: string }): Promise<Baseline> {
 
 export const NOT_CONNECTED = 'Not connected to Baseline. Run `baseline login --server <url>`';
 
-/**
- * The agent surface's target (`baseline mcp`, `baseline agent`, hooks, `work`): a server you logged
- * in to, or a local database named with --db / BASELINE_DB that already exists. Never the default
- * database and never a new file: opening either would create and seed a sample workspace, and an
- * agent in a freshly cloned repo would track work in it as if it were the team's.
- */
 export function agentTarget(flags: { db?: string }): Target {
   const t = targetFor(flags);
   if (t.kind === 'remote') return t;
@@ -47,12 +39,10 @@ export async function connectAgent(flags: { db?: string }): Promise<Baseline> {
   return new HttpBaseline(target, await transportFor(target));
 }
 
-/** one server and key, whatever the environment or config file says (login and logout; the hosted /mcp endpoint passes its own app's fetch as `send`) */
 export function connectTo(url: URL, token: string, send?: (req: Request) => Promise<Response>): Baseline {
   return new HttpBaseline({ kind: 'remote', url, token, source: 'config' }, httpTransport(url, token, send));
 }
 
-/** `issues` by id, plus any parent of `of` that isn't among them (archived or deleted), fetched by id */
 export async function issueIndex(bl: Baseline, issues: readonly Issue[], of: readonly Issue[]): Promise<IssueIndex> {
   const index = new Map(issues.map(i => [i.id, i]));
   for (const i of of) index.set(i.id, i);

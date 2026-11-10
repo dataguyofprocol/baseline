@@ -10,14 +10,10 @@ export const API_KEY_PREFIX = 'bl_api_';
 
 type Row = { id: string; name: string; user_id: string; token_hash: string; hint: string; scopes: string | null; team_ids: string | null; created_at: string; last_used_at: string | null };
 
-// settings and anything that starts local processes; reads of these stay under `read`
 const ADMIN_ROUTES = /^\/api\/(workspace|features|users|states|import|seed|locations|directories|sla-rules|loops|git\/(automation|sync|pull-requests|commits)|github\/(webhook|issues)\/[^/]+|github\/(token|repos|repo-teams)|issues\/[^/]+\/open-claude)(\/|$)/;
 const TEAM_ADMIN = /^\/api\/teams(\/[^/]+)?$/;
-/** snapshot parts keyed by team id rather than listed */
 const TEAM_KEYED = new Set(['teamWorkflows', 'teamSubscriptions']);
 
-/* Personal API keys, like Linear's: a key is shown once, stored as a sha256 hash, acts as the
-   person who made it, and can be limited to some permissions and some teams. */
 export class ApiKeys {
   constructor(private store: Store, private db: DatabaseSync) {}
 
@@ -30,7 +26,6 @@ export class ApiKeys {
     return rows.map(r => this.map(r));
   }
 
-  /** returns the token once; only its hash is kept */
   create(input: { name: string; userId: string; scopes?: ApiKeyScope[] | null; teamIds?: string[] | null }): { key: ApiKey; token: string } {
     const name = input.name.trim();
     if (!name) throw new Error('A key name is required');
@@ -48,7 +43,6 @@ export class ApiKeys {
   revoke(keyId: string): void { this.db.prepare('DELETE FROM api_keys WHERE id = ?').run(keyId); }
   get(keyId: string): ApiKey | undefined { const r = this.db.prepare('SELECT * FROM api_keys WHERE id = ?').get(keyId) as Row | undefined; return r ? this.map(r) : undefined; }
 
-  /** the key a token belongs to, stamping when it was last used (at most once a minute) */
   verify(token: string): ApiKey | null {
     const r = this.db.prepare('SELECT * FROM api_keys WHERE token_hash = ?').get(hash(token.trim())) as Row | undefined;
     if (!r) return null;
@@ -61,14 +55,11 @@ export class ApiKeys {
     return this.map(r);
   }
 
-  /** the permission a request needs and the key lacks, or null when it is allowed */
   missingScope(key: ApiKey, method: string, path: string): ApiKeyScope | null {
     const s = key.scopes;
     if (!s) return null;
     const read = method === 'GET' || method === 'HEAD';
-    // the export, and which repos the server's GitHub token can see, are reads only admins make
     if (path === '/api/export' || path === '/api/github/repos/available') return s.includes('admin') ? null : 'admin';
-    // the MCP endpoint itself only needs a key that reads; each tool call is an /api request checked on its own
     if (path === '/mcp') return s.includes('read') || s.includes('write') ? null : 'read';
     if (!read && (ADMIN_ROUTES.test(path) || TEAM_ADMIN.test(path))) return s.includes('admin') ? null : 'admin';
     if (read) return s.includes('read') || s.includes('write') ? null : 'read';
@@ -78,7 +69,6 @@ export class ApiKeys {
     return 'write';
   }
 
-  /** false when a team-limited key touches an issue or team outside its teams */
   teamAllowed(key: ApiKey, path: string, body: Record<string, unknown> | null): boolean {
     const teams = key.teamIds;
     if (!teams) return true;
@@ -89,7 +79,6 @@ export class ApiKeys {
     }
     const teamId = /^\/api\/(?:teams|git\/automation)\/([^/]+)/.exec(path)?.[1];
     if (teamId && !teams.includes(teamId)) return false;
-    // an uploaded file or attachment belongs to its issue's (or team's) team
     const fileId = /^\/api\/(?:files|attachments|emoji-files)\/([^/]+)/.exec(path)?.[1];
     if (fileId) {
       const fid = decodeURIComponent(fileId);
@@ -106,7 +95,6 @@ export class ApiKeys {
     return true;
   }
 
-  /** drops what lies outside a team-limited key's teams from a JSON response */
   scopeResponse(key: ApiKey, data: unknown): unknown {
     const teams = key.teamIds;
     if (!teams || !data || typeof data !== 'object') return data;

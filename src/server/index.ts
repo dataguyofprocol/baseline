@@ -39,11 +39,9 @@ export interface ServeOptions {
 
 const WEB_DIST = resolve(fileURLToPath(import.meta.url), '../../../web/dist');
 
-/** BASELINE_HOST opens the server beyond this machine (e.g. 0.0.0.0); unset: loopback only */
 const LISTEN_HOST = process.env.BASELINE_HOST?.trim() || '';
 const LAN_OPEN = !!LISTEN_HOST && !isLoopback(LISTEN_HOST);
 
-/** `blank`: a new database starts empty for the web app's first-run flow instead of seeded */
 export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv(), mailer: Mailer = mailerFromEnv(), opts: { blank?: boolean } = {}) {
   const db = openDb(dbPath);
   const store = new Store(db);
@@ -51,21 +49,14 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const changes = new ChangeFeed(db);
   const hosted = auth.mode === 'hosted';
   const { planning, automation, git, apiKeys, webhooks, work } = store.ext;
-  // images (avatars, pasted pictures) are stored in the database; pick up any from the old uploads folder
   const files = new FileService(db, join(dirname(dbPath), 'attachments'));
   const moved = files.migrateLegacy();
   if (moved) console.error(`[baseline] moved ${moved} upload(s) into the database`);
-  // Loops' "Open in Claude Code" action opens the same interactive session as the manual hand-off.
-  // Hosted, that would open it on the server's machine, so it waits for a companion on each person's laptop
   if (hosted) automation.launcherMissing = 'needs a connected companion';
   else automation.launcher = async (issueId: string) => { openInClaudeCode(store, dbPath, issueId, {}); };
   if (hosted) { webhooks.fixedUrl = auth.publicUrl.origin; git.hosted = true; }
-  // the git integration polls the tracked repos every two minutes while it's on (a no-op until a
-  // hosted server has a read-only token)
   setInterval(() => { if (store.getFeatures().githubEnabled) void git.sync().catch(() => {}); }, 120_000).unref();
 
-  // first run: a laptop gets the sample workspace to play with; a hosted one starts empty.
-  // Its owner is created on the setup screen (or by Google sign-in), and onboarding asks for the first team
   const hasWorkspace = db.prepare('SELECT COUNT(*) AS n FROM meta').get() as { n: number };
   if (Number(hasWorkspace.n) === 0 && hosted) {
     setMeta(db, 'workspaceId', id('w'));
@@ -82,7 +73,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   const app = new Hono();
 
-  // liveness for Docker and load balancers: outside /api, so no Host check, session or key
   app.get('/healthz', (c) => {
     db.prepare('SELECT 1').get();
     return c.json({ ok: true });
@@ -98,11 +88,9 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json(r.body, r.status as 200);
   });
 
-  // who every /api request is (key, session or this machine). It runs before any /api route; see principal.ts
   const sessions = hosted ? cookieSessions(auth, accounts) : null;
   const guard = authenticate({ auth, sessions, apiKeys, store, lanOpen: LAN_OPEN });
   app.use('/api/*', guard);
-  // the agent operations as MCP tools over HTTP, for an API key (src/mcp/http.ts)
   app.use(MCP_PATH, guard);
   mountMcpHttp(app);
   app.onError((err, c) => {
@@ -110,14 +98,11 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     console.error(err);
     return c.text('Internal Server Error', 500);
   });
-  // hosted, nobody can sign in yet: whoever holds this token creates the owner (see setup.ts)
   const setup = setupToken(dbPath);
   if (hosted && !accounts.needsSetup()) setup.clear();
   if (hosted) mountAuth(app, auth, { accounts, store, sessions: sessions!, mailer, setup }, {
     onInviteAccepted: (userId, invitedBy) => {
       const who = accounts.userBrief(userId), inviter = accounts.userBrief(invitedBy);
-      // in the inbox too, so the person chasing the team onto Baseline sees it without SMTP: whoever
-      // sent the invite or made the link, and the admins
       if (who) {
         const teams = store.snapshot().teams.filter(t => t.memberIds.includes(userId)).map(t => t.name);
         const admins = store.snapshot().users.filter(u => u.admin && u.kind === 'human' && u.status === 'active').map(u => u.id);
@@ -130,19 +115,14 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
 
   const actor = (c: Context) => principalUser(c, store);
-  /** run a write under its attribution (see attributedActor): `write` gets the actor to pass the
-   *  store (undefined: the store's default), and the store records the via beside that actor's rows */
   const attributed = <T>(c: Context, requested: unknown, write: (actorId: string | undefined) => T): T => {
     const a = attributedActor(c, requested, store);
     return a ? attributing.run(a, () => write(a.actorId)) : write(undefined);
   };
-  /** the same for writes that need an actor id: the one asked for, else the request's own */
   const attributedTo = <T>(c: Context, requested: unknown, write: (actorId: string) => T): T =>
     attributed(c, requested, (actorId) => write(actorId ?? actor(c)));
   const isAdmin = (userId: string) => !!(db.prepare('SELECT admin FROM users WHERE id = ?').get(userId) as { admin: number } | undefined)?.admin;
 
-  // a delete may have taken an image's owner with it (an issue purged, a doc, a team):
-  // sweep orphaned images after each delete, and hourly for deletes that happen on their own (trash expiry)
   const sweepFiles = () => { const n = files.gc(); if (n) console.error(`[baseline] deleted ${n} image(s) whose owner is gone`); };
   app.use('/api/*', async (c, next) => {
     await next();
@@ -150,7 +130,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   setInterval(sweepFiles, 3_600_000).unref();
 
-  // ---------- API keys ----------
   app.get('/api/api-keys', (c) => {
     const me = actor(c);
     if (c.req.query('all') && !isAdmin(me)) return c.json({ error: 'Only admins can see every API key', code: 'forbidden' }, 403);
@@ -167,21 +146,17 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/api-keys/:id', async (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.rename(c.req.param('id'), String((await c.req.json()).name ?? '')); return c.json({ ok: true }); });
   app.delete('/api/api-keys/:id', (c) => { if (!ownKey(c)) return c.json({ error: 'not found' }, 404); apiKeys.revoke(c.req.param('id')); return c.json({ ok: true }); });
 
-  // after a write, tell open tabs at once instead of waiting for the feed's next check
   app.use('/api/*', async (c, next) => {
     await next();
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') changes.check();
   });
 
-  // workspace-wide settings, people and whole-workspace data are admins' (everyone is, in local mode)
   const adminOnly = async (c: Context, next: Next) => {
     if (hosted && !accounts.isAdmin(store.actor())) return c.json({ error: 'Only admins can do that', code: 'forbidden' }, 403);
     await next();
   };
   for (const path of ['/api/workspace', '/api/features', '/api/export', '/api/import', '/api/seed']) app.use(path, adminOnly);
   app.post('/api/users', adminOnly);
-  // so is how teams and the workspace are set up (TEAM_PLAN.md › Who changes what). Issues, projects,
-  // docs, cycles and comments stay everyone's, and so does creating a team or adding a label from a picker
   const configRoutes: Array<[string, string]> = [
     ['PATCH', '/api/project-labels/:id'], ['DELETE', '/api/project-labels/:id'],
     ['PATCH', '/api/initiative-labels/:id'], ['DELETE', '/api/initiative-labels/:id'],
@@ -195,9 +170,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     ['PUT', '/api/github/repo-teams'],
   ];
   for (const [method, path] of configRoutes) app.on(method, path, adminOnly);
-  // A team's setup is its lead's (CORE_FLOW.md › Roles): name, statuses, triage, cycle schedule and
-  // automations. Its labels and templates are any of its members'. Admins lead every team (and so
-  // a team that has no lead). A refusal names whom to ask, and `ask` lets the app offer "Ask <name>".
   const teamOfRow = (table: 'states' | 'labels' | 'issue_templates', rowId: string) =>
     (db.prepare(`SELECT team_id FROM ${table} WHERE id = ?`).get(rowId) as { team_id: string } | undefined)?.team_id;
   const bodyTeam = async (c: Context) => ((await c.req.json().catch(() => ({}))) as { teamId?: unknown }).teamId as string | undefined;
@@ -206,7 +178,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const me = store.actor();
     if (accounts.isAdmin(me)) return next();
     const team = store.getTeam((await teamOf(c)) ?? '');
-    // nothing to guard (the route answers 400/404 itself), or the caller may
     if (!team || (who === 'lead' ? team.leadIds : team.memberIds).includes(me)) return next();
     return c.json({ ...askWhom(team, who), code: 'forbidden' }, 403);
   };
@@ -224,7 +195,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/teams/:id', leadOf);
   app.delete('/api/teams/:id', leadOf);
   app.put('/api/teams/:id/workflow', leadOf);
-  // a team's join link is part of its membership, which its lead owns
   app.post('/api/teams/:id/join-link', leadOf);
   app.delete('/api/teams/:id/join-link', leadOf);
   app.post('/api/states', teamGate('lead', bodyTeam));
@@ -237,8 +207,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   mountMembers(app, { store, accounts, mailer, hosted: hosted ? auth : null });
   mountCliAuth(app, { db, store, accounts, apiKeys });
 
-  // ---------- bootstrap ----------
-  // ?sections=teams,states,… returns only those parts (a CLI command needs a few, not the whole workspace)
   app.get('/api/bootstrap', (c) => {
     const requested = c.req.query('sections')?.split(',').map(s => s.trim()).filter(Boolean);
     const unknown = requested?.filter(s => !isSnapshotSection(s));
@@ -246,9 +214,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const snap = store.snapshot();
     snap.workspace.auth = auth.mode;
     if (hosted) { snap.workspace.signInMethods = signInMethods(auth); snap.workspace.mail = mailer.configured; }
-    // what the invite UI offers (members invite too while the workspace is small: Accounts.canInvite)
     snap.workspace.canInvite = hosted && accounts.canInvite(actor(c));
-    // the home directory only means something when the server is this machine
     if (!hosted) snap.workspace.homeDir = homedir();
     if (LAN_OPEN) snap.workspace.lanHost = LISTEN_HOST;
     snap.updateDrafts = work.draftsFor(actor(c));
@@ -256,14 +222,11 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     snap.myGithub = git.userTokenInfo(actor(c));
     snap.invitesSent = accounts.invitesSentBy(actor(c));
     if (!requested) return c.json(snap);
-    // scope before picking: a team-limited key's response scoping drops comments and activity by
-    // their issue, which it can only do while the issues are in the same response
     const p = principalOf(c);
     const scoped = (p.via === 'key' ? apiKeys.scopeResponse(p.key, snap) : snap) as Record<string, unknown>;
     return c.json(Object.fromEntries(requested.map(s => [s, scoped[s]])));
   });
 
-  // ---------- who am I ----------
   app.get('/api/me', (c) => {
     const p = principalOf(c);
     const user = store.snapshot().users.find(u => u.id === principalUser(c, store));
@@ -273,11 +236,9 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       user, workspace: { id: ws.id, name: ws.name }, via: p.via,
       scopes: p.via === 'key' ? p.key.scopes : null, teamIds: p.via === 'key' ? p.key.teamIds : null,
       keyId: p.via === 'key' ? p.key.id : null,
-      // whether Settings › Account offers "change password" (null: not a signed-in browser)
       hasPassword: p.via === 'session' ? !!accounts.passwordHashOf(p.userId) : null,
     });
   });
-  // signing out of the CLI: only ever the key that made the request (other keys are managed in Settings)
   app.delete('/api/me/key', (c) => {
     const p = principalOf(c);
     if (p.via !== 'key') return c.json({ error: 'This request wasn\'t made with an API key', code: 'invalid' }, 400);
@@ -285,7 +246,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // ---------- live updates ----------
   // Server-sent events: the current version on connect, every new one after, and a comment every
   // 25s so proxies keep the connection open. Only the version number is sent, and each tab then fetches its own
   // snapshot, so nobody learns anything here they couldn't already see.
@@ -301,7 +261,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     off();
   }));
 
-  // ---------- issues ----------
   app.post('/api/issues', async (c) => {
     const b = await c.req.json();
     const issue = attributed(c, b.actorId, (actorId) => store.createIssue({
@@ -309,7 +268,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       priority: b.priority, assigneeId: b.assigneeId ?? null, projectId: b.projectId ?? null,
       parentId: b.parentId ?? null, cycleId: b.cycleId ?? null, labelIds: b.labelIds,
       dueDate: b.dueDate ?? null, estimate: b.estimate ?? null, milestoneId: b.milestoneId ?? null,
-      // omitted: a sub-issue inherits its parent's (nothing else is defaulted); null: explicitly none
       ...('locationId' in b ? { locationId: b.locationId } : {}),
     }, actorId));
     return c.json({ issue }, 201);
@@ -329,8 +287,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       includeArchived: q('includeArchived') === 'true', limit: limit === undefined ? undefined : Number(limit),
     }) });
   });
-  // by key (CORE-12), archived and deleted included. Writes take ids: a key in a write's path would
-  // slip past a team-limited key's check, which looks the path segment up as an issue id
   app.get('/api/issues/by-key/:key', (c) => {
     const issue = store.getByKey(c.req.param('key'));
     return issue ? c.json({ issue }) : c.json({ error: 'not found' }, 404);
@@ -379,8 +335,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // ---------- images ----------
-  /** the request body is the image; a Content-Length over the limit is refused before reading */
   const readUpload = async (c: Context, max: number): Promise<Buffer> => {
     if (Number(c.req.header('content-length')) > max) throw new FileError(`Images are limited to ${formatBytes(max)}. Link to bigger files instead.`, 413);
     return Buffer.from(await c.req.arrayBuffer());
@@ -389,7 +343,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     ? c.json({ error: err.message }, err.status)
     : c.json({ error: `Upload failed: ${(err as Error).message}` }, 500);
 
-  // a picture pasted into an issue's, doc's, project's, initiative's or team's editor; ?owner=issue:<id>, ?name= its filename
   const EDITOR_OWNERS: FileOwnerType[] = ['issue', 'doc', 'project', 'initiative', 'team'];
   app.post('/api/files', async (c) => {
     const [type, ownerId = ''] = String(c.req.query('owner') ?? '').split(':');
@@ -408,11 +361,9 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return new Response(c.req.method === 'HEAD' ? null : new Uint8Array(data), { headers: { ...headers, 'Content-Length': String(data.length) } });
   };
   app.get('/api/files/:id/:name?', (c) => serveFile(c, c.req.param('id')));
-  // URLs from before images moved into the database, already pasted into descriptions and comments
   app.get('/api/attachments/:id/:name', (c) => serveFile(c, c.req.param('id')));
   app.get('/api/emoji-files/:id/:name', (c) => serveFile(c, c.req.param('id')));
 
-  // ---------- attachments (links; file attachments from older versions stay listed) ----------
   app.post('/api/issues/:id/attachments', async (c) => {
     const b = await c.req.json();
     if (!b.url) return c.json({ error: 'url is required' }, 400);
@@ -453,8 +404,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     store.moveIssue(c.req.param('id'), b.beforeId ?? null, b.afterId ?? null);
     return c.json({ ok: true });
   });
-  // branch copy / hand-off: a backlog or unstarted issue moves to the first started state, and an
-  // unassigned one is assigned to you
   app.post('/api/issues/:id/start', (c) => c.json(store.startIssue(c.req.param('id'), actor(c))));
   app.get('/api/issues/:id/handoff', (c) => {
     const handoff = store.handoffFor(c.req.param('id'), hosted ? auth.publicUrl.origin : undefined);
@@ -474,7 +423,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   };
   app.use('/api/issues/:id/open-claude', localOnly);
   app.use('/api/directories/*', localOnly);
-  // PR and commit ingest move issues as the GitHub agent: same rule
   app.use('/api/git/pull-requests', localOnly);
   app.use('/api/git/commits', localOnly);
   app.post('/api/issues/:id/open-claude', async (c) => {
@@ -487,7 +435,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     }
   });
 
-  // ---------- coding directories ----------
   app.post('/api/directories/pick', async (c) => {
     const b = await c.req.json().catch(() => ({})) as { prompt?: string; multiple?: boolean };
     try {
@@ -504,16 +451,13 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ exists: isDirectory(normalizeDir(b.directory)) });
   });
 
-  // ---------- locations (directories agents work in) ----------
   app.post('/api/locations', async (c) => {
-    // a location is checked against this server's disk, which is meaningless (and a probe) on a hosted server
     if (hosted) return c.json({ error: 'Locations can\'t be added on the hosted app yet', code: 'companion-required' }, 403);
     const b = await c.req.json() as { path?: string; name?: string };
     const path = normalizeDir(b.path);
     if (!isDirectory(path)) return c.json({ error: `Directory not found: ${path || '(empty)'}` }, 400);
     return c.json({ location: store.createLocation(path, b.name) }, 201);
   });
-  // existing ones (say, from a laptop workspace moved to a server) can be tidied away, by admins
   app.patch('/api/locations/:id', adminOnly);
   app.delete('/api/locations/:id', adminOnly);
   app.patch('/api/locations/:id', async (c) => {
@@ -523,7 +467,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/locations/:id', (c) => { store.deleteLocation(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- comments ----------
   app.post('/api/issues/:id/comments', async (c) => {
     const b = await c.req.json();
     const comment = attributedTo(c, b.userId, (userId) => store.addComment(c.req.param('id'), userId, b.body, b.parentId ?? null));
@@ -538,11 +481,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/comments/:id', (c) => { store.deleteComment(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- agent work (core/work.ts) ----------
-  // One route per agent operation that writes, each one SQLite transaction. The operations in
-  // src/ops call these through the client; the server alone decides attribution and convergence.
   const workBase = hosted ? auth.publicUrl.origin : undefined;
-  /** the write's attribution: the agent asked for (recorded via the request's person), else that person */
   const workAs = (c: Context, requested: unknown): Attribution =>
     attributedActor(c, requested, store) ?? { actor: 'person', actorId: actor(c), viaUserId: null };
   const body = async <T extends z.ZodType>(c: Context, schema: T): Promise<z.infer<T>> => {
@@ -558,7 +497,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const who = workAs(c, b.actorId);
     return c.json(work.start(c.req.param('id'), laneOf(who, b.session), who, workBase, { takeOver: b.takeOver }));
   });
-  // sub-issues of the issue being worked on, drafts the agent proposes, and issues the person said yes to
   app.post('/api/issues/:id/sub-issues', async (c) => {
     const b = await body(c, z.object({ ...actorField, titles: z.array(z.string().trim().min(3).max(200)).min(1).max(20) }));
     const who = workAs(c, b.actorId);
@@ -574,7 +512,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       ...actorField, kind: z.enum(['issue', 'followup']), teamId: z.string(), title: z.string().trim().min(3).max(200),
       description: z.string().optional(), priority: z.number().int().min(0).max(4).optional(), fromIssueId: z.string().optional(),
     }));
-    // a team-limited key may note a follow-up only from an issue on its teams
     const p = principalOf(c);
     if (b.fromIssueId && p.via === 'key' && !apiKeys.teamAllowed(p.key, `/api/issues/${b.fromIssueId}`, null)) throw new Refusal(403, 'forbidden', 'This API key can’t access that team');
     const who = workAs(c, b.actorId);
@@ -590,7 +527,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const r = work.createIssue(laneOf(who, b.session), b, who, workBase);
     return c.json(r, r.opId ? 201 : 200);
   });
-  // a coding tool's own agent user ("Claude Code"), made the first time it writes
   app.post('/api/agent-users', async (c) => {
     const b = await body(c, z.object({ name: z.string().trim().min(1).max(40) }));
     return c.json({ user: work.ensureHarnessAgent(b.name) });
@@ -619,7 +555,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json(work.draftUpdate(c.req.param('id'), laneOf(who, null), b, who, workBase));
   });
   app.delete('/api/projects/:id/update-draft', (c) => c.json({ ok: work.discardDraft(c.req.param('id'), actor(c)) }));
-  // a person's call, made in the web app: authenticate refuses any key here (principal.ts PUBLISH)
   app.post('/api/projects/:id/update-draft/publish', async (c) => {
     const edits = c.req.header('content-type')?.includes('application/json')
       ? await body(c, z.object({ body: z.string().optional(), health: z.enum(['onTrack', 'atRisk', 'offTrack']).optional() }))
@@ -637,7 +572,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json(work.undo(c.req.param('id'), who));
   });
 
-  // ---------- relations ----------
   app.post('/api/issues/:id/relations', async (c) => {
     const b = await c.req.json();
     const rel = store.setRelation(c.req.param('id'), b.relatedIssueId, b.type as RelationType);
@@ -645,7 +579,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/relations/:id', (c) => { store.removeRelation(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- projects ----------
   app.post('/api/projects', async (c) => {
     const b = await c.req.json();
     const project = store.createProject(b);
@@ -663,7 +596,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const update = attributedTo(c, b.userId, (userId) => store.addProjectUpdate(c.req.param('id'), userId, b.body, b.health));
     return c.json({ update }, 201);
   });
-  // a posted update can be corrected or removed by whoever posted it, or an admin
   const mayChangeUpdate = (c: Context, author: string | null) => author !== null && (!hosted || author === actor(c) || isAdmin(actor(c)));
   app.patch('/api/project-updates/:id', async (c) => {
     const b = await c.req.json();
@@ -690,7 +622,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.delete('/api/project-links/:id', (c) => { store.deleteProjectLink(c.req.param('id')); return c.json({ ok: true }); });
   app.get('/api/projects/:id/progress', (c) => c.json(store.projectProgress(c.req.param('id'))));
 
-  // ---------- teams / states / labels ----------
   app.post('/api/teams', async (c) => {
     const b = await c.req.json();
     const team = store.createTeam(b.key, b.name, b.icon, b.color);
@@ -728,7 +659,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/labels/:id', (c) => { store.deleteLabel(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- documents & team links ----------
   app.post('/api/docs', async (c) => c.json({ doc: store.createDoc(await c.req.json()) }, 201));
   app.patch('/api/docs/:id', async (c) => { const b = await c.req.json(); attributed(c, b.actorId, (actorId) => store.updateDoc(c.req.param('id'), b, actorId)); return c.json({ ok: true }); });
   app.delete('/api/docs/:id', (c) => { store.deleteDoc(c.req.param('id')); return c.json({ ok: true }); });
@@ -740,7 +670,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/team-links/:id', (c) => { store.deleteTeamLink(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- recurring issues ----------
   app.post('/api/recurring', async (c) => {
     const b = await c.req.json();
     if (!b.teamId || !b.title || !b.cadence) return c.json({ error: 'teamId, title and cadence are required' }, 400);
@@ -749,7 +678,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/recurring/:id', async (c) => { store.updateRecurring(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/recurring/:id', (c) => { store.deleteRecurring(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- issue templates ----------
   app.get('/api/issue-templates', (c) => c.json({ templates: store.snapshot().templates }));
   app.post('/api/issue-templates', async (c) => {
     const b = await c.req.json();
@@ -764,7 +692,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/issue-templates/:id', (c) => { store.deleteTemplate(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- users ----------
   app.post('/api/users', async (c) => {
     const b = await c.req.json();
     const user = store.createUser(b.name, b.email ?? '', b.admin ?? false, b.kind === 'agent' ? 'agent' : 'human');
@@ -775,12 +702,10 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const targetId = c.req.param('id');
     const admin = !hosted || accounts.isAdmin(store.actor());
     if (!admin && targetId !== store.actor()) return c.json({ error: 'You can only edit your own profile', code: 'forbidden' }, 403);
-    // hosted: the email is the Google account's, so it isn't editable; admin rights are for admins to give
     const patch: Parameters<Store['updateUser']>[1] = {};
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim();
     if (typeof b.color === 'string') patch.color = b.color;
     if (!hosted && typeof b.email === 'string') patch.email = b.email;
-    // Profile and Members save these; they were dropped here before, so a GitHub username never stuck
     if (typeof b.title === 'string') patch.title = b.title.trim().slice(0, 80);
     if (typeof b.username === 'string') patch.username = b.username.trim().slice(0, 40);
     if (typeof b.githubUsername === 'string') {
@@ -788,7 +713,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       if (gh && !/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(gh)) return c.json({ error: `${gh} isn't a GitHub username`, code: 'invalid' }, 400);
       patch.githubUsername = gh;
     }
-    // admin rights go through setAdmin, which refuses to demote the last active admin
     if (admin && typeof b.admin === 'boolean') {
       try { accounts.setAdmin(targetId, b.admin); }
       catch (err) {
@@ -800,7 +724,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // ---------- cycles ----------
   app.post('/api/cycles', async (c) => {
     const b = await c.req.json().catch(() => ({}));
     if (typeof b.teamId !== 'string' || !store.getTeam(b.teamId)) return c.json({ error: 'teamId must name a team', code: 'invalid' }, 400);
@@ -818,7 +741,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/cycles/:id', (c) => { store.deleteCycle(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- milestones ----------
   app.post('/api/milestones', async (c) => {
     const b = await c.req.json();
     const milestone = store.createMilestone(b.projectId, b.name, b.targetDate ?? null);
@@ -831,13 +753,11 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.delete('/api/milestones/:id', (c) => { store.deleteMilestone(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- views / favorites ----------
   app.post('/api/views', async (c) => {
     const b = await c.req.json();
     const view = store.createView(b.name, b.filters ?? {}, b);
     return c.json({ view }, 201);
   });
-  // someone else's personal view doesn't exist as far as you're concerned
   app.patch('/api/views/:id', async (c) => {
     const b = await c.req.json();
     return store.updateView(c.req.param('id'), b) ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
@@ -849,8 +769,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // ---------- notifications ----------
-  // `rows`: the inbox as it reads, one row per issue (core/inbox.ts); `notifications` stays the raw list
   app.get('/api/notifications', (c) => { const notifications = store.listNotifications(); return c.json({ notifications, rows: inboxRows(visibleNotifications(notifications)) }); });
   app.post('/api/notifications/:id/read', async (c) => {
     const b = await c.req.json().catch(() => ({}));
@@ -866,7 +784,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // ---------- preferences ----------
   app.patch('/api/preferences', async (c) => {
     store.setPreferences(await c.req.json());
     return c.json({ ok: true });
@@ -874,12 +791,10 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/features', async (c) => {
     const b = await c.req.json();
     store.setFeatures(b);
-    // turning GitHub on syncs straight away (every team already has In Review: db.ts ensureReviewStates)
     if (b.githubEnabled === true) void git.sync().catch(() => {});
     return c.json({ ok: true });
   });
 
-  // ---------- initiatives ----------
   app.post('/api/initiatives', async (c) => { const b = await c.req.json(); if (!b.name) return c.json({ error: 'name is required' }, 400); return c.json({ initiative: planning.createInitiative(b) }, 201); });
   app.patch('/api/initiatives/:id', async (c) => { planning.updateInitiative(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/initiatives/:id', (c) => { planning.deleteInitiative(c.req.param('id')); return c.json({ ok: true }); });
@@ -887,7 +802,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.delete('/api/initiatives/:id/projects/:projectId', (c) => { planning.removeProject(c.req.param('id'), c.req.param('projectId')); return c.json({ ok: true }); });
   app.post('/api/initiatives/:id/updates', async (c) => { const b = await c.req.json(); if (!b.body) return c.json({ error: 'body is required' }, 400); return c.json({ update: attributedTo(c, b.userId, (userId) => planning.addInitiativeUpdate(c.req.param('id'), userId, b.body, b.health)) }, 201); });
   app.patch('/api/initiative-updates/:id', async (c) => { const b = await c.req.json();
-    // { body } edits the text (its author or an admin); { reaction } toggles an emoji
     if (typeof b.body === 'string') {
       if (!b.body.trim()) return c.json({ error: 'body is required' }, 400);
       const author = planning.updateAuthor(c.req.param('id'));
@@ -910,7 +824,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/initiative-labels/:id', async (c) => { planning.updateLabel(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/initiative-labels/:id', (c) => { planning.deleteLabel(c.req.param('id')); return c.json({ ok: true }); });
 
-  // ---------- SLAs, loops ----------
   app.post('/api/sla-rules', async (c) => { const b = await c.req.json(); if (!b.name || !(b.hours > 0)) return c.json({ error: 'name and hours are required' }, 400); return c.json({ rule: automation.createSlaRule(b) }, 201); });
   app.patch('/api/sla-rules/:id', async (c) => { automation.updateSlaRule(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.delete('/api/sla-rules/:id', (c) => { automation.deleteSlaRule(c.req.param('id')); return c.json({ ok: true }); });
@@ -921,7 +834,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.put('/api/teams/:id/subscription', async (c) => { automation.setTeamSubscription(c.req.param('id'), await c.req.json()); return c.json({ ok: true }); });
   app.post('/api/loops/:id/run', async (c) => { const b = await c.req.json().catch(() => ({})); try { return c.json({ run: automation.runLoop(c.req.param('id'), b.issueId ?? null) }); } catch (err) { return c.json({ error: (err as Error).message }, 400); } });
 
-  // ---------- git / GitHub ----------
   app.get('/api/git/status', async (c) => c.json(await git.status()));
   app.post('/api/git/sync', async (c) => c.json(await git.sync()));
   app.put('/api/github/token', async (c) => { try { return c.json({ token: await git.saveToken(String((await c.req.json()).token ?? '')) }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
@@ -931,8 +843,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const b = await c.req.json();
     try { git.setPicked(Array.isArray(b.repos) ? b.repos.map(String) : []); return c.json({ repos: await git.repos() }); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
   });
-  // your own GitHub connection: anyone connects their own read-only token and adds the repos it can
-  // read. A repo isn't a team's; a PR links to the issues it names in any team (core/git.ts)
   app.put('/api/me/github/token', async (c) => { try { return c.json({ token: await git.saveUserToken(actor(c), String((await c.req.json()).token ?? '')) }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
   app.delete('/api/me/github/token', (c) => { git.removeUserToken(actor(c)); return c.json({ ok: true }); });
   app.get('/api/me/github/repos/available', async (c) => { try { return c.json({ repos: await git.availableFor(actor(c)) }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
@@ -944,15 +854,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const b = await c.req.json();
     try { git.removeRepoFor(actor(c), String(b.repo ?? ''), isAdmin(actor(c))); return c.json({ repos: await git.repos() }); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
   });
-  // repo → team: an optional label for a repository (Settings › GitHub); linking doesn't depend on it
   app.get('/api/github/repo-teams', async (c) => c.json({ repos: (await git.repos()).map(r => ({ repo: r.repo, teamId: r.teamId, teamKey: r.teamId ? store.getTeam(r.teamId)?.key ?? null : null })) }));
   app.put('/api/github/repo-teams', async (c) => { const b = await c.req.json(); try { git.setRepoTeam(String(b.repo ?? ''), b.teamId ? String(b.teamId) : null); return c.json({ ok: true }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
-  // what syncing found, and PR authors with the member each probably is (Members can offer the match)
   app.get('/api/github/summary', async (c) => c.json(await git.summary()));
   app.get('/api/github/authors', (c) => c.json({ authors: git.authors() }));
   app.get('/api/git/automation/:teamId', (c) => c.json(git.automation(c.req.param('teamId'))));
   app.put('/api/git/automation/:teamId', async (c) => { git.setAutomation(c.req.param('teamId'), await c.req.json()); return c.json({ ok: true }); });
-  // webhook setup (the secret is shown once, when it's made) and one-way GitHub Issues import
   app.get('/api/github/webhook/config', (c) => c.json(webhooks.config()));
   app.put('/api/github/webhook/config', async (c) => { try { webhooks.setPublicUrl(String((await c.req.json()).publicUrl ?? '')); return c.json(webhooks.config()); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
   app.post('/api/github/webhook/secret', (c) => c.json({ secret: webhooks.rotateSecret() }, 201));
@@ -964,11 +871,9 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
   app.put('/api/github/issues/follow', async (c) => { const b = await c.req.json(); webhooks.setFollow(String(b.repo ?? ''), b.teamId ? String(b.teamId) : null); return c.json(webhooks.config()); });
   app.post('/api/git/unlink', async (c) => { const b = await c.req.json(); git.unlink(b.issueId, b.prId); return c.json({ ok: true }); });
-  /** the webhook-shaped entry points, for scripts and (later) a hosted GitHub App */
   app.post('/api/git/pull-requests', async (c) => c.json({ pr: git.ingestPullRequest(await c.req.json()) }, 201));
   app.post('/api/git/commits', async (c) => { const b = await c.req.json(); return c.json({ linked: git.ingestPush(b.commits ?? []) }, 201); });
 
-  // ---------- project labels, statuses, subscriptions ----------
   app.post('/api/project-labels', async (c) => {
     const b = await c.req.json();
     if (!b.name) return c.json({ error: 'name is required' }, 400);
@@ -988,7 +893,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ ok: true });
   });
 
-  // Settings › Profile › Profile picture (an empty body removes it)
   app.post('/api/users/:id/avatar', async (c) => {
     const userId = c.req.param('id');
     if (!files.ownerExists('avatar', userId)) return c.json({ error: 'not found' }, 404);
@@ -1003,21 +907,17 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
 
 
-  // ---------- search ----------
   app.get('/api/search', (c) => c.json(store.search(c.req.query('q') ?? '')));
 
-  // ---------- workspace ----------
   app.patch('/api/workspace', async (c) => {
     const b = await c.req.json();
     if (b.name) store.setWorkspaceName(b.name);
-    // "Set as me" is a single-user convenience; hosted, you are whoever signed in
     if (b.currentUserId && !hosted) store.setCurrentUser(b.currentUserId);
     if ('handoffPromptTemplate' in b) store.setHandoffTemplate(b.handoffPromptTemplate ?? null);
     if ('terminalApp' in b) store.setAgentConfig({ terminalApp: b.terminalApp });
     return c.json({ ok: true });
   });
 
-  // ---------- data ----------
   app.get('/api/export', (c) => {
     const json = store.exportJson();
     return c.body(json, 200, { 'Content-Type': 'application/json', 'Content-Disposition': 'attachment; filename="baseline-export.json"' });
@@ -1027,7 +927,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (!b?.json) return c.json({ error: 'missing json payload' }, 400);
     try {
       store.importJson(b.json);
-      // an export from before images moved into the database still points at the old folder
       files.migrateLegacy();
       return c.json({ ok: true });
     } catch (err) {
@@ -1038,14 +937,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (hosted) return c.json({ error: 'Sample data can\'t replace a hosted workspace', code: 'forbidden' }, 403);
     const b = await c.req.json().catch(() => ({}));
     if (b.into) {
-      // onboarding's "Load sample data": once per workspace, alongside what you already set up
       if (getMeta(db, 'seededAt')) return c.json({ ok: true, already: true });
       seedWorkspace(db, { into: true });
     } else seedWorkspace(db, { workspaceName: b.workspaceName });
     return c.json({ ok: true });
   });
 
-  // ---------- static SPA ----------
   app.get('*', (c) => {
     const url = new URL(c.req.url);
     const rel = url.pathname === '/' ? '/index.html' : url.pathname;
@@ -1071,16 +968,14 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
     throw new Error('BASELINE_REQUIRE_SIGN_IN=1 but no sign-in is configured: set BASELINE_PUBLIC_URL (password sign-in; Google is optional), '
       + 'or set BASELINE_REQUIRE_SIGN_IN=0 to run without sign-in (anyone who can reach the port can act as any user)');
   }
-  // the browser is where a new workspace gets set up, so a new database starts blank (--seed: sample data)
   const { app, store, changes, accounts, setup } = createApp(dbPath, auth, mailerFromEnv(), { blank: !opts.seedIfEmpty });
-  // only the server watches the clock and the file: the CLI uses createApp too, and must exit
   changes.start();
   startScheduler(store, changes);
   // loopback by default: IPv4 and IPv6 each get a listener, since `localhost` may resolve to either
   const server = nodeServe({ fetch: app.fetch, port, hostname: LISTEN_HOST || '127.0.0.1' });
   if (!LISTEN_HOST) {
     const v6 = nodeServe({ fetch: app.fetch, port, hostname: '::1' });
-    v6.on('error', () => { /* no IPv6 loopback on this machine; IPv4 alone is fine */ });
+    v6.on('error', () => { });
   }
   server.once('listening', () => {
     const url = `http://localhost:${port}`;
@@ -1096,7 +991,6 @@ export function serve(opts: ServeOptions = {}): { server: ServerType; port: numb
   return { server, port };
 }
 
-// runnable directly: node dist/server/index.js
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const open = process.argv.includes('--open');
   serve({ open });

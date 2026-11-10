@@ -8,7 +8,6 @@ import { IconClose, IconCheck, IconChevronRight } from './icons.js';
 import { reducedMotion } from './motion.js';
 import { EmptyState } from './EmptyState.js';
 
-/* ---------------- dropdown menu ---------------- */
 export interface MenuCtx {
   close: () => void;
   registerItem: (el: HTMLButtonElement | null) => void;
@@ -27,8 +26,6 @@ export function Menu(props: {
   const onCloseRef = useRef(props.onClose);
   onCloseRef.current = props.onClose;
 
-  /* Close plays a 100ms fade before the owner unmounts us. The chosen item's
-     action has already fired by then, so nothing waits on the animation. */
   const close = useCallback(() => {
     setClosing(c => {
       if (!c) {
@@ -39,8 +36,6 @@ export function Menu(props: {
     });
   }, []);
 
-  // Items are read from the DOM, so filtered lists and raw .menu-item buttons
-  // (multi-select pickers) navigate the same way as MenuItem.
   const itemEls = () => [...(ref.current?.querySelectorAll<HTMLElement>('.menu-item') ?? [])];
 
   useEffect(() => {
@@ -48,12 +43,8 @@ export function Menu(props: {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); return; }
       const els = itemEls();
-      // handled keys stop here, because the list behind an open menu must not also
-      // move its J/K cursor or open the row under it
       if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setIndex(i => (i + 1) % Math.max(els.length, 1)); }
       if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setIndex(i => (i - 1 + els.length) % Math.max(els.length, 1)); }
-      // a digit cap in an item's right slot (priority 0-4, status 1-n) is a real shortcut,
-      // even from an empty filter field (a filter with text in it takes the digit as text)
       const target = e.target as HTMLElement | null;
       const inFilter = !!target?.closest?.('.menu-filter');
       const emptyFilter = inFilter && !(target as HTMLInputElement).value;
@@ -70,13 +61,11 @@ export function Menu(props: {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [index, closing, close]);
 
-  // open on the current value (the ticked row), not the first one: ↵ keeps it, ↑/↓ move from it
   useLayoutEffect(() => {
     const at = itemEls().findIndex(el => el.classList.contains('is-selected'));
     if (at > 0) setIndex(at);
   }, []);
 
-  // the highlight is the single source of truth for both mouse and keyboard
   useLayoutEffect(() => {
     const els = itemEls();
     const i = Math.min(index, els.length - 1);
@@ -84,13 +73,11 @@ export function Menu(props: {
     if (i >= 0) els[i]?.scrollIntoView({ block: 'nearest' });
   });
 
-  // moving to another page closes whatever menu was open
   useEffect(() => {
     window.addEventListener('hashchange', close);
     return () => window.removeEventListener('hashchange', close);
   }, [close]);
 
-  // typing in a filter field re-ranks the list: the highlight goes back to the top match
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -114,15 +101,12 @@ export function Menu(props: {
     let y = a.bottom + 6;
     let flipped = false;
     let maxHeight: number | undefined;
-    // a point (right-click): open there, shifted up or left just enough to fit whole
     if (a.width === 0 && a.height === 0) {
       const px = a.left + w > window.innerWidth - 12 ? Math.max(12, a.left - w) : a.left;
       const py = Math.max(12, Math.min(a.top, window.innerHeight - h - 12));
       return { left: px, top: py, width: w, ...(h > window.innerHeight - 24 ? { maxHeight: window.innerHeight - 24 } : {}), '--menu-dy': '-4px', transformOrigin: '0 0' };
     }
     const below = window.innerHeight - 12 - y, above = a.top - 6 - 12;
-    // as in Linear: below the trigger when it fits; above when only that fits;
-    // otherwise on the roomier side, cut to fit and scrolling (never over the trigger)
     if (h > below) {
       if (h <= above) { y = a.top - h - 6; flipped = true; }
       else if (above > below) { maxHeight = above; y = 12; flipped = true; }
@@ -153,8 +137,6 @@ export function MenuItem(props: {
   right?: React.ReactNode;
   selected?: boolean;
   danger?: boolean;
-  /** destructive rows: the first press swaps the label for this consequence and keeps the
-   *  menu open; a second press within 3s runs it (the ConfirmButton pattern, inside a menu) */
   confirm?: React.ReactNode;
   onClick?: (e: React.MouseEvent) => void;
   sectionHeader?: string;
@@ -189,11 +171,6 @@ export function MenuItem(props: {
   );
 }
 
-/* A menu row that opens a flyout beside the menu on hover or click. The flyout
-   portals to body (the parent menu scrolls, so it would clip an absolute child)
-   and flips to the left when there's no room on the right. Its MenuItems close
-   the whole menu through the shared context. */
-/** true inside a submenu, whose body mounts when the pointer merely passes over its row */
 export const SubmenuContext = createContext(false);
 
 export function MenuSub(props: { icon?: React.ReactNode; label: React.ReactNode; right?: React.ReactNode; width?: number; children: React.ReactNode }) {
@@ -240,13 +217,11 @@ export function MenuInput(props: { value: string; onChange: (value: string) => v
   );
 }
 
-/* ---------------- useMenu hook ---------------- */
 export function useMenu() {
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const open = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // a right-click opens at the pointer, like Linear's context menus
     if (e.type === 'contextmenu' && 'clientX' in e) setAnchor(new DOMRect(e.clientX, e.clientY, 0, 0));
     else setAnchor((e.currentTarget as HTMLElement).getBoundingClientRect());
   }, []);
@@ -254,10 +229,6 @@ export function useMenu() {
   return { anchor, setAnchor, open, close, isOpen: anchor !== null };
 }
 
-/* ---------------- register mark ----------------
-   The 2px brand line under the active tab / nav item. Every mark sharing a
-   `group` is one element as far as layout is concerned, so switching tabs
-   slides it across (and resizes it to the new label) instead of blinking. */
 export function RegisterMark({ group }: { group: string }) {
   return (
     <motion.span
@@ -267,8 +238,6 @@ export function RegisterMark({ group }: { group: string }) {
   );
 }
 
-/** A short spray of dots from the centre of its (relative) parent: for a moment that was earned,
-    such as a ring closing or a list emptying, never for an ordinary save. */
 export function Burst({ count = 10, reach = 15 }: { count?: number; reach?: number }) {
   if (reducedMotion()) return null;
   const step = 360 / count;
@@ -279,10 +248,7 @@ export function Burst({ count = 10, reach = 15 }: { count?: number; reach?: numb
   );
 }
 
-/* ---------------- modal ----------------
-   Enter: opacity + 8px rise + 0.982 scale over 220ms on the global ease.
-   Exit: 140ms, no scale (motion spec: "Design polish and refinement").
-   The exit only plays when the caller renders the modal inside <AnimatePresence>
+/* The exit only plays when the caller renders the modal inside <AnimatePresence>
    (`<AnimatePresence>{open && <Modal …/>}</AnimatePresence>`), because an unmounted
    component can't animate itself out. */
 export function Modal(props: { onClose: () => void; children: React.ReactNode; className?: string; dismissOnBackdrop?: boolean }) {
@@ -290,7 +256,6 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopImmediatePropagation(); props.onClose(); return; }
-      // Tab stays inside the dialog instead of wandering into the page behind it
       if (e.key === 'Tab' && boxRef.current && !document.querySelector('.menu:not(.closing)')) {
         const f = [...boxRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select, textarea, [contenteditable="true"], [tabindex]:not([tabindex="-1"])')].filter(el => el.offsetParent !== null);
         if (!f.length) return;
@@ -303,7 +268,6 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [props]);
-  // give focus back to whatever opened the dialog once it closes
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     return () => { if (opener && document.contains(opener)) opener.focus({ preventScroll: true }); };
@@ -312,7 +276,6 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
     <motion.div
       className="overlay"
       initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-      // a fading overlay must not swallow the click that follows the close
       exit={{ opacity: 0, pointerEvents: 'none', transition: { duration: 0.14, ease: 'easeOut' } }}
       transition={{ duration: 0.16, ease: 'easeOut' }}
       onMouseDown={(e) => { if (props.dismissOnBackdrop !== false && e.target === e.currentTarget) props.onClose(); }}
@@ -332,11 +295,6 @@ export function Modal(props: { onClose: () => void; children: React.ReactNode; c
   );
 }
 
-/* ---------------- toasts ----------------
-   Enter 260ms rise on the global ease; exit 220ms. The auto-close window is
-   drawn as a depleting register line on the bottom edge (5200ms linear, square
-   ends, on the same clock as the store's undo timer). Three at most; the older two
-   recede to 72% and drop their line. Undo is the toast's paper button. */
 export function Toasts() {
   const toasts = useApp(s => s.toasts);
   const dismiss = useApp(s => s.dismissToast);
@@ -373,12 +331,6 @@ export function Toasts() {
   );
 }
 
-/* ---------------- tooltips ----------------
-   One layer for the whole app. Any element's `title` is adopted on first hover
-   (moved to data-tip so the slow native tooltip never shows), and a trailing
-   "(⌘K)"-style hint renders as key caps, so every tooltip shows its shortcut.
-   First show waits 450ms; while one was just visible the next shows at once.
-   A tip that only repeats fully visible text (a nav label) is skipped. */
 type Tip = { text: string; keys: string[]; rect: DOMRect };
 
 function parseTip(raw: string): { text: string; keys: string[] } {
@@ -402,7 +354,6 @@ function tipTarget(node: EventTarget | null): HTMLElement | null {
 }
 
 function redundant(el: HTMLElement, tip: string) {
-  // the tip only repeats what's on screen (a nav label, maybe beside its count)
   if (!el.textContent?.includes(tip.trim())) return false;
   const clipped = [el, ...el.querySelectorAll<HTMLElement>('*')].some(n => n.scrollWidth > n.clientWidth + 1);
   return !clipped;
@@ -482,16 +433,6 @@ export function Tooltips() {
   );
 }
 
-/* ---------------- confirm button ----------------
-   Destructive actions take two presses: the first arms it (the label turns
-   into the consequence, in danger red), the second within 3s runs it. Leaving
-   it alone disarms it. A one-line decision does not need a modal. */
-/** One submit at a time. `guard(fn)` wraps a create/save handler so a second call
- *  while the first is still in flight (double-click, Enter then click, ⌘↵ firing from
- *  both the editor and the modal) is dropped instead of creating a duplicate. The ref
- *  catches calls in the same tick, before `busy` has re-rendered the button disabled. */
-/** the useInFlight guard for handlers that aren't in a hook-friendly spot: calls sharing a key
- *  while one is still running are dropped (a double-click, Enter then click) */
 const runningKeys = new Set<string>();
 export async function exclusive(key: string, fn: () => Promise<unknown>): Promise<void> {
   if (runningKeys.has(key)) return;
@@ -510,8 +451,6 @@ export function useInFlight() {
   return { busy, guard };
 }
 
-/** the icon-sized ConfirmButton for hover trash/× buttons: the first press turns the icon into a
- *  short red "Delete?" and a second press within 3s runs it */
 export function ConfirmIconButton(props: {
   title: string;
   confirmLabel?: string;
@@ -573,12 +512,10 @@ export function ConfirmButton(props: {
   );
 }
 
-/** hosted, how teams and the workspace are set up is admins' to change (TEAM_PLAN.md › Who changes what) */
 export function useCanConfigure(): boolean {
   return useApp(s => !s.snap || s.snap.workspace.auth !== 'hosted' || s.snap.currentUser.admin);
 }
 export const ADMIN_NOTE = 'Only admins can change this.';
-/** the same controls, disabled under a note naming whom to ask, for someone who can't change them */
 export function AdminLock(props: { children: React.ReactNode; note?: string; teamId?: string; what?: string; level?: 'lead' | 'member' }) {
   const can = useCanConfigure();
   const lead = useCanLead(props.teamId ?? null);
@@ -590,17 +527,14 @@ export function AdminLock(props: { children: React.ReactNode; note?: string; tea
   </>;
 }
 
-/** a team's setup is its lead's (CORE_FLOW.md › Roles): its leads, an admin, or anyone on a laptop */
 export function useCanLead(teamId: string | null): boolean {
   return useApp(s => !s.snap || s.snap.workspace.auth !== 'hosted' || s.snap.currentUser.admin
     || (!!teamId && !!s.snap.teams.find(t => t.id === teamId)?.leadIds.includes(s.snap.currentUser.id)));
 }
-/** labels and templates are any of a team's members' */
 export function useOnTeam(teamId: string | null): boolean {
   return useApp(s => !s.snap || s.snap.workspace.auth !== 'hosted' || s.snap.currentUser.admin
     || (!!teamId && !!s.snap.teams.find(t => t.id === teamId)?.memberIds.includes(s.snap.currentUser.id)));
 }
-/** whom to ask about a team's setup (its leads, else the admins) or the workspace's (the admins), never yourself */
 export function useAskable(teamId?: string | null): Array<{ id: string; name: string }> {
   const snap = useApp(s => s.snap);
   if (!snap) return [];
@@ -610,7 +544,6 @@ export function useAskable(teamId?: string | null): Array<{ id: string; name: st
   return (leads.length ? leads : people.filter(u => u.admin)).map(u => ({ id: u.id, name: u.name }));
 }
 const firstName = (name: string) => name.split(' ')[0] ?? name;
-/** "Ask Parth": one click puts the request in that person's inbox, linking back to this page */
 export function AskButton(props: { to: { id: string; name: string }; what: string }) {
   const [sent, setSent] = useState(false);
   const ask = async () => {
@@ -622,7 +555,6 @@ export function AskButton(props: { to: { id: string; name: string }; what: strin
   };
   return <button type="button" className="btn ghost sm ask-btn" disabled={sent} onClick={() => void ask()}>{sent ? `Asked ${firstName(props.to.name)}` : `Ask ${firstName(props.to.name)}`}</button>;
 }
-/** the line every remaining refusal shows: who decides, and a one-click ask to each of them (at most two) */
 export function AskLine(props: { teamId?: string | null; what: string; note?: string }) {
   const askable = useAskable(props.teamId);
   const team = useApp(s => props.teamId ? s.snap?.teams.find(t => t.id === props.teamId) : undefined);
@@ -636,13 +568,11 @@ export function AskLine(props: { teamId?: string | null; what: string; note?: st
   );
 }
 
-/** the muted "via Parth" after an agent's name on what it wrote for someone; nothing for a person's own writes */
 export function Via({ userId }: { userId: string | null }) {
   const name = useApp(s => userId ? s.snap?.users.find(u => u.id === userId)?.name : undefined);
   return name ? <span className="via"> via {name}</span> : null;
 }
 
-/** one "not found" treatment for every entity page: what's missing, why, and a way back */
 export function NotFound(props: { what: string; detail?: string; back: { label: string; to: string } }) {
   return (
     <div className="content">

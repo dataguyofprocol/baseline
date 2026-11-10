@@ -7,8 +7,6 @@ import { Markdown } from './Markdown.js';
 import { RichEditor, htmlToMarkdown, isBlank } from './RichEditor.js';
 import { IconEdit, IconMore, IconTrash } from './icons.js';
 
-/* The text of a posted project or initiative update. Whoever posted it (or an admin) can fix it
-   or take it down from the "…" in its corner; before this a typo in an update was permanent. */
 export function UpdateBody(props: { kind: 'project' | 'initiative'; id: string; userId: string; body: string; className?: string }) {
   const me = useApp(s => s.snap?.currentUser.id);
   const admin = useCanConfigure();

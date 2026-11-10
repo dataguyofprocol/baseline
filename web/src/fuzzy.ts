@@ -16,12 +16,6 @@ function contiguous(start: number, len: number): number[] {
   return Array.from({ length: len }, (_, k) => start + k);
 }
 
-/**
- * Score a single term against a single string. Higher is better; null when
- * not every character of the term appears in order. Rough scale: substring
- * matches land in the 600+ range, boundary-anchored subsequences 50-300,
- * scattered matches can drop below 0.
- */
 export function fuzzyMatch(term: string, text: string): FuzzyMatch | null {
   const q = term.toLowerCase();
   if (!q) return null;
@@ -37,9 +31,6 @@ export function fuzzyMatch(term: string, text: string): FuzzyMatch | null {
     return { score, indices: contiguous(sub, q.length) };
   }
 
-  // Try each occurrence of the first character as an anchor, starting with the ones
-  // at word boundaries, and keep the best greedy completion. Anchoring on
-  // "scoring" beats anchoring on the "s" of "reset" for the query "sc".
   const anchors: number[] = [];
   for (let i = t.indexOf(q[0]); i !== -1; i = t.indexOf(q[0], i + 1)) {
     anchors.push(i);
@@ -56,8 +47,6 @@ export function fuzzyMatch(term: string, text: string): FuzzyMatch | null {
     for (let qi = 1; qi < q.length; qi++) {
       const idx = t.indexOf(q[qi], prev + 1);
       if (idx === -1) { failed = true; break; }
-      // a jump may land mid-word only inside the word it left ("thm" → Theme);
-      // hopping into the middle of another word ("toast" → tools/creAte) is junk
       if (idx !== prev + 1 && !isBoundary(text, idx) && [...text.slice(prev + 1, idx)].some(ch => BOUNDARY_PRECEDERS.has(ch))) {
         failed = true; break;
       }
@@ -78,16 +67,9 @@ export function fuzzyMatch(term: string, text: string): FuzzyMatch | null {
 export interface ScoredItem<T> {
   item: T;
   score: number;
-  /** Match indices into item.label, for highlighting; null when the match relied on keywords. */
   match: FuzzyMatch | null;
 }
 
-/**
- * Whitespace-split multi-term match, Linear-style: every term must match
- * somewhere (order-independent), terms are scored independently. Label hits
- * outrank keyword-only hits and carry highlight indices. Terms matching
- * poorly (deep-scattered subsequence junk) are rejected outright.
- */
 export function scoreItem<T extends { label: string; keywords?: string }>(
   query: string,
   item: T,
@@ -100,9 +82,6 @@ export function scoreItem<T extends { label: string; keywords?: string }>(
   let allInLabel = true;
   for (const term of terms) {
     const lm = fuzzyMatch(term, item.label);
-    // the bar rises with the term's length: "cfs" may scatter across three
-    // words, but four letters strewn over a whole title ("sync" in "Milestone
-    // display on board cards") is noise, not a match
     if (lm && lm.score > 15 + term.length * 6) {
       total += lm.score;
       labelIndices.push(...lm.indices);
@@ -110,8 +89,6 @@ export function scoreItem<T extends { label: string; keywords?: string }>(
     }
     allInLabel = false;
     const m = fuzzyMatch(term, haystack);
-    // Keyword-only hits need a strong match: for issues the keywords mirror
-    // the title, so a weak keyword match is scattered-junk noise.
     if (!m || m.score <= 200) return null;
     total += m.score - 150;
   }

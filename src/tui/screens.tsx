@@ -1,5 +1,3 @@
-// The screens and the chrome around them. Each screen is built as exactly `height` lines of exactly
-// `width` cells, so the frame never scrolls or leaves stale cells behind.
 import { Box, Text } from 'ink';
 import { useEffect, useRef, useState } from 'react';
 import type { Issue } from '../core/types.js';
@@ -18,7 +16,6 @@ import { LineView } from './ui.js';
 const SELECT_BAR: Seg = { text: '▌ ', color: theme.accent };
 const NO_BAR: Seg = { text: '  ' };
 
-/** the first visible row: moves only as far as needed to keep `cursor` in view */
 export function windowStart(prev: number, cursor: number, height: number, total: number): number {
   let start = prev;
   if (cursor < start) start = cursor;
@@ -33,7 +30,6 @@ export function useWindow(key: string, cursorRow: number, height: number, total:
   return start;
 }
 
-/** `sel` is the row drawn on the selection background; `dim` greys everything out while an overlay has the keys */
 export function Lines({ lines, width, height, sel = -1, dim }: { lines: Line[]; width: number; height: number; sel?: number; dim?: boolean }) {
   const out = lines.slice(0, height);
   while (out.length < height) out.push([]);
@@ -49,8 +45,6 @@ function emptyState(width: number, height: number, title: string, hint: string):
   const center = (t: string) => ' '.repeat(Math.max(0, Math.floor((width - displayWidth(t)) / 2)));
   return [...Array.from({ length: top }, () => []), [{ text: center(title) }, { text: title, bold: true }], [], [{ text: center(hint) }, { text: hint, color: theme.muted }]];
 }
-
-// ---------- issue list ----------
 
 interface Columns { key: number; title: number; state: boolean; assignee: boolean; due: boolean; pr: boolean }
 
@@ -118,9 +112,6 @@ export function ListScreen({ s, data, width, height, now, dim }: { s: TuiState; 
   return <Lines lines={lines} width={width} height={height} sel={shown.findIndex(r => r.id === selectedId)} dim={dim} />;
 }
 
-// ---------- detail pane ----------
-
-/** the issue under the list cursor, beside the list; all from the snapshot, so moving the cursor costs no fetch */
 export function DetailPane({ issue, lines: given, data, width, height, now, ui }: { issue: Issue | undefined; lines?: Line[]; data: TuiData; width: number; height: number; now: number; ui?: IssueUi }) {
   const inner = width - 3;
   const lines: Line[] = given ?? (issue ? paneLines(issue, data, inner, height, now, ui) : []);
@@ -138,14 +129,10 @@ export function DetailPane({ issue, lines: given, data, width, height, now, ui }
   );
 }
 
-// ---------- issue page ----------
-
-/** `start`: where the page opens before you scroll it (a mention opens at its comment) */
 export function DetailScreen({ s, lines, width, height, pinned, start = 0 }: { s: TuiState; lines: Line[] | null; width: number; height: number; pinned?: number; start?: number }) {
   if (!lines) return <Lines lines={emptyState(width, height, 'Issue not found', 'esc to go back')} width={width} height={height} />;
   const max = Math.max(0, lines.length - height);
   let scroll = Math.min(s.cursor[routeKey(s.route)] ?? start, max);
-  // an open picker is never scrolled out of view
   if (pinned !== undefined && (pinned < scroll || pinned >= scroll + height)) scroll = Math.min(max, Math.max(0, pinned - 2));
   return <Lines lines={lines.slice(scroll, scroll + height)} width={width} height={height} />;
 }
@@ -156,8 +143,6 @@ export function scrollLabel(s: TuiState, total: number, height: number, start = 
   return scroll === 0 ? 'more ↓' : scroll >= total - height ? 'end' : `${Math.round((scroll / (total - height)) * 100)}%`;
 }
 
-// ---------- Today ----------
-
 const NEED_GLYPH: Record<NeedKind, Seg> = {
   review: { text: '✓', color: theme.ok }, blocked: { text: '✕', color: theme.error }, mention: { text: '@', color: theme.accent },
   pr: { text: '↗', color: theme.accent }, ask: { text: '•', color: theme.accent }, triage: { text: STATE_ICON.triage, color: theme.muted },
@@ -165,8 +150,6 @@ const NEED_GLYPH: Record<NeedKind, Seg> = {
 
 const age = (iso: string, now: number) => relTime(iso, now).replace('just now', 'now');
 
-/** Today as lines: Needs you, In flight (an agent's row has a second line: what it did and has left), Up next, and the
- *  folded Done this week. `rowLine[i]` is the line of the i-th row the cursor can rest on */
 export function todayLines(m: TodayModel, data: TuiData, o: { width: number; now: number; frame: number; cursor: number; doneOpen: boolean; panes: Readonly<Record<string, Pane>> }): { lines: Line[]; rowLine: number[] } {
   const starting = (id: string) => paneStarting(data, id, o.panes[id]);
   const { width, now } = o;
@@ -232,7 +215,6 @@ export function todayLines(m: TodayModel, data: TuiData, o: { width: number; now
   return { lines, rowLine };
 }
 
-/** Today. `animate`: the In flight spinner turns (tests switch it off, so frames stay still) */
 export function TodayScreen({ s, data, width, height, now, dim, animate = true }: { s: TuiState; data: TuiData; width: number; height: number; now: number; dim?: boolean; animate?: boolean }) {
   const m = todayModel(data, now);
   const spinning = animate && m.flight.some(r => r.thread || paneStarting(data, r.id, s.panes[r.id]));
@@ -241,15 +223,11 @@ export function TodayScreen({ s, data, width, height, now, dim, animate = true }
   const cursor = Math.min(s.cursor.today ?? 0, Math.max(0, count - 1));
   const { lines, rowLine } = todayLines(m, data, { width, now, frame, cursor, doneOpen: doneOpen(s), panes: s.panes });
   const at = rowLine[cursor] ?? 0;
-  // keep the section header in view above the first row of a section
   const start = useWindow('today', at, height, lines.length);
   const top = at - start < 2 && at < 3 ? 0 : start;
   return <Lines lines={lines.slice(top, top + height)} width={width} height={height} sel={count ? at - top : -1} dim={dim} />;
 }
 
-// ---------- tabs, toast, footer ----------
-
-/** where you are inside a tab: the project or issue opened from it, and a list display that isn't the default */
 function crumbs(s: TuiState, data: TuiData): string {
   const parts: string[] = [];
   for (const r of [...s.stack, s.route]) {
@@ -300,7 +278,6 @@ function useTicker(ms: number, active = true): number {
   return n;
 }
 
-/** compact: the dot alone, so a narrow footer keeps its keys */
 function syncLabel(s: TuiState, frame: number, compact: boolean): Seg[] {
   if (s.syncing) return [{ text: compact ? SPINNER[frame % SPINNER.length] : `${SPINNER[frame % SPINNER.length]} ${s.syncedAt ? 'syncing' : 'loading'}`, color: theme.muted }];
   if (!s.syncedAt) return [];
@@ -309,15 +286,12 @@ function syncLabel(s: TuiState, frame: number, compact: boolean): Seg[] {
   return [{ text: compact ? '●' : '● ', color: stale ? theme.warn : theme.ok }, ...(compact ? [] : [{ text: secs < 2 ? 'synced' : `synced ${secs < 60 ? `${secs}s` : `${Math.round(secs / 60)}m`} ago`, color: theme.muted }])];
 }
 
-/** key chips with their labels: "↑↓ move  enter open" */
 export function hintSegs(hints: Array<{ key: string; label: string }>): Seg[] {
   return hints.flatMap((h, i) => [...(i ? [{ text: '  ' }] : []), keySeg(h.key), { text: ` ${h.label}` }]);
 }
 
-/** one line: what the keys do here on the left (cut to fit), the sync state on the right */
 export function Footer({ s, left, width, target }: { s: TuiState; left: Seg[]; width: number; target: string }) {
   const frame = useTicker(s.syncing ? 80 : 1000);
-  // an open overlay's footer is only its own keys
   const compact = width < 100;
   const right: Seg[] = s.overlay.kind !== 'none' ? [] : [...syncLabel(s, frame, compact), ...(compact ? [] : [{ text: `  ${target}`, color: theme.muted }])];
   const rightW = right.reduce((n, x) => n + displayWidth(x.text), 0) + 1;
@@ -325,7 +299,6 @@ export function Footer({ s, left, width, target }: { s: TuiState; left: Seg[]; w
   let used = 1;
   for (let i = 0; i < left.length; i++) {
     const seg = left[i];
-    // a key chip goes only with its label
     const w = displayWidth(seg.text) + (seg.bg === theme.keyBg && left[i + 1] ? displayWidth(left[i + 1].text) : 0);
     if (used + w > width - rightW - 1) break;
     segs.push(seg);

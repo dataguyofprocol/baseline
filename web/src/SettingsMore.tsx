@@ -7,9 +7,6 @@ import { UPDATE_CADENCE_LABELS, type UpdateCadence, type WorkspaceFeatures } fro
 import { ConfirmIconButton } from './ui.js';
 import { LABEL_COLORS } from './labelColors.js';
 
-/* Settings pages Linear keeps under Projects (Labels, Statuses, Updates) and Features
-   (Initiatives). */
-
 const COLORS = LABEL_COLORS;
 const nextColor = (c: string) => COLORS[(COLORS.indexOf(c) + 1) % COLORS.length];
 const refresh = () => useApp.getState().bootstrap();
@@ -20,7 +17,6 @@ function Switch(props: { on: boolean; onChange: (v: boolean) => void; label?: st
 
 async function setFeatures(patch: Partial<WorkspaceFeatures>) { await api.setFeatures(patch); await refresh(); }
 
-/** an inline-renamable name: click to edit, Enter or blur saves */
 function EditableName(props: { value: string; onSave: (v: string) => void; className?: string }) {
   const [editing, setEditing] = useState(false);
   const [v, setV] = useState(props.value);
@@ -29,7 +25,6 @@ function EditableName(props: { value: string; onSave: (v: string) => void; class
   return <input className="text-input set-name-input" autoFocus value={v} onChange={e => setV(e.target.value)} onBlur={save} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }} />;
 }
 
-/* ---------------- initiatives: the switch, the update schedule and initiative labels ---------------- */
 export function InitiativesSettings() {
   const snap = useApp(s => s.snap)!;
   const f = snap.workspace.features;
@@ -82,7 +77,6 @@ export function InitiativesSettings() {
   );
 }
 
-/* ---------------- project updates ---------------- */
 export function ProjectUpdatesSettings() {
   const snap = useApp(s => s.snap)!;
   const f = snap.workspace.features;

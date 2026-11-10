@@ -3,10 +3,6 @@ import { api } from './api.js';
 import { playExit } from './motion.js';
 import type { Issue } from '../../src/core/types.js';
 
-/* Every issue mutation the UI makes goes through here, so each one:
-   - lands optimistically (the snapshot changes before the request returns),
-   - can be undone with ⌘Z (the inverse patch is recorded first),
-   - refreshes from the server afterwards so derived data (activity, notifications) catches up. */
 
 type IssuePatch = Partial<Pick<Issue, 'stateId' | 'priority' | 'assigneeId' | 'labelIds' | 'projectId' | 'milestoneId' | 'cycleId' | 'estimate' | 'dueDate' | 'parentId' | 'title' | 'description' | 'locationId'>>;
 
@@ -19,8 +15,6 @@ export function pushUndo(entry: UndoEntry) {
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
 }
 
-/** ⌘Z: revert the most recent change made in this tab. The entry is only dropped once the
- *  revert worked, so a failed undo can be tried again. */
 export async function undoLast() {
   const entry = undoStack[undoStack.length - 1];
   const s = useApp.getState();
@@ -31,8 +25,6 @@ export async function undoLast() {
   s.toast({ title: `Undid: ${entry.label}` });
 }
 
-/** a toast's Undo button: run that entry's revert and take it off the ⌘Z stack, so a later ⌘Z
- *  undoes the change before it instead of replaying this one */
 async function undoEntry(entry: UndoEntry) {
   await entry.revert();
   const at = undoStack.lastIndexOf(entry);
@@ -58,7 +50,6 @@ const FIELD_LABELS: Record<string, string> = {
   title: 'title', description: 'description', locationId: 'location',
 };
 
-/** set the same properties on one or more issues */
 export async function setIssueProps(ids: string[], patch: IssuePatch, opts: { undoable?: boolean } = {}) {
   const before = issuesById(ids);
   if (!before.length) return;
@@ -76,9 +67,6 @@ export async function setIssueProps(ids: string[], patch: IssuePatch, opts: { un
   if (patch.stateId) celebrateClosedMilestone(ids);
 }
 
-/* A word at the round numbers of the work you've closed: the 1st, 10th, 25th, 50th, 100th…
-   Exact hits only, so a workspace that already had 4 done says nothing at the 5th. Remembered
-   per browser, so undoing and redoing doesn't say it twice. */
 const MILESTONES: Record<number, string> = {
   1: 'The first of many.', 10: 'Double digits. Nice rhythm.', 25: 'A quarter-century of done.',
   50: 'Halfway to a hundred.', 100: 'Triple digits. Take a bow.', 250: 'Still shipping.', 500: 'Five hundred. Legendary.', 1000: 'A thousand. Unreal.',
@@ -94,11 +82,10 @@ function celebrateClosedMilestone(ids: string[]) {
   const line = MILESTONES[count];
   if (!line) return;
   const key = `baseline:closed-milestone:${me}`;
-  try { if (Number(localStorage.getItem(key) ?? 0) >= count) return; localStorage.setItem(key, String(count)); } catch { /* still worth saying once */ }
+  try { if (Number(localStorage.getItem(key) ?? 0) >= count) return; localStorage.setItem(key, String(count)); } catch { }
   s.toast({ title: count === 1 ? 'Your first issue, closed' : `${count} issues closed`, line });
 }
 
-/** labels add/remove across issues: if every issue has the label it comes off all, otherwise it goes on all */
 export async function toggleLabel(ids: string[], labelId: string) {
   const issues = issuesById(ids);
   const all = issues.every(i => i.labelIds.includes(labelId));
@@ -114,7 +101,6 @@ export async function assignToMe(ids: string[]) {
   const me = useApp.getState().snap?.currentUser.id;
   if (!me) return;
   const issues = issuesById(ids);
-  // I on an issue that's already yours un-assigns it, like Linear
   const already = issues.every(i => i.assigneeId === me);
   await setIssueProps(ids, { assigneeId: already ? null : me });
 }
@@ -194,7 +180,6 @@ export async function moveIssueToTeam(issueId: string, teamId: string, navigate?
   if (navigate && location.hash.includes(`/issue/${fromKey}`)) navigate(`/issue/${toKey}`);
 }
 
-/** cancel the issue and link it to the one it repeats */
 export async function markDuplicate(issueId: string, ofIssueId: string) {
   const s = useApp.getState();
   const issue = s.snap?.issues.find(i => i.id === issueId);
@@ -207,7 +192,6 @@ export async function markDuplicate(issueId: string, ofIssueId: string) {
   s.toast({ title: 'Marked as duplicate', line: of ? <>of {keyOf(of)} — {of.title}</> : undefined });
 }
 
-/** turn an issue into a project (its sub-issues come along as the project's issues) */
 export async function convertToProject(issueId: string, navigate?: (to: string) => void) {
   const s = useApp.getState();
   const issue = s.snap?.issues.find(i => i.id === issueId);
@@ -228,7 +212,6 @@ export async function convertToProject(issueId: string, navigate?: (to: string) 
   navigate?.(`/projects/${project.id}`);
 }
 
-/** save an issue's title and description as a team issue template */
 export async function convertToTemplate(issueId: string) {
   const s = useApp.getState();
   const issue = s.snap?.issues.find(i => i.id === issueId);
@@ -240,7 +223,6 @@ export async function convertToTemplate(issueId: string) {
 
 export const CADENCE_LABELS = { daily: 'Every day', weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month' } as const;
 
-/** file a copy of this issue again on a cadence; this issue counts as the first one */
 export async function makeRecurring(issueId: string, cadence: keyof typeof CADENCE_LABELS) {
   const s = useApp.getState();
   const issue = s.snap?.issues.find(i => i.id === issueId);
@@ -254,9 +236,6 @@ export async function makeRecurring(issueId: string, cadence: keyof typeof CADEN
   s.toast({ title: 'Recurring issue set up', line: <>{CADENCE_LABELS[cadence]} — {issue.title}</>, link: team ? { label: 'Manage', to: `/settings/team/${team.key}` } : undefined });
 }
 
-/* Triage decisions, shared by the Triage page and the banner on a triaged issue so both land the
-   issue in the same place. Accept sends it to the team's first Backlog state (the queue sits
-   "before the backlog"), falling back to its first Todo state; Decline cancels it. */
 function firstState(teamId: string, types: string[]) {
   const states = useApp.getState().snap?.states ?? [];
   for (const type of types) {

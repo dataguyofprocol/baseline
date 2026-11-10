@@ -23,15 +23,11 @@ import { plainText } from '../../src/core/mentions.js';
 import { toggleSubscription } from './actions.js';
 import { EmptyState } from './EmptyState.js';
 
-/* Linear's inbox: notifications on the left (newest first, one row per issue), the issue on
-   the right. U toggles read, ⌫ deletes, H snoozes, ⇧⌫ deletes everything read. Snoozed
-   notifications and reminders stay out of sight until their time. */
 
 type Row = { key: string; lead: Notification; actors: string[]; ids: string[]; unread: boolean; count: number };
 type InboxView = 'all' | 'needs' | 'agents';
 interface InboxPrefs { view?: InboxView; order: 'newest' | 'oldest'; showSnoozed: boolean; unreadFirst: boolean; types: NotificationType[]; from: string[]; priority: boolean; groupUnreads: 'none' | 'focus'; priorityCats?: NotifyCategory[] }
 const PREFS_KEY = 'baseline:inboxPrefs';
-/** what Priority inbox lifts to the top (Settings › Notifications › Priority notifications) */
 export const DEFAULT_PRIORITY_CATS: NotifyCategory[] = ['agentWork', 'assignments', 'mentions', 'comments', 'reminders', 'updates'];
 const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
   agentFinished: 'Agent finished', agentBlocked: 'Agent blocked or stopped',
@@ -41,13 +37,11 @@ const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
   slaBreached: 'SLA breaches', prActivity: 'Pull requests', loopFailed: 'Loops', teamActivity: 'Team activity', teamMemberAdded: 'Added to a team',
   accessRequested: 'Requests',
 };
-/* the filter menu's sections: 19 flat types with near-identical names were hard to scan */
 const TYPE_GROUPS: Array<[string, NotificationType[]]> = [
   ['Issues', ['agentFinished', 'agentBlocked', 'issueAssignedToYou', 'issueMentioned', 'issueCommented', 'issueReplied', 'commentReacted', 'issueStatusChanged', 'issueReminder', 'slaBreached', 'prActivity']],
   ['Projects and initiatives', ['projectUpdate', 'projectIssueAdded', 'updatesDigest', 'projectUpdateReminder', 'initiativeUpdateReminder']],
   ['Workspace', ['accessRequested', 'teamMemberAdded', 'teamActivity', 'loopFailed', 'systemUpdate']],
 ];
-/* one filter value covers several kinds */
 const TYPE_ALIASES: Partial<Record<NotificationType, NotificationType[]>> = { projectIssueAdded: ['projectIssueAdded', 'projectIssueClosed', 'projectChanged'] };
 
 const VIEW_LABELS: Record<InboxView, string> = { all: 'All', needs: 'Needs you', agents: 'Agents' };
@@ -64,16 +58,13 @@ function snoozeOptions(): Array<[string, Date]> {
   return [['An hour from now', new Date(Date.now() + 3600000)], ['In 3 hours', new Date(Date.now() + 3 * 3600000)], ['Tomorrow', at(9, 1)], ['Next week', nextMon()], ['A month from now', (() => { const d = at(9); d.setMonth(d.getMonth() + 1); return d; })()]];
 }
 const fmt = (d: Date) => d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-/** when a row happened: a reminder counts from the time it was set for */
 const rowAt = (r: { lead: Notification }) => r.lead.snoozedUntil && r.lead.type === 'issueReminder' ? r.lead.snoozedUntil : r.lead.createdAt;
 const isAgent = (t: NotificationType) => t === 'agentFinished' || t === 'agentBlocked';
-/** the day group a row sits under when the inbox isn't grouped some other way */
 function dayLabel(iso: string): string {
   const day = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
   const ago = Math.round((day(new Date()) - day(new Date(iso))) / 86400000);
   return ago <= 0 ? 'Today' : ago === 1 ? 'Yesterday' : ago < 7 ? 'This week' : 'Older';
 }
-/** "X joined <workspace> (<teams>)", the systemUpdate the server sends when someone accepts an invite */
 function parseJoined(n: Notification): { who: string; where: string; teams: string } | null {
   if (n.type !== 'systemUpdate' || !n.actorId) return null;
   const m = /^(.+?) joined (.+?)(?: \(([^)]*)\))?$/.exec(n.body);
@@ -104,14 +95,13 @@ export function InboxPage() {
     const base: InboxPrefs = { order: 'newest', showSnoozed: false, unreadFirst: false, types: [], from: [], priority: false, groupUnreads: 'none' };
     try { return { ...base, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }; } catch { return base; }
   });
-  const patchPrefs = (p: Partial<InboxPrefs>) => setPrefs(cur => { const n = { ...cur, ...p }; try { localStorage.setItem(PREFS_KEY, JSON.stringify(n)); } catch { /* ignore */ } return n; });
+  const patchPrefs = (p: Partial<InboxPrefs>) => setPrefs(cur => { const n = { ...cur, ...p }; try { localStorage.setItem(PREFS_KEY, JSON.stringify(n)); } catch { } return n; });
   const filterMenu = useMenu();
   const displayMenu = useMenu();
   const rowMenu = useMenu();
   const snoozeMenu = useMenu();
   const [menuRow, setMenuRow] = useState<Row | null>(null);
   const now = new Date().toISOString();
-  // muting status changes is the per-person preference the server also honours for new ones
   const notifyPrefs = snap.workspace.preferences.notify;
   const statusMuted = notifyPrefs.statusChanged === false;
   const setStatusMuted = async (muted: boolean) => { await api.updatePreferences({ notify: { ...notifyPrefs, statusChanged: !muted } }); await useApp.getState().bootstrap(); };
@@ -124,31 +114,21 @@ export function InboxPage() {
     && (n.type !== 'issueReminder' || !n.snoozedUntil || n.snoozedUntil <= now || prefs.showSnoozed),
   ), [snap.notifications, prefs, now, statusMuted]);
 
-  /* Everything about one issue is one row (core/inbox.ts, as GET /api/notifications counts
-     them): it leads with the newest headline, stacks everyone who acted, and stays unread
-     while any part is unread. */
   const allRows = useMemo(() => {
     const out: Row[] = inboxRows(notifications).map(r => ({ key: r.key, lead: r.lead, actors: r.actorIds, ids: r.ids, unread: r.unread, count: r.count }));
     out.sort((a, b) => (prefs.unreadFirst ? Number(b.unread) - Number(a.unread) : 0) || (prefs.order === 'newest' ? rowAt(b).localeCompare(rowAt(a)) : rowAt(a).localeCompare(rowAt(b))));
     return out;
   }, [notifications, prefs.order, prefs.unreadFirst]);
-  /* the view tabs: everything, what waits on you (core/inbox.ts needsYou, the same rule as My work
-     and the terminal's Today), and agent reports */
   const view: InboxView = prefs.view ?? 'all';
   const inView = (r: Row, v: InboxView) => v === 'all' || (v === 'needs' ? needsYou(r.lead) : isAgent(r.lead.type));
   const viewCount = { all: allRows.length, needs: allRows.filter(r => inView(r, 'needs')).length, agents: allRows.filter(r => inView(r, 'agents')).length };
   const needsUnread = allRows.some(r => r.unread && inView(r, 'needs'));
   const rows = useMemo(() => allRows.filter(r => inView(r, view)), [allRows, view]);
 
-  /* Priority inbox puts what needs you (assignments, mentions, replies, reminders) above
-     everything else; Focus groups the unread ones by kind. Rows are re-ordered to match
-     the sections so J/K walks them top to bottom. */
   const sectionOf = (r: Row): string | null => {
     if (prefs.groupUnreads === 'focus' && r.unread) return FOCUS_LABELS[r.lead.type] ?? 'Other updates';
-    // an agent's finished or blocked report is always priority: it's waiting on you
     if (prefs.priority) { const c = notifyCategory(r.lead.type, r.lead.body); return c === 'agentWork' || (c && (prefs.priorityCats ?? DEFAULT_PRIORITY_CATS).includes(c)) ? 'Priority' : 'Other'; }
     if (prefs.groupUnreads === 'focus') return 'Read';
-    // no grouping: the list reads by day (not with unread first, which mixes the days)
     return prefs.unreadFirst ? null : dayLabel(rowAt(r));
   };
   const sectionRank = (name: string | null) => {
@@ -160,15 +140,12 @@ export function InboxPage() {
   const sectioned = useMemo(() => rows.map((r, i) => ({ r, i, sec: sectionOf(r) })).sort((a, b) => sectionRank(a.sec) - sectionRank(b.sec) || a.i - b.i), [rows, prefs.priority, prefs.groupUnreads]);
   const orderedRows = sectioned.map(x => x.r);
 
-  /** a teamMemberAdded body is "<teamId>|<name at the time>"; the team may since be renamed or gone */
   const teamOf = (n: Notification) => { const [id, ...name] = n.body.split('|'); const t = snap.teams.find(x => x.id === id); return { key: t?.key, name: t?.name ?? name.join('|') }; };
   const issueOf = (n: Notification) => n.issueId ? snap.issues.find(i => i.id === n.issueId) : undefined;
   const keyOf = (n: Notification) => { const i = issueOf(n); const t = i && snap.teams.find(x => x.id === i.teamId); return i && t ? `${t.key}-${i.number}` : ''; };
-  /** where a notification leads (the row menu's Open and Copy link) */
   const pathOf = (n: Notification): string | null => {
     if (n.type === 'docChanged') return `/docs/${n.body.split('|')[0]}`;
     if (n.type === 'teamMemberAdded') { const t = teamOf(n); return t.key ? `/team/${t.key}/overview` : null; }
-    // "Ask <name>": body is "<settings path>|<what>"
     if (n.type === 'accessRequested') return n.body.split('|')[0] || '/settings';
     const ini = n.type === 'initiativeUpdateReminder' ? n.body.split('|')[0] : updateTarget(snap, n)?.initiative?.id;
     if (ini) return `/initiatives/${ini}`;
@@ -177,7 +154,6 @@ export function InboxPage() {
     return n.projectId ? `/projects/${n.projectId}` : null;
   };
 
-  // J/K and the issue shortcuts run on the shared list cursor
   const navigable = useMemo(() => orderedRows.filter(r => issueOf(r.lead)), [orderedRows, snap.issues]);
   const cursor = useCursor(s => s.index);
   useEffect(() => { registerVisibleList(navigable.map(r => issueOf(r.lead)!), ''); }, [navigable]);
@@ -190,7 +166,6 @@ export function InboxPage() {
 
   const selected = cursor >= 0 ? navigable[cursor] : undefined;
   const selectedIssue = selected ? issueOf(selected.lead) : undefined;
-  // project notifications and summaries have no issue: clicking one previews it here
   const [openRow, setOpenRow] = useState<Row | null>(null);
   const refresh = () => useApp.getState().bootstrap();
   const markRead = async (row: Row, value: boolean) => { for (const id of row.ids) await api.markNotificationRead(id, value); await refresh(); };
@@ -201,12 +176,7 @@ export function InboxPage() {
     useApp.getState().toast({ title: 'Snoozed', line: <>Back in your inbox {fmt(d)}</> });
   };
 
-  /* Viewing a row marks it read after a short delay, so skimming past doesn't clear it. Only a
-     row the person picked counts (a click, or moving the cursor with J/K/arrows): the row the
-     inbox selects by itself on open, or that slides under the cursor as rows arrive, stays
-     unread. `picked` is the row key (one per issue), so a new event on it doesn't count as read. */
   const [picked, setPicked] = useState<string | null>(null);
-  // a cursor move counts as a pick only right after the person pressed a list key
   const keyMove = useRef(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (['j', 'k', 'ArrowDown', 'ArrowUp'].includes(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) { keyMove.current = true; setTimeout(() => { keyMove.current = false; }, 300); } };
@@ -225,7 +195,6 @@ export function InboxPage() {
   }, [selected?.lead.id, selected?.unread, picked]);
   useEffect(() => { document.querySelector('.inbox-row.selected')?.scrollIntoView({ block: 'nearest' }); }, [cursor]);
 
-  // inbox keys (U, ⌫, H, ⇧⌫) listen in the capture phase so they run before the list shortcuts
   const selRef = useRef(selected);
   selRef.current = selected;
   useEffect(() => {
@@ -277,8 +246,6 @@ export function InboxPage() {
       default: return { icon: <IconComment size={z} />, what: 'updated the issue' };
     }
   };
-  /** the left mark: who acted, with a small mark for the kind; a tile when no person did. The
-   *  tile's tone carries an agent's state (orange: waiting on you, red: stopped), so rows need no tags */
   const leadOf = (row: Row): React.ReactNode => {
     const n = row.lead;
     const actors = row.actors.map(a => snap.users.find(u => u.id === a)).filter(Boolean) as typeof snap.users;
@@ -290,7 +257,6 @@ export function InboxPage() {
     if (n.type === 'slaBreached') return tile('urgent');
     if (n.type === 'loopFailed') return <span className="inbox-sys stop"><IconLoop size={12} /></span>;
     if (n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'initiativeUpdateReminder' || n.type === 'updatesDigest') return tile();
-    // several people: the newest two, overlapped in the same 20px slot, so every row's text lines up
     if (actors.length > 1) return <span className="inbox-pair" title={actors.map(a => a.name).join(', ')}><Avatar user={actors[0]} size={15} /><Avatar user={actors[1]} size={15} /></span>;
     if (actors.length === 1) {
       const mark = n.type === 'prActivity' ? <PrIcon state={prStateOfNotice(n.body)} size={9} title="Pull request" /> : describe(n, 9).icon;
@@ -298,7 +264,6 @@ export function InboxPage() {
     }
     return tile();
   };
-  /** line two: who did what, as one sentence */
   const whoWhat = (row: Row): React.ReactNode => {
     const n = row.lead;
     const actors = row.actors.map(a => snap.users.find(u => u.id === a)).filter(Boolean) as typeof snap.users;
@@ -311,8 +276,6 @@ export function InboxPage() {
     if (isAgent(n.type) && !actors.length) return <><b>Agent</b> {describe(n).what}</>;
     return <>{actors[0] ? <><b>{nameOf(actors[0])}</b>{actors.length === 2 ? <> and <b>{nameOf(actors[1])}</b></> : actors.length > 2 ? ` and ${actors.length - 1} others` : ''} </> : null}{target?.initiative ? 'posted an initiative update' : describe(n).what}</>;
   };
-  /** what was said, when there's text worth showing (stored previews are plain text; rows written
-   *  before that may still hold markdown) */
   const excerptOf = (row: Row): string => {
     const n = row.lead;
     if (n.type === 'issueCommented' || n.type === 'issueMentioned' || n.type === 'issueReplied') return plainText(n.body);
@@ -321,8 +284,6 @@ export function InboxPage() {
     return '';
   };
   const unreadCount = rows.filter(r => r.unread).length;
-  // reading the last unread row here is worth a word; opening an inbox that was already read isn't
-  // the whole inbox, not what the Type/From filters leave showing: hiding the unread rows isn't reading them
   const allUnread = useMemo(() => inboxRows(snap.notifications.filter(n => (!statusMuted || n.type !== 'issueStatusChanged') && (!n.snoozedUntil || n.snoozedUntil <= now))).filter(r => r.unread).length, [snap.notifications, statusMuted, now]);
   const readAllNow = useEarned(allUnread === 0);
   const emptiedNow = useEarned(rows.length === 0);
@@ -415,7 +376,6 @@ export function InboxPage() {
                     </span>
                   </div>
                 </div>
-                {/* hover: the time steps aside for the three triage keys */}
                 <span className="inbox-qa" onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
                   <button className="icon-btn" title={row.unread ? 'Mark as read (U)' : 'Mark as unread (U)'} aria-label={row.unread ? 'Mark as read' : 'Mark as unread'} onClick={() => void markRead(row, row.unread)}><IconCheck size={13} /></button>
                   <button className="icon-btn" title="Snooze (H)" aria-label="Snooze" onClick={e => { setMenuRow(row); snoozeMenu.setAnchor(e.currentTarget.getBoundingClientRect()); }}><IconClock size={13} /></button>
@@ -425,7 +385,6 @@ export function InboxPage() {
               </div>
             );
           })}
-          {/* a new workspace's inbox is nearly empty: say what will land here, so it doesn't look broken */}
           {view === 'all' && !prefs.types.length && !prefs.from.length && rows.length > 0 && snap.notifications.length <= 3 && (
             <div className="inbox-lands">
               <div className="inbox-lands-line" aria-hidden="true"><span /></div>
@@ -542,8 +501,6 @@ export function InboxPage() {
   );
 }
 
-/** what a 'projectUpdate' notification points at. Initiative updates reuse that type with no
- *  projectId and a "New update on <name>: <body>" text, so the initiative is matched by name */
 function updateTarget(snap: Snapshot, n: Notification) {
   if (n.type !== 'projectUpdate') return null;
   const near = <T extends { createdAt: string }>(list: T[]) =>
@@ -559,8 +516,6 @@ function updateTarget(snap: Snapshot, n: Notification) {
   return { project: undefined, initiative: ini, update, excerpt: n.body.slice(`New update on ${ini.name}: `.length) };
 }
 
-/** above an issue in the preview: the notification itself, on the line, with its triage keys. The
- *  register under it turns orange when the row waits on you and red when an agent stopped */
 function WhyBand({ row, lead, what, excerpt, onSnooze, onDelete }: {
   row: Row; lead: React.ReactNode; what: React.ReactNode; excerpt: string; onSnooze: (el: HTMLElement) => void; onDelete: () => void;
 }) {
@@ -581,7 +536,6 @@ function WhyBand({ row, lead, what, excerpt, onSnooze, onDelete }: {
   );
 }
 
-/** one posted update as a card: who, health, when, the body and where to go */
 function UpdateCard({ title, update, onOpen, openLabel }: {
   title: React.ReactNode; update: { body: string; health: Parameters<typeof healthColor>[0] | null; userId: string; createdAt: string }; onOpen: () => void; openLabel: string;
 }) {
@@ -601,8 +555,6 @@ function UpdateCard({ title, update, onOpen, openLabel }: {
   );
 }
 
-/** the updates a summary covers, as the server counted them: posted since the person's previous
- *  summary (or one schedule period back) on projects they lead, are a member of, or follow */
 function summaryUpdates(snap: Snapshot, n: Notification) {
   const me = snap.currentUser.id;
   const prev = snap.notifications.filter(x => x.type === 'updatesDigest' && x.createdAt < n.createdAt).map(x => x.createdAt).sort().pop();
@@ -617,7 +569,6 @@ function summaryUpdates(snap: Snapshot, n: Notification) {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-/** preview for a notification about a project (or a project updates summary) */
 function ProjectNotice({ n }: { n: Notification }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -684,7 +635,6 @@ function ProjectNotice({ n }: { n: Notification }) {
     );
   }
   if (n.type === 'systemUpdate') {
-    // someone joined: the person, not a "Project" heading over the server's sentence
     const j = parseJoined(n);
     const who = n.actorId ? snap.users.find(u => u.id === n.actorId) : undefined;
     if (j) return (

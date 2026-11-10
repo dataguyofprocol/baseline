@@ -6,14 +6,11 @@ import { id, nowIso } from './util.js';
 import { Store } from './store.js';
 import type { Priority } from './types.js';
 
-/** who you are on a fresh machine: git's user.name, else the login name */
 function localUserName(): string {
-  try { const n = execFileSync('git', ['config', '--global', 'user.name'], { encoding: 'utf8', timeout: 2000 }).trim(); if (n) return n; } catch { /* no git or no name */ }
+  try { const n = execFileSync('git', ['config', '--global', 'user.name'], { encoding: 'utf8', timeout: 2000 }).trim(); if (n) return n; } catch { }
   try { const n = userInfo().username; return n.charAt(0).toUpperCase() + n.slice(1); } catch { return 'You'; }
 }
 
-/** A workspace with nothing in it but you and the agent, for the web app's first run, where
- *  onboarding names the first team and offers the sample data. */
 export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string } = {}): void {
   const store = new Store(db);
   store.wipe();
@@ -26,8 +23,6 @@ export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string;
   store.setPreferences({ gettingStarted: { onboarding: 'pending', flow: 'create', since: new Date().toISOString() } });
 }
 
-/** The sample workspace. `into` adds it to the workspace as it stands instead of wiping first.
- *  Your teams, locations and settings stay, and you are the sample's "me". */
 export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; userName?: string; email?: string; into?: boolean } = {}): void {
   const store = new Store(db);
   if (!opts.into) store.wipe();
@@ -43,7 +38,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   }
   setMeta(db, 'seededAt', iso(0));
 
-  // members
   const current = opts.into ? store.snapshot().users.find(u => u.id === getMeta(db, 'currentUser')) : undefined;
   const me = current ?? store.createUser(opts.userName ?? 'Parth Batra', opts.email ?? 'parth@local', true);
   const ada = store.createUser('Ada Osei', 'ada@local');
@@ -51,14 +45,12 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   const agentId = store.agentUserId();
   setMeta(db, 'currentUser', me.id);
 
-  // teams with default workflow states (a key you already use gets a number)
   const taken = new Set(store.snapshot().teams.map(t => t.key));
   const freeKey = (k: string) => { let n = 2, key = k; while (taken.has(key)) key = `${k}${n++}`; taken.add(key); return key; };
   const core = store.createTeam(freeKey('CORE'), 'Core', '◆', '#5e6ad2');
   const agents = store.createTeam(freeKey('AGO'), 'Agent Surface', '🤖', '#c770f4');
   for (const t of [core, agents]) for (const u of [ada, jun]) store.addTeamMember(t.id, u.id);
 
-  // labels (Linear default trio per team + extras)
   const coreBug = store.createLabel(core.id, 'Bug', '#eb5757');
   const coreFeature = store.createLabel(core.id, 'Feature', '#a78bfa');
   const coreImprovement = store.createLabel(core.id, 'Improvement', '#3b82f6');
@@ -72,7 +64,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   };
   const st = (teamId: string, type: string) => states(teamId).find(s => s.type === type)!.id;
 
-  // projects
   const project = store.createProject({
     name: 'Agent Handoff', teamId: core.id, summary: 'Coding agents pick up, work and close issues without the UI.',
     description: 'Make the workspace fully drivable by coding agents: a first-class CLI, handoff briefs and machine-friendly issue keys.',
@@ -89,7 +80,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
     icon: '🎨', leadId: jun.id, targetDate: iso(60), priority: 4,
   });
 
-  // cycles for core: previous (done), current, upcoming
   const prevCycle = store.createCycle(core.id, 21, iso(-17), iso(-10), 'Cycle 21');
   db.prepare('UPDATE cycles SET completed_at = ? WHERE id = ?').run(iso(-10), prevCycle.id);
   const currentCycle = store.createCycle(core.id, 22, iso(-3), iso(4), 'Cycle 22');
@@ -115,7 +105,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
     return created;
   };
 
-  // core issues
   const theme = issue(core.id, 'Theme switching without reload', { state: 'started', priority: 2, labels: [coreImprovement.id], project: project.id, cycle: currentCycle.id, estimate: 5, due: 3, createdDaysAgo: 6, description: 'CSS custom properties on `:root[data-theme]` so toggling swaps instantly.\n\n- [x] token audit\n- [ ] swap handler\n- [ ] persistence' });
   issue(core.id, 'Keyboard-first issue triage', { state: 'started', priority: 3, labels: [coreFeature.id], assignee: ada.id, cycle: currentCycle.id, estimate: 3, createdDaysAgo: 5 });
   issue(core.id, 'Grouped list virtualization', { state: 'unstarted', priority: 3, labels: [coreImprovement.id], assignee: jun.id, project: project.id, cycle: upcomingCycle.id, createdDaysAgo: 4 });
@@ -129,27 +118,22 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   issue(core.id, 'Sub-issue progress ring on parent rows', { state: 'completed', priority: 2, labels: [coreImprovement.id], createdDaysAgo: 13 });
   issue(core.id, 'Relative timestamps everywhere', { state: 'completed', priority: 4, assignee: ada.id, createdDaysAgo: 15 });
 
-  // sub-issues under the theme work
   issue(core.id, 'Audit color tokens for both themes', { state: 'completed', priority: 2, parent: theme.id, assignee: me.id, estimate: 2, createdDaysAgo: 6 });
   issue(core.id, 'Swap handler without remount', { state: 'started', priority: 2, parent: theme.id, assignee: me.id, estimate: 3, due: 1, createdDaysAgo: 5 });
   issue(core.id, 'Persist theme choice per device', { state: 'unstarted', priority: 3, parent: theme.id, estimate: 1, createdDaysAgo: 4 });
 
-  // agent surface issues
   const cli = issue(agents.id, 'CLI surface: create/update/list/search issues', { state: 'started', priority: 1, labels: [agentsFeature.id], project: project.id, estimate: 5, createdDaysAgo: 4, description: 'One CLI covering the whole store so coding agents never need the UI.\n\n| command group | notes |\n| --- | --- |\n| issue create/update/list | key printed on create |\n| issue show --json | full detail, parseable |\n| search | title match |' });
   issue(agents.id, 'CLI parity with REST surface', { state: 'unstarted', priority: 2, labels: [agentsFeature.id], assignee: ada.id, project: project.id, createdDaysAgo: 3 });
   issue(agents.id, 'JSON export/import round-trip', { state: 'unstarted', priority: 3, labels: [agentsFeature.id], createdDaysAgo: 2 });
   issue(agents.id, 'Concurrent writer safety (WAL)', { state: 'unstarted', priority: 1, labels: [agentsBug.id], assignee: jun.id, due: 1, createdDaysAgo: 1 });
   issue(agents.id, 'Notifications generated from agent actions', { state: 'backlog', priority: 4, labels: [agentsFeature.id], createdDaysAgo: 7 });
 
-  // mobile companion issues
   issue(core.id, 'Mobile inbox layout', { state: 'unstarted', priority: 3, labels: [coreFeature.id], project: mobile.id, assignee: ada.id, createdDaysAgo: 2 });
   issue(core.id, 'Touch-friendly issue peek', { state: 'backlog', priority: 4, labels: [coreFeature.id], project: mobile.id, createdDaysAgo: 1 });
 
-  // relations: the CLI surface blocks CLI parity with the REST API
   const cliIssue = store.listIssues({ teamId: agents.id }).find(i => i.title.startsWith('CLI parity'));
   if (cliIssue) store.setRelation(cli.id, cliIssue.id, 'blocks');
 
-  // milestones on the flagship project, with its issues spread across them
   const alpha = store.createMilestone(project.id, 'Alpha: agent-driven triage', iso(7));
   const beta = store.createMilestone(project.id, 'Beta: hand-off loop', iso(20));
   for (const i of store.listIssues({}).filter(x => x.projectId === project.id)) {
@@ -157,11 +141,9 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   }
   db.prepare("DELETE FROM activity WHERE type = 'milestoneChanged'").run();
   store.addProjectLink(project.id, 'https://github.com/anthropics/claude-code', 'Claude Code');
-  // documents: a spec on the flagship project, a runbook and a link on the Core team's home
   store.createDoc({ projectId: project.id, title: 'Hand-off spec', content: '## Problem\n\nAgents need to pick up an issue, work it and close it without opening the app.\n\n## Approach\n\n- `baseline issue start` claims the issue and moves it to In Progress\n- the hand-off prompt carries the description, comments and location\n- `baseline issue done` closes it with a summary comment\n\n## Open questions\n\n- [ ] Should agents be able to decline work?\n' }, ada.id);
   store.createDoc({ teamId: core.id, title: 'Release runbook', content: '1. Cut the release branch\n2. Run `npm run build` and the CLI test suite\n3. Tag and publish\n' }, me.id);
   store.addTeamLink(core.id, 'https://github.com/anthropics/claude-code', 'Repository');
-  // project labels (one group, whose labels are exclusive), a custom status, an update schedule
   const area = store.createProjectLabel({ name: 'Area', isGroup: true, color: '#8a8f98' });
   const lAgents = store.createProjectLabel({ name: 'Agents', parentId: area.id, color: '#c770f4' });
   const lApps = store.createProjectLabel({ name: 'Apps', parentId: area.id, color: '#3b82f6' });
@@ -169,9 +151,7 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.updateProject(project.id, { labelIds: [lAgents.id, lQ4.id], updateCadence: 'weekly' });
   store.updateProject(mobile.id, { labelIds: [lApps.id] });
   store.createProjectStatus({ type: 'started', name: 'In Review', color: '#4cb782' });
-  // initiatives, SLAs, loops and a few pull requests
   const { planning, automation, git } = store.ext;
-  // finished work gets completion times spread over past weeks (initiative graphs and activity read them)
   const finished = store.listIssues({ teamId: core.id, stateType: 'completed' });
   finished.forEach((i, n) => {
     db.prepare('UPDATE issues SET completed_at = ?, project_id = COALESCE(project_id, ?) WHERE id = ?').run(iso(-(1.5 + n * 9)), n % 2 ? design.id : project.id, i.id);
@@ -179,7 +159,6 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.updateProject(project.id, { status: 'started' });
   store.updateProject(design.id, { status: 'started' });
   store.addProjectUpdate(design.id, jun.id, 'Tokens are in; icon redraw slipped a week.', 'atRisk');
-  // targets use Linear's resolutions: the end of a quarter / half / year
   const today = new Date(); const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const quarterEnd = ymd(new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3 + 3, 0));
   const halfEnd = ymd(new Date(today.getFullYear(), today.getMonth() < 6 ? 6 : 12, 0));
@@ -202,21 +181,16 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   automation.createLoop({ name: 'Bug acknowledgement', teamId: core.id, trigger: { kind: 'labelAdded', labelId: coreBug.id }, actions: [{ kind: 'comment', body: 'Thanks for the report. {issue.key} is queued for the bug rotation.' }] });
   if (open[0]) git.ingestPullRequest({ repo: 'example/baseline', number: 41, title: `${store.keyOf(open[0])} ${open[0].title}`, body: '', url: 'https://github.com/example/baseline/pull/41', state: 'open', branch: `parth/${store.keyOf(open[0]).toLowerCase()}`, base: 'main', author: 'parth', reviewDecision: 'review_required', checks: 'success', updatedAt: iso(-0.1), mergedAt: null });
 
-  // triage on the agent team: two issues an agent filed through the CLI wait for review
   store.updateTeam(agents.id, { triageEnabled: true });
   store.createIssue({ teamId: agents.id, title: 'Flaky: `issue list --json` drops archived children', description: 'Seen twice while closing out CORE-24. The JSON output omits sub-issues whose parent was archived.' }, agentId);
   store.createIssue({ teamId: agents.id, title: 'Expose cycle automation in the CLI', description: '`baseline team update --auto-cycles` would let agents set up a team end to end.' }, agentId);
 
-  // comments
   const first = store.listIssues({ teamId: core.id })[0];
   if (first) {
     store.addComment(first.id, ada.id, 'Token sheet is drafted, but the light theme needs a second pass before we ship the toggle.');
     store.addComment(first.id, me.id, 'Agreed. Menu surfaces sample `#212122`, modals `#1a1a1b`.');
   }
 
-  // inbox: every notification shape the design calls for: a mention, an assignment
-  // with its actor, two actors on one issue (the punched-gap stack), a plain comment,
-  // and a system row with no human actor (that one signs with the app's tile).
   const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
   const themeKey = theme.id;
   const cmdk = store.listIssues({ teamId: core.id }).find(i => i.title.startsWith('Cmd+K'));
@@ -228,15 +202,12 @@ export function seedWorkspace(db: DatabaseSync, opts: { workspaceName?: string; 
   store.notify('issueCommented', { userId: me.id, actorId: ada.id, issueId: themeKey, body: 'Light theme needs a second pass before the toggle ships.', createdAt: hoursAgo(27) });
   store.notify('issueAssignedToYou', { userId: me.id, actorId: ada.id, issueId: themeKey, body: 'You were assigned this issue', createdAt: hoursAgo(74) });
 
-  // project update
   store.addProjectUpdate(project.id, me.id, 'Scope locked: CLI-first agent story, UI polish tracked in Core.', 'onTrack');
 
-  // saved views
   store.createView('Urgent issues', { priority: [1] }, { icon: '🔴', groupBy: 'status', orderBy: 'priority' });
   store.createView('Recently updated', {}, { icon: '🕐', groupBy: 'none', orderBy: 'updated' });
   store.createView('My issues', { assigneeIds: [me.id] }, { teamId: null, icon: '🙋', groupBy: 'status', orderBy: 'priority' });
 
-  // favorites
   store.toggleFavorite('project', project.id);
   store.toggleFavorite('view', store.snapshot().views[0].id);
 

@@ -1,8 +1,3 @@
-// The morning the terminal UI's Today is designed around, on top of the sample workspace: an agent finished
-// CORE-4 for review (with a PR and two follow-up drafts), AGO-4's agent is blocked on a question, Ada
-// mentioned you on CORE-1, and an agent is working on AGO-1. Used by test-tui.ts, and for a demo database:
-//
-//   BASELINE_DB=/tmp/x.db node bin/baseline.js seed && tsx scripts/tui-fixture.ts /tmp/x.db
 import { connect } from '../src/client/index.js';
 import { openDb } from '../src/core/db.js';
 import { mentionToken } from '../src/core/mentions.js';
@@ -24,7 +19,6 @@ export async function seedMorning(dbPath: string): Promise<Morning> {
   const session = null;
   const key = (i: { teamId: string; number: number }) => `${snap.teams.find(t => t.id === i.teamId)!.key}-${i.number}`;
 
-  // CORE-4: the agent finished, ready for review, noticed two things along the way
   const started = await bl.startWork(review.id, { session }, agent.id);
   await bl.postProgress(review.id, { session, did: 'Scorer in search.ts and 14 new tests; the palette uses it for issues and actions', links: [] }, agent.id);
   for (const title of ['Search skips archived issues; offer them last instead', 'The palette flickers when the result count changes']) {
@@ -32,19 +26,15 @@ export async function seedMorning(dbPath: string): Promise<Morning> {
   }
   await bl.finishWork(review.id, { session, outcome: 'in_review', summary: 'Weighted prefix, word and fuzzy matches; ties broken by recency.', left: 'Tune the typo threshold on real data.', links: [] }, agent.id);
 
-  // AGO-4: Jun's, handed to you; the agent you started is stuck on a question
   await bl.updateIssue(blocked.id, { assigneeId: me.id }, me.id);
   await bl.startWork(blocked.id, { session }, agent.id);
   await bl.postProgress(blocked.id, { session, did: 'WAL mode on; a repro test that fails 3 runs in 10.', blocked: 'Two writers hit SQLITE_BUSY under load. Should I add a retry, or route every write through a single writer queue?', links: [] }, agent.id);
 
-  // AGO-1: an agent at work right now
   await bl.startWork(working.id, { session }, agent.id);
   await bl.postProgress(working.id, { session, did: 'list --json', left: 'search flags', links: [] }, agent.id);
 
-  // CORE-1: Ada asks you something
   const comment = await bl.addComment(mention.id, ada.id, `${mentionToken(me.name, me.id)} should the theme persist per device or per account?`, null);
 
-  // the PR for CORE-4 on the agent's branch, two checks green, three commits
   const db = openDb(dbPath);
   const store = new Store(db);
   const k = key(review);

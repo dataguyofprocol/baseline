@@ -1,6 +1,3 @@
-// Email and password sign-in on a hosted server: first-run setup, sign-in, joining through an
-// invite link, reset links, and changing your own password. Every route that ends signed in goes
-// through Sessions.start, the same cookie sessions Google sign-in uses.
 import type { Context, Hono } from 'hono';
 import { emailProblem, isEmail, normalizeEmail, type Accounts } from '../core/accounts.js';
 import { hashPassword, passwordProblem, verifyPassword } from '../core/passwords.js';
@@ -12,7 +9,6 @@ import { clientIp, limiter } from './ratelimit.js';
 import type { SetupToken } from './setup.js';
 
 const MIN = 60_000;
-/** a forgot-password email is used right away; an admin's link may wait in a chat for a while */
 export const RESET_EMAIL_TTL = 60 * MIN;
 export const RESET_LINK_TTL = 24 * 60 * MIN;
 
@@ -23,9 +19,7 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
   onInviteAccepted?: (userId: string, invitedBy: string) => void;
 }): void {
   const { accounts, sessions } = d;
-  // per address, across every route here that checks a secret (password, setup token, invite, reset link)
   const ipLimit = limiter(30, 10 * MIN);
-  // per account: guessing one person's password from many addresses
   const emailLimit = limiter(10, 15 * MIN);
   const forgotLimit = limiter(3, 60 * MIN);
   const changeLimit = limiter(10, 15 * MIN);
@@ -54,7 +48,6 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
     return c.json({ ok: true });
   });
 
-  // ---------- first run ----------
   app.post('/auth/setup', async (c) => {
     if (crossSite(c)) return refuse(c, 403, 'forbidden', 'Cross-site requests are not allowed');
     if (!ipLimit.take(clientIp(c))) return tooMany(c);
@@ -67,7 +60,6 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
     const problem = passwordProblem(b.password);
     if (problem) return refuse(c, 400, 'weak-password', problem);
     const passwordHash = await hashPassword(b.password as string);
-    // re-checked after the await: a second request with the token may have finished meanwhile
     const r = accounts.completeSetup({ name, email, passwordHash, workspaceName });
     if ('error' in r) return refuse(c, 409, 'already-set-up', 'This workspace is already set up. Sign in instead.');
     d.setup.clear();
@@ -76,7 +68,6 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
     return c.json({ ok: true }, 201);
   });
 
-  // ---------- joining through an invite ----------
   app.post('/auth/invite/:code/accept', async (c) => {
     if (crossSite(c)) return refuse(c, 403, 'forbidden', 'Cross-site requests are not allowed');
     if (!ipLimit.take(clientIp(c))) return tooMany(c);
@@ -97,7 +88,6 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
     return c.json({ ok: true }, 201);
   });
 
-  // ---------- joining through a team's join link ----------
   app.post('/auth/join/:code/accept', async (c) => {
     if (crossSite(c)) return refuse(c, 403, 'forbidden', 'Cross-site requests are not allowed');
     if (!ipLimit.take(clientIp(c))) return tooMany(c);
@@ -117,7 +107,6 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
     return c.json({ ok: true }, 201);
   });
 
-  // ---------- reset links ----------
   app.get('/auth/reset/:token', (c) => {
     if (!lookupLimit.take(clientIp(c))) return tooMany(c);
     const r = accounts.passwordReset(c.req.param('token'));
@@ -135,7 +124,6 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
     sessions.start(c, userId);
     return c.json({ ok: true });
   });
-  // the same answer whether or not the address has an account, so this can't be used to find members
   app.post('/auth/forgot', async (c) => {
     if (crossSite(c)) return refuse(c, 403, 'forbidden', 'Cross-site requests are not allowed');
     if (!d.mailer.configured) return refuse(c, 400, 'mail-off', 'Email isn’t set up on this server. Ask an admin for a password reset link.');
@@ -144,14 +132,12 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
     const user = isEmail(email) && forgotLimit.take(email) ? accounts.passwordFor(email) : undefined;
     if (user && user.status === 'active') {
       const { token } = accounts.createPasswordReset(user.id, null, RESET_EMAIL_TTL);
-      // not awaited: how long SMTP takes would tell which addresses have accounts
       d.mailer.send(passwordResetEmail({ to: email, workspace: d.store.workspaceMeta().name, link: resetLink(cfg.publicUrl, token), minutes: RESET_EMAIL_TTL / MIN }))
         .catch(err => console.error('[baseline] password reset email failed:', (err as Error).message));
     }
     return c.json({ ok: true });
   });
 
-  // ---------- your own password (behind authenticate; a key can't reach it, see principal.ts) ----------
   app.post('/api/me/password', async (c) => {
     const p = principalOf(c);
     if (p.via !== 'session') return refuse(c, 403, 'forbidden', 'Change your password from Settings › Account in Baseline');
@@ -159,12 +145,10 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
     const stored = accounts.passwordHashOf(p.userId);
     if (!stored) return refuse(c, 400, 'no-password', 'Your account signs in with Google. An admin can send you a link to set a password.');
     const b = await body(c);
-    // 400, not 401: a wrong current password isn't a lost session
     if (!await verifyPassword(typeof b.current === 'string' ? b.current : '', stored)) return refuse(c, 400, 'invalid', 'Your current password isn’t right.');
     const problem = passwordProblem(b.next);
     if (problem) return refuse(c, 400, 'weak-password', problem);
     accounts.setPassword(p.userId, await hashPassword(b.next as string));
-    // every other browser is signed out; this one carries on in a new session
     sessions.start(c, p.userId);
     return c.json({ ok: true });
   });

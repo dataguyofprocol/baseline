@@ -1,4 +1,3 @@
-// People in a hosted workspace: members and their access, pending invites, and who may join.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence } from 'framer-motion';
@@ -12,11 +11,9 @@ import { isEmail, type Invite, type InviteEntry, type InviteResult, type Team, t
 type Tab = 'all' | 'active' | 'invited' | 'suspended';
 
 const refresh = () => useApp.getState().bootstrap();
-/** two-line rows (name over email) need more than a property row's fixed height */
 const ROW: React.CSSProperties = { gap: 10, height: 'auto', minHeight: 46, padding: '6px 0' };
 const daysLeft = (iso: string) => Math.max(0, Math.ceil((Date.parse(iso) - Date.now()) / 86400_000));
 
-/** a small toggleable team chip (invite dialog, security defaults) */
 function TeamToggles(props: { teams: Team[]; selected: string[]; onChange: (ids: string[]) => void; disabled?: boolean }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -50,7 +47,6 @@ export function HostedMembersSettings() {
   }, [canInvite]);
   useEffect(() => { void loadInvites(); }, [loadInvites]);
 
-  /** run a change, then show the server's reason if it refused */
   const act = async (fn: () => Promise<unknown>, done?: string) => {
     try {
       await fn();
@@ -111,7 +107,6 @@ function MemberRow(props: { user: User; isAdmin: boolean; act: (fn: () => Promis
   const suspended = u.status === 'suspended';
   const [resetFor, setResetFor] = useState<User | null>(null);
   const [githubFor, setGithubFor] = useState<User | null>(null);
-  // PRs are matched to people by it: admins fill it in for anyone, everyone for themselves
   const canEditGithub = props.isAdmin || you;
   return (
     <div className="prop-row" style={{ ...ROW, opacity: suspended ? 0.6 : 1 }}>
@@ -207,8 +202,6 @@ function InviteRow(props: { invite: Invite; canManage: boolean; act: (fn: () => 
   );
 }
 
-/** `teamIds`: opened from a team, it starts with that team picked; from the workspace, with your first team.
- *  People already in the workspace are picked by name and put on the chosen teams; new addresses are invited. */
 export function InviteModal(props: { onClose: () => void; onDone: () => Promise<void>; teamIds?: string[] }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
@@ -223,7 +216,6 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
 
   const people = snap.users.filter(u => u.kind === 'human' && u.status === 'active');
   const byEmail = (email: string) => people.find(u => u.email.toLowerCase() === email.toLowerCase());
-  /** the given text as chips: addresses of people here become them, other addresses stay addresses; the rest is returned */
   const toEntries = (raw: string, into: InviteEntry[]): { entries: InviteEntry[]; rest: string } => {
     const next = [...into];
     const rest: string[] = [];
@@ -242,7 +234,6 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
   };
 
   const pending = toEntries(text, entries).entries;
-  // with no team chosen, someone already here has nothing to be added to
   const sendable = pending.some(e => e.kind === 'email') || (teamIds.length > 0 && pending.length > 0);
   const send = async () => {
     if (!sendable || busy) return;
@@ -273,7 +264,6 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
     : r.emailed === 'failed' ? `Invited, but the email failed (${r.error}). Share the link`
     : 'Invited. Email isn\'t set up on this server, so share the link';
   const onlyPeople = pending.length > 0 && pending.every(e => e.kind === 'member');
-  // without SMTP nothing is sent: the dialog makes links to hand over
   const mail = !!snap.workspace.mail;
   const shareable = results?.filter(r => r.invite && r.emailed !== 'sent') ?? [];
   const allLinks = shareable.map(r => `${r.email}: ${r.invite!.link}`).join('\n');
@@ -405,7 +395,6 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
 
 const listNames = (names: string[]) => names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 
-/** the invite dialog's link tab: each chosen team's join link, made here by an admin when it has none */
 function InviteLinkTab({ teams }: { teams: Team[] }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
@@ -445,8 +434,6 @@ function InviteLinkTab({ teams }: { teams: Team[] }) {
 const sameEntry = (a: InviteEntry, b: InviteEntry) =>
   a.kind === 'member' ? b.kind === 'member' && a.userId === b.userId : b.kind === 'email' && a.email === b.email;
 
-/** one field of chips, as in Linear: type a name or address, pick from the people here, or end an address
- *  with comma/Enter; paste a list; Backspace takes the last chip off */
 function PeopleField(props: {
   people: User[]; teams: Team[]; entries: InviteEntry[]; text: string;
   onText: (s: string) => void; onEntries: (e: InviteEntry[]) => void; onCommit: (raw: string) => void;
@@ -477,8 +464,6 @@ function PeopleField(props: {
 
   useLayoutEffect(() => { if (open) setRect(fieldRef.current!.getBoundingClientRect()); }, [open, entries.length, text]);
   useEffect(() => { setHl(0); setDismissed(false); }, [q]);
-  // Escape closes the list before it closes the dialog. Modal listens on window too (capture); registered
-  // once on mount, this listener stays ahead of Modal's, which re-registers on every render.
   const openRef = useRef(open);
   openRef.current = open;
   useEffect(() => {
@@ -501,7 +486,6 @@ function PeopleField(props: {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); move(e.key === 'ArrowDown' ? 1 : -1); }
     else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
-      // someone already on every chosen team can't be picked, by click or by typing their address
       if (open) { if (active >= 0) choose(options[active]!); }
       else props.onCommit(text);
     } else if (e.key === ',' || e.key === ';') { e.preventDefault(); props.onCommit(text); }
@@ -558,15 +542,12 @@ function PeopleField(props: {
   );
 }
 
-/* ---------- one team's members (Team settings › Members) ---------- */
-// As in Linear: anyone on the team (or an admin) adds people; admins remove them; everyone can leave.
 export function TeamMembersSettings(props: { team: Team }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const { team } = props;
   const me = snap.currentUser;
   const admin = useCanConfigure();
-  // a team's lead removes people from it too (CORE_FLOW.md › Roles)
   const lead = useCanLead(team.id);
   const onTeam = team.memberIds.includes(me.id);
   const canAdd = admin || onTeam;
@@ -631,7 +612,6 @@ function TeamMemberRow(props: { team: Team; user: User; canRemove: boolean; act:
   );
 }
 
-/** pick workspace people who aren't on the team yet; "Invite by email" for someone who isn't in the workspace */
 function AddTeamMembersModal(props: { team: Team; onClose: () => void; onInvite?: () => void }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
@@ -699,7 +679,6 @@ function AddTeamMembersModal(props: { team: Team; onClose: () => void; onInvite?
   );
 }
 
-/** agent identities stay hand-made: they're assigned work, they don't sign in */
 function AgentsSection() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
@@ -737,7 +716,6 @@ export function SecuritySettings() {
   const sec = snap.workspace.security;
   const isAdmin = snap.currentUser.admin;
   const [domain, setDomain] = useState('');
-  // joining by domain trusts Google's hd claim, so it only exists where Google sign-in does
   const google = !!snap.workspace.signInMethods?.includes('google');
   const save = async (patch: Parameters<typeof api.updateSecurity>[0], done?: string) => {
     try {
@@ -822,8 +800,6 @@ export function SecuritySettings() {
   );
 }
 
-/** Each team's shareable join link: one message in the team's chat instead of a link per person.
- *  Admins make and turn them off; anyone who may invite can copy an open one. */
 function JoinLinks() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
@@ -865,13 +841,10 @@ function JoinLinks() {
   );
 }
 
-/** a person's GitHub login, which is how their pull requests find them */
 function GithubUsernameModal({ user, onClose }: { user: User; onClose: () => void }) {
   const toast = useApp(s => s.toast);
   const [value, setValue] = useState(user.githubUsername ?? '');
   const [error, setError] = useState('');
-  // PR authors nobody has claimed, this person's likely login first (GET /api/github/authors comes
-  // with the GitHub settings work; without it, or without GitHub, there are just no suggestions)
   const [authors, setAuthors] = useState<string[]>([]);
   useEffect(() => {
     void fetch('/api/github/authors').then(r => r.ok ? r.json() : null).then((b: { authors?: Array<{ login: string; prs?: number; userId?: string | null; suggestedUserId?: string | null }> } | Array<{ login: string; userId?: string | null; suggestedUserId?: string | null }> | null) => {
@@ -931,7 +904,6 @@ function LinkBox({ label, link }: { label?: string; link: string }) {
   );
 }
 
-/** an admin's one-use link that lets someone set a new password (they forgot it, or signed up with Google) */
 function ResetLinkModal({ user, onClose }: { user: User; onClose: () => void }) {
   const [state, setState] = useState<{ link: string; expiresAt: string } | { error: string } | null>(null);
   const make = async () => {

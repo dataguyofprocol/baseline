@@ -13,38 +13,28 @@ export interface Toast {
   link?: { label: string; to: string };
   actions?: Array<{ label: string; onClick: () => void | Promise<void> }>;
   autoClose?: boolean;
-  /** runs when the toast goes away without one of its actions being pressed (timed out or ×):
-   *  how a delayed delete commits once its Undo window has passed */
   onClose?: () => void;
 }
 
 interface AppState {
   snap: Snapshot | null;
   loaded: boolean;
-  /** hosted mode: the server answered 401, so show the sign-in screen instead of the app */
   signedOut: boolean;
   theme: ThemePref;
-  /** theme with 'system' resolved to the dark/light actually applied */
   resolvedTheme: 'dark' | 'light';
   toasts: Toast[];
   paletteOpen: boolean;
-  /** O then …: the palette opens as a picker of one kind (issue, project, view…) */
   paletteScope: PaletteScope | null;
-  /** left nav collapsed (⌘B / the nav toggle); persisted across reloads */
   sidebarCollapsed: boolean;
   createModal: { open: boolean; expanded?: boolean; copyFrom?: string; teamId?: string; stateId?: string; projectId?: string | null; parentId?: string | null; cycleId?: string | null; title?: string; related?: CreateRelated };
   shortcutsOpen: boolean;
-  /** hovered/focused row quick-action menu, e.g. pressing S or P on a row */
   quickMenu: { issueIds: string[]; kind: PropKind; anchor: DOMRect } | null;
-  /** the issue showing in the peek panel (Space on a row) */
   peekIssueId: string | null;
   setPeek: (id: string | null) => void;
   bootstrap: () => Promise<void>;
   setTheme: (t: ThemePref) => void;
   toast: (t: Omit<Toast, 'id'>) => void;
-  /** viaAction: an action button closed it, so onClose (the commit) is skipped */
   dismissToast: (id: number, viaAction?: boolean) => void;
-  /** hovering a toast pauses its clock so there's time to reach Undo */
   holdToast: (id: number, hold: boolean) => void;
   setPalette: (open: boolean, scope?: PaletteScope | null) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -55,10 +45,8 @@ interface AppState {
   setQuickMenu: (m: AppState['quickMenu']) => void;
 }
 
-/** "Create related": the new issue becomes this issue's parent, or blocks / is blocked by it */
 export interface CreateRelated { issueId: string; kind: 'parent' | 'blocks' | 'blocked_by' | 'related' }
 
-/** theme preference; 'system' tracks the browser's prefers-color-scheme */
 export type ThemePref = 'system' | 'dark' | 'light';
 
 export function resolveTheme(p: ThemePref): 'dark' | 'light' {
@@ -70,7 +58,6 @@ let toastSeq = 1;
 const TOAST_MS = 5200;
 const toastClocks = new Map<number, { left: number; since: number; timer: ReturnType<typeof setTimeout> | null }>();
 
-/** a narrow window hides the nav on its own (the saved preference is left alone) so the page keeps its width */
 const narrowNav = window.matchMedia('(max-width: 760px)');
 const savedCollapsed = () => localStorage.getItem('baseline:sidebarCollapsed') === '1';
 
@@ -99,7 +86,6 @@ export const useApp = create<AppState>((set, get) => ({
       set({ snap, loaded: true, signedOut: false });
       connectLive();
     } catch (err) {
-      // a 401 already flipped signedOut (see the listener below); anything else is a real failure
       if (!(err instanceof ApiError && err.status === 401)) throw err;
     }
   },
@@ -150,8 +136,6 @@ export const useApp = create<AppState>((set, get) => ({
 
 narrowNav.addEventListener('change', (e) => { useApp.setState({ sidebarCollapsed: e.matches || savedCollapsed() }); });
 
-// while the preference is 'system', follow the OS/browser appearance live;
-// e.matches is the new value, so nothing is re-queried and nothing can race
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   if (useApp.getState().theme !== 'system') return;
   const resolved = e.matches ? 'dark' : 'light';
@@ -159,7 +143,6 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
   useApp.setState({ resolvedTheme: resolved });
 });
 
-/* ---------- selection (X key / checkboxes) ---------- */
 interface SelectionState {
   ids: string[];
   toggle: (id: string) => void;
@@ -173,7 +156,6 @@ export const useSelection = create<SelectionState>((set) => ({
   clear: () => set({ ids: [] }),
 }));
 
-/* ---------- list cursor (J/K navigation) ---------- */
 interface CursorState {
   index: number;
   move: (delta: number, max: number) => void;
@@ -185,9 +167,6 @@ export const useCursor = create<CursorState>((set) => ({
   reset: () => set({ index: -1 }),
 }));
 
-/** the mounted list registers its visible issues so global keys act on them */
-/** the list on screen; `route` is the page that registered it, so a list left behind
-    (e.g. after opening a project page) can't be acted on by issue shortcuts */
 export const visibleList: { issues: Issue[]; teamId: string; route: string } = { issues: [], teamId: '', route: '' };
 export function registerVisibleList(issues: Issue[], teamId: string) {
   visibleList.issues = issues;
@@ -195,7 +174,6 @@ export function registerVisibleList(issues: Issue[], teamId: string) {
   visibleList.route = location.hash.split('?')[0];
 }
 
-/** a person's name as Preferences › Display names asks for it */
 export function nameOf(u: { name: string } | null | undefined, fallback = 'Someone'): string {
   if (!u) return fallback;
   return useApp.getState().snap?.workspace.preferences.displayNames === 'first' ? u.name.split(/\s+/)[0] : u.name;
@@ -220,18 +198,14 @@ export function relTime(iso: string): string {
 export function localIsoDate(d: Date = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
-/** today plus n calendar days, as a local YYYY-MM-DD */
 export function isoDaysFromToday(n: number): string {
   const d = new Date(); d.setDate(d.getDate() + n); return localIsoDate(d);
 }
 
-/** "Nov 11", or "Nov 11, 2025" outside the current year (a bare "Nov 11" on old work is ambiguous) */
 export function shortDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString('en-US', d.getFullYear() === new Date().getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
 }
-/** "Nov 10, 2:08 PM" (year added outside the current year): the one format for a moment in time.
- *  The browser's own locale gave "10 Nov 2026, 14:08" beside "Nov 11" elsewhere. */
 export function dateTime(iso: string): string {
   const d = new Date(iso);
   const sameYear = d.getFullYear() === new Date().getFullYear();
@@ -239,10 +213,8 @@ export function dateTime(iso: string): string {
 }
 
 export const STATUS_ORDER = ['backlog', 'unstarted', 'started', 'completed', 'canceled'] as const;
-/** list view groups started work first, then todo, then backlog (matches reference) */
 export const LIST_GROUP_ORDER = ['started', 'unstarted', 'backlog', 'completed', 'canceled'] as const;
 
-/** clipboard write that degrades to a legacy fallback and reports failure instead of throwing */
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -264,7 +236,6 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** first-run setup state: applied here at once, saved in the background */
 export function setGettingStarted(patch: Partial<GettingStarted>): Promise<unknown> {
   const s = useApp.getState().snap;
   if (s) {
@@ -278,13 +249,7 @@ export async function refresh() {
   await useApp.getState().bootstrap();
 }
 
-// Live updates. The server announces a new version whenever anything changes, whether from a
-// teammate, an agent writing through the CLI or the workspace's own clock. The tab refetches its
-// snapshot and swaps it in only when something it shows has changed. A hidden tab waits until it's seen
-// (unless browser notifications are on).
 let lastSnapJson = '';
-/* Settings › Notifications › Browser: new inbox notifications become browser notifications
-   (the kinds you chose), also while the tab is in the background */
 let seenNotifications: Set<string> | null = null;
 function pushBrowser(snap: Snapshot) {
   const ids = new Set(snap.notifications.map(n => n.id));
@@ -318,14 +283,13 @@ async function refreshSnapshot() {
     const json = JSON.stringify(snap);
     if (json !== lastSnapJson) useApp.setState({ snap });
     lastSnapJson = json;
-  } catch { /* the server is restarting; the next announcement retries */ }
+  } catch { }
   finally {
     fetching = false;
     if (fetchAgain) { fetchAgain = false; void refreshSnapshot(); }
   }
 }
 function catchUp() {
-  // a hidden tab waits, unless it has browser notifications to show
   const background = document.visibilityState !== 'visible';
   if ((background && !useApp.getState().snap?.workspace.preferences.push?.browser) || announced === applied) return;
   applied = announced;
@@ -346,5 +310,4 @@ function connectLive() {
   };
 }
 document.addEventListener('visibilitychange', catchUp);
-// any API call that comes back 401 (an expired or revoked session) drops to the sign-in screen
 window.addEventListener('baseline:signed-out', () => { useApp.setState({ signedOut: true }); live?.close(); live = null; });

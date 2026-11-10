@@ -1,11 +1,3 @@
-// The CLI's move onto the client, as a ratchet. Commands not yet migrated open the database through
-// src/cli/legacy.ts; this fails when
-//   - the number of legacyStore(/legacyApp( calls in src/cli differs from scripts/cli-legacy-budget.txt
-//     (higher: a new command skipped the client; lower: write the new count into the budget file),
-//   - anything in src/cli besides legacy.ts reaches the database (core/store, core/db, createApp),
-//   - anything in src/client besides transport.ts reaches the server or the store.
-//
-//   npx tsx scripts/check-cli-legacy.ts
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 

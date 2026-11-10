@@ -1,6 +1,3 @@
-// The engineer's side of the agent loop, on the command line: `baseline work KEY`, `next`,
-// `standup`, `doctor`, and the Claude Code hooks (`baseline hook session-start|prompt|stop`) that
-// `baseline connect claude` installs. Every command here runs the same ops the MCP tools do.
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,8 +15,6 @@ const fail = (message: string): never => { console.error(`error: ${message}`); p
 /** the coding tool running this command, when it says so: Claude Code sets CLAUDECODE=1 in the shells it starts */
 const harnessFromEnv = () => process.env.CLAUDECODE === '1' ? 'Claude Code' : undefined;
 
-/** an op context for a command: the agent surface's target (never a new database), this repo, and
- *  `agent` (a coding tool's agent user) or `person` (the engineer at the terminal) */
 export async function agentContext(flags: { db?: string; as?: string }, who: 'agent' | 'person' = 'agent'): Promise<OpContext> {
   const bl = await connectAgent(flags);
   const actor = who === 'person' ? { kind: 'person' as const } : await agentActor(bl, flags.as ?? process.env.BASELINE_AS ?? harnessFromEnv());
@@ -38,11 +33,9 @@ const onPath = (name: string) => (process.env.PATH ?? '').split(delimiter).some(
 });
 const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
-// ---------------------------------------------------------------- hooks
 
 interface HookInput { session_id?: string; cwd?: string; prompt?: string; source?: string; stop_hook_active?: boolean }
 
-/** the hook's JSON on stdin; {} when there is none */
 async function hookInput(): Promise<HookInput> {
   if (process.stdin.isTTY) return {};
   const chunks: Buffer[] = [];
@@ -50,17 +43,15 @@ async function hookInput(): Promise<HookInput> {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as HookInput; } catch { return {}; }
 }
 
-/** what a hook adds to Claude's context (SessionStart, UserPromptSubmit), per Claude Code's hook JSON */
 const addContext = (event: 'SessionStart' | 'UserPromptSubmit', text: string) =>
   console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: text } }));
 
-/** one marker per (session, what), so a hook says a thing once per session */
 function once(session: string | undefined, what: string): boolean {
   if (!session) return true;
   const dir = join(tmpdir(), 'baseline-hooks');
   const file = join(dir, `${session.replace(/[^\w.-]/g, '_')}-${what.replace(/[^\w.-]/g, '_')}`);
   if (existsSync(file)) return false;
-  try { mkdirSync(dir, { recursive: true }); writeFileSync(file, ''); } catch { /* best effort: say it again next time */ }
+  try { mkdirSync(dir, { recursive: true }); writeFileSync(file, ''); } catch { }
   return true;
 }
 
@@ -70,7 +61,6 @@ const ago = (iso: string) => {
   return m < 60 ? `${m}m ago` : m < 48 * 60 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
 };
 
-/** the issue the checked-out branch names, with what the hooks need about it */
 async function branchIssue(bl: Baseline, root: string) {
   const snap = await bl.snapshot(['issues', 'states', 'teams', 'users', 'currentUser']);
   const branch = currentBranch(root);
@@ -79,7 +69,6 @@ async function branchIssue(bl: Baseline, root: string) {
   return { snap, branch, issue };
 }
 
-/** SessionStart: 3–6 lines about this repo and branch, or nothing */
 async function sessionStart(input: HookInput): Promise<void> {
   const root = repoRoot(input.cwd ?? process.cwd());
   if (!root) return;
@@ -108,7 +97,6 @@ async function sessionStart(input: HookInput): Promise<void> {
   if (out.length) addContext('SessionStart', out.join('\n'));
 }
 
-/** "fix the login redirect", "can you add retries to the importer": work, not a question */
 const WORK = /^(?:(?:please|ok|okay|so|now|then|hey)[\s,]+)*(?:(?:can|could|would) you\s+|let'?s\s+|go ahead and\s+|i (?:need|want) (?:you )?to\s+|we (?:need|should|have) to\s+)?(?:fix|add|implement|build|create|make|write|refactor|update|change|remove|delete|drop|rename|move|migrate|support|handle|debug|investigate|improve|optimi[sz]e|upgrade|bump|port|rewrite|replace|wire|hook up|set up|introduce|extract|split|clean up|ship|convert|allow|prevent|stop)\b/i;
 export function looksLikeWork(prompt: string): boolean {
   const p = prompt.trim();
@@ -116,13 +104,11 @@ export function looksLikeWork(prompt: string): boolean {
   return WORK.test(p);
 }
 
-/** UserPromptSubmit: a one-line nudge when no issue is active and the prompt asks for work. Never blocks. */
 async function promptHook(input: HookInput): Promise<void> {
   const cwd = input.cwd ?? process.cwd();
   const root = repoRoot(cwd);
   if (!root || readRepoConfig(root).promptHook === false || /^(0|off|false|no)$/i.test(process.env.BASELINE_PROMPT_HOOK ?? '')) return;
   agentTarget({});
-  // fast and offline: a branch or a prompt that names an issue key means the work is tracked
   const branch = currentBranch(root) ?? '';
   const KEY = /(?:^|[^a-z0-9])[a-z][a-z0-9]{0,9}-\d+(?=$|[^0-9])/i;
   if (KEY.test(branch) || KEY.test(input.prompt ?? '') || !looksLikeWork(input.prompt ?? '')) return;
@@ -154,7 +140,6 @@ async function stopHook(input: HookInput): Promise<void> {
   }));
 }
 
-// ---------------------------------------------------------------- doctor
 
 function readJson(path: string): Record<string, any> | null {
   try { return JSON.parse(readFileSync(path, 'utf8')) as Record<string, any>; } catch { return null; }
@@ -201,7 +186,6 @@ async function doctor(flags: { db?: string; dir?: string }): Promise<number> {
   return healthy ? 0 : 1;
 }
 
-// ---------------------------------------------------------------- commands
 
 export function mountWorkflowCommands(program: Command): void {
   program.command('work <key>')
@@ -218,7 +202,6 @@ export function mountWorkflowCommands(program: Command): void {
       const prompt = `Work on ${out.key}: ${out.title}. It is started in Baseline on branch ${out.branch}; call get_issue ${out.key} for the brief, post_progress as you go, and finish_issue when you stop.`;
       const root = repoRoot(process.cwd()) ?? process.cwd();
       const command = `claude ${shellQuote(prompt)}`;
-      // never from inside a coding tool, a script or a test: only a person at a terminal gets a session opened
       const launch = flags.launch !== false && process.stdout.isTTY && process.stdin.isTTY && !process.env.CLAUDECODE && !process.env.BASELINE_NO_LAUNCH && onPath('claude');
       if (!launch) { console.log(`\nNext: ${root === process.cwd() ? '' : `cd ${shellQuote(root)} && `}${command}`); process.exit(0); }
       const r = spawnSync('claude', [prompt], { cwd: root, stdio: 'inherit' });
@@ -257,7 +240,6 @@ export function mountWorkflowCommands(program: Command): void {
   program.command('hook <event>')
     .description('Claude Code hooks, installed by `baseline connect claude`: session-start (context for this branch), prompt (a nudge to track work), stop (a reminder to post progress). Silent on any error.')
     .action(async (event: string) => {
-      // a hook must never hold up or break the session: a hard deadline, and silence on any failure
       setTimeout(() => process.exit(0), 4000);
       try {
         const input = await hookInput();

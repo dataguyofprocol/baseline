@@ -1,16 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 
-/** the global rule collapses every duration; direct DOM animation has to ask */
 export const reducedMotion = () =>
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/* Where the last press happened. The theme reveal grows from that point, so the switch
-   visibly starts at the control that was pressed. */
 let lastPress = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
 window.addEventListener('pointerdown', (e) => { lastPress = { x: e.clientX, y: e.clientY }; }, { capture: true, passive: true });
 
-/** Swap the theme under a circular reveal from the last press (View Transitions).
-    Falls back to an instant swap without the API or with reduced motion. */
 export function revealTheme(apply: () => void) {
   const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } };
   if (!doc.startViewTransition || reducedMotion()) { apply(); return; }
@@ -22,24 +17,16 @@ export function revealTheme(apply: () => void) {
       { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
       { duration: 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', pseudoElement: '::view-transition-new(root)' },
     );
-  }).catch(() => { /* the transition was skipped; the swap already happened */ });
+  }).catch(() => { });
 }
 
-/* Last stateId each issue was last rendered with. Module-level so it survives
-   the row being remounted into a different group by the reflow. Comparing
-   against previous props alone would miss exactly the case we animate. */
 const lastStateById = new Map<string, string>();
 
-/* Issues created this session that have not yet played their enter animation.
-   Filled by api.createIssue, so every creation path (C, palette, modal,
-   duplicate, sub-issue) animates the same way. */
 const pendingEnter = new Set<string>();
 export function markCreated(id: string) { pendingEnter.add(id); }
 
 type Landing = 'new' | 'moved' | null;
 
-/** One entry animation per change: the row enters (340ms) and flashes brand at 220ms.
-    `becameDone` also morphs the status icon, which fills and then draws the check. */
 export function useLanding(issue: { id: string; stateId: string }, stateType?: string) {
   const [landing, setLanding] = useState<Landing>(() => {
     if (pendingEnter.delete(issue.id)) return 'new';
@@ -64,9 +51,6 @@ export function useLanding(issue: { id: string; stateId: string }, stateType?: s
   };
 }
 
-/** Plays the exit on rows/cards that are about to disappear, then resolves.
-    The nodes are animated in place because the next snapshot unmounts them, and
-    React would drop the element before any exit transition could run. */
 export function playExit(ids: string[]): Promise<void> {
   if (reducedMotion()) return Promise.resolve();
   const nodes = ids.flatMap(id => [...document.querySelectorAll(`[data-issue-row="${id}"]`)]);
@@ -75,8 +59,6 @@ export function playExit(ids: string[]): Promise<void> {
   return new Promise(r => setTimeout(r, 260));
 }
 
-/** True once `now` turns true during this mount, after having been false: the moment was earned
-    here, not found on load. Celebrations key off it, so reopening a finished page stays quiet. */
 export function useEarned(now: boolean): boolean {
   const was = useRef(now);
   const [earned, setEarned] = useState(false);
@@ -88,11 +70,8 @@ export function useEarned(now: boolean): boolean {
   return earned;
 }
 
-/* Last done/total fraction each parent was drawn with, module-level for the same reason as
-   lastStateById: the parent's row remounts when closing its last child also closes it. */
 const lastFracById = new Map<string, number>();
 
-/** True for a moment after an issue's sub-issue ring closes (its last child finished) */
 export function useRingClosed(issueId: string | undefined, frac: number): boolean {
   const [closed, setClosed] = useState(() => {
     const seen = issueId ? lastFracById.get(issueId) : undefined;
@@ -112,7 +91,6 @@ export function useRingClosed(issueId: string | undefined, frac: number): boolea
   return closed;
 }
 
-/** A small sideways "no" on a field that can't be submitted yet: three damped swings, 320ms */
 export function shake(el: Element | null | undefined) {
   if (!el || reducedMotion()) return;
   el.animate(

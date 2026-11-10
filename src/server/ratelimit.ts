@@ -1,9 +1,7 @@
-// Fixed-window rate limits, in memory. One server process, so this is all there is to share.
 import type { Context } from 'hono';
 import type { IncomingMessage } from 'node:http';
 
 export interface Limiter {
-  /** spend `cost` from `key`'s allowance; false once the window's allowance is used up */
   take(key: string, cost?: number): boolean;
 }
 
@@ -12,7 +10,6 @@ export function limiter(limit: number, windowMs: number): Limiter {
   return {
     take(key, cost = 1) {
       const now = Date.now();
-      // forget finished windows now and then so the map can't grow without bound
       if (windows.size > 10_000) for (const [k, w] of windows) if (w.resetAt <= now) windows.delete(k);
       let w = windows.get(key);
       if (!w || w.resetAt <= now) { w = { used: 0, resetAt: now + windowMs }; windows.set(key, w); }

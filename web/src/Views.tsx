@@ -13,12 +13,10 @@ import { IconFilter, IconDisplay, IconStar, IconMore, IconTrash, IconEdit, IconV
 import type { SavedView, ViewFilters, Issue } from '../../src/core/types.js';
 import { EmptyState } from './EmptyState.js';
 
-/** the right-toolbar filter icon opens the filter menu anchored to itself */
 export function openFilterMenu(e: React.MouseEvent) {
   window.dispatchEvent(new CustomEvent('baseline:focus-filter', { detail: (e.currentTarget as HTMLElement).getBoundingClientRect() }));
 }
 
-/** toggle a status focus filter; cross-team board columns pass every state merged into them */
 function toggleStateFilter(filters: ViewFilters, stateIds: string[]): ViewFilters {
   const on = stateIds.length > 0 && stateIds.every(id => filters.states?.includes(id));
   return { ...filters, states: on ? filters.states!.filter(s => !stateIds.includes(s)) : stateIds };
@@ -26,9 +24,6 @@ function toggleStateFilter(filters: ViewFilters, stateIds: string[]): ViewFilter
 
 export const TEAM_DEFAULT_OPTS: ViewOptions = { ...DEFAULT_VIEW_OPTIONS, filters: {} };
 
-/* ================= shared issue-list page body =================
-   Every issue list (team, my issues, views, project, cycle) is the same thing: filter
-   pills over a list or board, with display options. ⌘B switches between list and board. */
 export function useListLayoutToggle(opts: ViewOptions, patch: (p: Partial<ViewOptions>) => void) {
   const ref = useRef(opts.layout);
   ref.current = opts.layout;
@@ -39,7 +34,6 @@ export function useListLayoutToggle(opts: ViewOptions, patch: (p: Partial<ViewOp
   }, []);
 }
 
-/** the right side of a list page's subnav: filter + display buttons */
 export function ListToolbar(props: { opts: ViewOptions; onDisplay: (e: React.MouseEvent) => void }) {
   const n = activeFilterCount(props.opts.filters);
   return (
@@ -65,9 +59,7 @@ export function IssueListBody(props: {
   emptyHidden?: boolean;
   createDefaults?: { projectId?: string | null; cycleId?: string | null };
   onFocusStatus?: (stateId: string) => void;
-  /** "Save" in the filter bar: omit where a view can't be saved (a view saves itself) */
   onSaveView?: (() => void) | null;
-  /** a saved view: its filters are the point, so don't count what they hide as a problem */
   savedView?: boolean;
 }) {
   const snap = useApp(s => s.snap)!;
@@ -80,7 +72,6 @@ export function IssueListBody(props: {
     navigate(`/views/${view.id}`, { state: { rename: true } });
   });
   useEffect(() => {
-    // ⌥V: save what's on screen as a view
     const onSave = (e: Event) => { if (!saveView) return; e.preventDefault(); void saveView(); };
     window.addEventListener('baseline:save-view', onSave);
     return () => window.removeEventListener('baseline:save-view', onSave);
@@ -113,7 +104,6 @@ export function IssueListBody(props: {
             hideFilterFooter={props.savedView}
           />
         ) : boardIssues.length === 0 && Object.keys(opts.filters ?? {}).length > 0 && props.issues.length > 0 ? (
-          // the list says "N hidden by filters"; a board filtered to nothing used to look empty
           <EmptyState kind="filtered" word="No matches" illo="issues" title="No matching issues" desc="No issues match the current filters."
             actions={<button className="btn secondary" onClick={() => patch({ filters: {} })}>Clear filters</button>} />
         ) : (
@@ -135,7 +125,6 @@ export function IssueListBody(props: {
   );
 }
 
-/* ================= team issues page ================= */
 export function TeamPage() {
   const { teamKey = '', filter = 'all' } = useParams();
   const snap = useApp(s => s.snap)!;
@@ -185,8 +174,6 @@ function teamStates(states: Array<{ id: string; teamId: string; type: string }>,
   return states.filter(s => s.teamId === teamId && types.includes(s.type)).map(s => s.id);
 }
 
-/** A stale team route (pre-reset URL left in the tab, an old localStorage key) should
- *  fall back to the first team instead of stopping at "Team not found". */
 export function TeamMissingRedirect() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -194,8 +181,6 @@ export function TeamMissingRedirect() {
   return null;
 }
 
-/** team selector + All/Active/Backlog/Cycles tabs shared by the team issues page and the cycles page */
-/** the team bell: which team events reach your inbox (Linear's three options) */
 function TeamBell({ teamId }: { teamId: string }) {
   const snap = useApp(s => s.snap)!;
   const menu = useMenu();
@@ -259,13 +244,11 @@ export function TeamSubnav(props: { teamId: string; filter: 'all' | 'active' | '
   );
 }
 
-/** local-timezone label for a YYYY-MM-DD input value (shortDate parses it as UTC and can shift a day) */
 export function dateLabel(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-/* ================= my issues ================= */
 type MyTab = 'assigned' | 'created' | 'subscribed' | 'activity';
 export function MyIssuesPage() {
   const { tab: rawTab } = useParams();
@@ -276,7 +259,6 @@ export function MyIssuesPage() {
   const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:my-issues:${tab}`, { ...TEAM_DEFAULT_OPTS, showTriage: true });
   const displayBtn = useMenu();
   const setup = useSetupPanel();
-  // without a team of your own there is no team issues view to hold the setup panel
   const setupHere = setup.shown && !snap.teams.some(t => t.memberIds.includes(me.id));
 
   const issues = useMemo(() => {
@@ -315,12 +297,10 @@ export function MyIssuesPage() {
   );
 }
 
-/** everything you did, newest first, grouped by day, like Linear's My issues › Activity */
 function MyActivity() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const me = snap.currentUser.id;
-  // a comment you deleted no longer counts as something you did
   const liveComments = new Set(snap.comments.map(c => c.id));
   const items = snap.activity.filter(a => a.userId === me && a.issueId && !(a.type === 'commented' && typeof a.data?.commentId === 'string' && !liveComments.has(a.data.commentId))).slice(0, 300);
   const issueOf = (id: string | null) => snap.issues.find(i => i.id === id);
@@ -381,13 +361,10 @@ function MyActivity() {
   );
 }
 
-/* ================= views ================= */
 export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'projects' } = {}) {
   const { teamKey } = useParams();
   const snapAll = useApp(s => s.snap)!;
   const team = teamKey ? snapAll.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase()) : undefined;
-  // a team's Views page lists only that team's views; the workspace page lists them all.
-  // Issues and Projects views sit on their own tabs, as in Linear
   const snap = { ...snapAll, views: snapAll.views.filter(v => v.kind === kind && (!team || v.teamId === team.id)) };
   const base = team ? `/team/${team.key}/views` : '/views';
   const navigate = useNavigate();
@@ -400,7 +377,6 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
   // select after mount, because the caret's default placement undoes a focus-event select()
   useEffect(() => { if (renaming) renameRef.current?.select(); }, [renaming]);
 
-  // each active filter becomes one chip: what it filters on, and the values
   const describe = (filters: ViewFilters): Array<[string, string]> => {
     const bits: Array<[string, string]> = [];
     if (filters.query) bits.push(['Text', `“${filters.query}”`]);
@@ -417,7 +393,6 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
   };
   const live = snap.issues.filter(i => !i.archivedAt && !i.deletedAt);
 
-  // one rename settles once: Enter saves, Esc cancels, and the blur that follows either is ignored
   const renameSettled = useRef<string | null>(null);
   const finishRename = async (id: string, old: string, keep: boolean) => {
     if (renameSettled.current === id) return;
@@ -431,7 +406,6 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
       ? { name: 'New view', kind: 'projects', projectOptions: {}, filters: {}, icon: '📁', teamId: team?.id ?? null }
       : { name: 'New view', filters: {}, icon: '🗂', teamId: team?.id ?? null });
     await useApp.getState().bootstrap();
-    // open the new view with its name selected, since naming it is the likely next step
     navigate(`/views/${view.id}`, { state: { rename: true } });
   });
 
@@ -499,7 +473,6 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
         <Menu anchor={rowMenu.anchor} onClose={() => { rowMenu.close(); setMenuView(null); }}>
           {(faved => <MenuItem icon={<IconStar size={14} filled={faved} />} label={faved ? 'Unfavorite' : 'Favorite'} onClick={async () => { await api.toggleFavorite('view', menuView); await useApp.getState().bootstrap(); }} />)(snap.favorites.some(f => f.type === 'view' && f.refId === menuView))}
           {(() => {
-            // only whoever saved a view decides who sees it (and only where there's more than one person)
             const v = snap.views.find(x => x.id === menuView);
             if (!v || snap.workspace.auth !== 'hosted' || v.ownerId !== snap.currentUser.id) return null;
             return <MenuItem label={v.shared ? 'Make personal' : 'Share with workspace'} onClick={async () => {
@@ -526,7 +499,6 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
   );
 }
 
-/** the view's name rendered as the subnav tab. Click it (or arrive from "New view") to rename in place */
 export function ViewNameSeg(props: { view: SavedView; startEditing?: boolean }) {
   const [editing, setEditing] = useState(props.startEditing ?? false);
   const [name, setName] = useState(props.view.name);
@@ -534,7 +506,6 @@ export function ViewNameSeg(props: { view: SavedView; startEditing?: boolean }) 
   useEffect(() => { setName(props.view.name); }, [props.view.name]);
   // select after mount, because the caret's default placement undoes a focus-event select()
   useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
-  // Enter or Esc settles the edit; the blur that follows the input's removal must not save again
   const settled = useRef(false);
   const save = async () => {
     if (settled.current) return;
@@ -620,7 +591,6 @@ function IssueViewPage() {
   );
 }
 
-/* ================= label page (O then L) and profile page (O then U), as in Linear ================= */
 export function LabelPage() {
   const { labelId = '' } = useParams();
   const snap = useApp(s => s.snap)!;
@@ -669,7 +639,6 @@ export function ProfilePage() {
           {snap.users.map(u => <MenuItem key={u.id} icon={<Avatar user={u} size={16} />} label={u.name} selected={u.id === user.id} onClick={() => { switcher.close(); navigate(`/profiles/${u.id}/${tab}`); }} />)}
         </Menu>
       )}
-      {/* who this is, before their issues: a profile with only a list didn't say whose it was */}
       <div className="profile-head">
         <Avatar user={user} size={40} />
         <div className="profile-id">
@@ -690,7 +659,6 @@ export function ProfilePage() {
         <span style={{ flex: 1 }} />
         <ListToolbar opts={opts} onDisplay={displayBtn.open} />
       </div>
-      {/* on Assigned every row's assignee is this person, so that column only repeats the header */}
       <IssueListBody issues={issues} opts={tab === 'assigned' ? { ...opts, display: { ...opts.display, assignee: false } } : opts} patch={patch} reset={reset} multiTeam
         displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close}
         emptyTitle={tab === 'created' ? `No issues created by ${user.name}` : `No issues assigned to ${user.name}`} emptyDesc="" emptyHideCreate />

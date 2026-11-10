@@ -1,18 +1,3 @@
-// The mark: a rule with a node cut out of it, the datum that work is measured against.
-// The node is knocked out of the rule (a paper-coloured gap), never stroked on top.
-// Two cuts, not one scaled mark: >=24px keeps the register line and the 7.6 radius;
-// <24px drops the register line, thickens the rule 1.9 -> 2.6 and tightens radius to 6.4.
-// The small cut also opens the gap wider than a scaled-down large cut would (1.8 grid
-// units, not 1.2) and centres the node at 14 rather than 12.6: at 16px a 1.2-unit gap
-// lands on 0.6 device px and greys out, and a node further left leaves a rule stub too
-// short to read. Every part of the small cut is >= 1 device px at 16. The tab bar uses
-// this cut, so it must stay legible there.
-// Grounds stay flat at any size, with no gradient, sheen or glow.
-
-// tone: 'theme' (default) follows the UI theme through the --logo-* tokens in styles.css:
-// the paper cut on dark chrome, the ink cut on light chrome, so the tile always contrasts
-// with the surface it sits on. 'ink' and 'paper' pin a cut for surfaces that ignore the
-// theme (print, export cards).
 import { useId } from 'react';
 
 type Tone = 'theme' | 'ink' | 'paper';
@@ -45,9 +30,6 @@ export function Logo({ size = 18, tone = 'theme' }: { size?: number; tone?: Tone
           <circle className="lg-node" cx={nodeCx} cy={cy} r={gapR} fill="#000" />
         </mask>
       </defs>
-      {/* the paper cut inverts only the ground. Geometry, register line and the
-          knocked-out gap are identical; it is for ink-on-paper surfaces (print,
-          export cards, a light marketing ground) */}
       <rect width="32" height="32" rx={small ? 6.4 : 7.6} style={{ fill: t.ground }} />
       {!small && (
         <>

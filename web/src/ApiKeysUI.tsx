@@ -34,7 +34,6 @@ function KeyRow({ k, owner, onRevoke }: { k: ApiKey; owner?: boolean; onRevoke: 
   );
 }
 
-/** change your own password (hosted). Someone who only signs in with Google has none to change. */
 function PasswordSection() {
   const toast = useApp(s => s.toast);
   const [hasPassword, setHasPassword] = useState<boolean | null>(null);
@@ -76,7 +75,6 @@ function PasswordSection() {
   );
 }
 
-/* ================= Settings › Account & API keys ================= */
 export function SecuritySettings() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -108,7 +106,6 @@ export function SecuritySettings() {
   );
 }
 
-/* ================= Settings › Account & API keys › Create API key ================= */
 export function NewApiKey() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -121,7 +118,6 @@ export function NewApiKey() {
   const [created, setCreated] = useState<{ key: ApiKey; token: string } | null>(null);
   const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter(x => x !== v) : [...list, v]);
   const valid = name.trim() && (!limitScopes || scopes.length) && (!limitTeams || teamIds.length);
-  // a second create would mint a second live key and overwrite the first one's token, which is shown only once
   const { busy, guard } = useInFlight();
   const create = guard(async () => {
     if (!valid) return;
@@ -181,7 +177,6 @@ export function NewApiKey() {
   );
 }
 
-/* ================= Settings › Administration › API ================= */
 export function ApiAdminSettings() {
   const snap = useApp(s => s.snap)!;
   const f = snap.workspace.features;

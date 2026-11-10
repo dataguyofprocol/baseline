@@ -1,6 +1,3 @@
-/* Empty-state illustrations in Linear's style: thin ink line art where every object is a "slab".
-   The outline is drawn twice, the copy below in a lighter ink, so flat shapes look like thick tiles.
-   Colors come from --illo-ink / --illo-shade / --illo-fill, so both themes work. */
 
 export type IllustrationName =
   | 'initiatives' | 'views' | 'projects' | 'issues' | 'inbox' | 'cycles' | 'updates' | 'search'
@@ -11,7 +8,6 @@ const SHADE = 'var(--illo-shade)';
 const FILL = 'var(--illo-fill)';
 const line = { stroke: INK, strokeWidth: 1.5, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, fill: 'none' };
 
-/** a rounded rectangle with depth */
 function Slab({ x, y, w, h, r = 6, d = 4 }: { x: number; y: number; w: number; h: number; r?: number; d?: number }) {
   return (
     <>
@@ -20,7 +16,6 @@ function Slab({ x, y, w, h, r = 6, d = 4 }: { x: number; y: number; w: number; h
     </>
   );
 }
-/** any path, with depth */
 function Solid({ d, depth = 4 }: { d: string; depth?: number }) {
   return (
     <>

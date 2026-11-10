@@ -1,9 +1,3 @@
-// Inline sub-issue composer on the issue page: a card that opens in place under the sub-issue list,
-// pre-filled from the parent (team, priority, assignee, cycle, project). Enter creates and keeps the
-// card open for the next one, so breaking an issue down is one keystroke per piece.
-// It is the one way to start a sub-issue: ⌘⇧O, the + under the description, the sub-issues card's +
-// and a row's "Sub-issue…" all open it (startSubIssue), so every path gives the same defaults.
-
 import { useEffect, useRef, useState } from 'react';
 import { useApp, shortDate } from './store.js';
 import { api } from './api.js';
@@ -16,9 +10,7 @@ import type { Issue, Priority } from '../../src/core/types.js';
 const PRIORITIES: Array<[Priority, string]> = [[0, 'No priority'], [1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low']];
 
 const START = 'baseline:start-sub-issue';
-/** the parent whose composer should open once its page shows (a request made from a list, or before the page mounted) */
 let pending: string | null = null;
-/** open the sub-issue composer under `parent`: on its page if that's showing (page or peek), else go there first */
 export function startSubIssue(parent: Issue): void {
   pending = parent.id;
   window.dispatchEvent(new Event(START));
@@ -26,7 +18,6 @@ export function startSubIssue(parent: Issue): void {
   const key = `${useApp.getState().snap?.teams.find(t => t.id === parent.teamId)?.key}-${parent.number}`;
   location.hash = `#/issue/${key}`;
 }
-/** SubIssuesSection: opens its composer when a request for this parent comes in */
 export function useSubIssueRequests(parentId: string, open: () => void): void {
   useEffect(() => {
     const take = () => { if (pending === parentId) { pending = null; open(); } };
@@ -52,12 +43,9 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [cycleId, setCycleId] = useState<string | null>(parent.cycleId);
   const [projectId, setProjectId] = useState<string | null>(parent.projectId);
-  // one location per task: until you pick one, a sub-task starts in its parent's location
-  // (the server's default, shown here but never sent)
   const [pickedLocation, setPickedLocation] = useState<{ id: string | null } | null>(null);
   const setLocationId = (id: string | null) => setPickedLocation({ id });
   const [dueDate, setDueDate] = useState<string | null>(null);
-  // the main modal's guard: a double Enter in one tick files one issue, not two
   const { busy, guard } = useInFlight();
   const titleRef = useRef<HTMLInputElement>(null);
   const descRef = useRef<HTMLTextAreaElement>(null);
@@ -96,7 +84,6 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
       });
       await useApp.getState().bootstrap();
       useApp.getState().toast({ title: 'Sub-issue created', line: <>{team.key}-{issue.number} — {issue.title}</> });
-      // stay open for the next piece; properties carry over, the text doesn't
       setTitle('');
       setDescription('');
       titleRef.current?.focus();
@@ -131,7 +118,6 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
           {assignee ? <Avatar user={assignee} size={16} /> : <IconUser size={13} />}
           <span className="chip-text">{assignee?.name ?? 'Assignee'}</span>
         </button>
-        {/* estimates and cycles only for a workspace that turned them on (Settings › Features), as in the create modal */}
         {(estimate != null || (snap.workspace.features.estimatesEnabled && team.estimateScale !== 'none')) && <button className={`prop-chip${estimate != null ? ' set' : ''}`} onClick={est.open}>
           <IconEstimate size={13} /><span className="chip-text">{estimate != null ? `${estimate} point${estimate !== 1 ? 's' : ''}` : 'Estimate'}</span>
         </button>}
@@ -216,7 +202,6 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
         <Menu anchor={lbl.anchor} onClose={lbl.close} width={224}>
           <div className="menu-header"><span>Add labels…</span></div>
           {teamLabels.length === 0 && <div className="menu-header"><span>No labels in {team.name}</span></div>}
-          {/* raw rows so toggling keeps the menu open */}
           {teamLabels.map(l => (
             <button key={l.id} className="menu-item" onClick={() => setLabelIds(prev => prev.includes(l.id) ? prev.filter(x => x !== l.id) : [...prev, l.id])}>
               <span className="mi-icon"><span className="label-dot" style={{ background: l.color }} /></span>
@@ -251,7 +236,6 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
           {morePhase === 'root' && (
             <>
               <div className="menu-header"><span>More properties</span></div>
-              {/* raw rows: MenuItem would close the menu before the next phase renders */}
               <button className="menu-item" onClick={() => setMorePhase('project')}>
                 <span className="mi-icon"><IconBox size={14} /></span><span className="mi-label">{project ? project.name : 'Add to project…'}</span>
               </button>

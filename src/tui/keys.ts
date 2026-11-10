@@ -1,5 +1,3 @@
-// Every key the TUI answers to, in one table. Input dispatch, the footer, the space menu and the ? card
-// all read it, so a binding exists in exactly one place.
 import type { Key } from 'ink';
 import { isListRoute } from './model.js';
 import { agentAsk } from './today.js';
@@ -22,34 +20,24 @@ export type CommandId =
   | 'composeNext' | 'composePrev' | 'composeCycleNext' | 'composeCyclePrev'
   | 'sheetPick' | 'sheetToggle' | 'sheetRerun' | 'sheetEditor' | 'sheetCopy';
 
-/** the ? card's sections: keys by what you are trying to do, not by where you are */
 export type Task = 'Move around' | 'Decide' | 'Change an issue' | 'Agents and copying' | 'Find and views' | 'Overlay';
 
 export interface Binding {
-  /** key names as keyName() spells them */
   keys: string[];
-  /** how the key reads in the footer and the help card (default: the keys joined) */
   display?: string;
   label: string;
   when: Context[];
   command: CommandId;
   group: Task;
-  /** shown in the footer for its contexts */
   hint?: boolean;
-  /** the footer's shorter label */
   short?: string;
-  /** the help card shows it through the row above (k of j/k) */
   partner?: boolean;
-  /** contexts whose footer leaves it out although it works there */
   hideIn?: Context[];
-  /** the footer shows it only in these contexts */
   hintOnly?: Context[];
 }
 
 const NAV: Context[] = ['today', 'list'];
-/** where page keys work: a list moves its cursor, the issue page scrolls its text */
 const PAGED: Context[] = [...NAV, 'detail'];
-/** where there is an issue to act on: the row under the cursor, or the open issue */
 const ISSUE: Context[] = ['today', 'list', 'detail'];
 const EVERYWHERE: Context[] = ['global', 'boot', 'menu', 'picker', 'multipicker', 'finder', 'compose', 'help', 'sheet'];
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
@@ -101,7 +89,6 @@ export const BINDINGS: Binding[] = [
 
   { keys: ['down'], display: '↑↓', label: 'choose', when: ['menu'], command: 'overlayDown', group: 'Overlay', hint: true },
   { keys: ['up'], label: 'up', when: ['menu'], command: 'overlayUp', group: 'Overlay', partner: true },
-  // / keeps Home/End (and ctrl-d/ctrl-u) for its caret; the picker never draws one, so its list takes them
   { keys: ['pagedown'], label: 'page', when: ['menu', 'picker', 'finder', 'help', 'sheet-list'], command: 'overlayPageDown', group: 'Overlay' },
   { keys: ['pageup'], label: 'page up', when: ['menu', 'picker', 'finder', 'help', 'sheet-list'], command: 'overlayPageUp', group: 'Overlay', partner: true },
   { keys: ['home'], label: 'first', when: ['menu', 'picker', 'help', 'sheet-list'], command: 'overlayTop', group: 'Overlay' },
@@ -126,7 +113,6 @@ export const BINDINGS: Binding[] = [
   { keys: ['enter'], label: 'save', when: ['compose'], command: 'overlayAccept', group: 'Overlay', hint: true },
   { keys: ['esc'], label: 'cancel', when: ['compose'], command: 'overlayCancel', group: 'Overlay', hint: true },
 
-  // sheets: what rises from the bottom; esc always closes one without saving
   { keys: ['down', 'j', 'ctrl+n'], display: '↑↓', label: 'choose', when: ['sheet-list', 'sheet-start'], command: 'overlayDown', group: 'Overlay', hint: true },
   { keys: ['up', 'k', 'ctrl+p'], label: 'up', when: ['sheet-list', 'sheet-start'], command: 'overlayUp', group: 'Overlay', partner: true },
   { keys: ['1', '2', '3', '4'], display: '1-4', label: 'start that way', when: ['sheet-start'], command: 'sheetPick', group: 'Overlay' },
@@ -142,7 +128,6 @@ export const BINDINGS: Binding[] = [
   { keys: ['enter', 'esc', '?', 'q'], display: 'enter', label: 'close', when: ['help'], command: 'overlayCancel', group: 'Overlay', hint: true },
 ];
 
-/** the binding that runs `command` from a list, whose key the space menu and the help card show */
 export const directBinding = (command: CommandId): Binding | undefined => BINDINGS.find(b => b.command === command && (b.when.includes('today') || b.when.includes('list') || b.when.includes('global')));
 
 export function keyName(input: string, key: Key): string {
@@ -165,8 +150,6 @@ export function keyName(input: string, key: Key): string {
   return input;
 }
 
-/** the contexts active right now, most specific first; the first binding found in that order wins.
- *  `review`, `blocked`: the issue page of an issue an agent finished or got stuck on, whose footer is the decision keys */
 export function contextsFor(s: Pick<TuiState, 'status' | 'data' | 'overlay' | 'route'> & Partial<Pick<TuiState, 'threads'>>): Context[] {
   if (!s.data) return ['boot'];
   const o = s.overlay;
@@ -198,7 +181,6 @@ export function contextsFor(s: Pick<TuiState, 'status' | 'data' | 'overlay' | 'r
 export const baseContext = (r: TuiState['route']): Context =>
   r.kind === 'today' ? 'today' : isListRoute(r) ? 'list' : 'detail';
 
-/** whether the active overlay has a text field that takes keys no binding claimed */
 export const takesText = (s: Pick<TuiState, 'overlay'>) =>
   s.overlay.kind === 'find' || s.overlay.kind === 'picker' ||
   (s.overlay.kind === 'compose' && (s.overlay.target !== 'issue' || s.overlay.field === 'title')) ||
@@ -215,7 +197,6 @@ export function lookup(contexts: readonly Context[], name: string): Binding | un
 const pretty = (k: string) => k.replace(/^ctrl\+/, 'ctrl-').replace(/^shift\+/, 'shift-').replace(/^meta\+/, 'alt-');
 export const keyLabel = (b: Binding) => b.display ?? b.keys.filter(k => !['down', 'up', 'ctrl+n', 'ctrl+p'].includes(k) || b.keys.length === 1).map(pretty).join('/');
 
-/** footer hints for the active contexts, in table order, one per command */
 export function hintsFor(contexts: readonly Context[]): Array<{ key: string; label: string }> {
   const seen = new Set<string>();
   const out: Array<{ key: string; label: string }> = [];

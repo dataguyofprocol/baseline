@@ -1,4 +1,3 @@
-// Custom 15px-class icon set drawn in a light 1.5px stroke style.
 import type { CSSProperties } from 'react';
 
 type P = { size?: number; className?: string; style?: CSSProperties };
@@ -9,7 +8,6 @@ const S = ({ size = 15, className, style, children }: P & { children: React.Reac
 );
 const stroke = { stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, fill: 'none' };
 
-/* ---------- workflow state glyphs ---------- */
 export const StatusBacklog = (p: P) => (
   <S {...p}><circle cx="7.5" cy="7.5" r="5.4" stroke="currentColor" strokeWidth="1.4" strokeDasharray="2.4 2.1" fill="none" strokeLinecap="round" /></S>
 );
@@ -38,7 +36,6 @@ export const StatusCanceled = (p: P) => (
   </S>
 );
 
-/* ---------- priority glyphs ---------- */
 export const PrioNone = (p: P) => (
   <S {...p}>
     <circle cx="3.4" cy="7.5" r="0.9" fill="currentColor" />
@@ -57,7 +54,6 @@ export const PrioHigh = (p: P) => <S {...p}>{bar(2.7, 9.6)}{bar(6.3, 6.4)}{bar(9
 export const PrioMedium = (p: P) => <S {...p}>{bar(2.7, 9.6)}{bar(6.3, 6.4)}<rect x="9.9" y="9.2" width="2.4" height="3" rx="1" fill="currentColor" opacity="0.35" /></S>;
 export const PrioLow = (p: P) => <S {...p}>{bar(2.7, 9.6)}<rect x="6.3" y="9.2" width="2.4" height="3" rx="1" fill="currentColor" opacity="0.35" /><rect x="9.9" y="9.2" width="2.4" height="3" rx="1" fill="currentColor" opacity="0.35" /></S>;
 
-/* ---------- ui icons ---------- */
 export const IconInbox = (p: P) => <S {...p}><path d="M2.2 8.2h3l1 1.8h2.6l1-1.8h3" {...stroke} /><path d="M3.4 3.4h8.2l1.2 4.8v3.4H2.2V8.2l1.2-4.8Z" {...stroke} /></S>;
 export const IconMyIssues = (p: P) => <S {...p}><path d="M3.2 3.6c2.9-1.4 5.7-1.4 8.6 0v7.8c-2.9-1.4-5.7-1.4-8.6 0V3.6Z" {...stroke} /><path d="M3.2 3.6v7.8" {...stroke} /></S>;
 export const IconBox = (p: P) => <S {...p}><path d="M7.5 2.2 13 5.2v4.6l-5.5 3L2 9.8V5.2l5.5-3Z" {...stroke} /><path d="M2.3 5.4 7.5 8.2l5.2-2.8M7.5 8.2v4.6" {...stroke} /></S>;
@@ -70,7 +66,6 @@ export const IconPlus = (p: P) => <S {...p}><path d="M7.5 3v9M3 7.5h9" {...strok
 export const IconNew = (p: P) => <S {...p}><path d="M9.2 2.9l2.9 2.9-6.6 6.6H2.6V9.5l6.6-6.6Z" {...stroke} /></S>;
 export const IconSettings = (p: P) => (
   <S {...p}>
-    {/* Feather-style gear, scaled from a 24px grid into the 15px house grid */}
     <g transform="translate(7.5 7.5) scale(0.6) translate(-12 -12)">
       <circle cx="12" cy="12" r="3" {...stroke} strokeWidth={2.3} />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" {...stroke} strokeWidth={2.3} />
@@ -104,7 +99,6 @@ export const IconDoc = (p: P) => <S {...p}><path d="M3.6 2.4h5.2L12 5.6v7H3.6v-1
 export const IconTarget = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.2" {...stroke} /><circle cx="7.5" cy="7.5" r="2.2" {...stroke} /><circle cx="7.5" cy="7.5" r="0.7" fill="currentColor" /></S>;
 export const IconTag = (p: P) => <S {...p}><path d="M8.2 2.6H12.4v4.2l-6 6a1.7 1.7 0 0 1-2.4 0L2.6 11.4a1.7 1.7 0 0 1 0-2.4l5.6-6.4Z" {...stroke} /><circle cx="9.6" cy="5.4" r="1" fill="currentColor" /></S>;
 
-/* ---------- additions for full feature coverage ---------- */
 export const IconComment = (p: P) => <S {...p}><path d="M12.4 9.4a1.8 1.8 0 0 1-1.8 1.8H5.4L2.6 13.4V4.4a1.8 1.8 0 0 1 1.8-1.8h6.2a1.8 1.8 0 0 1 1.8 1.8v5Z" {...stroke} /></S>;
 export const IconMention = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.2" {...stroke} /><circle cx="7.5" cy="7.5" r="2" {...stroke} /><path d="M9.5 7.5c0 1.4.6 2.1 1.5 2.1 1 0 1.7-.9 1.7-2.1a5.2 5.2 0 1 0-2 4.1" {...stroke} /></S>;
 export const IconAssignArrow = (p: P) => <S {...p}><path d="M2.8 7.5h9M8.4 4.2l3.3 3.3-3.3 3.3" {...stroke} /></S>;
@@ -122,14 +116,10 @@ export const IconEstimate = (p: P) => <S {...p}><path d="M7.5 2.4 12.9 12H2.1z" 
 export const IconSubIssue = (p: P) => <S {...p}><path d="M3.4 2.8v7a2 2 0 0 0 2 2h6.2" {...stroke} /><circle cx="3.4" cy="3.4" r="1" fill="currentColor" /></S>;
 export const IconEdit = (p: P) => <S {...p}><path d="M8.9 3.2l2.9 2.9-6.4 6.4-3.3.4.4-3.3 6.4-6.4Z" {...stroke} /></S>;
 export const IconFocus = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.2" {...stroke} /><circle cx="7.5" cy="7.5" r="1.6" fill="currentColor" /></S>;
-/* Agents read as a shell prompt: chevron + caret, no chrome around it. The boxed
-   terminal turns to mush under 16px and fights every other outline icon. */
 export const IconAgent = (p: P) => <S {...p}><path d="m4.4 5 2.6 2.5-2.6 2.5" {...stroke} /><path d="M8.6 10.2h2.6" {...stroke} /></S>;
 export const IconHelp = (p: P) => <S {...p}><circle cx="7.5" cy="7.5" r="5.6" {...stroke} /><path d="M5.9 5.9a1.7 1.7 0 0 1 3.3.5c0 1.1-1.7 1.4-1.7 2.4" {...stroke} /><circle cx="7.5" cy="10.7" r=".45" fill="currentColor" /></S>;
 export const IconCaret = (p: P) => <S {...p}><path d="M4.6 6.2h5.8L7.5 9.4z" fill="currentColor" /></S>;
 export const IconFolder = (p: P) => <S {...p}><path d="M2.2 4.4c0-.8.6-1.4 1.4-1.4h2.3l1.4 1.5h4.1c.8 0 1.4.6 1.4 1.4v5c0 .8-.6 1.4-1.4 1.4H3.6c-.8 0-1.4-.6-1.4-1.4z" {...stroke} /></S>;
-/* Claude Code's mark: a warm-orange burst of tapered rays with uneven lengths.
-   Drawn here (not a bundled asset) so it scales with the icon set. */
 const SPARK_RAYS = [6.5, 5.3, 6.2, 5.0, 6.6, 5.4, 6.1, 5.1, 6.5, 5.2, 6.3, 5.5].map((len, i) => {
   const a = ((i * 30 - 90 + (i % 2 ? 4 : 0)) * Math.PI) / 180;
   const n = a + Math.PI / 2;
@@ -137,7 +127,6 @@ const SPARK_RAYS = [6.5, 5.3, 6.2, 5.0, 6.6, 5.4, 6.1, 5.1, 6.5, 5.2, 6.3, 5.5].
   const x = (r: number, w: number, sgn: number) => (7.5 + Math.cos(a) * r + Math.cos(n) * w * sgn).toFixed(2);
   const y = (r: number, w: number, sgn: number) => (7.5 + Math.sin(a) * r + Math.sin(n) * w * sgn).toFixed(2);
   const tipX = (7.5 + Math.cos(a) * (len + w1)).toFixed(2), tipY = (7.5 + Math.sin(a) * (len + w1)).toFixed(2);
-  // a tapered ray with a rounded tip
   return `M${x(r0, w0, 1)} ${y(r0, w0, 1)} L${x(len, w1, 1)} ${y(len, w1, 1)} Q${tipX} ${tipY} ${x(len, w1, -1)} ${y(len, w1, -1)} L${x(r0, w0, -1)} ${y(r0, w0, -1)} Z`;
 }).join(' ');
 export const CLAUDE_ORANGE = '#d97757';
@@ -147,11 +136,9 @@ export const IconClaude = (p: P & { color?: string }) => (
 export const IconSpark = IconClaude;
 export const IconTools = (p: P) => <S {...p}><rect x="2.2" y="2.2" width="4.4" height="4.4" rx="1.2" {...stroke} /><rect x="8.4" y="2.2" width="4.4" height="4.4" rx="1.2" {...stroke} /><rect x="2.2" y="8.4" width="4.4" height="4.4" rx="1.2" {...stroke} /><path d="M10.6 8.6v4M8.6 10.6h4" {...stroke} /></S>;
 export const IconCopyId = (p: P) => <S {...p}><path d="M4.6 2.4h5.6c1.3 0 2.4 1.1 2.4 2.4v5.6" {...stroke} /><rect x="2.2" y="4.6" width="8.2" height="8.2" rx="1.9" {...stroke} /><path d="M4.7 7.1v3.2M6.5 7.1v3.2h.6a1.6 1.6 0 0 0 0-3.2z" {...stroke} /></S>;
-/* lines of a brief with a pointer: "hand this to an agent" */
 export const IconHandoff = (p: P) => <S {...p}><path d="M2.4 3.8h8M2.4 6.6h5M2.4 9.4h3" {...stroke} /><path d="m8 7.8 5 1.9-2.2.8-.8 2.2z" {...stroke} /></S>;
 export const IconBranch = (p: P) => <S {...p}><circle cx="4.5" cy="3.4" r="1.5" {...stroke} /><circle cx="4.5" cy="11.6" r="1.5" {...stroke} /><circle cx="10.9" cy="5.3" r="1.5" {...stroke} /><path d="M4.5 4.9v5.2" {...stroke} /><path d="M10.9 6.8v.3a4.3 4.3 0 0 1-4.3 4.3h-.4" {...stroke} /></S>;
 
-/* ---------- added for triage, milestones, threads, snooze, attachments ---------- */
 export const StatusTriage = (p: P) => (
   <S {...p}>
     <circle cx="7.5" cy="7.5" r="5.4" {...stroke} />
@@ -197,11 +184,9 @@ export const IconTriage = (p: P) => (
 export const IconUpdates = (p: P) => <S {...p}><path d="M1.8 7.6h2.6l1.6-4 2.6 7.6 1.7-3.6h3" {...stroke} /></S>;
 export const IconDrafts = (p: P) => <S {...p}><path d="M3 2.6h6.4l2.6 2.6v7.2H3z" {...stroke} /><path d="M5.2 7h4.6M5.2 9.4h3" {...stroke} /></S>;
 export const IconMembers = (p: P) => <S {...p}><circle cx="5.6" cy="5.4" r="2" {...stroke} /><path d="M2 12c.5-2 2-3 3.6-3s3.1 1 3.6 3" {...stroke} /><path d="M9.8 3.6a1.8 1.8 0 1 1 0 3.6M11 9.2c1 .4 1.7 1.3 2 2.6" {...stroke} /></S>;
-/* Linear's initiative mark: an up-pointing arrowhead */
 export const IconInitiative = (p: P) => <S {...p}><path d="M7.5 2.1 12.4 12.3a.4.4 0 0 1-.56.52L7.8 10.7a.6.6 0 0 0-.6 0l-4.04 2.12a.4.4 0 0 1-.56-.52L7.5 2.1Z" {...stroke} /></S>;
 export const IconSla = (p: P) => <S {...p}><circle cx="7.5" cy="8" r="5" {...stroke} /><path d="M7.5 5.2V8l1.9 1.3M6 1.8h3" {...stroke} /></S>;
 export const IconLoop = (p: P) => <S {...p}><path d="M11.8 5.6A4.6 4.6 0 0 0 3.4 5M3.2 9.4a4.6 4.6 0 0 0 8.4.6" {...stroke} /><path d="M11.9 2.8v2.9H9M3.1 12.2V9.3H6" {...stroke} /></S>;
-/** the GitHub mark (filled, its own 16-unit grid): for the GitHub identity and integration */
 export const IconGithub = ({ size = 15, className, style }: P) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" className={className} style={style} aria-hidden="true">
     <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />

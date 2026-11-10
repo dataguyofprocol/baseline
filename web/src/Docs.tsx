@@ -12,8 +12,6 @@ import { TeamMissingRedirect } from './Views.js';
 import { IconDoc, IconLink, IconPlus, IconClose, IconTrash, IconSettings, IconTriage, IconIssues, IconCycle, IconBox, IconViews } from './icons.js';
 import type { Doc } from '../../src/core/types.js';
 
-/* Documents: markdown pages (edited as rich text) that belong to a project or a team, such as
-   specs, briefs and runbooks. They show up as resources next to links. */
 
 export async function newDoc(owner: { projectId?: string; teamId?: string; initiativeId?: string }, navigate: (to: string) => void) {
   const { doc } = await api.createDoc({ ...owner, title: '', content: '' });
@@ -21,7 +19,6 @@ export async function newDoc(owner: { projectId?: string; teamId?: string; initi
   navigate(`/docs/${doc.id}`);
 }
 
-/** Resources: documents and links on a project, team or initiative, with "Add document or link" */
 export function Resources(props: { projectId?: string; teamId?: string; initiativeId?: string; label?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -125,27 +122,23 @@ export function DocumentPage() {
   );
 }
 
-/* ================= team home ================= */
 export function TeamHomePage() {
   const { teamKey = '', tab: rawTab } = useParams();
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const team = snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase());
   const tab = rawTab === 'documents' || rawTab === 'members' ? rawTab : 'overview';
-  // a team's name and description are its settings (admins', hosted)
   const canConfigure = useCanConfigure();
   const [name, setName] = useState(team?.name ?? '');
   useEffect(() => { setName(team?.name ?? ''); }, [team?.id, team?.name]);
   if (!team) return <TeamMissingRedirect />;
   const docs = snap.docs.filter(d => d.teamId === team.id || snap.projects.some(p => p.id === d.projectId && p.teamId === team.id));
-  // the team's roster, the same list Members, Teams and Settings show (not whoever has issues here)
   const members = snap.users.filter(u => team.memberIds.includes(u.id));
   const go = (label: string, icon: React.ReactNode, to: string) => <button className="go-link" onClick={() => navigate(to)}>{icon}{label}</button>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={[{ label: team.name, icon: teamDisplayIcon(team) }]} />
       <div className="subnav">
-        {/* documents are a Settings › Features switch */}
         {(['overview', 'documents', 'members'] as const).filter(t => t !== 'documents' || snap.workspace.features.documentsEnabled).map(t => (
           <button key={t} className={`seg ${tab === t ? 'selected' : ''}`} onClick={() => navigate(`/team/${team.key}/overview${t === 'overview' ? '' : `/${t}`}`)}>
             {t[0].toUpperCase() + t.slice(1)}{tab === t && <RegisterMark group="team-home-tabs" />}

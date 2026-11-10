@@ -1,8 +1,3 @@
-// Hand an issue to a coding agent: the issue toolbar (copy link / ID / branch / prompt, plus the
-// "Open in Claude Code" flyout), the shortcuts behind it, and the location pickers. Every task works
-// in exactly one location, a registered directory that is usually a git repo, and nothing is
-// guessed: an issue with no location asks for one. Launching goes through the local server, so on a hosted
-// workspace, where that server isn't your computer, only the copy actions are offered for now.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -13,16 +8,13 @@ import { nudgeShortcut } from './tips.js';
 import { IconLink, IconCopyId, IconBranch, IconHandoff, IconChevronDown, IconSpark, IconFolder, IconTools, IconPlus, IconCheck, IconClose } from './icons.js';
 import type { Issue, Location } from '../../src/core/types.js';
 
-/** hosted: the server can't open programs or folders on your computer until the companion ships */
 export const hostedWorkspace = () => useApp.getState().snap?.workspace.auth === 'hosted';
 export const COMPANION_NOTE = 'A browser can’t open apps or folders on your computer from a team server. Copy the prompt into Claude Code in your repo instead.';
 
-/** /Users/me/code/app → ~/code/app */
 export function tildify(path: string, home?: string): string {
   return home && (path === home || path.startsWith(home + '/')) ? '~' + path.slice(home.length) : path;
 }
 
-/** an issue's location options: the pinned one, its project's, then every other registered one */
 export function locationChoices(issue: Issue): { pinned?: Location; project: Location[]; projectName?: string; others: Location[] } {
   const snap = useApp.getState().snap!;
   const pinned = snap.locations.find(l => l.id === issue.locationId);
@@ -32,7 +24,6 @@ export function locationChoices(issue: Issue): { pinned?: Location; project: Loc
   return { pinned, project: projectLocs, projectName: project?.name, others };
 }
 
-/** folder picker → registered locations (idempotent by path); `multiple` lets you ⌘-click several */
 export async function pickLocations(prompt: string, multiple = false): Promise<Location[]> {
   const { toast } = useApp.getState();
   if (hostedWorkspace()) { toast({ title: 'Can’t add folders here yet', line: COMPANION_NOTE }); return []; }
@@ -50,7 +41,6 @@ export async function pickLocation(prompt: string): Promise<Location | null> {
   return (await pickLocations(prompt))[0] ?? null;
 }
 
-/** plain function so the palette can use it too; components go through useHandoffActions */
 export function handoffActions(issue: Issue) {
   const { toast, snap } = useApp.getState();
   const key = `${snap?.teams.find(t => t.id === issue.teamId)?.key ?? 'ISS'}-${issue.number}`;
@@ -60,8 +50,6 @@ export function handoffActions(issue: Issue) {
     noClipboard();
     return false;
   };
-  /** Preferences › "On git branch copy / on hand-off, move issue to started status": a backlog or
-   *  unstarted issue moves to the team's first started state and, if unassigned, to you. ⌥ skips it once. */
   const startOn = async (pref: 'startOnBranchCopy' | 'startOnHandoff', skip?: boolean): Promise<React.ReactNode> => {
     const s = useApp.getState();
     if (skip || !s.snap?.workspace.preferences[pref]) return null;
@@ -93,7 +81,6 @@ export function handoffActions(issue: Issue) {
     const body = `# ${key} ${issue.title}\n\nStatus: ${st}\n\n${issue.description}`.trim();
     return copy(body, `Copied ${key} as Markdown`);
   };
-  /** the issue plus its comments, as Linear's "Copy everything as Markdown" */
   const copyEverything = () => {
     const s2 = useApp.getState().snap;
     const st = s2?.states.find(x => x.id === issue.stateId)?.name ?? '';
@@ -116,7 +103,6 @@ export function handoffActions(issue: Issue) {
     const loc = await pickLocation(`Choose where ${key} happens`);
     if (loc) await openInClaude(loc.id);
   };
-  /** the issue's own location, or the one given (which then becomes the issue's), never a guess */
   const openInClaude = async (locationId?: string): Promise<void> => {
     if (hostedWorkspace()) { toast({ title: 'Copy the prompt instead', line: COMPANION_NOTE }); return; }
     const r = await api.openClaude(issue.id, { locationId });
@@ -144,7 +130,6 @@ export function useHandoffActions(issue: Issue): HandoffActions {
   return useMemo(() => handoffActions(issue), [issue]);
 }
 
-/** Linear's chords: ⌘⌥P prompt · ⌘. ID · ⌘⇧. branch · ⌘⇧, link. Capture phase so a focused field can't swallow them. */
 function useHandoffShortcuts(actions: HandoffActions) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -153,7 +138,7 @@ function useHandoffShortcuts(actions: HandoffActions) {
       if (s.paletteOpen || s.createModal.open) return;
       const run = (fn: () => unknown) => { e.preventDefault(); e.stopPropagation(); void fn(); };
       if (e.altKey && e.code === 'KeyP') run(actions.copyPrompt);
-      else if (e.shiftKey && e.code === 'Period') run(() => actions.copyBranch({ skipStart: e.altKey })); // ⌘⌥⇧. copies without moving the issue
+      else if (e.shiftKey && e.code === 'Period') run(() => actions.copyBranch({ skipStart: e.altKey }));
       else if (!e.altKey && e.code === 'Period') run(actions.copyId);
       else if (!e.altKey && e.shiftKey && e.code === 'Comma') run(actions.copyUrl);
       else if (!e.altKey && e.shiftKey && e.code === 'Quote') run(actions.copyTitle);
@@ -173,7 +158,6 @@ function LocationItem(props: { loc: Location; selected?: boolean; onPick: () => 
   );
 }
 
-/** the "Open in Claude Code" flyout body, shared by the toolbar menu and row context menus */
 export function OpenInClaudeItems(props: { issue: Issue; actions: HandoffActions }) {
   const c = locationChoices(props.issue);
   if (hostedWorkspace()) return (
@@ -204,12 +188,11 @@ export function IssueToolbar(props: { issue: Issue }) {
   const menu = useMenu();
   const navigate = useNavigate();
   const pinned = useApp(s => s.snap?.locations.find(l => l.id === props.issue.locationId));
-  // the button that just copied wears a check for a beat, so the answer is where the click was
   const [copied, setCopied] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const copying = (which: string, run: () => Promise<unknown> | unknown) => async () => {
-    if ((await run()) === false) return; // no clipboard: the toast already said so
+    if ((await run()) === false) return;
     setCopied(which);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setCopied(null), 1300);
@@ -240,7 +223,6 @@ export function IssueToolbar(props: { issue: Issue }) {
   );
 }
 
-/** path input + native "Choose…" picker, with a quiet warning when the path doesn't exist */
 export function DirectoryField(props: { value: string; onSave: (dir: string) => void | Promise<void>; placeholder?: string; pickPrompt?: string }) {
   const [draft, setDraft] = useState(props.value);
   const cancelled = useRef(false);
@@ -274,19 +256,15 @@ export function DirectoryField(props: { value: string; onSave: (dir: string) => 
   );
 }
 
-/** issue rail row + picker: the one place this task happens */
 export function IssueLocationRow(props: { issue: Issue; expanded?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const menu = useMenu();
   const navigate = useNavigate();
   const actions = useHandoffActions(props.issue);
   const loc = snap.locations.find(l => l.id === props.issue.locationId);
-  // a location is an agent's concern: ask for one only once someone handed the issue to an agent (an
-  // agent wrote on it); Open in Claude Code asks for itself. Otherwise it waits behind "Add property".
   const stateType = snap.states.find(s => s.id === props.issue.stateId)?.type;
   const hosted = snap.workspace.auth === 'hosted';
   const handed = snap.comments.some(c => c.issueId === props.issue.id && snap.users.find(u => u.id === c.userId)?.kind === 'agent');
-  // hosted: nothing launches from a location yet, so don't ask for one, but existing ones can still be set
   const needs = !hosted && !loc && handed && stateType !== 'completed' && stateType !== 'canceled';
   const c = locationChoices(props.issue);
   if (hosted && !snap.locations.length) return null;
@@ -316,7 +294,6 @@ export function IssueLocationRow(props: { issue: Issue; expanded?: boolean }) {
   );
 }
 
-/** project rail row: the locations this project's work happens in (a location can serve several projects) */
 export function ProjectLocationsRow(props: { project: { id: string; name: string; locationIds: string[] } }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
@@ -325,7 +302,6 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
   const { project } = props;
   const linked = project.locationIds.map(id => snap.locations.find(l => l.id === id)).filter((l): l is Location => !!l);
   const hosted = snap.workspace.auth === 'hosted';
-  // the menu stays open for several toggles, so each one builds on the last toggle, not on props a refresh hasn't caught up with
   const ids = useRef(project.locationIds);
   useEffect(() => { ids.current = project.locationIds; }, [project.locationIds]);
   const save = async (next: string[]) => { ids.current = next; await api.setProjectLocations(project.id, next); await useApp.getState().bootstrap(); };
@@ -349,7 +325,6 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={260}>
           <div className="menu-header"><span>Locations for {project.name}</span></div>
-          {/* raw rows so toggling several keeps the menu open */}
           {snap.locations.map(l => (
             <button key={l.id} className="menu-item" onClick={() => toggle(l.id)}>
               <span className="mi-icon"><IconFolder size={14} /></span>
@@ -358,7 +333,6 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
             </button>
           ))}
           {snap.locations.length > 0 && <MenuSep />}
-          {/* a raw row: the menu stays open, so the new folders show up ticked and you can keep going */}
           {!hosted && <button className="menu-item" onClick={() => void add()}>
             <span className="mi-icon"><IconPlus size={14} /></span><span className="mi-label">Add folders…</span>
           </button>}
@@ -369,13 +343,11 @@ export function ProjectLocationsRow(props: { project: { id: string; name: string
   );
 }
 
-/** Settings: every registered location, with rename, where it's used, and remove */
 export function LocationsSettings() {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
   const home = snap.workspace.homeDir;
   const hosted = snap.workspace.auth === 'hosted';
-  // hosted, locations can't be added, and only admins can rename or remove the ones a moved workspace brought
   const canEdit = !hosted || snap.currentUser.admin;
   const [missing, setMissing] = useState<Record<string, boolean>>({});
   useEffect(() => {

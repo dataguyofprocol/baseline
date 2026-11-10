@@ -1,4 +1,3 @@
-// What the pickers and the new-issue form list. Pure.
 import { PRIORITY_LABELS, type Issue, type Priority } from '../core/types.js';
 import type { TuiData } from './data.js';
 import { fuzzyFilter, type FuzzyMatch, type Seg } from './model.js';
@@ -51,14 +50,11 @@ export function filteredOptions(o: Extract<Overlay, { kind: 'picker' }>, data: T
 
 export const PICKER_TITLE: Record<PickerField, string> = { state: 'Status', priority: 'Priority', assignee: 'Assignee', labels: 'Labels', project: 'Project' };
 
-// ---------- new issue ----------
-
 export function defaultStateId(data: TuiData, teamId: string): string {
   const states = data.states.filter(s => s.teamId === teamId).sort((a, b) => a.position - b.position);
   return (states.find(s => s.type === 'unstarted') ?? states[0])?.id ?? '';
 }
 
-/** a new issue starts where you are: this team or project, assigned to you on Today so it shows up there */
 export function newDraft(s: Pick<TuiState, 'route' | 'stack'>, data: TuiData): IssueDraft {
   const fromRoute = [s.route, ...[...s.stack].reverse()];
   const issueRoute = fromRoute.find(r => r.kind === 'issue');
@@ -101,7 +97,6 @@ export function draftValue(field: Exclude<DraftField, 'title'>, draft: IssueDraf
   }
 }
 
-/** the draft with one field stepped to its next (or previous) value; a new team resets the state */
 export function cycleDraft(field: Exclude<DraftField, 'title'>, draft: IssueDraft, delta: number, data: TuiData): Partial<IssueDraft> {
   const choices = draftChoices(field, draft, data);
   if (!choices.length) return {};

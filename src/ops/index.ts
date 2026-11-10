@@ -1,6 +1,3 @@
-// The one list of agent operations. The `baseline agent` commands, the skill's "Agent loop"
-// block and the parity check are generated from OPERATIONS; the MCP server registers it.
-// Adding a tool means adding an entry here; there is no other place to add one.
 import { z } from 'zod';
 import { issueIndex, ResolveError, resolve, views, type Baseline } from '../client/index.js';
 import { issueKey, PRIORITY_SHORT, type Issue, type Priority, type Snapshot, type Team, type WorkflowStateType } from '../core/types.js';
@@ -32,15 +29,11 @@ const stateName = (snap: Pick<Snapshot, 'states'>, stateId: string) => snap.stat
 const stateType = (snap: Pick<Snapshot, 'states'>, stateId: string): WorkflowStateType | undefined => snap.states.find(s => s.id === stateId)?.type;
 const isOpen = (snap: Pick<Snapshot, 'states'>, i: Issue) => !i.deletedAt && !i.archivedAt && !['completed', 'canceled'].includes(stateType(snap, i.stateId) ?? '');
 const lines = (...xs: Array<string | false | null | undefined>) => xs.filter((x): x is string => !!x).join('\n');
-/** how to undo, in the words of the front door that ran the op: the MCP tool, or the CLI command */
 const receiptLine = (o: { op_id: string | null; attributed_to: string }, surface: Surface) => !o.op_id ? '(nothing changed)'
   : surface === 'mcp' ? `(${o.attributed_to}; to undo, call the undo tool with op_id ${o.op_id})` : `(${o.attributed_to}; undo with: baseline agent undo ${o.op_id})`;
-/** urgent first, no priority last */
 const rank = (p: Priority) => p === 0 ? 5 : p;
 const shortTitle = (t: string) => t.length > 70 ? `${t.slice(0, 67)}…` : t;
 
-/** the team a new issue or a search is about: the one named, else the repo's (from `baseline connect`),
- *  else the person's only team, else the workspace's only team */
 function teamFor(snap: Pick<Snapshot, 'teams' | 'currentUser'>, named: string | undefined, ctx: OpContext): Team {
   if (named) return resolve.resolveTeam(snap, named, { required: true })!;
   const repo = ctx.local?.team ? resolve.resolveTeam(snap, ctx.local.team) : undefined;
@@ -51,7 +44,6 @@ function teamFor(snap: Pick<Snapshot, 'teams' | 'currentUser'>, named: string | 
   throw new OpError('invalid', `Which team? Pass team, one of: ${(mine.length ? mine : snap.teams).map(t => t.key).join(', ')}. (\`baseline connect claude --team KEY\` maps this repo to one.)`);
 }
 
-/** issues that wait on an open issue */
 function blockedIds(snap: Pick<Snapshot, 'relations' | 'issues' | 'states'>): Set<string> {
   const open = new Set(snap.issues.filter(i => isOpen(snap, i)).map(i => i.id));
   const out = new Set<string>();
@@ -62,7 +54,6 @@ function blockedIds(snap: Pick<Snapshot, 'relations' | 'issues' | 'states'>): Se
   return out;
 }
 
-/** git, for the branch start_issue returns: done on this machine when the front door can, else the command */
 async function checkoutFor(ctx: OpContext, branch: string): Promise<Checkout> {
   if (ctx.local) return ctx.local.checkout(branch);
   return { status: 'manual', branch, command: `git checkout -b ${branch}`, note: 'Baseline runs on a server here, so run it in the repo yourself' };
@@ -94,13 +85,9 @@ const rowOf = (snap: Pick<Snapshot, 'teams' | 'states' | 'users'>, i: Issue): z.
   key: issueKey(i, snap.teams), title: i.title, state: stateName(snap, i.stateId), assignee: names(snap)(i.assigneeId), priority: PRIORITY_SHORT[i.priority],
 });
 
-// ---------------------------------------------------------------- reads
 
 export type NextWhy = 'in progress, yours' | 'Todo, yours' | 'current cycle, unassigned';
 
-/** next_issue's ranking, pure, so the terminal UI's Up next shows the same order: the person's issues in
- *  progress, then their Todo by priority, then unassigned issues in their teams' current cycle; issues an
- *  open issue blocks are left out. `teamIds` default: the person's teams (all teams when they're on none). */
 export function rankNextIssues(snap: Pick<Snapshot, 'issues' | 'states' | 'teams' | 'cycles' | 'relations' | 'currentUser'>, opts: { teamIds?: string[]; limit: number; now?: string }): { issues: Array<{ issue: Issue; why: NextWhy }>; blockedSkipped: number } {
   const me = snap.currentUser.id;
   const myTeams = opts.teamIds ?? (() => { const t = snap.teams.filter(x => x.memberIds.includes(me)).map(x => x.id); return t.length ? t : snap.teams.map(x => x.id); })();
@@ -150,7 +137,6 @@ export const nextIssue = defineOp({
 });
 
 const STOP_WORDS = new Set(['the', 'a', 'an', 'and', 'or', 'of', 'to', 'in', 'on', 'for', 'with', 'is', 'it', 'this', 'that', 'bug', 'issue', 'fix', 'please', 'when', 'from', 'by', 'at', 'be', 'we', 'i', 'my']);
-/** "Fix the login-redirect bug" → ["login", "redirect"] */
 export const wordsOf = (q: string) => [...new Set(q.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 1 && !STOP_WORDS.has(w)))];
 
 export const findIssues = defineOp({
@@ -185,7 +171,6 @@ export const findIssues = defineOp({
       const inTitle = words.filter(w => title.includes(w)), inBody = words.filter(w => !title.includes(w) && body.includes(w));
       return { i, matched: [...inTitle, ...inBody], score: inTitle.length * 2 + inBody.length };
     })
-      // half the words at least (all of a one- or two-word query in the title or body)
       .filter(x => x.matched.length >= Math.ceil(words.length / 2))
       .sort((a, b) => b.score - a.score || (isOpen(snap, b.i) ? 1 : 0) - (isOpen(snap, a.i) ? 1 : 0) || b.i.updatedAt.localeCompare(a.i.updatedAt));
     return {
@@ -277,7 +262,6 @@ export const listIssues = defineOp({
     const team = resolve.resolveTeam(snap, input.team, { required: true });
     const project = input.project ? resolve.resolveProject(snap, input.project) : undefined;
     const query = input.query?.trim() || undefined;
-    // a search is about the work, not whose it is: it never quietly narrows to "me"
     const who = (input.assignee ?? (query ? 'any' : 'me')).trim().toLowerCase();
     const assignee = who === 'any' || who === 'none' ? undefined : resolve.resolveUser(snap, who);
     const want = (input.state ?? 'open').trim().toLowerCase();
@@ -307,7 +291,6 @@ export const listIssues = defineOp({
   ),
 });
 
-/** "yesterday" (from its start), "today", "3d", "12h", "1w", or a date */
 export function sinceDate(raw: string | undefined, now = new Date()): Date {
   const v = (raw ?? 'yesterday').trim().toLowerCase();
   const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -352,7 +335,6 @@ export const myActivity = defineOp({
     const touched = [...byIssue.entries()].filter(([, e]) => e.did.length).sort((a, b) => b[1].last.localeCompare(a[1].last)).slice(0, 8);
     const issues = await Promise.all(touched.map(async ([issueId, e]) => {
       const i = snap.issues.find(x => x.id === issueId) ?? await bl.getIssue(issueId);
-      // an issue in Trash (an undone create_issue, say) isn't work you did
       if (!i || i.deletedAt) return undefined;
       const t = (await bl.workThreads(i.id)).filter(x => x.personId === me.id && x.updatedAt >= since && x.progress.did).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
       return { key: issueKey(i, snap.teams), title: i.title, state: stateName(snap, i.stateId), did: e.did, progress: t?.progress.did ?? (t?.state.status === 'finished' ? t.state.summary : null) };
@@ -372,7 +354,6 @@ export const myActivity = defineOp({
   ) : `Nothing recorded for you since ${since.slice(0, 16).replace('T', ' ')} UTC.`,
 });
 
-// ---------------------------------------------------------------- new work: propose, then create on a yes
 
 export const proposeIssue = defineOp({
   name: 'propose_issue',
@@ -458,7 +439,6 @@ export const createIssue = defineOp({
   ),
 });
 
-// ---------------------------------------------------------------- the work loop
 
 export const startIssue = defineOp({
   name: 'start_issue',
@@ -493,7 +473,6 @@ export const startIssue = defineOp({
     return {
       op_id: r.opId, attributed_to: r.attributedTo, key: issueKey(r.issue, snap.teams), title: r.issue.title, state: stateName(snap, r.issue.stateId),
       assignee: names(snap)(r.issue.assigneeId), url: r.url, branch: r.branch, git: await checkoutFor(ctx, r.branch),
-      // the git line above says what happened to the branch, so the brief's generic branch advice goes
       brief: again ? null : r.brief.replace(/^Branch: .*\n?/m, ''), already_started: again,
       last_progress: p.did || p.left || p.blocked ? { ...p, updated_at: r.thread.updatedAt } : null,
       warnings: [...r.warnings, ...(closedType(stateType(snap, r.issue.stateId)) ? [`${issueKey(r.issue, snap.teams)} is ${stateName(snap, r.issue.stateId)}, so its status didn't change. If this is new work, ask whether to reopen it or file a new issue.`] : [])],
@@ -643,7 +622,6 @@ export const finishIssue = defineOp({
   ),
 });
 
-// ---------------------------------------------------------------- project status
 
 export const draftProjectUpdate = defineOp({
   name: 'draft_project_update',
@@ -686,7 +664,6 @@ export const draftProjectUpdate = defineOp({
   text: (o, s) => lines(`Draft update for ${o.project} (not published; the person publishes it in Baseline):`, '', o.body, '', o.health ? `health: ${o.health}` : null, receiptLine(o, s)),
 });
 
-// ---------------------------------------------------------------- correction
 
 export const undo = defineOp({
   name: 'undo',
@@ -711,7 +688,6 @@ export const undo = defineOp({
     : lines(`Undid ${o.undid.name} ${o.undid.op_id}:`, ...o.reverted.map(x => `  reverted: ${x}`), ...o.left_as_is.map(x => `  left as is: ${x}`)),
 });
 
-/** Order = order in tools/list, in `baseline agent --help` and in the skill: picking work, reads, creating, the loop in call order, project, undo. */
 export const OPERATIONS = [
   nextIssue, findIssues, getIssue, listIssues, myActivity,
   proposeIssue, createIssue,

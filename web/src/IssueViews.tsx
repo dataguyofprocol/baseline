@@ -18,11 +18,9 @@ import { EmptyState } from './EmptyState.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 
-/* ================= view preferences (persisted per page) ================= */
 export interface DisplayProps {
   id: boolean; status: boolean; assignee: boolean; priority: boolean; labels: boolean; project: boolean; due: boolean;
   cycle: boolean; milestone: boolean; estimate: boolean; created: boolean; updated: boolean; links: boolean; creator: boolean;
-  /** the linked pull requests' status icon */
   prs: boolean;
 }
 export type CompletedWindow = 'all' | 'day' | 'week' | 'month' | 'none';
@@ -34,18 +32,13 @@ export interface ViewOptions {
   showEmpty: boolean;
   display: DisplayProps;
   filters: ViewFilters;
-  /** how long finished work stays visible */
   completed: CompletedWindow;
   showSubIssues: boolean;
   showTriage: boolean;
-  /** finished issues sort by when they were finished, newest first */
   completedByRecency: boolean;
-  /** the ordering's direction flipped (the arrow beside Ordering) */
   orderReversed?: boolean;
 }
 
-// what a row needs to be read at a glance: ID, status, title, assignee and its PR. Everything else is
-// opt-in in Display options (a saved view or an earlier choice keeps what it chose)
 export const DEFAULT_DISPLAY: DisplayProps = {
   id: true, status: true, assignee: true, priority: false, labels: false, project: false, due: false,
   cycle: false, milestone: false, estimate: false, created: false, updated: false, links: false, creator: false, prs: true,
@@ -60,27 +53,24 @@ export function useViewPrefs<T extends object>(key: string, defaults: T): [T, (p
     try {
       const stored = JSON.parse(localStorage.getItem(key) ?? '{}');
       const d = defaults as T & { display?: object };
-      // nested display props merge too, so properties added later get their defaults
       return { ...defaults, ...stored, ...(d.display ? { display: { ...d.display, ...(stored.display ?? {}) } } : {}) };
     } catch { return defaults; }
   };
   const [prefs, setPrefs] = useState<T>(read);
   const patch = (p: Partial<T>) => setPrefs(cur => {
     const next = { ...cur, ...p };
-    try { localStorage.setItem(key, JSON.stringify(next)); } catch { /* ignore */ }
+    try { localStorage.setItem(key, JSON.stringify(next)); } catch { }
     return next;
   });
-  const reset = () => { try { localStorage.removeItem(key); } catch { /* ignore */ } setPrefs(defaults); };
+  const reset = () => { try { localStorage.removeItem(key); } catch { } setPrefs(defaults); };
   return [prefs, patch, reset];
 }
 
-/* ================= filtering ================= */
 const DAY = 86400000;
 const WINDOW_MS: Record<string, number> = { day: DAY, week: 7 * DAY, month: 30 * DAY, quarter: 91 * DAY };
 const todayIso = () => localIsoDate();
 const addDaysIso = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
-/** does one filter field hold an issue? (before the field's "is not" is applied) */
 function testField(key: keyof ViewFilters, i: Issue, f: ViewFilters, snap: Snap): boolean {
   const state = snap.states.find(s => s.id === i.stateId);
   const closed = state?.type === 'completed' || state?.type === 'canceled';
@@ -88,7 +78,6 @@ function testField(key: keyof ViewFilters, i: Issue, f: ViewFilters, snap: Snap)
   const resolveUser = (ids: string[]) => ids.map(x => x === 'me' ? me : x);
   switch (key) {
     case 'states': {
-      // a status filter matches by name, so "In Progress" covers every team's In Progress
       const names = new Set(f.states!.map(id => snap.states.find(s => s.id === id)?.name).filter(Boolean));
       return !!state && names.has(state.name);
     }
@@ -168,7 +157,6 @@ const isGroup = (x: FilterCondition | FilterGroup): x is FilterGroup => 'items' 
 export function countConditions(g: FilterGroup): number {
   return g.items.reduce((n, x) => n + (isGroup(x) ? countConditions(x) : x.values.length ? 1 : 0), 0);
 }
-/** an advanced group: its conditions (and nested groups) joined by and / or; empty parts are ignored */
 function evalGroup(g: FilterGroup, i: Issue, snap: Snap): boolean {
   const parts = g.items.filter(x => isGroup(x) ? countConditions(x) > 0 : x.values.length > 0);
   if (!parts.length) return true;
@@ -180,7 +168,6 @@ function evalGroup(g: FilterGroup, i: Issue, snap: Snap): boolean {
   return g.op === 'and' ? parts.every(test) : parts.some(test);
 }
 
-/** the display options that hide issues: finished-work window, sub-issues, triage */
 export function applyDisplay(issues: Issue[], opts: Pick<ViewOptions, 'completed' | 'showSubIssues' | 'showTriage'>): Issue[] {
   const snap = useApp.getState().snap;
   if (!snap) return issues;
@@ -230,7 +217,6 @@ export function activeFilterCount(f: ViewFilters): number {
   return FILTER_KEYS.filter(k => isSet(f, k)).length + (f.advanced && countConditions(f.advanced) ? 1 : 0);
 }
 
-/* ================= grouping ================= */
 export interface GroupSpec { id: string; label: string; icon: React.ReactNode; orderIndex: number }
 
 export function groupsFor(groupBy: GroupBy, snap: Snap, teamId?: string): GroupSpec[] {
@@ -302,7 +288,6 @@ export function issuesOfGroup(groupBy: GroupBy, issues: Issue[], groupId: string
       const groupState = snap.states.find(s => s.id === groupId);
       return issues.filter(i => {
         if (i.stateId === groupId) return true;
-        // cross-team merge: same name + type counts as the same group
         const is = snap.states.find(s => s.id === i.stateId);
         return !!groupState && !!is && groupState.name === is.name && groupState.type === is.type;
       });
@@ -321,10 +306,8 @@ export function issuesOfGroup(groupBy: GroupBy, issues: Issue[], groupId: string
 }
 
 let lastCheckedId: string | null = null;
-/** shift-click a checkbox: extend the selection across the visible list from the last clicked row */
 function shiftSelectRange(id: string) {
   const list = visibleList.issues.map(i => i.id);
-  // extend from the last row you selected, by click or with X, like Linear does
   const sel = useSelection.getState().ids;
   const anchor = lastCheckedId && sel.includes(lastCheckedId) ? lastCheckedId : sel[sel.length - 1];
   const from = anchor ? list.indexOf(anchor) : -1;
@@ -338,9 +321,6 @@ function shiftSelectRange(id: string) {
   useSelection.getState().setMany([...new Set([...useSelection.getState().ids, ...list.slice(a, b + 1)])]);
 }
 
-/* ================= sub-issues ================= */
-/* one pass per snapshot builds every parent's tally, and rows and cards then look theirs up.
-   Keyed on the issues array, which every snapshot swap (bootstrap, optimistic move) replaces. */
 const progressIndex = new WeakMap<Snap['issues'], Map<string, { done: number; total: number }>>();
 function progressFor(snap: Snap): Map<string, { done: number; total: number }> {
   let idx = progressIndex.get(snap.issues);
@@ -358,18 +338,15 @@ function progressFor(snap: Snap): Map<string, { done: number; total: number }> {
   return idx;
 }
 
-/** closed / total over an issue's live sub-issues (null when it has none) */
 export function subIssueProgress(issueId: string, snap: Snap): { done: number; total: number } | null {
   return progressFor(snap).get(issueId) ?? null;
 }
 
-/** a ring beside the count that fills as sub-issues close; the parent's row and page both show it */
 export function SubIssueProgress(props: { done: number; total: number; size?: number; issueId?: string }) {
   const size = props.size ?? 13;
   const r = size / 2 - 1.5;
   const c = 2 * Math.PI * r;
   const frac = props.total ? props.done / props.total : 0;
-  // closing the last child is the moment the parent's work is done: the ring pops once
   const closed = useRingClosed(props.issueId, frac);
   return (
     <span className={`sub-progress${frac === 1 ? ' complete' : ''}${closed ? ' just-closed' : ''}`} title={`${props.done} of ${props.total} sub-issues done`}>
@@ -384,7 +361,6 @@ export function SubIssueProgress(props: { done: number; total: number; size?: nu
   );
 }
 
-/** keep a group's order, but slot each sub-issue straight under its parent when both are in the group */
 export function nestSubIssues(list: Issue[]): Array<{ issue: Issue; depth: number }> {
   const ids = new Set(list.map(i => i.id));
   const kids = new Map<string, Issue[]>();
@@ -398,11 +374,10 @@ export function nestSubIssues(list: Issue[]): Array<{ issue: Issue; depth: numbe
     for (const k of kids.get(i.id) ?? []) visit(k, Math.min(depth + 1, 3));
   };
   for (const i of list) if (!(i.parentId && ids.has(i.parentId))) visit(i, 0);
-  for (const i of list) visit(i, 0); // a parent cycle in bad data still renders every row once
+  for (const i of list) visit(i, 0);
   return out;
 }
 
-/** "Sep 29", or "2h ago" inside a week */
 function dateShort(iso: string) {
   return Date.now() - new Date(iso).getTime() < 7 * DAY ? relTime(iso) : shortDate(iso);
 }
@@ -414,7 +389,6 @@ export function estimateLabel(issue: Issue, snap: Snap): string | null {
   return String(issue.estimate);
 }
 
-/* ================= issue row ================= */
 export type RowDisplay = Partial<DisplayProps>;
 
 export function IssueRow(props: {
@@ -423,10 +397,8 @@ export function IssueRow(props: {
   selected?: boolean;
   cursor?: boolean;
   nested?: boolean;
-  /** 1+ = rendered under its parent's row, so the parent breadcrumb is redundant */
   depth?: number;
   onOpen?: () => void;
-  /** pointer over the row moves the keyboard cursor here, like Linear */
   onHover?: () => void;
 }) {
   const snap = useApp(s => s.snap)!;
@@ -434,7 +406,6 @@ export function IssueRow(props: {
   const issueMenu = useMenu();
   const toggleSelected = useSelection(s => s.toggle);
   const checksOn = useSelection(s => s.ids.length > 0);
-  // a property whose feature is off (Settings › Features) never shows, whatever the view asked for
   const f = snap.workspace.features;
   const asked: RowDisplay = props.display ?? DEFAULT_DISPLAY;
   const display: RowDisplay = { ...asked, cycle: asked.cycle && f.cyclesEnabled, estimate: asked.estimate && f.estimatesEnabled };
@@ -460,8 +431,6 @@ export function IssueRow(props: {
   const due = issue.dueDate?.slice(0, 10);
   const overdue = !!due && !closed && due < todayIso();
 
-  // optimistic landing: a status change or a fresh create lands the row with
-  // the enter + flash, and a move into completed morphs the status icon
   const { justMoved, becameDone } = useLanding(issue, state?.type);
 
   const open = () => {
@@ -475,7 +444,6 @@ export function IssueRow(props: {
       className={`issue-row ${props.selected ? 'selected' : ''} ${props.cursor ? 'cursor' : ''} ${props.nested ? 'nested' : ''} ${depth ? 'child' : ''} ${justMoved ? 'just-moved' : ''} ${checksOn ? 'checks-on' : ''}`}
       style={depth ? { '--depth': depth } as React.CSSProperties : undefined}
       onClick={(e) => {
-        // ⌘/ctrl-click and shift-click select instead of opening, like Linear
         if (e.metaKey || e.ctrlKey) { lastCheckedId = issue.id; toggleSelected(issue.id); return; }
         if (e.shiftKey) { shiftSelectRange(issue.id); return; }
         open();
@@ -535,11 +503,6 @@ export function IssueRow(props: {
   );
 }
 
-/* ---------------- row context menu ----------------
-   Linear's menu: properties as flyouts (each the same filterable menu the
-   shortcut opens), then create-related / mark-as / copy / open-in, favorite,
-   remind, delete. Right-clicking a selected row acts on the whole selection. */
-/** open an issue's page, then act there (rename, add link) once it has rendered */
 function openOnPage(issue: Issue, then: () => void) {
   const snap = useApp.getState().snap!;
   location.hash = `#/issue/${snap.teams.find(t => t.id === issue.teamId)?.key}-${issue.number}`;
@@ -644,7 +607,6 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
   );
 }
 
-/* ---------------- quick menus (keyboard S/P/A/L/⇧D… on rows and the open issue) ---------------- */
 export function QuickMenus() {
   const quickMenu = useApp(s => s.quickMenu);
   const setQuickMenu = useApp(s => s.setQuickMenu);
@@ -655,7 +617,6 @@ export function QuickMenus() {
   return <PropertyMenu kind={quickMenu.kind} issues={issues} anchor={quickMenu.anchor} onClose={() => setQuickMenu(null)} />;
 }
 
-/* ================= filters ================= */
 type FieldKey = 'states' | 'assigneeIds' | 'creatorIds' | 'priority' | 'labelIds' | 'projectIds' | 'milestoneIds' | 'sla' | 'prs' | 'cycleIds' | 'estimates' | 'due' | 'created' | 'updated' | 'hierarchy' | 'relations' | 'subscriberIds' | 'links' | 'query';
 interface FieldValue { id: string; label: string; icon?: React.ReactNode }
 interface FieldDef { key: FieldKey; label: string; plural: string; icon: React.ReactNode; single?: boolean }
@@ -683,7 +644,6 @@ const FIELDS: FieldDef[] = [
 ];
 
 const DATE_FIELDS: FieldKey[] = ['due', 'created', 'updated'];
-/** filters, groupings, orderings and properties that belong to a feature the workspace has off */
 function offFeatureKeys(f: Snap['workspace']['features']): Set<string> {
   return new Set([...(f.estimatesEnabled ? [] : ['estimates', 'estimate']), ...(f.cyclesEnabled ? [] : ['cycleIds', 'cycle']), ...(f.slasEnabled ? [] : ['sla'])]);
 }
@@ -763,7 +723,6 @@ function fieldValues(key: FieldKey, snap: Snap, teamId?: string): FieldValue[] {
   }
 }
 
-/** current values of a field as string ids (numbers and single values normalised) */
 function valuesOf(f: ViewFilters, key: FieldKey): string[] {
   const v = f[key];
   if (v == null) return [];
@@ -785,8 +744,6 @@ function withValues(f: ViewFilters, key: FieldKey, vals: string[]): ViewFilters 
   return next;
 }
 
-/* The filter popover: a field list with a search box (typing finds values across
-   every field), and per field a values page with checkboxes and issue counts. */
 function FilterMenu(props: { anchor: DOMRect; onClose: () => void; filters: ViewFilters; onChange: (f: ViewFilters) => void; teamId?: string; startField?: FieldKey; pool?: Issue[]; onAdvanced?: () => void; onGroup?: () => void }) {
   const snap = useApp(s => s.snap)!;
   const [field, setField] = useState<FieldKey | null>(props.startField ?? null);
@@ -846,7 +803,6 @@ function FilterMenu(props: { anchor: DOMRect; onClose: () => void; filters: View
     );
   }
 
-  // field list, or cross-field value search while typing
   const off = offFeatureKeys(snap.workspace.features);
   const hits = q.trim() ? FIELDS.filter(fd => !off.has(fd.key)).flatMap(fd => fieldValues(fd.key, snap, props.teamId).filter(v => match(v.label)).map(v => ({ fd, v }))).slice(0, 14) : [];
   const fieldRow = (fd: FieldDef) => (
@@ -856,7 +812,6 @@ function FilterMenu(props: { anchor: DOMRect; onClose: () => void; filters: View
       <span className="mi-right">{isSet(props.filters, fd.key) && <span className="mi-dot" />}<IconChevronRight size={12} /></span>
     </button>
   );
-  // Linear's order and grouping: issue fields with the dates folded into "Dates", then planning, then the rest
   if (dates && !q.trim()) return (
     <Menu anchor={props.anchor} onClose={props.onClose} width={220}>
       <div className="menu-input menu-filter" onClick={e => e.stopPropagation()}>
@@ -901,13 +856,10 @@ function FilterMenu(props: { anchor: DOMRect; onClose: () => void; filters: View
   );
 }
 
-/* Filter pills: field · operator · values · ×, each part its own button. Clicking the
-   operator flips "is" / "is not", and clicking the values reopens that field's picker. */
 export function FilterBar(props: {
   filters: ViewFilters;
   onChange: (f: ViewFilters) => void;
   teamId?: string;
-  /** issues before filtering, for the per-value counts */
   pool?: Issue[];
   onSave?: () => void;
 }) {
@@ -1000,10 +952,6 @@ export function FilterBar(props: {
   );
 }
 
-/* ---------------- advanced filter ----------------
-   Linear's builder: rows of conditions joined by "and" / "or" (click the word to flip it
-   for the whole group), with nested groups in brackets. Each condition is a field, an
-   operator and values, picked with the same menus as the plain pills. */
 function AdvancedFilterPanel(props: { anchor: DOMRect; group: FilterGroup; onChange: (g: FilterGroup) => void; onClose: () => void; teamId?: string; pool?: Issue[] }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1040,7 +988,6 @@ function AdvGroup(props: { group: FilterGroup; onChange: (g: FilterGroup) => voi
     if (c.values.length > 2) return `${c.values.length} ${fd?.plural ?? 'values'}`;
     return c.values.map(v => all.find(x => x.id === v)?.label ?? v).join(', ') || 'any value';
   };
-  // the picker edits one condition (index) or adds one (null); it speaks ViewFilters, so translate
   const pickerFilters: ViewFilters = picker && picker.index !== null ? withValues({}, (g.items[picker.index] as FilterCondition).field as FieldKey, (g.items[picker.index] as FilterCondition).values) : {};
   const onPick = (f: ViewFilters) => {
     if (!picker) return;
@@ -1085,12 +1032,10 @@ function AdvGroup(props: { group: FilterGroup; onChange: (g: FilterGroup) => voi
   );
 }
 
-/* ---------------- display options ---------------- */
 const GROUP_LABELS: Record<string, string> = { status: 'Status', priority: 'Priority', assignee: 'Assignee', label: 'Label', project: 'Project', cycle: 'Cycle', milestone: 'Milestone', team: 'Team', none: 'No grouping' };
 const ORDER_LABELS: Record<string, string> = { manual: 'Manual', title: 'Title', status: 'Status', priority: 'Priority', estimate: 'Estimate', updated: 'Last updated', created: 'Created', due: 'Due date' };
 const COMPLETED_LABELS: Record<CompletedWindow, string> = { all: 'All', day: 'Past day', week: 'Past week', month: 'Past month', none: 'None' };
 
-/** a compact dropdown inside the display popover (the popover stays open) */
 function InlineSelect<T extends string>(props: { value: T; options: Array<[T, string]>; onChange: (v: T) => void }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const current = props.options.find(o => o[0] === props.value)?.[1] ?? props.value;
@@ -1127,12 +1072,10 @@ export function DisplayOptionsMenu(props: {
   onClose: () => void;
   anchor: DOMRect;
   showLayout?: boolean;
-  /** offer team grouping (cross-team views) */
   multiTeam?: boolean;
   onReset?: () => void;
 }) {
   const { opts, onPatch } = props;
-  // "Show triage issues" means nothing until some team has triage turned on
   const triageOn = useApp(s => !!s.snap?.teams.some(t => t.triageEnabled));
   const features = useApp(s => s.snap!.workspace.features);
   const off = offFeatureKeys(features);
@@ -1189,9 +1132,6 @@ export function DisplayOptionsMenu(props: {
   );
 }
 
-/* ---------------- selection pill ----------------
-   Linear-style floating pill: count, Actions (opens the command palette, which
-   picks up the selection as bulk context), clear. */
 export function SelectionBar() {
   const ids = useSelection(s => s.ids);
   const clear = useSelection(s => s.clear);
@@ -1232,7 +1172,6 @@ export function SelectionBar() {
   );
 }
 
-/* ================= grouped list ================= */
 type RenderItem =
   | { kind: 'header'; spec: GroupSpec; count: number; points: number }
   | { kind: 'subheader'; groupId: string; spec: GroupSpec; count: number; parent: string }
@@ -1244,16 +1183,12 @@ export function GroupedList(props: {
   opts: ViewOptions;
   emptyTitle?: string;
   emptyDesc?: string;
-  hideGroups?: string[];   // state ids excluded up-front (Active/Backlog tabs)
+  hideGroups?: string[];
   emptyHideCreate?: boolean;
-  /** the Getting started group is showing above: its last step is the first issue, so the empty view would only repeat it */
   emptyHidden?: boolean;
   onFocusStatus?: (stateId: string) => void;
-  /** clears the page's filters (the "hidden by filters" footer offers it) */
   onClearFilters?: () => void;
-  /** saved views: no "N hidden by filters" footer under the list */
   hideFilterFooter?: boolean;
-  /** project/cycle pages pass create defaults so "+" on a group lands the issue there */
   createDefaults?: { projectId?: string | null; cycleId?: string | null };
 }) {
   const snap = useApp(s => s.snap)!;
@@ -1271,7 +1206,6 @@ export function GroupedList(props: {
   }, [props.issues, props.hideGroups, props.opts, snap.states]);
   const pool = useMemo(() => applyFilters(shown, props.opts.filters), [shown, props.opts.filters, snap]);
   const hiddenByFilters = shown.length - pool.length;
-  // point totals only where estimates are on: the workspace's switch, then the team's scale
   const estimatesOn = snap.workspace.features.estimatesEnabled && (props.teamId ? snap.teams.find(t => t.id === props.teamId)?.estimateScale !== 'none' : true);
 
   const { render, flat } = useMemo(() => {
@@ -1300,14 +1234,12 @@ export function GroupedList(props: {
         for (const sg of subGroups) {
           renderItems.push({ kind: 'subheader', groupId: `${g.spec.id}:${sg.spec.id}`, spec: sg.spec, count: sg.issues.length, parent: g.spec.id });
           for (const i of sg.issues) {
-            // a multi-label issue appears under each label, but navigates once
             renderItems.push({ kind: 'row', issue: i, nested: true });
             if (!covered.has(i.id)) { flatIssues.push(i); covered.add(i.id); }
           }
         }
         for (const i of g.issues) if (!covered.has(i.id)) { renderItems.push({ kind: 'row', issue: i, nested: true }); flatIssues.push(i); }
       } else if (props.opts.orderBy === 'manual') {
-        // manual order is the user's own arrangement, so don't regroup it under parents
         for (const i of g.issues) { renderItems.push({ kind: 'row', issue: i, nested: false }); flatIssues.push(i); }
       } else {
         for (const { issue: i, depth } of nestSubIssues(g.issues)) { renderItems.push({ kind: 'row', issue: i, nested: false, depth }); if (!flatIssues.includes(i)) flatIssues.push(i); }
@@ -1318,8 +1250,6 @@ export function GroupedList(props: {
 
   useEffect(() => { registerVisibleList(flat, props.teamId ?? ''); }, [flat, props.teamId]);
 
-  // expanding a group cascades its rows in (collapse stays instant: getting
-  // rows out of the way should never wait on an animation)
   const justExpanded = useRef<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -1348,8 +1278,6 @@ export function GroupedList(props: {
     if (props.emptyHidden && !hiddenByFilters) return null;
     return (
       <>
-        {/* filtered: the work is there, hidden. Otherwise a list with a create button is waiting for its
-            first issue; one without (a label, a person, search) is just a place issues will show up */}
         <EmptyState
           kind={hiddenByFilters ? 'filtered' : !props.emptyHideCreate && props.teamId ? 'first' : 'holding'}
           word={hiddenByFilters ? 'No matches' : props.emptyTitle ? undefined : 'Issues'}
@@ -1369,7 +1297,7 @@ export function GroupedList(props: {
   const toggleCollapse = (id: string) => setCollapsed(c => {
     if (c[id]) justExpanded.current = id;
     const next = { ...c, [id]: !c[id] };
-    try { localStorage.setItem('baseline:collapsedGroups', JSON.stringify(next)); } catch { /* ignore */ }
+    try { localStorage.setItem('baseline:collapsedGroups', JSON.stringify(next)); } catch { }
     return next;
   });
 
@@ -1377,7 +1305,6 @@ export function GroupedList(props: {
     const g = props.opts.groupBy;
     const base = { teamId: props.teamId, ...props.createDefaults };
     if (g === 'status') {
-      // cross-team lists: the group's state belongs to one team, so open the modal in that team
       const st = snap.states.find(s => s.id === spec.id);
       openCreate({ ...base, teamId: props.teamId ?? st?.teamId, stateId: spec.id });
     } else if (g === 'project') openCreate({ ...base, projectId: spec.id === 'none' ? null : spec.id });
@@ -1404,7 +1331,6 @@ export function GroupedList(props: {
               <span>{item.spec.label}</span>
               <span className="count" title={`${item.count} issue${item.count === 1 ? '' : 's'}`} aria-label={`${item.count} issue${item.count === 1 ? '' : 's'}`}>{item.count}</span>
               {estimatesOn && item.points > 0 && <span className="gh-points" title={`Estimate total: ${item.points} points`} aria-label={`Estimate total: ${item.points} points`}><IconEstimate size={11} />{item.points} pts</span>}
-              {/* the label + count cut this rule; it runs to the right edge */}
               <span className="gh-rule" />
               <span className="group-actions" onClick={e => e.stopPropagation()}>
                 {props.teamId && props.opts.groupBy === 'status' && props.onFocusStatus && (
@@ -1450,7 +1376,6 @@ export function GroupedList(props: {
   );
 }
 
-/** Like Linear, the ID column is as wide as the list's longest key, so every title starts on one line. */
 function useKeyColumn(ref: React.RefObject<HTMLElement | null>, dep: unknown) {
   useLayoutEffect(() => {
     const el = ref.current;

@@ -18,12 +18,6 @@ import { issuePrList, issuePrState, prSummary, PrIcon } from './GitHubUI.js';
 import { PropertyMenu, type PropKind } from './propertyMenus.js';
 import { pointsOf, type Issue, type GroupBy } from '../../src/core/types.js';
 
-/* card internals, shared by the sortable card and the drag overlay. Linear's layout:
-   the key (and parent, for a sub-issue) with the avatar, then status + title, then a row
-   of small bordered chips for whatever is set and shown, then when it was created. A chip
-   that would only repeat the column's or the row's grouping is left out. With `onProp` the
-   property chips are buttons that open the same menu the shortcut or the detail page would
-   (the drag overlay leaves it off, so its copy stays inert). */
 function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy | 'none'; display: Partial<DisplayProps>; becameDone?: boolean; onProp?: (kind: PropKind, e: React.MouseEvent) => void }) {
   const snap = useApp(s => s.snap)!;
   const issue = props.issue;
@@ -45,7 +39,6 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
   const pr = d.prs !== false ? issuePrState(snap, issue.id) : null;
   const grouped = (g: GroupBy) => props.groupBy === g || props.subgroupBy === g;
   const onProp = props.onProp;
-  // a press on a chip is a click, never the start of a drag or an open of the issue
   const edit = (kind: PropKind) => onProp ? {
     role: 'button', 'data-edit': kind,
     onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
@@ -84,7 +77,6 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
         {parent && <span className="bc-parent" title={`Sub-issue of ${parent.title}`}><IconChevronRight size={10} /><span className="bc-parent-text">{parent.title}</span></span>}
         <span className="bc-fill" />
         {d.assignee !== false && !grouped('assignee') && (assignee || onProp) && (
-          // unassigned cards keep an empty avatar that surfaces on hover, so assigning is one click
           <span className={`bc-avatar${editable}${assignee ? '' : ' unassigned'}`} {...edit('assignee')} title={assignee ? `Assigned to ${assignee.name}` : 'Assign'}>
             <Avatar user={assignee} size={18} />
           </span>
@@ -116,9 +108,7 @@ function BoardCard(props: { issue: Issue; groupBy: GroupBy; subgroupBy: GroupBy 
   const cursor = useCursor(s => s.index === props.index);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.issue.id, data: { issue: props.issue } });
   const state = useApp(s => s.snap!.states.find(st => st.id === props.issue.stateId));
-  // finished work recedes: done dims, canceled also strikes through
   const closedClass = state?.type === 'completed' ? ' is-done' : state?.type === 'canceled' ? ' is-canceled' : '';
-  // a card that lands in a new column gets the same enter + flash as a row
   const { justMoved, becameDone } = useLanding(props.issue, state?.type);
   // a completed drag must not land as a click on the (hidden) source card
   const suppressClick = useRef(false);
@@ -170,18 +160,14 @@ const ALL_LANE = '__all';
 
 export function Board(props: {
   issues: Issue[];
-  /** omit for cross-team boards (My Issues, saved views); columns merge by state name */
   teamId?: string;
   groupBy?: GroupBy;
-  /** rows (swimlanes) */
   subgroupBy?: GroupBy | 'none';
-  /** 'manual' keeps drag order; any other ordering sorts cards inside columns */
   orderBy?: string;
   orderReversed?: boolean;
   display?: Partial<DisplayProps>;
   showEmpty?: boolean;
   createDefaults?: { projectId?: string | null; cycleId?: string | null };
-  /** status boards: focus a column via the status filter (wired by the page) */
   onFocusColumn?: (stateIds: string[]) => void;
 }) {
   const snap = useApp(s => s.snap)!;
@@ -195,7 +181,6 @@ export function Board(props: {
 
   const columns = useMemo<Column[]>(() => {
     if (groupBy === 'status') {
-      // merge cross-team states by name like the list does
       const states = snap.states
         .filter(s => !props.teamId || s.teamId === props.teamId)
         .sort((a, b) => {
@@ -220,7 +205,6 @@ export function Board(props: {
     return specs.filter(sp => props.showEmpty || props.issues.some(i => issuesOfGroup(subgroupBy, [i], sp.id).length));
   }, [subgroupBy, snap, props.teamId, props.issues, props.showEmpty]);
 
-  /** lane → column → cards; an issue lives in exactly one cell (its first matching lane) */
   const cells = useMemo(() => {
     const m = new Map<string, Map<string, Issue[]>>();
     for (const lane of lanes) { const row = new Map<string, Issue[]>(); for (const c of columns) row.set(c.id, []); m.set(lane.id, row); }
@@ -236,7 +220,6 @@ export function Board(props: {
   const colTotal = (colId: string) => [...cells.values()].reduce((a, row) => a + (row.get(colId)?.length ?? 0), 0);
   const colPoints = (colId: string) => [...cells.values()].reduce((a, row) => a + (row.get(colId) ?? []).reduce((x, i) => x + pointsOf(i, snap.teams), 0), 0);
 
-  // keyboard order: lane by lane, column by column
   const flat = useMemo(() => {
     const out: Issue[] = [];
     for (const lane of lanes) for (const c of columns) out.push(...(cells.get(lane.id)?.get(c.id) ?? []));
@@ -247,9 +230,6 @@ export function Board(props: {
   const field = FIELD_FOR[groupBy];
   const laneField = subgroupBy !== 'none' ? FIELD_FOR[subgroupBy] : undefined;
 
-  // Hidden columns move to a side panel (still drop targets), like Linear. Keyed by grouping +
-  // label so the choice follows a status name across teams. Unless you've shown or hidden a
-  // column yourself, empty columns and Canceled start hidden (unless "show empty columns").
   const [folded, setFolded] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem('baseline:boardFolded') ?? '{}'); } catch { return {}; }
   });
@@ -257,12 +237,12 @@ export function Board(props: {
   const isFolded = (col: Column) =>
     folded[foldKey(col.label)] ?? (col.stateType === 'canceled' || (!props.showEmpty && colTotal(col.id) === 0));
   const [panelOpen, setPanelOpen] = useState(() => { try { return localStorage.getItem('baseline:hiddenColsOpen') !== '0'; } catch { return true; } });
-  const togglePanel = () => setPanelOpen(o => { try { localStorage.setItem('baseline:hiddenColsOpen', o ? '0' : '1'); } catch { /* ignore */ } return !o; });
+  const togglePanel = () => setPanelOpen(o => { try { localStorage.setItem('baseline:hiddenColsOpen', o ? '0' : '1'); } catch { } return !o; });
   const shownCols = columns.filter(c => !isFolded(c));
   const hiddenCols = columns.filter(c => isFolded(c));
   const setFold = (label: string, v: boolean) => setFolded(f => {
     const next = { ...f, [foldKey(label)]: v };
-    try { localStorage.setItem('baseline:boardFolded', JSON.stringify(next)); } catch { /* ignore */ }
+    try { localStorage.setItem('baseline:boardFolded', JSON.stringify(next)); } catch { }
     return next;
   });
 
@@ -273,7 +253,6 @@ export function Board(props: {
 
   const valueFor = (g: GroupBy, colId: string, colLabel: string, issue: Issue): string | number | null | undefined => {
     if (g === 'status') {
-      // on merged status boards, resolve the drop column to the issue's own team state
       return snap.states.find(s => s.teamId === issue.teamId && s.name === colLabel)?.id;
     }
     if (g === 'priority') return Number(colId);
@@ -315,7 +294,7 @@ export function Board(props: {
     const patch: Record<string, unknown> = {};
     if (field) {
       const next = valueFor(groupBy, target.col.id, target.col.label, issue);
-      if (next === undefined) return; // the column's state doesn't exist in this issue's team
+      if (next === undefined) return;
       if ((issue as unknown as Record<string, unknown>)[field] !== next) { (optimistic as Record<string, unknown>)[field] = next; patch[field] = next; }
     }
     if (laneField && target.lane !== ALL_LANE) {
@@ -331,7 +310,6 @@ export function Board(props: {
         : hi !== undefined ? hi - 1 : lo !== undefined ? lo + 1 : issue.sortOrder;
     }
     if (!Object.keys(patch).length && !moved) return;
-    // move the card now and save after, so the drop never snaps back while the request runs
     useApp.setState(s => s.snap ? { snap: { ...s.snap, issues: s.snap.issues.map(i => i.id === issue.id ? { ...i, ...optimistic } : i) } } : {});
     try {
       if (Object.keys(patch).length) await api.updateIssue(issue.id, patch);
@@ -404,11 +382,9 @@ export function Board(props: {
 
 const cellId = (lane: string, col: string) => lane === ALL_LANE ? col : `cell:${lane}:${col}`;
 
-/** groupings whose column (or row) a new issue can start in */
 const CREATE_GROUPS: GroupBy[] = ['status', 'project', 'cycle', 'priority', 'assignee'];
 type CreateDefaults = { projectId?: string | null; cycleId?: string | null };
 
-/** the create modal's starting values for an issue made from a column (and row) */
 function createOpts(snap: NonNullable<ReturnType<typeof useApp.getState>['snap']>, teamId: string | undefined, base: CreateDefaults | undefined, at: [GroupBy, string][]) {
   const opts: { teamId?: string; stateId?: string } & CreateDefaults = { teamId, ...base };
   for (const [g, id] of at) {
@@ -430,13 +406,11 @@ function ColumnHeader(props: {
   const menu = useMenu();
   const canCreate = CREATE_GROUPS.includes(props.groupBy);
   const addIssue = () => openCreate(createOpts(snap, props.teamId, props.createDefaults, [[props.groupBy, props.col.id]]));
-  // point totals only where estimates are on: the workspace's switch, then the team's scale
   const estimatesOn = snap.workspace.features.estimatesEnabled && (props.teamId ? snap.teams.find(t => t.id === props.teamId)?.estimateScale !== 'none' : true);
   return (
     <div className="board-col-header">
       {props.col.icon}
       <span className="bch-label">{props.col.label}</span>
-      {/* "Todo 7 ▲8" read as two bare numbers: say what each one counts */}
       <span className="count">{props.total} issue{props.total === 1 ? '' : 's'}</span>
       {estimatesOn && props.points > 0 && <span className="gh-points" title={`Estimate total: ${props.points} points`} aria-label={`Estimate total: ${props.points} points`}><IconEstimate size={11} />{props.points} pts</span>}
       <span className="col-actions">
@@ -467,7 +441,6 @@ function BoardCell(props: {
   const snap = useApp(s => s.snap)!;
   const openCreate = useApp(s => s.openCreate);
   const canCreate = CREATE_GROUPS.includes(props.groupBy);
-  // a card made here starts in this column and, on a board with rows, in this row too
   const addIssue = () => openCreate(createOpts(snap, props.teamId, props.createDefaults, [
     [props.groupBy, props.col.id],
     ...(props.subgroupBy !== 'none' && props.laneId !== ALL_LANE ? [[props.subgroupBy, props.laneId] as [GroupBy, string]] : []),
@@ -485,7 +458,6 @@ function BoardCell(props: {
   );
 }
 
-/* a row in the Hidden columns panel: shows its count, takes drops, and a click brings the column back */
 function HiddenColumn(props: { id: string; label: string; icon: React.ReactNode; count: number; onShow: () => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: props.id });
   return (

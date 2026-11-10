@@ -25,13 +25,11 @@ const { relationRows, invertRelation } = views;
 const program = new Command();
 program.name('baseline').description('Local issue & project tracker with a Linear-quality UI. Run `baseline` alone in a terminal to open the terminal UI.').version('0.1.0');
 
-// ---------- helpers ----------
 function fail(msg: string): never {
   console.error(`error: ${msg}`);
   process.exit(1);
 }
 
-/** a location by name or id, or a path, which is registered on the fly (it must exist) */
 function resolveLocationRef(store: ReturnType<typeof legacyStore>, ref: string): Location {
   if (resolve.isPathRef(ref)) {
     const path = localPath(ref);
@@ -41,7 +39,6 @@ function resolveLocationRef(store: ReturnType<typeof legacyStore>, ref: string):
   return resolve.resolveLocation(store.snapshot(), ref);
 }
 
-/** the same over the client: a path is registered by the server (on its own disk; a hosted server refuses) */
 async function locationIdFor(bl: Baseline, snap: Pick<Snapshot, 'locations'>, ref: string): Promise<string> {
   return resolve.isPathRef(ref) ? (await bl.createLocation(localPath(ref))).id : resolve.resolveLocation(snap, ref).id;
 }
@@ -66,13 +63,10 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** --as <user>: attribute the write to a named user (typically an agent identity like "Codex").
- *  Falls back to BASELINE_AS (name or user id) so an agent session can set its identity once. */
 const actorId = (snap: Pick<Snapshot, 'users'>, flag?: string) => resolve.actorId(snap, flag, process.env.BASELINE_AS);
 
 const withAs = (cmd: Command) => cmd.option('--as <user>', 'attribute this write to a named user (e.g. an agent identity)');
 
-// ---------- service commands ----------
 program
   .command('serve')
   .description('Run the web app + REST API')
@@ -160,7 +154,6 @@ program
     process.exit(0);
   });
 
-// ---------- team / user / label discovery ----------
 const team = program.command('team').description('Team operations');
 withDb(team.command('list')).description('List teams with their workflow states').option('--json', 'output as JSON', false).action(async (opts: { db?: string; json?: boolean }) => {
   const snap = await (await connect(opts)).snapshot(['teams', 'states', 'issues', 'currentUser']);
@@ -295,7 +288,6 @@ withDb(label.command('delete <name>')).description('Delete a label and detach it
     process.exit(0);
   });
 
-// ---------- issue (task) commands ----------
 const issue = program.command('issue').description('Issue (task) operations');
 
 withAs(withDb(issue.command('create <title>'))).description('Create an issue')
@@ -727,7 +719,6 @@ withDb(issue.command('remind <key> <when>')).description('Get an inbox reminder 
   process.exit(0);
 });
 
-// ---------- recurring issues ----------
 const recurring = program.command('recurring').description('Issues that file themselves on a cadence');
 withDb(recurring.command('list')).description('List recurring issues').option('-t, --team <key>', 'team key').action((opts: { db?: string; team?: string }) => {
   const store = legacyStore(opts.db);
@@ -766,7 +757,6 @@ withDb(recurring.command('remove <id>')).description('Stop a recurring issue').a
   process.exit(0);
 });
 
-// ---------- triage ----------
 const triage = program.command('triage').description('Review issues waiting in a team\'s triage queue');
 withDb(triage.command('list')).description('List issues waiting in triage')
   .option('-t, --team <key>', 'team key')
@@ -843,7 +833,6 @@ withDb(comment.command('delete <commentId>')).description('Delete a comment').ac
   process.exit(0);
 });
 
-// ---------- project commands ----------
 const project = program.command('project').description('Project operations');
 
 withDb(project.command('create <name>')).description('Create a project')
@@ -1129,11 +1118,9 @@ function projectDetail(p: Project, snap: Snapshot, store: ReturnType<typeof lega
   return { ...projectJson(p, snap, store), issues, updates, milestones, links };
 }
 
-// ---------- initiatives ----------
 const initiative = program.command('initiative').description('Initiatives: strategic efforts made of projects');
 const findInitiative = (snap: Snapshot, ref: string) => snap.initiatives.find(i => i.id === ref) ?? snap.initiatives.find(i => /^i-\d+$/i.test(ref) && i.number === Number(ref.slice(2)))
   ?? snap.initiatives.find(i => i.name.toLowerCase() === ref.toLowerCase()) ?? fail(`Unknown initiative "${ref}"`);
-/** initiative labels by name, created on the fly like project labels */
 const initiativeLabelIds = (store: ReturnType<typeof legacyStore>, snap: Snapshot, names: string[]) => names.flatMap(n => n.split(',')).map(n => n.trim()).filter(Boolean)
   .map(n => (snap.initiativeLabels.find(l => l.name.toLowerCase() === n.toLowerCase()) ?? store.ext.planning.createLabel({ name: n })).id);
 const UPDATE_SCHEDULES = ['none', 'weekly', 'biweekly', 'monthly', 'default'];
@@ -1199,7 +1186,6 @@ withAs(withDb(initiative.command('note <initiative> <body>'))).description('Post
     store.ext.planning.addInitiativeUpdate(findInitiative(snap, ref).id, actorId(snap, opts.as) ?? store.workspaceMeta().currentUser, body, opts.health as 'onTrack' | undefined);
     console.log('Posted update'); process.exit(0);
   });
-// ---------- personal API keys ----------
 const apiKey = program.command('api-key').description('Personal API keys for the REST API (Authorization: Bearer <key>)');
 withDb(apiKey.command('list')).description('List your API keys').option('--all', 'every member\'s keys', false).option('--json', 'output as JSON', false).action((opts: { db?: string; all?: boolean; json?: boolean }) => {
   const store = legacyStore(opts.db); const snap = store.snapshot();
@@ -1224,7 +1210,6 @@ withDb(apiKey.command('revoke <id>')).description('Revoke a key by id or name').
   store.ext.apiKeys.revoke(k.id); console.log(`Revoked ${k.name}`); process.exit(0);
 });
 
-// ---------- SLAs, loops, git ----------
 const sla = program.command('sla').description('SLA rules: deadlines for matching issues');
 withDb(sla.command('list')).description('List SLA rules and breached issues').action((opts: { db?: string }) => {
   const snap = legacyStore(opts.db).snapshot();
@@ -1289,7 +1274,6 @@ withDb(gitCmd.command('import-issues <repo>')).description('Import a repo\'s ope
     process.exit(0);
   });
 
-// ---------- documents ----------
 const doc = program.command('doc').description('Documents on projects and teams (specs, briefs, runbooks), stored as Markdown');
 function resolveDoc(snap: Snapshot, ref: string): Snapshot['docs'][number] {
   const q = ref.toLowerCase();
@@ -1365,9 +1349,7 @@ withDb(doc.command('delete <doc>')).description('Delete a document').action((ref
   process.exit(0);
 });
 
-// ---------- coding tools ----------
 const agent = program.command('agent').description('Your coding agent\'s side of an issue: pick (next-issue, find-issues), propose and create, start, progress, sub-issues, follow-ups, finish, project drafts, undo. Writes as the coding tool\'s agent user (--as or BASELINE_AS; Claude Code is detected), else Agent; BASELINE_SESSION. Plus coding-tool settings');
-// the agent surface never opens the default database or makes a new one (agentContext): unconnected, it says to log in
 mountOperations(agent, (flags) => agentContext(flags));
 withDb(program.command('mcp')).description('Serve the agent operations as MCP tools on stdin/stdout, for Claude Code, Codex and other MCP clients (set up with `baseline connect`)')
   .action(async (opts: { db?: string }) => { await serveStdio(opts); });
@@ -1384,7 +1366,6 @@ withDb(agent.command('config')).description('Show or change where `issue open` s
     process.exit(0);
   });
 
-// ---------- locations ----------
 const location = program.command('location').description('Directories agents work in (usually git repos); a location can serve several projects');
 withDb(location.command('list')).description('List locations with the projects that use them').action((opts: { db?: string }) => {
   const store = legacyStore(opts.db);
@@ -1427,12 +1408,10 @@ withDb(location.command('remove <name>')).description('Unregister a location (pr
   process.exit(0);
 });
 
-// ---------- terminal UI ----------
 withAs(withDb(program.command('tui [issue]'))).description('Open the workspace in a full-screen terminal UI, optionally straight to an issue key (bare `baseline` in a terminal does the same); it reopens where you left off in this directory')
   .option('--fresh', 'start on Today instead of where the last session in this directory left off')
   .action(async (issueKey: string | undefined, opts: { db?: string; as?: string; fresh?: boolean }) => {
     if (!process.stdout.isTTY || !process.stdin.isTTY) fail('`baseline tui` needs an interactive terminal, and stdout or stdin isn\'t one. In scripts, use `baseline issue list` and the other commands.');
-    // loaded here so no other command pays for React and Ink
     const { runTui } = await import('../tui/index.js');
     await runTui({ db: opts.db, as: opts.as, issue: issueKey, fresh: opts.fresh });
     process.exit(0);
@@ -1443,7 +1422,7 @@ withDb(program.command('context')).description('What the terminal UI in this dir
   .action(async (opts: { db?: string; json?: boolean }) => {
     const { contextMarkdown, findSession, pidAlive, targetId, workspaceDir } = await import('../tui/session.js');
     let target: string | null = null;
-    try { target = targetId(targetFor({ db: opts.db })); } catch { /* no usable target: match on the directory alone */ }
+    try { target = targetId(targetFor({ db: opts.db })); } catch { }
     const found = findSession(workspaceDir(), target);
     if (!found) {
       console.error('No terminal UI state yet. Run `baseline` in this directory to open the TUI; `baseline context` then shows what it is showing.');
@@ -1462,7 +1441,6 @@ mountWorkflowCommands(program);
 const commandPath = (c: Command): string => c.parent?.parent ? `${commandPath(c.parent)} ${c.name()}` : c.name();
 program.hook('preAction', (_root, action) => setLegacyCommand(commandPath(action), action.opts().as as string | undefined));
 
-/** only the terminal UI's own flags (--fresh, --db, --as), so `baseline --fresh` means `baseline tui --fresh` */
 function tuiFlagsOnly(args: readonly string[]): boolean {
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -1472,7 +1450,6 @@ function tuiFlagsOnly(args: readonly string[]): boolean {
   }
   return args.length > 0;
 }
-// bare `baseline` in a terminal is the TUI; piped or scripted, it keeps printing help
 const rest = process.argv.slice(2);
 const bare = rest.length === 0 && !!process.stdin.isTTY && !!process.stdout.isTTY;
 program.parseAsync(bare || tuiFlagsOnly(rest) ? [...process.argv.slice(0, 2), 'tui', ...rest] : process.argv).catch((e: unknown) => {

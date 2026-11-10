@@ -8,7 +8,6 @@ const ts = () => new Date().toISOString();
 type InitiativeRow = { id: string; name: string; description: string; summary: string; icon: string; color: string; status: InitiativeStatus; health: ProjectHealth | null; owner_id: string | null; target_date: string | null; target_resolution: DateResolution | null; parent_id: string | null; position: number; created_at: string; updated_at: string;
   number: number | null; priority: number; labels: string; team_id: string | null; update_cadence: UpdateCadence | null };
 
-/* Initiatives: groups of projects with their own status, health and updates. */
 export class Planning {
   constructor(private store: Store, private db: DatabaseSync) {
     store.tickHooks.push(now => this.remindUpdates(now));
@@ -33,7 +32,6 @@ export class Planning {
     return { initiatives, initiativeUpdates, initiativeLabels, initiativeLinks };
   }
 
-  // ---------- initiatives ----------
   createInitiative(input: { name: string; description?: string; summary?: string; icon?: string; color?: string; status?: InitiativeStatus; ownerId?: string | null; targetDate?: string | null; targetResolution?: DateResolution | null; parentId?: string | null; projectIds?: string[]; priority?: Priority; labelIds?: string[]; teamId?: string | null; updateCadence?: UpdateCadence | null }): Initiative {
     const now = ts();
     const pos = (this.db.prepare('SELECT COALESCE(MAX(position), 0) + 1 p FROM initiatives').get() as { p: number }).p;
@@ -52,12 +50,11 @@ export class Planning {
   }
   updateInitiative(initiativeId: string, patch: Partial<Pick<Initiative, 'name' | 'description' | 'summary' | 'icon' | 'color' | 'status' | 'health' | 'ownerId' | 'targetDate' | 'targetResolution' | 'parentId' | 'position' | 'priority' | 'labelIds' | 'teamId' | 'updateCadence'>>): void {
     const col: Record<string, string> = { ownerId: 'owner_id', targetDate: 'target_date', targetResolution: 'target_resolution', parentId: 'parent_id', labelIds: 'labels', teamId: 'team_id', updateCadence: 'update_cadence' };
-    // clearing the date clears its resolution too
     if (patch.targetDate === null) patch = { ...patch, targetResolution: null };
     const sets: string[] = []; const vals: Array<string | number | null> = [];
     for (const [k, v] of Object.entries(patch)) {
       if (v === undefined || !['name', 'description', 'summary', 'icon', 'color', 'status', 'health', 'ownerId', 'targetDate', 'targetResolution', 'parentId', 'position', 'priority', 'labelIds', 'teamId', 'updateCadence'].includes(k)) continue;
-      if (k === 'parentId' && v === initiativeId) continue; // never its own parent
+      if (k === 'parentId' && v === initiativeId) continue;
       if (k === 'priority' && ![0, 1, 2, 3, 4].includes(v as number)) continue;
       sets.push(`${col[k] ?? k} = ?`); vals.push(k === 'labelIds' ? JSON.stringify(v) : v as string | number | null);
     }
@@ -72,7 +69,6 @@ export class Planning {
   }
   addProject(initiativeId: string, projectId: string): void { this.db.prepare('INSERT OR IGNORE INTO initiative_projects (initiative_id, project_id) VALUES (?, ?)').run(initiativeId, projectId); }
   removeProject(initiativeId: string, projectId: string): void { this.db.prepare('DELETE FROM initiative_projects WHERE initiative_id = ? AND project_id = ?').run(initiativeId, projectId); }
-  /** an initiative update also sets its health, and notifies the owner when someone else posts on it */
   addInitiativeUpdate(initiativeId: string, userId: string, body: string, health?: ProjectHealth | null): InitiativeUpdate {
     const u: InitiativeUpdate = { id: id('iu'), initiativeId, userId, body, health: health ?? null, createdAt: ts(), reactions: {} };
     this.db.prepare('INSERT INTO initiative_updates (id, initiative_id, user_id, body, health, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(u.id, initiativeId, userId, body, u.health, u.createdAt);
@@ -82,7 +78,6 @@ export class Planning {
     return u;
   }
 
-  /** who posted an initiative update; null when it's gone */
   updateAuthor(updateId: string): string | null {
     return (this.db.prepare('SELECT user_id FROM initiative_updates WHERE id = ?').get(updateId) as { user_id: string } | undefined)?.user_id ?? null;
   }
@@ -93,7 +88,6 @@ export class Planning {
     this.db.prepare('DELETE FROM initiative_updates WHERE id = ?').run(updateId);
   }
 
-  /** add or remove your emoji reaction on an initiative update */
   toggleUpdateReaction(updateId: string, emoji: string, userId: string): void {
     const row = this.db.prepare('SELECT reactions FROM initiative_updates WHERE id = ?').get(updateId) as { reactions: string | null } | undefined;
     if (!row) return;
@@ -104,7 +98,6 @@ export class Planning {
     this.db.prepare('UPDATE initiative_updates SET reactions = ? WHERE id = ?').run(JSON.stringify(r), updateId);
   }
 
-  // ---------- initiative labels & resources ----------
   createLabel(input: { name: string; color?: string; description?: string }): InitiativeLabel {
     const l: InitiativeLabel = { id: id('il'), name: input.name.trim(), color: input.color ?? '#5e6ad2', description: input.description ?? '', createdAt: ts() };
     this.db.prepare('INSERT INTO initiative_labels (id, name, color, description, created_at) VALUES (?, ?, ?, ?, ?)').run(l.id, l.name, l.color, l.description, l.createdAt);
@@ -126,8 +119,6 @@ export class Planning {
   }
   deleteLink(linkId: string): void { this.db.prepare('DELETE FROM initiative_links WHERE id = ?').run(linkId); }
 
-  // ---------- update schedule ----------
-  /** when the next update is due on an initiative (null: no expectation, or it's finished) */
   updateDueAt(ini: { id: string; status: InitiativeStatus; updateCadence: UpdateCadence | null; createdAt: string }): string | null {
     if (ini.status === 'completed' || ini.status === 'canceled') return null;
     const c = ini.updateCadence ?? this.store.getFeatures().initiativeUpdateCadence;
@@ -136,7 +127,6 @@ export class Planning {
     const last = this.db.prepare('SELECT MAX(created_at) t FROM initiative_updates WHERE initiative_id = ?').get(ini.id) as { t: string | null };
     return new Date(new Date(last.t ?? ini.createdAt).getTime() + days * 86400000).toISOString();
   }
-  /** the owner gets one inbox reminder each time an update falls due (as project leads do) */
   private remindUpdates(now: Date): void {
     for (const r of this.rows<{ id: string; name: string; status: InitiativeStatus; update_cadence: UpdateCadence | null; created_at: string; owner_id: string }>('SELECT id, name, status, update_cadence, created_at, owner_id FROM initiatives WHERE owner_id IS NOT NULL')) {
       const due = this.updateDueAt({ id: r.id, status: r.status, updateCadence: r.update_cadence, createdAt: r.created_at });

@@ -1,6 +1,3 @@
-// Sign-in for a hosted Baseline: email and password always, Google OAuth (authorization code +
-// PKCE) when a client is configured, and the cookie sessions both lead to.
-// Without BASELINE_PUBLIC_URL the server stays in local mode: this machine only, no sign-in.
 import type { Context, Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { createHash, randomBytes } from 'node:crypto';
@@ -21,8 +18,6 @@ export type HostedAuth = Extract<AuthConfig, { mode: 'hosted' }>;
 
 export const signInMethods = (cfg: HostedAuth): SignInMethod[] => cfg.google ? ['password', 'google'] : ['password'];
 
-/** BASELINE_PUBLIC_URL makes a server hosted. GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET add Google
- *  sign-in; a half-configured Google client refuses to start rather than run without it. */
 export function authConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AuthConfig {
   const clientId = env.GOOGLE_CLIENT_ID?.trim();
   const clientSecret = env.GOOGLE_CLIENT_SECRET?.trim();
@@ -50,12 +45,9 @@ export const safeNext = (next: unknown): string =>
 const b64url = (buf: Buffer) => buf.toString('base64url');
 const random = () => b64url(randomBytes(32));
 
-/** The hosted session cookie, read by `authenticate` (principal.ts) and written by sign-in. */
 export interface Sessions {
-  /** the person behind this request's cookie; re-sets the cookie when the session slid */
   resolve(c: Context): { userId: string } | null;
   set(c: Context, token: string, expiresAt: string): void;
-  /** a new session for this person, cookie included (every way of signing in ends here) */
   start(c: Context, userId: string): void;
   end(c: Context): void;
 }
@@ -86,20 +78,14 @@ export function cookieSessions(cfg: HostedAuth, accounts: Accounts): Sessions {
   };
 }
 
-/** The sign-in routes. The /api/* guard is `authenticate` (principal.ts), registered before these. */
 export function mountAuth(app: Hono, cfg: HostedAuth, d: { accounts: Accounts; store: Store; sessions: Sessions; mailer: Mailer; setup: SetupToken }, hooks: {
-  /** someone joined through an invite, so tell whoever sent it */
   onInviteAccepted?: (userId: string, invitedBy: string) => void;
 } = {}): void {
   const { accounts, store } = d;
   const inviteLookupLimit = limiter(60, 10 * 60_000);
 
-  // what the sign-in screen offers, before anyone is signed in
   app.get('/auth/config', (c) => c.json({ methods: signInMethods(cfg), setup: accounts.needsSetup(), mail: d.mailer.configured }));
 
-  // what an invite link shows before sign-in: whose workspace, who sent it, to which address and which
-  // teams. The address is shown in full and prefilled: the link already grants the join, and
-  // retyping it was only a typo trap (accepting still checks it against the invite).
   const teamNames = (ids: string[]) => ids.map(id => store.getTeam(id)?.name).filter((n): n is string => !!n);
   const nameOf = (userId: string | null) => userId ? accounts.userBrief(userId)?.name ?? null : null;
   app.get('/auth/invite/:code', (c) => {
@@ -109,7 +95,6 @@ export function mountAuth(app: Hono, cfg: HostedAuth, d: { accounts: Accounts; s
     const state = inv.accepted_at ? 'accepted' : inv.revoked_at ? 'revoked' : Date.parse(inv.expires_at) <= Date.now() ? 'expired' : 'valid';
     return c.json({ state, workspace: store.workspaceMeta().name, inviter: nameOf(inv.invited_by), email: inv.email, teams: teamNames(JSON.parse(inv.team_ids) as string[]) });
   });
-  // the same for a team's join link, which names a team but no address
   app.get('/auth/join/:code', (c) => {
     if (!inviteLookupLimit.take(clientIp(c))) return c.json({ state: 'unknown', error: 'Too many requests. Try again in a few minutes.' }, 429);
     const link = accounts.joinLinkByCode(c.req.param('code'));
@@ -120,13 +105,11 @@ export function mountAuth(app: Hono, cfg: HostedAuth, d: { accounts: Accounts; s
   mountPasswordAuth(app, cfg, d, hooks);
   if (cfg.google) mountGoogle(app, cfg, cfg.google, d, hooks);
   else {
-    // without this the SPA fallback would answer with the app's index page
     const off = (c: Context) => c.json({ error: 'Google sign-in isn\'t set up on this server', code: 'google-off' }, 404);
     app.get('/auth/google', off);
     app.get('/auth/google/callback', off);
   }
 
-  // signing out is a write, so it sits behind authenticate's same-origin check
   app.post('/api/auth/logout', (c) => {
     d.sessions.end(c);
     return c.json({ ok: true });
@@ -141,7 +124,6 @@ function mountGoogle(app: Hono, cfg: HostedAuth, google: GoogleClient, d: { acco
   const OAUTH_COOKIE = 'baseline_oauth';
   const redirectUri = new URL('/auth/google/callback', cfg.publicUrl).toString();
   const home = (query = '') => new URL(`/${query}`, cfg.publicUrl).toString();
-  // per address: starting or finishing a sign-in
   const signInLimit = limiter(30, 10 * 60_000);
 
   app.get('/auth/google', (c) => {

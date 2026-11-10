@@ -34,12 +34,10 @@ import {
 import { issueKey, type Issue, type Comment, type Priority } from '../../src/core/types.js';
 import { EmptyState } from './EmptyState.js';
 
-/* shared activity text builder */
 function useActivityText() {
   const snap = useApp(s => s.snap)!;
   return (a: { type: string; data: Record<string, unknown>; userId: string; viaUserId: string | null; createdAt: string }) => {
     const who = <><b>{nameOf(snap.users.find(u => u.id === a.userId))}</b><Via userId={a.viaUserId} /></>;
-    // a value in a row reads as the thing it names: its icon, then its name
     const tok = (icon: React.ReactNode, text: React.ReactNode) => <span className="act-tok">{icon}<b>{text}</b></span>;
     const st = (id: unknown) => {
       const s = snap.states.find(x => x.id === id);
@@ -118,19 +116,15 @@ function useActivityText() {
 
 export const REACTION_SET = ['👍', '👎', '❤️', '🎉', '🚀', '😄', '👀', '🙏'];
 
-/* ---------------- comments & threads ---------------- */
 function Reactions(props: { comment: Comment }) {
   return <ReactionChips reactions={props.comment.reactions} onToggle={async emoji => { await api.toggleReaction(props.comment.id, emoji); await useApp.getState().bootstrap(); }} />;
 }
-/** emoji reaction chips (a comment's, an initiative update's): click one to add or remove yours */
 export function ReactionChips(props: { reactions: Record<string, string[]>; onToggle: (emoji: string) => void | Promise<unknown>; children?: React.ReactNode }) {
   const snap = useApp(s => s.snap)!;
   const me = snap.currentUser.id;
-  // a click shows at once; the next snapshot replaces the guess
   const [local, setLocal] = useState<Record<string, string[]> | null>(null);
   useEffect(() => { setLocal(null); }, [props.reactions]);
   const reactions = local ?? props.reactions;
-  // emoji that were already there on first render don't pop; one that arrives later does
   const seen = useRef<Set<string> | null>(null);
   seen.current ??= new Set(Object.keys(props.reactions));
   const [bumped, setBumped] = useState<string | null>(null);
@@ -161,11 +155,7 @@ export function ReactionChips(props: { reactions: Record<string, string[]>; onTo
   );
 }
 
-/* Deleting a comment can't be reversed on the server, so the delete waits out the toast: the
-   comment hides at once, Undo shows it again, and the delete is sent when the toast closes
-   (timed out or ×). The set lives at module level so a remount still sees the comment as gone. */
 const pendingCommentDeletes = new Set<string>();
-/* comments posted from this tab: each lands with a rise and a brief brand wash, once */
 const justPosted = new Set<string>();
 
 function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean; onReply?: () => void; resolved?: boolean; onResolve?: () => void }) {
@@ -180,7 +170,7 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
   const [hidden, setHidden] = useState(() => pendingCommentDeletes.has(props.comment.id));
   const [landed] = useState(() => justPosted.delete(props.comment.id));
   const scheduleDelete = () => {
-    moreMenu.close(); // the menu unmounts with the comment, so close it now or Undo brings it back open
+    moreMenu.close();
     setHidden(true);
     pendingCommentDeletes.add(c.id);
     toast({
@@ -209,7 +199,6 @@ function CommentBody(props: { comment: Comment; issueId: string; reply?: boolean
         <div className="comment-box editing">
           <RichEditor value={c.body} autoFocus issueId={props.issueId}
             onSubmit={async md => {
-              // save before closing: if the save fails the editor stays open with the text
               if (md !== c.body && !isBlank(md)) { await api.updateComment(c.id, md); await useApp.getState().bootstrap(); }
               setEditing(false);
             }}
@@ -285,7 +274,6 @@ function CommentThread(props: { root: Comment; replies: Comment[]; issueId: stri
   );
 }
 
-/* ---------------- sub-issues ---------------- */
 function SubIssuesSection(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -318,7 +306,6 @@ function SubIssuesSection(props: { issue: Issue }) {
           </div>
           {open && (
             <div style={{ display: 'flex', gap: 4 }}>
-              {/* the nodes cut through the spine they sit on instead of an opaque dot on a continuous rule */}
               <SubIssueSpine rows={children.map(ch => ({ active: snap.states.find(s => s.id === ch.stateId)?.type === 'started' }))} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 {children.map(ch => {
@@ -345,7 +332,6 @@ function SubIssuesSection(props: { issue: Issue }) {
   );
 }
 
-/* "Sub-issue of ◐ KEY title  ◌ 1/3" under the title: the parent, its state, and how far along its siblings are */
 function ParentLine(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -367,7 +353,6 @@ function ParentLine(props: { issue: Issue }) {
   );
 }
 
-/* ---------------- links & files ---------------- */
 function Attachments(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const items = snap.attachments.filter(a => a.issueId === props.issue.id);
@@ -410,7 +395,6 @@ function AddLinkMenu(props: { issue: Issue; anchor: DOMRect; onClose: () => void
   );
 }
 
-/* ---------------- relations ---------------- */
 function RelationsCard(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -455,7 +439,6 @@ function RelationsCard(props: { issue: Issue }) {
   );
 }
 
-/* ---------------- properties rail ---------------- */
 export function PropertiesRail(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const issue = props.issue;
@@ -470,7 +453,6 @@ export function PropertiesRail(props: { issue: Issue }) {
   const f = snap.workspace.features;
   const estimatesOn = f.estimatesEnabled && team?.estimateScale !== 'none';
   const est = estimateLabel(issue, snap);
-  // a one-line bug shows what it has: empty optional properties wait behind "Add property"
   const [more, setMore] = useState(false);
   useEffect(() => { setMore(false); }, [issue.id]);
   const show = { estimate: estimatesOn && (issue.estimate != null || more), cycle: !!cycle || (f.cyclesEnabled && more), due: !!issue.dueDate || more, project: !!project || more };
@@ -478,7 +460,6 @@ export function PropertiesRail(props: { issue: Issue }) {
   const closed = state?.type === 'completed' || state?.type === 'canceled';
   const due = issue.dueDate?.slice(0, 10);
   const overdue = !!due && !closed && due < localIsoDate();
-  // the rail's own status line morphs when the issue lands on completed
   const { becameDone } = useLanding(issue, state?.type);
 
   return (
@@ -588,7 +569,6 @@ export function PropertiesRail(props: { issue: Issue }) {
   );
 }
 
-/* ---------------- triage banner ---------------- */
 function TriageBanner(props: { issue: Issue }) {
   const snap = useApp(s => s.snap)!;
   const state = snap.states.find(s => s.id === props.issue.stateId);
@@ -612,18 +592,14 @@ function TriageBanner(props: { issue: Issue }) {
   );
 }
 
-/* ---------------- issue detail body ---------------- */
 export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: boolean; peek?: boolean; hideTriage?: boolean;
-  /** above the title (the inbox puts the notification that brought you here) */
   banner?: React.ReactNode }) {
   const snap = useApp(s => s.snap)!;
   const issue = props.issue;
-  // issue templates are team setup (admins', hosted)
   const canConfigure = useCanConfigure();
   const key = issueKey(issue, snap.teams);
   const team = snap.teams.find(t => t.id === issue.teamId)!;
   const activityText = useActivityText();
-  // ?comment=<id> (from "Copy link to comment"): bring that comment into view and mark it briefly
   const linkedComment = new URLSearchParams(useLocation().search).get('comment');
   useEffect(() => {
     if (!linkedComment) return;
@@ -646,13 +622,11 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const navIndex = nav.ids.indexOf(issue.id);
 
   useEffect(() => { setTitleDraft(issue.title); }, [issue.id, issue.title]);
-  // the title wraps like Linear's: a textarea that grows with its text
   useLayoutEffect(() => {
     const el = titleRef.current;
     if (!el) return;
     const fit = () => { el.style.height = '0px'; el.style.height = `${el.scrollHeight}px`; };
     fit();
-    // re-fit when the column width changes: the peek pane slides in narrow, and windows resize
     let lastWidth = el.clientWidth;
     const ro = new ResizeObserver(() => { if (el.clientWidth !== lastWidth) { lastWidth = el.clientWidth; fit(); } });
     ro.observe(el);
@@ -663,7 +637,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
     window.addEventListener('baseline:rename-issue', onRename);
     return () => window.removeEventListener('baseline:rename-issue', onRename);
   }, []);
-  // ⌃L adds a link, like Linear
   useEffect(() => {
     if (props.peek) return;
     const onKey = (e: KeyboardEvent) => {
@@ -695,7 +668,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   const saveTitle = async (value: string) => {
     if (titleTimer.current) { clearTimeout(titleTimer.current); titleTimer.current = null; }
     const v = value.trim();
-    // typing autosaves every pause; the field's own undo covers that, so it stays off the ⌘Z stack
     if (v && v !== issue.title) await setIssueProps([issue.id], { title: v }, { undoable: false });
     else setTitleDraft(issue.title);
   };
@@ -730,7 +702,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
 
   return (
     <div className="issue-page">
-      {/* Print / export header: the app appears as an object on paper. Screen-hidden. */}
       <div className="print-head" aria-hidden="true">
         <div className="print-head-row">
           <Logo size={26} tone="paper" />
@@ -768,7 +739,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
             </MenuSub>
             <MenuItem icon={<IconBranch size={14} />} label="Copy git branch name" right={<span className="mi-kbd">⌘⇧.</span>} onClick={e => void handoff.copyBranch({ skipStart: e.altKey })} />
             <MenuItem icon={<IconCopyId size={14} />} label="Copy issue ID" right={<span className="mi-kbd">⌘.</span>} onClick={() => void handoff.copyId()} />
-            {/* same as the row menu: open the copy in the create modal so it can be edited before it exists */}
             <MenuItem icon={<IconDuplicate size={14} />} label="Make a copy…" onClick={() => useApp.getState().openCreate({ teamId: issue.teamId, copyFrom: issue.id })} />
             <MenuSep />
             {issue.archivedAt
@@ -779,7 +749,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
         }
         right={
           <>
-            {/* the copy / branch / prompt tools sit in the top bar, not a strip of their own above the title */}
             <IssueToolbar issue={issue} />
             {props.full && nav.ids.length > 1 && navIndex >= 0 && (
               <span className="issue-nav">
@@ -815,9 +784,7 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                   onChange={md => void saveDesc(md)} onBlur={md => void saveDesc(md)} />
               </div>
               <div className="issue-under-desc">
-                {/* labeled: two bare icons here read as decoration */}
                 <button className="btn ghost sm under-desc-btn" data-add-link title="Add link (⌃L)" onClick={linkMenu.open}><IconLink size={13} /> Add link</button>
-                {/* once there are sub-issues their section header has its own +, so this one would be a second copy */}
                 {!snap.issues.some(i => i.parentId === issue.id) && <button className="btn ghost sm under-desc-btn" title="Add sub-issue (⌘⇧O)" onClick={() => startSubIssue(issue)}><IconPlus size={13} /> Add sub-issue</button>}
               </div>
               <Attachments issue={issue} />
@@ -866,7 +833,6 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
   );
 }
 
-/* ---------------- full page ---------------- */
 export function IssuePage(props: { issueKey: string }) {
   const snap = useApp(s => s.snap);
   if (!snap) return null;
@@ -877,7 +843,6 @@ export function IssuePage(props: { issueKey: string }) {
   return <IssueDetail issue={issue} full />;
 }
 
-/* an archived or trashed issue still opens, read-only and with a way back */
 function MissingIssue(props: { issueKey: string }) {
   const navigate = useNavigate();
   const [found, setFound] = useState<{ issue: Issue; where: 'archive' | 'trash' } | null | undefined>(undefined);
@@ -913,7 +878,6 @@ function MissingIssue(props: { issueKey: string }) {
   );
 }
 
-/* ---------------- peek (Space on a row) ---------------- */
 export function PeekPanel() {
   const peekId = useApp(s => s.peekIssueId);
   const setPeek = useApp(s => s.setPeek);

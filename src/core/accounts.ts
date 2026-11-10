@@ -1,6 +1,3 @@
-// Accounts: who may sign in, as whom, and the sessions that remember them.
-// Sessions live server-side: the browser holds a random token, the database only its SHA-256,
-// so a leaked database can't be replayed as cookies.
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash, randomBytes } from 'node:crypto';
 import { getMeta, setMeta } from './db.js';
@@ -12,19 +9,15 @@ const SESSION_DAYS = 30;
 const DAY = 86400_000;
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
-/** a Google identity whose ID token has been verified (aud, iss, nonce, expiry, verified email).
- *  `hd` is the Google Workspace domain that manages the account; personal accounts have none. */
 export interface GoogleIdentity { sub: string; email: string; name: string; picture: string; hd?: string }
 
 export type SignInError = 'not-invited' | 'suspended' | 'invite-mismatch' | 'invite-expired';
-/** a password sign-in never says which half was wrong */
 export type PasswordSignInError = 'invalid' | 'suspended';
 export type InviteAcceptError = 'invite-expired' | 'invite-mismatch' | 'already-member';
 export type SignInResult =
   | { userId: string; joined?: 'owner' | 'invite' | 'domain' | 'link'; invitedBy?: string | null }
   | { error: SignInError };
 
-/** a rule the caller broke (shown to the person as is) */
 export class AccountError extends Error {
   constructor(readonly code: 'last-admin' | 'self' | 'not-found', message: string) { super(message); }
 }
@@ -39,7 +32,6 @@ const INVITE_DAYS = 7;
 export const normalizeEmail = (e: string) => e.trim().toLowerCase();
 export { isEmail } from './types.js';
 
-/** why an address isn't usable, in words a person can act on (maya@local: no domain ending) */
 export function emailProblem(email: string): string {
   const at = email.indexOf('@');
   if (at < 1 || at === email.length - 1) return `${email} isn't an email address`;
@@ -60,8 +52,6 @@ export class Accounts {
     return { token, expiresAt };
   }
 
-  /** the active person behind a session token. Sessions slide: one used a day or more after it
-   *  was last extended gets a fresh 30 days (`renewed` tells the caller to re-set the cookie). */
   resolveSession(token: string | undefined): { userId: string; expiresAt: string; renewed: boolean } | null {
     if (!token) return null;
     const sid = hashToken(token);
@@ -101,15 +91,6 @@ export class Accounts {
     return !!(this.db.prepare('SELECT admin FROM users WHERE id = ?').get(userId) as { admin: number } | undefined)?.admin;
   }
 
-  /** Who a verified Google identity signs in as, in order:
-   *  1. the person already linked to this Google account;
-   *  2. a person with the same email who has never signed in (seeded or imported data), linked now;
-   *  3. the workspace owner (BASELINE_OWNER_EMAIL), created as admin;
-   *  4. someone with a pending invite for this email, created with the invite's role and teams;
-   *  5. someone arriving through a team's join link, created as a member of that team;
-   *  6. an account managed by an approved Google Workspace domain, created as a member.
-   *  Anyone else is turned away. Arriving through an invite link that was sent to a different
-   *  address, or one that's no longer valid, says so instead of a bare "not invited". */
   signInWithGoogle(g: GoogleIdentity, opts: { ownerEmail?: string; inviteCode?: string; joinCode?: string } = {}): SignInResult {
     const email = normalizeEmail(g.email);
     const isOwner = !!opts.ownerEmail && email === normalizeEmail(opts.ownerEmail);
@@ -135,7 +116,6 @@ export class Accounts {
       const invite = this.pendingInviteFor(email);
       if (invite) {
         user = this.join(g, !!invite.admin, JSON.parse(invite.team_ids) as string[]);
-        // every open invite to this address is now spent
         this.db.prepare('UPDATE invites SET accepted_at = ?, accepted_user_id = ? WHERE email = ? AND accepted_at IS NULL AND revoked_at IS NULL')
           .run(new Date().toISOString(), user.id, email);
         joined = 'invite';
@@ -159,22 +139,17 @@ export class Accounts {
     }
     if (!user) return { error: 'not-invited' };
     if (user.status === 'suspended') return { error: 'suspended' };
-    // the owner can never be locked out of admin
     if (isOwner) this.db.prepare('UPDATE users SET admin = 1 WHERE id = ?').run(user.id);
     if (g.picture) this.db.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').run(g.picture, user.id);
     this.claimOwnUser(user.id);
     return { userId: user.id, joined, invitedBy };
   }
 
-  /** a fresh hosted workspace has no "own" user yet: the first person in becomes it (the inbox
-   *  owner and the CLI's default identity on the server until notifications go per person) */
   private claimOwnUser(userId: string): void {
     const own = getMeta(this.db, 'currentUser');
     if (!own || !this.db.prepare('SELECT 1 FROM users WHERE id = ?').get(own)) setMeta(this.db, 'currentUser', userId);
   }
 
-  // ---------- passwords ----------
-  /** the stored hash for an address (null: no password set), or undefined when no person has it */
   passwordFor(email: string): { id: string; status: string; hash: string | null } | undefined {
     const row = this.db.prepare("SELECT id, status, password_hash FROM users WHERE kind = 'human' AND lower(email) = ? ORDER BY rowid LIMIT 1")
       .get(normalizeEmail(email)) as { id: string; status: string; password_hash: string | null } | undefined;
@@ -183,12 +158,10 @@ export class Accounts {
   passwordHashOf(userId: string): string | null {
     return (this.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string | null } | undefined)?.password_hash ?? null;
   }
-  /** a new password signs the person out everywhere; the caller starts the session they continue in */
   setPassword(userId: string, hash: string): void {
     this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
     this.revokeUserSessions(userId);
   }
-  /** the outcome of a password check the caller already ran (verifyPassword is async; this isn't) */
   passwordSignIn(user: { id: string; status: string } | undefined, matched: boolean): { userId: string } | { error: PasswordSignInError } {
     if (!user || !matched) return { error: 'invalid' };
     if (user.status === 'suspended') return { error: 'suspended' };
@@ -196,14 +169,9 @@ export class Accounts {
     return { userId: user.id };
   }
 
-  // ---------- first run ----------
-  /** nobody can sign in yet: no person has a password or a linked Google account */
   needsSetup(): boolean {
     return !this.db.prepare("SELECT 1 FROM users WHERE kind = 'human' AND status = 'active' AND (password_hash IS NOT NULL OR google_sub IS NOT NULL) LIMIT 1").get();
   }
-  /** The first admin, created by whoever holds the setup token. Synchronous from the re-check to the
-   *  last write, so two racing requests can't both get through (one process, one thread). A person
-   *  already in the data with that email (imported) becomes the owner rather than a duplicate. */
   completeSetup(o: { name: string; email: string; passwordHash: string; workspaceName: string }): { userId: string } | { error: 'already-set-up' } {
     if (!this.needsSetup()) return { error: 'already-set-up' };
     const email = normalizeEmail(o.email);
@@ -216,9 +184,6 @@ export class Accounts {
     return { userId };
   }
 
-  /** Joining through an invite link with a password. The link is the credential, so the person also
-   *  types the address it was sent to: a forwarded link alone (which shows that address masked)
-   *  isn't enough. */
   acceptInvite(code: string, o: { email: string; name: string; passwordHash: string }): { userId: string; invitedBy: string | null } | { error: InviteAcceptError } {
     const email = normalizeEmail(o.email);
     const inv = this.inviteByCode(code);
@@ -235,8 +200,6 @@ export class Accounts {
     return { userId: created.id, invitedBy: inv.invited_by };
   }
 
-  // ---------- password reset links ----------
-  /** a one-use link; any earlier unused link for the same person stops working */
   createPasswordReset(userId: string, createdBy: string | null, ttlMs: number): { token: string; expiresAt: string } {
     const token = randomBytes(32).toString('base64url');
     const now = new Date();
@@ -246,25 +209,20 @@ export class Accounts {
       .run(hashToken(token), userId, createdBy, now.toISOString(), expiresAt);
     return { token, expiresAt };
   }
-  /** who an unused, unexpired reset link is for (an active person), or null */
   passwordReset(token: string): { userId: string; name: string; email: string } | null {
     const row = this.db.prepare("SELECT r.user_id, u.name, u.email FROM password_resets r JOIN users u ON u.id = r.user_id WHERE r.token_hash = ? AND r.used_at IS NULL AND r.expires_at > ? AND u.status = 'active' AND u.kind = 'human'")
       .get(hashToken(token), new Date().toISOString()) as { user_id: string; name: string; email: string } | undefined;
     return row ? { userId: row.user_id, name: row.name, email: row.email } : null;
   }
-  /** spends the link and sets the password; null when it was already used, expired or unknown */
   usePasswordReset(token: string, passwordHash: string): string | null {
     const valid = this.passwordReset(token);
     if (!valid) return null;
-    // one use, even when two requests race for it
     const spent = this.db.prepare('UPDATE password_resets SET used_at = ? WHERE token_hash = ? AND used_at IS NULL').run(new Date().toISOString(), hashToken(token));
     if (Number(spent.changes) !== 1) return null;
     this.setPassword(valid.userId, passwordHash);
     return valid.userId;
   }
 
-  /** A new account starts with the setup panel open: as the person setting up the workspace while
-   *  it has no teams, otherwise as someone joining it. */
   private startOnboarding(userId: string): void {
     const flow = this.db.prepare('SELECT 1 FROM teams LIMIT 1').get() ? 'join' : 'create';
     this.store.setPreferences({ gettingStarted: { onboarding: 'pending', flow, since: new Date().toISOString() } }, userId);
@@ -278,14 +236,9 @@ export class Accounts {
     return { id: created.id, status: 'active' };
   }
 
-  // ---------- invites ----------
-  /** a person (active or suspended) already using this address */
   memberByEmail(email: string): { id: string; status: string } | undefined {
     return this.db.prepare("SELECT id, status FROM users WHERE kind = 'human' AND lower(email) = ? LIMIT 1").get(normalizeEmail(email)) as { id: string; status: string } | undefined;
   }
-  /** Invite an address. An earlier open invite to it is replaced, so the newest role and teams win.
-   *  The code is kept as is so the link can be copied again later (admins see it anyway); joining
-   *  with it still takes the invited Google account, or typing the invited address (acceptInvite). */
   createInvite(email: string, admin: boolean, teamIds: string[], invitedBy: string): InviteRow {
     const addr = normalizeEmail(email);
     const now = new Date();
@@ -299,11 +252,9 @@ export class Accounts {
       .run(row.id, row.email, row.admin, row.team_ids, row.invited_by, row.code, row.created_at, row.expires_at);
     return row;
   }
-  /** open invites (not accepted or revoked), newest first, including expired ones so they can be renewed */
   openInvites(): InviteRow[] {
     return this.db.prepare('SELECT * FROM invites WHERE accepted_at IS NULL AND revoked_at IS NULL ORDER BY created_at DESC').all() as unknown as InviteRow[];
   }
-  /** invites this person sent that weren't revoked, accepted ones included */
   invitesSentBy(userId: string): number {
     return Number((this.db.prepare('SELECT COUNT(*) AS n FROM invites WHERE invited_by = ? AND revoked_at IS NULL').get(userId) as { n: number }).n);
   }
@@ -317,7 +268,6 @@ export class Accounts {
     return this.db.prepare('SELECT * FROM invites WHERE email = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1')
       .get(normalizeEmail(email), new Date().toISOString()) as InviteRow | undefined;
   }
-  /** another 7 days from now (resending an invite) */
   renewInvite(inviteId: string): InviteRow | undefined {
     this.db.prepare('UPDATE invites SET expires_at = ? WHERE id = ? AND accepted_at IS NULL AND revoked_at IS NULL')
       .run(new Date(Date.now() + INVITE_DAYS * DAY).toISOString(), inviteId);
@@ -327,18 +277,12 @@ export class Accounts {
     this.db.prepare('UPDATE invites SET revoked_at = ? WHERE id = ? AND accepted_at IS NULL').run(new Date().toISOString(), inviteId);
   }
 
-  // ---------- team join links ----------
-  // One open link per team, pasted where the team talks (8 people, one message instead of 8 DMs).
-  // Unlike an invite it names no address, so it is revocable rather than one-use.
-  /** the team's open link, if it has one */
   joinLinkFor(teamId: string): JoinLinkRow | undefined {
     return this.db.prepare('SELECT * FROM team_join_links WHERE team_id = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1').get(teamId) as JoinLinkRow | undefined;
   }
-  /** an open link (its team still there), or undefined */
   joinLinkByCode(code: string): JoinLinkRow | undefined {
     return this.db.prepare('SELECT l.* FROM team_join_links l JOIN teams t ON t.id = l.team_id WHERE l.code = ? AND l.revoked_at IS NULL').get(code) as JoinLinkRow | undefined;
   }
-  /** a new link for the team; the old one stops working */
   createJoinLink(teamId: string, createdBy: string): JoinLinkRow {
     this.revokeJoinLink(teamId);
     const row: JoinLinkRow = { id: id('jl'), team_id: teamId, code: randomBytes(18).toString('base64url'), created_by: createdBy, created_at: new Date().toISOString(), revoked_at: null };
@@ -348,8 +292,6 @@ export class Accounts {
   revokeJoinLink(teamId: string): void {
     this.db.prepare('UPDATE team_join_links SET revoked_at = ? WHERE team_id = ? AND revoked_at IS NULL').run(new Date().toISOString(), teamId);
   }
-  /** Joining through a team's link with a password: a new member on that team. An address that
-   *  already has an account signs in instead (the link can't take over an account). */
   joinWithLink(code: string, o: { email: string; name: string; passwordHash: string }): { userId: string; invitedBy: string | null; teamId: string } | { error: 'invite-expired' | 'already-member' } {
     const email = normalizeEmail(o.email);
     const link = this.joinLinkByCode(code);
@@ -359,15 +301,12 @@ export class Accounts {
     this.startOnboarding(created.id);
     this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(o.passwordHash, created.id);
     this.store.setUserTeams(created.id, [link.team_id]);
-    // a pending invite to this address is spent too: they're in
     this.db.prepare('UPDATE invites SET accepted_at = ?, accepted_user_id = ? WHERE email = ? AND accepted_at IS NULL AND revoked_at IS NULL')
       .run(new Date().toISOString(), created.id, email);
     this.claimOwnUser(created.id);
     return { userId: created.id, invitedBy: link.created_by, teamId: link.team_id };
   }
 
-  // ---------- roles ----------
-  /** a person (not an agent) who can sign in */
   isActivePerson(userId: string): boolean {
     return !!this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'human' AND status = 'active'").get(userId);
   }
@@ -376,7 +315,6 @@ export class Accounts {
     if (!u || u.status === 'suspended' || u.kind !== 'human') return false;
     const sec = this.store.getSecurity();
     if (u.admin || sec.whoCanInvite === 'members') return true;
-    // a small team grows by word of mouth: anyone can bring in the next few people
     return sec.smallTeamInvites && (this.db.prepare("SELECT COUNT(*) n FROM users WHERE kind = 'human' AND status = 'active'").get() as { n: number }).n < SMALL_WORKSPACE;
   }
   private activeAdmins(): number {
@@ -392,7 +330,6 @@ export class Accounts {
     if (!admin && u.admin && u.status === 'active' && this.activeAdmins() <= 1) throw new AccountError('last-admin', 'The workspace needs at least one admin');
     this.db.prepare('UPDATE users SET admin = ? WHERE id = ?').run(admin ? 1 : 0, userId);
   }
-  /** suspending signs someone out everywhere and keeps them out; their issues and comments stay */
   setSuspended(userId: string, suspended: boolean, actorId: string): void {
     const u = this.person(userId);
     if (userId === actorId) throw new AccountError('self', 'You can\'t suspend yourself');
@@ -400,7 +337,6 @@ export class Accounts {
     this.db.prepare('UPDATE users SET status = ? WHERE id = ?').run(suspended ? 'suspended' : 'active', userId);
     if (suspended) {
       this.revokeUserSessions(userId);
-      // their GitHub connection goes with them: nothing is read as a suspended person
       this.db.prepare('DELETE FROM user_github_tokens WHERE user_id = ?').run(userId);
     }
   }

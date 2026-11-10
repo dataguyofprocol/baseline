@@ -1,8 +1,3 @@
-// End-to-end tests for hosted mode: Google sign-in (with Google's token endpoint stubbed),
-// sessions, the CSRF and host guards, admin-only routes, and who writes are attributed to.
-// Runs against a throwaway database and never touches ~/.baseline.
-//
-//   npx tsx scripts/test-auth.ts
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,7 +13,6 @@ const OWNER = 'owner@example.com';
 
 const work = mkdtempSync(join(tmpdir(), 'baseline-auth-test-'));
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));
-// email goes to this list instead of an SMTP server
 const sent: MailMessage[] = [];
 const dbFile = join(work, 'hosted.db');
 const { app, store, db, accounts, changes } = createApp(dbFile, {
@@ -31,7 +25,6 @@ const check = (name: string, ok: boolean, detail = '') => {
   console.log(`${ok ? '✓' : '✗'} ${name}${ok || !detail ? '' : `  — ${detail}`}`);
 };
 
-// ---- Google's token endpoint, stubbed: whatever identity the next sign-in should return ----
 let nextIdentity: Record<string, unknown> = {};
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -53,8 +46,6 @@ const cookiesFrom = (res: Response): Record<string, string> => {
   return out;
 };
 
-/** run the whole browser redirect sequence: /auth/google → (Google) → /auth/google/callback; returns the final redirect and cookies */
-// each sign-in comes from its own address, so the sign-in rate limit only trips in the tests that check it
 let ipSeq = 0;
 async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boolean; next?: string; invite?: string; join?: string; ip?: string } = {}) {
   const ip = opts.ip ?? `10.0.${Math.floor(++ipSeq / 250)}.${ipSeq % 250}`;
@@ -72,7 +63,6 @@ async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boo
 }
 const json = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', origin: ORIGIN } });
 
-// ---------- tests ----------
 {
   const r = await req('/api/bootstrap');
   check('API without a session is 401', r.status === 401);
@@ -107,7 +97,6 @@ check('a hosted workspace starts empty (no sample data)', boot.teams.length === 
 const ownerAgain = await signIn({ sub: 'g-owner', email: OWNER, name: 'Owner Person' }, { next: '//evil.example.com/x' });
 check('a protocol-relative next can\'t be used as an open redirect', ownerAgain.location === `${ORIGIN}/`, ownerAgain.location);
 
-// a teammate who exists from imported data (no Google link yet) signs in by email
 const ada = store.createUser('Ada Osei', 'ada@example.com');
 const adaIn = await signIn({ sub: 'g-ada', email: 'ada@example.com', name: 'Ada O.' });
 check('an existing person with a matching email is linked on first sign-in', !!adaIn.session);
@@ -117,7 +106,6 @@ check('…as that same person, not an admin', adaBoot.currentUser.id === ada.id 
 const imposter = await signIn({ sub: 'g-other', email: 'ada@example.com', name: 'Not Ada' });
 check('a second Google account with the same email can\'t take over a linked person', !imposter.session, imposter.location);
 
-// ---- CSRF and host ----
 {
   const r = await req('/api/teams', { method: 'POST', body: JSON.stringify({ key: 'ENG', name: 'Eng' }), headers: { 'content-type': 'application/json' }, cookie: ownerCookie });
   check('a write without Origin is refused', r.status === 403);
@@ -127,7 +115,6 @@ check('a second Google account with the same email can\'t take over a linked per
   check('a request addressed to another host is refused', r3.status === 403);
 }
 
-// ---- attribution: writes are the signed-in person's ----
 const team = await (await req('/api/teams', { ...json({ key: 'ENG', name: 'Eng' }), cookie: ownerCookie })).json() as { team: { id: string } };
 check('a same-origin write with a session works', !!team.team?.id);
 const issue = (await (await req('/api/issues', { ...json({ teamId: team.team.id, title: 'Hello' }), cookie: adaCookie })).json() as { issue: { id: string; creatorId?: string } }).issue;
@@ -150,7 +137,6 @@ check('…and so is its activity', created.user_id === ada.id);
   check('an issue update as someone else is refused (actorId is not ignored)', patchAs.status === 403 && store.getIssue(issue.id)?.title === 'Hello');
 }
 {
-  // in flight together, so the per-request acting user has to survive interleaved awaits
   const [a, o] = await Promise.all([
     req('/api/issues', { ...json({ teamId: team.team.id, title: 'A' }), cookie: adaCookie }),
     req('/api/issues', { ...json({ teamId: team.team.id, title: 'B' }), cookie: ownerCookie }),
@@ -160,7 +146,6 @@ check('…and so is its activity', created.user_id === ada.id);
   check('two people writing at once are each attributed correctly', by(ia.issue.id) === ada.id && by(io.issue.id) === boot.currentUser.id);
 }
 
-// ---- admin-only ----
 {
   const r = await req('/api/users', { ...json({ name: 'Sneaky', admin: true }), cookie: adaCookie });
   check('a member can\'t add people', r.status === 403);
@@ -180,12 +165,10 @@ check('…and so is its activity', created.user_id === ada.id);
     && (await req('/api/locations', { ...json({ path: '/etc' }), cookie: ownerCookie })).status === 403);
 }
 
-// ---- workspace configuration is admins' (CORE_FLOW.md › Roles); a team's is its lead's, below ----
 {
   const send = (cookie: string, method: string, path: string, body?: unknown) =>
     req(path, { method, cookie, headers: { 'content-type': 'application/json', origin: ORIGIN }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
   const idOf = async (r: Response, key: string) => ((await r.json()) as Record<string, { id: string }>)[key]!.id;
-  // what members still do: start a team, and add a label from an issue's (or project's, or initiative's) picker
   const own = await send(adaCookie, 'POST', '/api/teams', { key: 'ADA', name: 'Ada\'s team' });
   check('a member can create a team', own.status === 201);
   const ownId = await idOf(own, 'team');
@@ -200,7 +183,6 @@ check('…and so is its activity', created.user_id === ada.id);
     projectLabel: await idOf(projectLabelRes, 'label'), initiativeLabel: await idOf(initiativeLabelRes, 'label'),
   };
 
-  // each route a member is refused and an admin isn't; `save` keeps the id an admin's create returns
   const routes: Array<{ name: string; method: string; path: () => string; body?: unknown; save?: [string, string]; adminStatus?: number }> = [
     { name: 'edit a project label', method: 'PATCH', path: () => `/api/project-labels/${ids.projectLabel}`, body: { name: 'Q4' } },
     { name: 'remove a project label', method: 'DELETE', path: () => `/api/project-labels/${ids.projectLabel}` },
@@ -217,16 +199,12 @@ check('…and so is its activity', created.user_id === ada.id);
     { name: 'run a loop', method: 'POST', path: () => `/api/loops/${ids.loop}/run`, body: { issueId: issue.id } },
     { name: 'remove a loop', method: 'DELETE', path: () => `/api/loops/${ids.loop}` },
     { name: 'change PR automations', method: 'PUT', path: () => `/api/git/automation/${ids.team}`, body: { linkOnBranch: false } },
-    // hosted, the address is BASELINE_PUBLIC_URL's: the admin gets past the gate to that refusal
     { name: 'set the GitHub webhook URL', method: 'PUT', path: () => '/api/github/webhook/config', body: { publicUrl: ORIGIN }, adminStatus: 400 },
     { name: 'make a GitHub webhook secret', method: 'POST', path: () => '/api/github/webhook/secret' },
     { name: 'turn GitHub webhooks off', method: 'DELETE', path: () => '/api/github/webhook/secret' },
-    // the admin gets past the gate to the repo-name check (a real import would run gh)
     { name: 'import GitHub issues', method: 'POST', path: () => '/api/github/issues/import', body: { repo: 'not a repo', teamId: ids.team }, adminStatus: 400 },
-    // the admin gets past the gate to the token's shape check (a real one would be checked with GitHub)
     { name: 'save a GitHub token', method: 'PUT', path: () => '/api/github/token', body: { token: 'nope' }, adminStatus: 400 },
     { name: 'remove the GitHub token', method: 'DELETE', path: () => '/api/github/token' },
-    // …and to "add a token first": with no token a hosted server can't ask GitHub
     { name: 'list the repos GitHub can see', method: 'GET', path: () => '/api/github/repos/available', adminStatus: 400 },
     { name: 'pick the repos to sync', method: 'PUT', path: () => '/api/github/repos', body: { repos: ['acme/app'] } },
     { name: 'follow a GitHub repo\'s issues', method: 'PUT', path: () => '/api/github/issues/follow', body: { repo: 'acme/app', teamId: ids.team } },
@@ -239,24 +217,20 @@ check('…and so is its activity', created.user_id === ada.id);
     if (r.save && admin.ok) { const b = await admin.json() as Record<string, unknown>; const v = b[r.save[0]]; ids[r.save[1]] = typeof v === 'string' ? v : (v as { id: string }).id; }
     check(`a member can't ${r.name}; an admin can`, member.status === 403 && adminOk, `member ${member.status}, admin ${admin.status}`);
   }
-  // (on their own team, so Eng's bells stay as the inbox tests expect)
   check('a member can still subscribe to a team and add its resources',
     (await send(adaCookie, 'PUT', `/api/teams/${ownId}/subscription`, { issueAdded: true })).status === 200
     && (await send(adaCookie, 'POST', `/api/teams/${ownId}/links`, { url: 'https://example.com/runbook' })).status === 201);
 }
 
-// ---- team leads (CORE_FLOW.md › Roles): a team's setup is its lead's; labels and templates its members' ----
 {
   const send = (cookie: string, method: string, path: string, body?: unknown) =>
     req(path, { method, cookie, headers: { 'content-type': 'application/json', origin: ORIGIN }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
   const ownerId = boot.currentUser.id;
-  // Lead: Ada leads Led. Plain: Ada is a member of a team Owner leads. Leaderless: nobody leads it (a team from before leads)
   const mk = async (key: string, cookie: string) => ((await (await send(cookie, 'POST', '/api/teams', { key, name: key })).json()) as { team: { id: string } }).team.id;
   const led = await mk('LED', adaCookie), plain = await mk('PLN', ownerCookie), leaderless = await mk('NOL', ownerCookie);
   store.addTeamMember(plain, ada.id);
   store.addTeamMember(leaderless, ada.id);
   store.setTeamLead(leaderless, ownerId, false);
-  // a team-scoped row per team, made by the store so each route below starts from the same state
   const rows = (teamId: string) => ({
     state: store.createState(teamId, 'QA', 'started', '#f2c94c').id,
     label: store.createLabel(teamId, 'bug', '#eb5757').id,
@@ -293,12 +267,10 @@ check('…and so is its activity', created.user_id === ada.id);
       check(`a team's member can ${r.name}, as can its lead and an admin`, ok(asLead) && ok(asMember) && ok(asAdmin) && ok(leaderlessRes), `${asLead.status} ${asMember.status} ${asAdmin.status} ${leaderlessRes.status}`);
     }
   }
-  // someone not on the team can't touch its labels or templates
   const ghost = `__Host-baseline_session=${accounts.createSession(outsider.id).token}`;
   const plainRows = rows(plain);
   check('someone not on a team can\'t edit its labels or templates', (await send(ghost, 'PATCH', `/api/labels/${plainRows.label}`, { name: 'x' })).status === 403
     && (await send(ghost, 'DELETE', `/api/issue-templates/${plainRows.template}`)).status === 403);
-  // leads choose leads, and remove members
   const makeLead = (cookie: string, t: string, u: string, lead: boolean) => send(cookie, 'PUT', `/api/teams/${t}/leads/${u}`, { lead });
   check('a member can\'t make themselves lead', (await makeLead(adaCookie, plain, ada.id, true)).status === 403 && !store.getTeam(plain)!.leadIds.includes(ada.id));
   check('a lead makes someone else a lead (adding them to the team)', ok(await makeLead(adaCookie, led, outsider.id, true)) && store.getTeam(led)!.leadIds.includes(outsider.id) && store.getTeam(led)!.memberIds.includes(outsider.id));
@@ -308,7 +280,6 @@ check('…and so is its activity', created.user_id === ada.id);
   check('…after which that lead sets the team up', ok(await send(adaCookie, 'PATCH', `/api/teams/${leaderless}`, { name: 'Has a lead' })));
   check('a lead deletes their team; a member can\'t', (await send(adaCookie, 'DELETE', `/api/teams/${plain}`)).status === 403 && ok(await send(adaCookie, 'DELETE', `/api/teams/${led}`)) && !store.getTeam(led));
 
-  // "Ask <name>": a plain row in the asked person's inbox, naming the page
   const ask = (cookie: string, body: unknown) => send(cookie, 'POST', '/api/access-requests', body);
   check('a member asks the lead to change something', (await ask(adaCookie, { to: ownerId, what: 'Add an In Review status to PLN', path: '/settings/team/PLN/statuses' })).status === 201);
   const asked = (await (await req('/api/bootstrap', { cookie: ownerCookie })).json() as { notifications: Array<{ type: string; actorId: string; body: string }> }).notifications.find(n => n.type === 'accessRequested');
@@ -317,9 +288,7 @@ check('…and so is its activity', created.user_id === ada.id);
   check('…and the ask says what', (await ask(adaCookie, { to: ownerId, what: ' ' })).status === 400);
 }
 
-// ---- coding agents: nothing runs on, or reaches into, the server's machine ----
 {
-  // a location left over from a laptop workspace moved onto the server
   const loc = store.createLocation(work, 'Old checkout');
   const at = (cookie: string, method: string, body?: unknown) => req(`/api/locations/${loc.id}`, { method, cookie, headers: { 'content-type': 'application/json', origin: ORIGIN }, ...(body ? { body: JSON.stringify(body) } : {}) });
   const rename = await at(adaCookie, 'PATCH', { name: 'Mine now' });
@@ -358,7 +327,6 @@ check('…and so is its activity', created.user_id === ada.id);
   check('picking a repo that isn\'t owner/name is refused', bad.status === 400);
 }
 
-// ---- the token check and the read-only allowlist (pure: no GitHub involved) ----
 {
   const response = (headers: string[], body = '{"login":"octocat","id":1}') => ['HTTP/2.0 200 OK', 'Content-Type: application/json; charset=utf-8', ...headers, '', body].join('\r\n');
   const refusal = (raw: string) => { try { parseTokenCheck(raw); return ''; } catch (e) { return (e as Error).message; } };
@@ -382,7 +350,6 @@ check('…and so is its activity', created.user_id === ada.id);
     && !reads(['api', 'graphql', '-f', 'query=mutation{}']) && !reads(['api', '-i', 'graphql']) && !reads(['api', '--paginate', '/graphql']) && !reads(['pr', 'create']));
 }
 
-// ---- per-person state ----
 const patch = (path: string, body: unknown, cookie: string) => req(path, { ...json(body), method: 'PATCH', cookie });
 type Boot = { favorites: Array<{ refId: string }>; views: Array<{ id: string; shared: boolean }>; notifications: Array<{ id: string; type: string; body: string; readAt: string | null; issueId: string | null }>; workspace: { preferences: { homeView: string } } };
 const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { cookie })).json() as Boot;
@@ -414,10 +381,8 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   await req(`/api/notifications/${nid}`, { method: 'DELETE', cookie: ownerCookie, headers: { origin: ORIGIN } });
   check('nobody can delete someone else\'s notification', !!reminder && !!db.prepare('SELECT 1 FROM notifications WHERE id = ?').get(nid));
 
-  // ---- mentions ----
   const ownerId = boot.currentUser.id;
   const subscribed = (uid: string) => store.isSubscribed(issue.id, uid);
-  // a mention notifies once and doesn't subscribe (replying does), so "mentioned" reads the inbox
   const mentioned = (uid: string) => !!db.prepare("SELECT 1 FROM notifications WHERE type = 'issueMentioned' AND user_id = ? AND issue_id = ?").get(uid, issue.id);
   store.unsubscribe(issue.id, ownerId);
   db.prepare("DELETE FROM notifications WHERE type = 'issueMentioned'").run();
@@ -436,7 +401,6 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   const handoff = await (await req(`/api/issues/${issue.id}/handoff`, { cookie: adaCookie })).json() as { handoff: { prompt: string } };
   check('hand-off prompts carry the readable form', !handoff.handoff.prompt.includes('](user:'));
 
-  // ---- uploaded files (only real images are stored; their type comes from the bytes, not the uploader) ----
   const up = (name: string, type: string, body: string | Uint8Array) => req(`/api/files?owner=issue:${issue.id}&name=${name}`, { method: 'POST', body, headers: { 'content-type': type, origin: ORIGIN }, cookie: adaCookie });
   check('an HTML file is refused', (await up('evil.html', 'image/png', '<script>alert(1)</script>')).status === 415);
   const svgUp = await (await up('x.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')).json() as { file: { url: string } };
@@ -449,7 +413,6 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   check('files need a session', (await req(pngUp.file.url)).status === 401);
 }
 
-// ---- each person's own inbox: two people on one issue ----
 {
   const ownerId = boot.currentUser.id;
   type Row = Boot['notifications'][number];
@@ -497,14 +460,12 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   const after = db.prepare('SELECT read_at, snoozed_until FROM notifications WHERE id = ?').get(adaRow.id) as { read_at: string | null; snoozed_until: string | null };
   check('nobody can read or snooze someone else\'s notification', !after.read_at && !after.snoozed_until);
 
-  // team bells are per person too
   await req(`/api/teams/${team.team.id}/subscription`, { ...json({ issueAdded: true }), method: 'PUT', cookie: ownerCookie });
   const added = (await (await req('/api/issues', { ...json({ teamId: team.team.id, title: 'From Ada' }), cookie: adaCookie })).json() as { issue: { id: string } }).issue;
   const adaTeams = (await (await req('/api/bootstrap', { cookie: adaCookie })).json() as { teamSubscriptions: Record<string, unknown> }).teamSubscriptions;
   check('a team bell is yours alone, and hears about others\' new issues', has(await inbox(ownerCookie, added.id), 'teamActivity') && !adaTeams[team.team.id]);
 }
 
-// ---- live updates ----
 {
   check('the event stream needs a session', (await req('/api/events')).status === 401);
   const res = await req('/api/events', { cookie: ownerCookie });
@@ -512,7 +473,6 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffered = '';
-  /** the next `version` event's number, or null if none arrives within a second */
   const nextVersion = async (): Promise<number | null> => {
     const deadline = Date.now() + 1000;
     while (Date.now() < deadline) {
@@ -529,7 +489,6 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   await req('/api/issues', { ...json({ teamId: team.team.id, title: 'Live one' }), cookie: adaCookie });
   const second = await nextVersion();
   check('a write through the API announces a new version straight away', second !== null && second > first!);
-  // the CLI and agents write to the file from another process: another connection stands in for them
   const other = new DatabaseSync(dbFile);
   other.prepare("UPDATE issues SET title = 'Changed from the CLI' WHERE title = 'Live one'").run();
   other.close();
@@ -545,7 +504,6 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   check('the clock sees a reminder coming due', store.wokeBetween(t0, new Date(t0.getTime() + 60_000)) && !store.wokeBetween(new Date(t0.getTime() + 60_000), new Date(t0.getTime() + 120_000)));
 }
 
-// ---- rate limits ----
 {
   let last = '';
   for (let i = 0; i < 31; i++) last = (await req('/auth/google?next=/', { headers: { 'x-forwarded-for': '203.0.113.9' } })).headers.get('location') ?? '';
@@ -554,7 +512,6 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   check('…without affecting other addresses', other.startsWith('https://accounts.google.com/'));
 }
 
-// ---- invites ----
 type Result = { email: string; status: string; userId?: string; teamIds?: string[]; error?: string; emailed?: string; invite?: { id: string; link: string; teamIds: string[] } };
 {
   const r = await req('/api/invites', { ...json({ emails: 'ben@example.com, cara@example.com\nnot-an-email, ada@example.com, BEN@example.com', teamIds: [team.team.id, 'nope'] }), cookie: ownerCookie });
@@ -603,14 +560,12 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   const eveIn = await signIn({ sub: 'g-eve', email: 'eve@example.com', name: 'Eve' });
   check('…after which it works', !!eveIn.session);
   const caraCookie = `__Host-baseline_session=${cara.session}`;
-  // a workspace under 10 people lets members invite whatever whoCanInvite says (Settings › Security)
   const caraBoot = async () => (await (await req('/api/bootstrap', { cookie: caraCookie })).json() as { workspace: { canInvite: boolean } }).workspace.canInvite;
   check('while the workspace is small, a member can invite, and bootstrap says so', await caraBoot() && (await req('/api/invites', { cookie: caraCookie })).status === 200);
   check('a member can\'t turn that off', (await patch('/api/security', { smallTeamInvites: false }, caraCookie)).status === 403);
   await patch('/api/security', { smallTeamInvites: false }, ownerCookie);
   check('a member can\'t invite while only admins may', (await req('/api/invites', { ...json({ emails: 'x@example.com' }), cookie: caraCookie })).status === 403 && !await caraBoot());
   {
-    // ten people: the small-team rule stops applying even when it's on
     await patch('/api/security', { smallTeamInvites: true }, ownerCookie);
     const extra = Array.from({ length: 10 }, (_, i) => store.createUser(`Filler ${i}`, `filler${i}@example.com`, false));
     check('…nor at 10 people, even with members inviting while small', (await req('/api/invites', { ...json({ emails: 'x@example.com' }), cookie: caraCookie })).status === 403);
@@ -627,7 +582,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
     (await req(`/api/invites/${xInvite.id}`, { method: 'DELETE', cookie: caraCookie, headers: { origin: ORIGIN } })).status === 200
     && (await req(`/api/invites/${ownerSent.results[0]!.invite!.id}`, { method: 'DELETE', cookie: caraCookie, headers: { origin: ORIGIN } })).status === 403);
 
-  // ---- approved domains (Google Workspace hd claim) ----
   const sec = await (await patch('/api/security', { approvedDomains: ['@Acme.dev ', 'bad domain', 'acme.dev'], domainTeamIds: [team.team.id] }, ownerCookie)).json() as { security: { approvedDomains: string[] } };
   check('approved domains are cleaned up and deduplicated', JSON.stringify(sec.security.approvedDomains) === '["acme.dev"]', JSON.stringify(sec.security));
   const managed = await signIn({ sub: 'g-raj', email: 'raj@acme.dev', name: 'Raj', hd: 'acme.dev' });
@@ -638,7 +592,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   const other = await signIn({ sub: 'g-kim', email: 'kim@other.com', name: 'Kim', hd: 'other.com' });
   check('…nor does another Workspace domain', other.location.endsWith('?auth_error=not-invited'));
 
-  // ---- a team's join link, with Google ----
   {
     const made = await (await req(`/api/teams/${team.team.id}/join-link`, { ...json({}), cookie: ownerCookie })).json() as { joinLink: { link: string } };
     const code = new URL(made.joinLink.link).searchParams.get('join')!;
@@ -650,7 +603,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
     check('…and not once the link is turned off', !late.session && late.location.endsWith('?auth_error=invite-expired'), late.location);
   }
 
-  // ---- roles, suspension, teams ----
   const ownerId = boot.currentUser.id;
   const demoteSelf = await patch(`/api/members/${ownerId}`, { admin: false }, ownerCookie);
   check('the last admin can\'t step down', demoteSelf.status === 400);
@@ -673,8 +625,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   await patch(`/api/members/${raj!.id}`, { teamIds: [t2.team.id] }, ownerCookie);
   check('an admin can set someone\'s teams', !store.getTeam(team.team.id)!.memberIds.includes(raj!.id) && store.getTeam(t2.team.id)!.memberIds.includes(raj!.id));
 
-  // ---- adding people to a team, and taking them off (Team settings › Members) ----
-  // Raj is a member (not an admin) on Ops only; Ada (a member) isn't on Ops
   const rajNow = `__Host-baseline_session=${(await signIn({ sub: 'g-raj', email: 'raj@acme.dev', name: 'Raj', hd: 'acme.dev' })).session}`;
   const members = (teamId: string) => store.getTeam(teamId)!.memberIds;
   const addTo = (teamId: string, userIds: unknown, cookie: string) => req(`/api/teams/${teamId}/members`, { ...json({ userIds }), cookie });
@@ -700,8 +650,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('an admin removes someone from a team', (await removeFrom(t2.team.id, ada.id, ownerCookie)).status === 200 && !members(t2.team.id).includes(ada.id));
   check('anyone can take themselves off a team', (await removeFrom(team.team.id, raj!.id, rajNow)).status === 200 && !members(team.team.id).includes(raj!.id));
 
-  // ---- the invite dialog finds people already here and puts them on its teams ----
-  // Raj is a member on Ops only; Ada is on Eng, not Ops; Eve joined with no team
   const invite = (body: unknown, cookie: string) => req('/api/invites', { ...json(body), cookie });
   const resultsOf = async (r: Response) => (await r.json() as { results: Result[] }).results;
   const addedNotices = async (cookie: string, teamId: string) => (await (await req('/api/bootstrap', { cookie })).json() as { notifications: Array<{ type: string; actorId: string; body: string }> })
@@ -765,7 +713,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('names in email HTML are escaped', html.includes('Cara &lt;script&gt;') && !/<script/i.test(html), html.slice(0, 200));
 }
 
-// ---- API keys on a hosted server (the CLI's way in) ----
 {
   const { apiKeys } = store.ext;
   const ownerId = boot.currentUser.id;
@@ -792,7 +739,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('bootstrap returns only the sections asked for', Object.keys(sections).sort().join() === 'currentUser,teams');
   check('an unknown section is 400', (await keyReq('/api/bootstrap?sections=nope', full.token)).status === 400);
 
-  // a key limited to one team
   const other = store.createTeam('OTH', 'Other');
   const foreign = store.createIssue({ teamId: other.id, title: 'Not yours' }, ownerId);
   store.addComment(foreign.id, ownerId, 'secret comment');
@@ -811,7 +757,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('DELETE /api/me/key with a cookie is refused', (await req('/api/me/key', { method: 'DELETE', headers: { origin: ORIGIN }, cookie: ownerCookie })).status === 400);
 }
 
-// ---- agents: a key or a session may write as an agent user, recorded as "<agent> via <person>" ----
 {
   const ownerId = boot.currentUser.id;
   const agent = store.createUser('Reviewer Bot', '', false, 'agent');
@@ -856,7 +801,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   const sessionAsOwner = await req(`/api/issues/${issue.id}`, { ...json({ title: 'x', actorId: ownerId }), method: 'PATCH', cookie: adaCookie });
   check('…and a session acting as another person is refused', sessionAsOwner.status === 403);
 
-  // a drafted project update is its person's alone: only they see it, only they publish it
   type Drafts = { updateDrafts?: Array<{ projectId: string; personId: string; authorId: string; body: string }> };
   const drafted = await keyReq(`/api/projects/${project.id}/update-draft`, { method: 'PUT', body: JSON.stringify({ body: 'Owner\'s draft', health: 'atRisk', actorId: agent.id }) });
   const ownerDrafts = (await (await req('/api/bootstrap', { cookie: ownerCookie })).json() as Drafts).updateDrafts ?? [];
@@ -878,7 +822,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   store.ext.apiKeys.revoke(key.key.id);
 }
 {
-  // local mode: any actor is honored; an agent acts for this machine's current user
   const local = createApp(join(work, 'local.db'), { mode: 'local' }, { configured: false, send: async () => {} });
   const me = local.store.workspaceMeta().currentUser;
   const agent = local.store.createUser('Reviewer Bot', '', false, 'agent');
@@ -896,7 +839,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('…and another person is still honored, with no via', asOther.comment.userId === other.id && asOther.comment.viaUserId === null);
 }
 
-// ---- `baseline login`: browser approval, loopback redirect, PKCE ----
 {
   const { createHash, randomBytes } = await import('node:crypto');
   const verifier = randomBytes(32).toString('base64url');
@@ -922,7 +864,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   store.ext.apiKeys.revoke(got.keyId);
 }
 
-// ---- sessions ----
 {
   const out = await req('/api/auth/logout', { ...json({}), cookie: adaCookie });
   check('logout succeeds', out.status === 200);
@@ -940,7 +881,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('the database stores token hashes, not tokens', stored.every(s => s.id !== owner.session));
 }
 
-// ---- forgot password, on the Google + SMTP server above ----
 {
   const cfg = await (await req('/auth/config')).json() as { methods: string[]; setup: boolean; mail: boolean };
   check('a server with a Google client offers password and Google, and is set up once the owner signed in', cfg.methods.join() === 'password,google' && !cfg.setup && cfg.mail, JSON.stringify(cfg));
@@ -953,7 +893,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('…and emails a reset link only to the member', mail.length === 1 && mail[0]!.to === OWNER && /\?reset=/.test(mail[0]!.text), JSON.stringify(mail.map(m => m.to)));
 }
 
-// ---- password sign-in on a server with only BASELINE_PUBLIC_URL (no Google, no SMTP) ----
 {
   const { authConfigFromEnv } = await import('../src/server/auth.js');
   const { readSetupToken } = await import('../src/server/setup.js');
@@ -1010,7 +949,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   const users = pw.db.prepare("SELECT password_hash FROM users WHERE kind = 'human'").all() as Array<{ password_hash: string }>;
   check('the password is stored as a salted scrypt hash', users.length === 1 && users[0]!.password_hash.startsWith('scrypt$') && !users[0]!.password_hash.includes(owner.password));
 
-  // two setups racing with the token: exactly one owner
   {
     const raceDb = join(work, 'race.db');
     const race = createApp(raceDb, envCfg, { configured: false, send: async () => {} });
@@ -1021,7 +959,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
     check('two setups racing with the token make exactly one owner', results.map(r => r.status).sort().join() === '201,409' && Number(admins) === 1, results.map(r => r.status).join());
   }
 
-  // sign in
   const signInPw = (email: string, password: string, ipAddr?: string) => post('/auth/password', { email, password }, { ip: ipAddr });
   const ok = await signInPw('olu@example.com', owner.password);
   check('the owner signs in with email and password', ok.status === 200 && !!sessionOf(ok));
@@ -1033,12 +970,10 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('…with the same message as an unknown email', nobody.status === 401 && wrongBody.error === nobodyBody.error && wrongBody.code === 'invalid', JSON.stringify([wrongBody, nobodyBody]));
   check('password sign-in from another site is refused', (await post('/auth/password', { email: 'olu@example.com', password: owner.password }, { origin: null })).status === 403);
   {
-    // per account: 10 tries in 15 minutes, from any number of addresses
     const target = 'victim@example.com';
     const codes: number[] = [];
     for (let i = 0; i < 11; i++) codes.push((await signInPw(target, 'guess-' + i, `203.0.113.${100 + i}`)).status);
     check('the 11th password guess for one account is rate-limited, across addresses', codes.slice(0, 10).every(c => c === 401) && codes[10] === 429, codes.join());
-    // per address: 30 tries in 10 minutes, across accounts
     const ipCodes: number[] = [];
     for (let i = 0; i < 31; i++) ipCodes.push((await signInPw(`spray${i}@example.com`, 'guess', '203.0.113.250')).status);
     check('the 31st sign-in from one address is rate-limited, across accounts', ipCodes.slice(0, 30).every(c => c === 401) && ipCodes[30] === 429, ipCodes.slice(28).join());
@@ -1046,7 +981,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
     check('…and another address still signs in', fresh.status === 200);
   }
 
-  // invite by link (no SMTP), accepted with a password
   const team = await (await post('/api/teams', { key: 'ACM', name: 'Acme' }, { cookie: ownerCookie2 })).json() as { team: { id: string } };
   const inv = await (await post('/api/invites', { emails: 'Tia@example.com', teamIds: [team.team.id] }, { cookie: ownerCookie2 })).json() as { results: Array<{ status: string; emailed: string; invite: { link: string } }> };
   const r0 = inv.results[0]!;
@@ -1069,7 +1003,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('the teammate signs in with that password later', (await signInPw('tia@example.com', tia.password)).status === 200);
   const tiaId = tBoot.currentUser.id;
 
-  // ---- first run: who sees which onboarding, and the admin hears about joins without SMTP ----
   type GsBoot = { currentUser: { id: string }; workspace: { preferences: { homeView: string; gettingStarted: { onboarding: string; flow: string } } }; notifications: Array<{ type: string; body: string; actorId: string | null }>; teams: Array<{ id: string; memberIds: string[] }>; users: Array<{ id: string; githubUsername?: string }> };
   const bootAs = async (cookie: string) => await (await preq('/api/bootstrap', { cookie })).json() as GsBoot;
   const ownerBoot = await bootAs(ownerCookie2);
@@ -1079,7 +1012,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('an invitee starts on the joining flow', tiaGs.onboarding === 'pending' && tiaGs.flow === 'join', JSON.stringify(tiaGs));
   check('the inviter gets an inbox notification when someone joins, with no SMTP', ownerBoot.notifications.some(n => n.type === 'systemUpdate' && n.actorId === tiaId && n.body.includes('Tia Teammate joined') && n.body.includes('Acme')), JSON.stringify(ownerBoot.notifications));
 
-  // ---- invite links: the address is shown and prefilled, with the team ----
   {
     const r = await (await post('/api/invites', { emails: 'Uma@example.com maya@local', teamIds: [team.team.id] }, { cookie: ownerCookie2 })).json() as { results: Array<{ email: string; status: string; error?: string; invite?: { link: string } }> };
     const uma = r.results.find(x => x.email === 'uma@example.com')!, maya = r.results.find(x => x.email === 'maya@local')!;
@@ -1088,7 +1020,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
     check('an address without a domain ending is refused with a reason', maya.status === 'invalid' && /domain/.test(maya.error ?? ''), JSON.stringify(maya));
   }
 
-  // ---- a team's join link ----
   {
     const tid = team.team.id;
     check('a member can\'t make a team join link', (await post(`/api/teams/${tid}/join-link`, {}, { cookie: tiaCookie })).status === 403);
@@ -1121,7 +1052,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
     const off = await join({ email: 'xan@example.com', name: 'Xan', password: 'xan has a long password' }, new URL(rotated.joinLink.link).searchParams.get('join')!);
     check('…after which nobody joins with it', off.status === 400 && (await errOf(off)).code === 'invite-expired' && (await preq(`/auth/join/${new URL(rotated.joinLink.link).searchParams.get('join')}`)).status === 404);
 
-    // GitHub usernames: everyone sets their own, admins anyone's (PRs are matched to people by it)
     const patchUser = (id: string, body: unknown, cookie: string) => preq(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(body), cookie, headers: { 'content-type': 'application/json', origin: PW } });
     check('a member sets their own GitHub username', (await patchUser(vb.currentUser.id, { githubUsername: '@vic-gh' }, vicCookie)).status === 200
       && (await bootAs(vicCookie)).users.find(u => u.id === vb.currentUser.id)?.githubUsername === 'vic-gh');
@@ -1131,7 +1061,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
     check('a GitHub username has to look like one', (await patchUser(tiaId, { githubUsername: 'not a login!' }, ownerCookie2)).status === 400);
   }
 
-  // reset links
   const ownerId = pw.store.snapshot().users.find(u => u.email === 'olu@example.com')!.id;
   check('a member can\'t make a reset link', (await post(`/api/members/${ownerId}/reset-link`, {}, { cookie: tiaCookie })).status === 403);
   const adminKey = pw.store.ext.apiKeys.create({ name: 'k', userId: ownerId });
@@ -1158,7 +1087,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   const forgotOff = await post('/auth/forgot', { email: 'tia@example.com' });
   check('without SMTP "forgot password" says to ask an admin', forgotOff.status === 400 && (await errOf(forgotOff)).code === 'mail-off');
 
-  // change your own password
   const tiaNow = sessionOf(await signInPw('tia@example.com', 'tia chose another password'))!;
   const tiaOther = sessionOf(await signInPw('tia@example.com', 'tia chose another password'))!;
   const change = (cookie: string, body: unknown) => post('/api/me/password', body, { cookie: `__Host-baseline_session=${cookie}` });
@@ -1172,7 +1100,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   const me = await (await preq('/api/me', { cookie: `__Host-baseline_session=${tiaNew}` })).json() as { hasPassword: boolean };
   check('/api/me says a password is set', me.hasPassword === true);
 
-  // `baseline login` approved from a password session
   {
     const { createHash, randomBytes } = await import('node:crypto');
     const verifier = randomBytes(32).toString('base64url');
@@ -1185,7 +1112,6 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
     check('CLI login is approved from a password session and gets a key as that person', got.token?.startsWith('bl_api_') && got.user.id === tiaId, JSON.stringify(got));
   }
 
-  // a suspended account is refused even with the right password
   pw.db.prepare("UPDATE users SET status = 'suspended' WHERE id = ?").run(tiaId);
   const susp = await signInPw('tia@example.com', 'brand new password here');
   check('a suspended person can\'t sign in with the right password', susp.status === 403 && (await errOf(susp)).code === 'suspended' && !sessionOf(susp));

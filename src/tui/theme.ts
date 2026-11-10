@@ -1,4 +1,3 @@
-// Colors and glyphs. Hex colors render as truecolor where the terminal supports it and degrade otherwise.
 import type { Priority, ProjectHealth, WorkflowStateType } from '../core/types.js';
 
 export const theme = {
@@ -10,10 +9,8 @@ export const theme = {
   error: '#eb5757',
   urgent: '#f2994a',
   border: 'gray',
-  /** a key letter: amber on a dark chip, wherever a key is shown */
   key: '#f5b26b',
   keyBg: '#2b313b',
-  /** the row under the cursor and the active tab */
   selBg: '#1d2a3e',
   tabBg: '#2a3240',
 };
@@ -27,7 +24,6 @@ export const STATE_ICON: Record<WorkflowStateType, string> = {
   canceled: '⊘',
 };
 
-/** a three-cell glyph so priority columns line up; `lit` of the three bars are bright */
 export function priorityGlyph(p: Priority): { text: string; color?: string; lit: number } {
   switch (p) {
     case 1: return { text: ' ! ', color: theme.urgent, lit: 3 };
@@ -38,10 +34,8 @@ export function priorityGlyph(p: Priority): { text: string; color?: string; lit:
   }
 }
 
-/** a key as a chip, the way every screen shows the key that does something */
 export const keySeg = (k: string) => ({ text: k, color: theme.key, bg: theme.keyBg, bold: true });
 
-/** one cell, for the narrow list rows and the detail pane */
 export function priorityMark(p: Priority): { text: string; color?: string } {
   switch (p) {
     case 1: return { text: '!', color: theme.urgent };

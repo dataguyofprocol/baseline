@@ -7,12 +7,6 @@ import { uniquelyNamed } from '../../src/core/mentions.js';
 
 marked.setOptions({ gfm: true, breaks: true });
 
-/* Rendered markdown: links open in a new tab, issue keys (CORE-12) become links to the
-   issue, and mentions become chips. A mention is `@[Name](user:id)` from the editor, or a plain
-   @Full Name that only one member has. Everything is sanitized last: comments and descriptions are
-   other people's input. */
-
-/** what rendered markdown may contain (DOMPurify's safe HTML, plus link targets) */
 export function sanitize(html: string): string {
   return DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel'], FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select'] });
 }
@@ -23,7 +17,6 @@ export function Markdown({ text }: { text: string }) {
     if (!text?.trim()) return null;
     const raw = marked.parse(text) as string;
     const doc = new DOMParser().parseFromString(`<body>${raw}</body>`, 'text/html');
-    // @[Name](user:id) parses as "@" followed by a link to user:id; turn it into a chip with the person's current name
     doc.querySelectorAll('a[href^="user:"]').forEach(a => {
       const prev = a.previousSibling;
       if (!(prev instanceof Text) || !prev.data.endsWith('@')) return;
@@ -38,7 +31,6 @@ export function Markdown({ text }: { text: string }) {
     doc.querySelectorAll('a').forEach(a => { if (!a.getAttribute('href')?.startsWith('#')) { a.target = '_blank'; a.rel = 'noreferrer'; } });
     if (snap) {
       const keys = new Set(snap.issues.map(i => `${snap.teams.find(t => t.id === i.teamId)?.key}-${i.number}`));
-      // plain "@Name" is only a mention when nobody else shares the name
       const names = uniquelyNamed(snap.users).sort((a, b) => b.name.length - a.name.length).map(u => u.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
       const re = new RegExp(`\\b([A-Z][A-Z0-9]{0,9}-\\d+)\\b${names.length ? `|@(${names.join('|')})(?![\\w])` : ''}`, 'g');
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);

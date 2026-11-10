@@ -28,35 +28,26 @@ interface PaletteItem {
   hint?: string;
   keywords?: string;
   action: () => void;
-  /** run without closing the palette (drill-down pages, label toggles) */
   keepOpen?: boolean;
-  /** render the label in the danger color */
   danger?: boolean;
-  /** check mark on the right, shown when every selected issue shares this value */
   checked?: boolean;
-  /** leading chars of the label drawn as a mono key ("CORE-12 …") */
   prefixLen?: number;
-  /** trailing element, e.g. the issue's assignee */
   trail?: React.ReactNode;
-  /** only offered once you type (per-team shortcuts) */
   searchOnly?: boolean;
-  /** what Enter does, named in the footer ("Open issue") */
   verb?: string;
 }
 
-/* issues opened recently, newest first; the palette's empty state lists them first */
 const RECENT_KEY = 'baseline:recentIssues';
 export function recordRecentIssue(key: string) {
   try {
     const list: string[] = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
     localStorage.setItem(RECENT_KEY, JSON.stringify([key, ...list.filter(k => k !== key)].slice(0, 8)));
-  } catch { /* ignore */ }
+  } catch { }
 }
 function recentIssueKeys(): string[] {
   try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]'); } catch { return []; }
 }
 
-/** render a label with fuzzy-matched characters highlighted */
 function Highlighted({ text, indices }: { text: string; indices: number[] }) {
   if (!indices.length) return <>{text}</>;
   const set = new Set(indices);
@@ -77,16 +68,8 @@ function Highlighted({ text, indices }: { text: string; indices: number[] }) {
   return <>{out}</>;
 }
 
-/* ================= bulk actions =================
-   The palette reads the selection store directly, so anything that fills
-   useSelection (row checkboxes, X key) instantly gets the bulk section here.
-   Everything is resolved from getState() at call time so sub-page builders
-   stay fresh across snapshot refreshes and selection edits. */
-
 interface SubPage { title: string; build: () => PaletteItem[]; calendar?: boolean }
 
-/* The issues the palette acts on, captured when it opened. That is the selection, or, if
-   nothing is selected, the issue you're on (open page, peek, or the row under the cursor). */
 let ctxIds: string[] = [];
 let ctxIsSelection = false;
 function selIds() {
@@ -107,7 +90,6 @@ function selectedIssues(): Issue[] {
   return selIds().map(id => snap.issues.find(i => i.id === id)).filter(Boolean) as Issue[];
 }
 
-/** the field's value only when every selected issue agrees on it */
 function uniformOn<K extends 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'cycleId' | 'estimate'>(field: K) {
   const issues = selectedIssues();
   if (!issues.length) return undefined;
@@ -137,7 +119,6 @@ async function bulkDelete() {
   await deleteIssues(ids);
 }
 
-/** labels are replace-semantics server-side, so merge per issue like the CLI does */
 async function toggleBulkLabel(labelId: string) {
   const snap = useApp.getState().snap!;
   const ids = selIds();
@@ -145,7 +126,6 @@ async function toggleBulkLabel(labelId: string) {
   let changed = 0;
   for (const id of ids) {
     const issue = snap.issues.find(i => i.id === id);
-    // skip an issue already in the target state (lacks it when removing / has it when adding)
     if (!issue || issue.labelIds.includes(labelId) !== allHave) continue;
     const labelIds = allHave ? issue.labelIds.filter(l => l !== labelId) : [...issue.labelIds, labelId];
     await api.updateIssue(id, { labelIds });
@@ -253,7 +233,6 @@ function buildLabelsPage(): PaletteItem[] {
 
 function buildEstimatePage(): PaletteItem[] {
   const uniform = uniformOn('estimate');
-  // the scale each selected issue's team uses (Settings › team › Estimates)
   const snap = useApp.getState().snap!;
   const teams = new Set(selectedIssues().map(i => i.teamId));
   const points = [...new Set(snap.teams.filter(t => teams.has(t.id)).flatMap(t => teamScale(t).map(v => v.value)))].sort((a, b) => a - b);
@@ -305,7 +284,6 @@ function buildDuePage(): PaletteItem[] {
   ];
 }
 
-/** close the palette and open one of the issue property menus (filterable) in its place */
 function quick(kind: PropKind) {
   const ids = selIds();
   useApp.getState().setPalette(false);
@@ -340,7 +318,6 @@ function bulkRootItems(setSub: (p: SubPage) => void): PaletteItem[] {
       { id: 'ctx-copy-md', icon: <IconCopyIdLocal />, label: 'Copy issue as Markdown', section, hint: '⌘⌥C', keywords: 'copy markdown', action: () => void h.copyMarkdown() },
       { id: 'ctx-copy-prompt', icon: <IconHandoff />, label: 'Copy as prompt', section, hint: '⌘⌥P', keywords: 'handoff agent prompt', action: () => void h.copyPrompt() },
     );
-    // hosted, Claude Code can't be opened from the server yet (the companion comes in Phase 2)
     if (!hostedWorkspace()) extra.push({ id: 'ctx-claude', icon: <IconSpark />, label: 'Open in Claude Code', section, keywords: 'handoff agent terminal', action: () => void h.openInClaude() });
   }
   const base = bulkRootItemsBase(setSub).map(i => ({ ...i, section }));
@@ -365,7 +342,6 @@ function bulkRootItemsBase(setSub: (p: SubPage) => void): PaletteItem[] {
   ];
 }
 
-/** Linear's "Export issues as CSV": the list on screen (or every issue), downloaded as a file */
 function exportCsv(issues: Issue[]) {
   const snap = useApp.getState().snap!;
   const name = (list: Array<{ id: string; name: string }>, id: string | null | undefined) => list.find(x => x.id === id)?.name ?? '';
@@ -405,7 +381,6 @@ export function CommandPalette() {
 
   const items = useMemo<PaletteItem[]>(() => {
     if (!snap) return [];
-    // the default list follows Linear's: grouped by what you act on, creation first
     const teamKey = /^#\/team\/([^/]+)/.exec(location.hash)?.[1] ?? localStorage.getItem('baseline:issuesTeam') ?? snap.teams[0]?.key ?? '';
     const curTeam = snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase()) ?? snap.teams[0];
     const tk = curTeam?.key ?? '';
@@ -517,7 +492,6 @@ export function CommandPalette() {
       action: () => navigate(`/docs/${d.id}`),
     }));
     const bulk: PaletteItem[] = selIssues.length ? bulkRootItems(setSub) : [];
-    // commands for a feature the workspace has off (Settings › Features) aren't offered
     const f = snap.workspace.features;
     const off = [
       ...(f.cyclesEnabled ? [] : ['bulk-cycle', 'pick-cycle', 'nav-cycles', 'nav-upcoming', 'nav-current']),
@@ -529,15 +503,12 @@ export function CommandPalette() {
     return [...bulk, ...nav, ...actions, ...projectItems, ...viewItems, ...docItems, ...issueItems].filter(i => !off.includes(i.id));
   }, [snap, navigate, openCreate, setTheme, open, selIssues]);
 
-  // sub-page builders read the stores, so rebuilding on snap/selection keeps
-  // checkmarks and label states fresh after a toggle
   const subItems = useMemo(() => (sub ? sub.build() : []), [sub, snap, selIssues]);
   const active = useMemo(() => (sub ? subItems : items), [sub, subItems, items]);
 
   const filtered = useMemo<Array<{ item: PaletteItem; match: { indices: number[] } | null }>>(() => {
     if (!q.trim()) {
       if (sub) return active.map(item => ({ item, match: null }));
-      // empty query: Linear's command list (issues, projects and the rest appear as you type)
       return items.filter(i => !i.searchOnly && !i.prefixLen).map(item => ({ item, match: null }));
     }
     const hits = active
@@ -547,7 +518,6 @@ export function CommandPalette() {
       .slice(0, 24)
       .map(({ i, s }) => ({ item: i, match: s!.match }));
     if (sub) return hits;
-    // whatever you typed can always become an issue. It goes last, unless nothing matched
     const title = q.trim();
     return [...hits, { item: {
       id: 'act-create-from-query', icon: <IconPlus size={14} />, label: `Create issue “${title}”`,
@@ -562,7 +532,6 @@ export function CommandPalette() {
 
   useEffect(() => { setIndex(0); }, [q, sub]);
   useEffect(() => { if (open) { setQ(''); setIndex(0); setSub(null); } }, [open]);
-  // O then … (or "Open issue…" in the list): the palette becomes a picker of one kind
   const scope = useApp(s => s.paletteScope);
   useEffect(() => { if (open && scope) { setQ(''); setIndex(0); setSub(scopePage(scope)); } }, [open, scope]);
   const scopePage = (sc: PaletteScope): SubPage => {
@@ -571,7 +540,6 @@ export function CommandPalette() {
     const go = (to: string) => () => navigate(to);
     switch (sc) {
       case 'issue': return { title: 'Open issue…', build: () => {
-        // what you looked at last comes first
         const recent = recentIssueKeys(); const all = of('Issues')();
         const rank = (i: PaletteItem) => { const n = recent.indexOf(i.label.slice(0, i.prefixLen)); return n < 0 ? 999 : n; };
         return all.sort((a, b) => rank(a) - rank(b));
@@ -612,7 +580,6 @@ export function CommandPalette() {
         if (entry) runItem(entry.item);
         return;
       }
-      // Linear-style single-key jumps into the bulk pickers while the query is empty
       if (!q && !sub && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && selIssues.length > 0) {
         const jump: Record<string, string> = e.shiftKey
           ? { p: 'bulk-project', e: 'bulk-estimate', c: 'bulk-cycle', h: 'ctx-remind', s: 'ctx-subscribe', m: 'ctx-milestone' }
@@ -709,8 +676,6 @@ export function CommandPalette() {
   );
 }
 
-/* ---------------- keyboard shortcuts overlay ---------------- */
-/** every shortcut, grouped as Linear's cheatsheet groups them; the overlay and Settings both read this */
 export const SHORTCUT_GROUPS: Array<[string, Array<[string, string]>]> = [
   ['General', [
     ['⌘ K', 'Open command menu'], ['⌘ ↵', 'Save or submit'], ['↵', 'Send comment'], ['Esc', 'Back'], ['/', 'Open search'],

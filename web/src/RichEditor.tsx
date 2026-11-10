@@ -19,19 +19,12 @@ import { Avatar, StateIcon } from './pickers.js';
 import { sanitize } from './Markdown.js';
 import { mentionToken, uniquelyNamed } from '../../src/core/mentions.js';
 
-/* Descriptions and comments are stored as Markdown (agents read and write them through the
-   CLI), and edited as rich text, like Linear: headings, lists, checklists, code, quotes,
-   links, images, @mentions and a "/" command menu. Markdown is converted to HTML on load
-   and back to Markdown on each change. */
-
-/* ---------- markdown → editor HTML ---------- */
 function escapeRe(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 export function markdownToHtml(md: string): string {
   const snap = useApp.getState().snap;
   let html = marked.parse(md ?? '', { gfm: true, breaks: true }) as string;
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
-  // GFM task lists → TipTap task items
   doc.querySelectorAll('li').forEach(li => {
     const box = li.querySelector(':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]');
     if (!box) return;
@@ -48,7 +41,6 @@ export function markdownToHtml(md: string): string {
     span.textContent = `@${label}`;
     return span;
   };
-  // @[Name](user:id) parses as "@" plus a link to user:id, which becomes a mention chip (with the person's current name)
   doc.querySelectorAll('a[href^="user:"]').forEach(a => {
     const prev = a.previousSibling;
     if (!(prev instanceof Text) || !prev.data.endsWith('@')) return;
@@ -56,7 +48,6 @@ export function markdownToHtml(md: string): string {
     const id = a.getAttribute('href')!.slice(5);
     a.replaceWith(chip(id, snap?.users.find(u => u.id === id)?.name ?? a.textContent ?? id));
   });
-  // a plain @Full Name (CLI-written, or from before ids) becomes a chip if only one member has that name
   if (snap) {
     const people = uniquelyNamed(snap.users).sort((a, b) => b.name.length - a.name.length);
     const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
@@ -77,15 +68,11 @@ export function markdownToHtml(md: string): string {
     }
   }
   html = doc.body.innerHTML;
-  // the editor's schema drops what it doesn't know, but loaded HTML is someone else's input, so clean it first
   return sanitize(html);
 }
 
-/* ---------- editor HTML → markdown ---------- */
 const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-', emDelimiter: '_' });
 turndown.use(gfm);
-// keep typed text as typed: agents read these descriptions raw, and backslash-escaped
-// brackets and underscores are noise to them
 (turndown as unknown as { escape: (t: string) => string }).escape = (t: string) => t;
 turndown.addRule('taskItem', {
   filter: (n: HTMLElement) => n.nodeName === 'LI' && n.getAttribute('data-type') === 'taskItem',
@@ -97,7 +84,6 @@ turndown.addRule('taskList', {
 });
 turndown.addRule('mention', {
   filter: (n: HTMLElement) => n.nodeName === 'SPAN' && n.getAttribute('data-type') === 'mention',
-  // stored with the id so it stays unambiguous: @[Ada Osei](user:u_123)
   replacement: (_c, node) => {
     const el = node as HTMLElement;
     const label = el.getAttribute('data-label') ?? el.textContent?.replace(/^@/, '') ?? '';
@@ -111,7 +97,6 @@ export function htmlToMarkdown(html: string): string {
   return turndown.turndown(html).replace(/\n{3,}/g, '\n\n').trim();
 }
 
-/* ---------- suggestion popups (mentions + slash commands) ---------- */
 interface SuggestItem { id: string; label: string; hint?: string; icon?: React.ReactNode; run: (editor: Editor, range: Range) => void }
 interface PopupState { open: boolean; items: SuggestItem[]; index: number; rect: DOMRect | null; editor: Editor | null; range: Range | null; title: string }
 const usePopup = create<PopupState>(() => ({ open: false, items: [], index: 0, rect: null, editor: null, range: null, title: '' }));
@@ -199,7 +184,6 @@ const SlashCommands = Extension.create({
   },
 });
 
-/* ---------- the editor ---------- */
 const uploadOwner = (p: { issueId?: string; uploadTo?: string }) => p.uploadTo ?? (p.issueId ? `issue:${p.issueId}` : undefined);
 const EMOTICONS: Record<string, string> = { ':)': '🙂', ':-)': '🙂', ':(': '🙁', ':D': '😄', ';)': '😉', ':P': '😛', ':p': '😛', '<3': '❤️', ':O': '😮', ":'(": '😢' };
 
@@ -207,19 +191,13 @@ export function RichEditor(props: {
   value: string;
   placeholder?: string;
   autoFocus?: boolean;
-  /** pasted / dropped images belong to this issue */
   issueId?: string;
-  /** elsewhere, pasted / dropped images belong to this owner: "doc:<id>", "project:<id>", "initiative:<id>", "team:<id>" */
   uploadTo?: string;
   className?: string;
-  /** fires (debounced) as you type */
   onChange?: (markdown: string) => void;
   onBlur?: (markdown: string) => void;
-  /** ⌘↵ */
-  /** may return a promise: if it rejects, a cleared composer gets its text back */
   onSubmit?: (markdown: string) => void | Promise<unknown>;
   onEscape?: () => void;
-  /** clears after submit (comment composers) */
   clearOnSubmit?: boolean;
   editorRef?: React.MutableRefObject<Editor | null>;
 }) {
@@ -231,7 +209,6 @@ export function RichEditor(props: {
   const upload = async (editor: Editor, files: File[], pos?: number) => {
     const owner = uploadOwner(propsRef.current);
     if (!owner) return false;
-    // only small images are hosted; other files are linked to wherever they are stored
     if (files.some(f => !f.type.startsWith('image/'))) useApp.getState().toast({ title: 'Only images can be added', line: 'Paste a link to other files instead' });
     for (const f of files.filter(f => f.type.startsWith('image/'))) {
       try {
@@ -265,7 +242,6 @@ export function RichEditor(props: {
       attributes: { class: `rte ${props.className ?? ''}`, spellcheck: 'true' },
       handleKeyDown: (_view, e) => {
         if (usePopup.getState().open) return false;
-        // "Send comments on" (Settings › Preferences): Enter alone sends in composers, ⇧↵ adds a line
         const enterSends = useApp.getState().snap?.workspace.preferences.sendCommentsOn === 'enter' && !!propsRef.current.clearOnSubmit;
         if (e.key === 'Enter' && ((e.metaKey || e.ctrlKey) || (enterSends && !e.shiftKey && !e.altKey))) {
           e.preventDefault();
@@ -275,7 +251,6 @@ export function RichEditor(props: {
             const sent = propsRef.current.onSubmit(htmlToMarkdown(html));
             if (propsRef.current.clearOnSubmit) {
               ed.commands.clearContent();
-              // a failed send must not eat what was typed: put it back, then let the error surface
               if (sent instanceof Promise) void sent.catch(err => { if (ed.isEmpty) ed.commands.setContent(html); throw err; });
             }
           }
@@ -285,7 +260,6 @@ export function RichEditor(props: {
         return false;
       },
       handleTextInput: (view, from, to, text) => {
-        // Convert text emoticons into emojis (Settings › Preferences)
         if (text !== ' ' || !useApp.getState().snap?.workspace.preferences.convertEmoticons) return false;
         const before = view.state.doc.textBetween(Math.max(0, from - 3), from, '\n', '\n');
         const hit = Object.entries(EMOTICONS).find(([k]) => before.endsWith(k) && (before.length === k.length || /\s/.test(before[before.length - k.length - 1] ?? ' ')));
@@ -327,8 +301,6 @@ export function RichEditor(props: {
   editorInstance.current = editor;
   if (props.editorRef) props.editorRef.current = editor;
 
-  // a value that changes underneath (another tab, an agent via the CLI) replaces the
-  // content, unless you're mid-edit, in which case your edit stays
   useEffect(() => {
     if (!editor || editor.isFocused) return;
     if (props.value === lastValue.current) return;
@@ -346,5 +318,4 @@ export function RichEditor(props: {
   );
 }
 
-/** quick check used by composers: is there anything worth posting? */
 export function isBlank(md: string) { return !md.replace(/\s+/g, '').length; }

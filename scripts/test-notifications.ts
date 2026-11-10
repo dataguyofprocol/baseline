@@ -1,9 +1,3 @@
-// Notification rules (CORE_FLOW §3): one inbox row per issue; the agent acting for you never
-// notifies you, except when it finishes or gets blocked; a mention notifies once and doesn't
-// subscribe (replying does); an edit that adds a mention notifies the new person; your own moves
-// never notify you; previews are plain text. Runs against a throwaway database, never ~/.baseline.
-//
-//   npx tsx scripts/test-notifications.ts
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,17 +26,14 @@ const as = <T>(userId: string, fn: () => T): T => actingUser.run(userId, fn);
 const parth = store.createUser('Parth Notify', 'parth-n@example.com');
 const ada = store.createUser('Ada Notify', 'ada-n@example.com');
 const jun = store.createUser('Jun Notify', 'jun-n@example.com');
-// an agent user acting for Parth; the rule keys off that relationship (the write's attribution), not the name
 const agent = store.createUser('Claude Code via Parth Notify', '', false, 'agent');
 const team = store.createTeam('NTF', 'Notify');
 const w = store.ext.work;
 const who = attributionOf({ id: agent.id, kind: 'agent' }, parth.id);
 const lane = laneOf(who, null);
 
-// ---------- #22 / #2: the agent acting for you ----------
 {
   const issue = as(ada.id, () => store.createIssue({ teamId: team.id, title: 'Agent run' }, ada.id));
-  // Parth follows it and is mentioned nowhere; Ada (creator) follows it too
   store.subscribe(issue.id, parth.id);
   w.start(issue.id, lane, who);
   w.progress(issue.id, lane, { did: 'wired **the** thing', left: 'tests' }, [], who);
@@ -55,8 +46,6 @@ const lane = laneOf(who, null);
   check('it is from the agent', fin[0]?.actor_id === agent.id);
 }
 {
-  // the issue's owner (assignee) gets the review, even when the agent works for someone else
-  // start_issue refuses another person's open issue, so the agent starts it and it's handed to Jun mid-work
   const issue = as(ada.id, () => store.createIssue({ teamId: team.id, title: 'Owned by Jun' }, ada.id));
   w.start(issue.id, lane, who);
   as(ada.id, () => store.updateIssue(issue.id, { assigneeId: jun.id }));
@@ -76,7 +65,6 @@ const lane = laneOf(who, null);
   check('nothing else from his own agent', inbox(parth.id, issue.id).every(r => r.type === 'agentBlocked'), types(inbox(parth.id, issue.id)));
 }
 {
-  // a person finishing their own work is not news to themselves
   const issue = as(parth.id, () => store.createIssue({ teamId: team.id, title: 'By hand', assigneeId: parth.id }, parth.id));
   const me = attributionOf({ id: parth.id, kind: 'human' }, parth.id);
   w.start(issue.id, laneOf(me, null), me);
@@ -84,7 +72,6 @@ const lane = laneOf(who, null);
   check('finishing your own work: no notification to yourself', inbox(parth.id, issue.id).length === 0, types(inbox(parth.id, issue.id)));
 }
 
-// ---------- #23: mentions ----------
 {
   const issue = as(ada.id, () => store.createIssue({ teamId: team.id, title: 'Mention me' }, ada.id));
   as(ada.id, () => store.addComment(issue.id, ada.id, `Thoughts, ${mentionToken(jun.name, jun.id)}?`));
@@ -110,7 +97,6 @@ const lane = laneOf(who, null);
   check('a mention in a new issue\'s description notifies, without subscribing', types(inbox(parth.id, described.id)) === 'issueMentioned' && !store.isSubscribed(described.id, parth.id), types(inbox(parth.id, described.id)));
 }
 
-// ---------- 6: no self-notifications ----------
 {
   const issue = as(parth.id, () => store.createIssue({ teamId: team.id, title: 'Mine', assigneeId: parth.id }, parth.id));
   as(parth.id, () => store.updateIssue(issue.id, { stateId: store.stateOfType(team.id, 'started')! }, parth.id));
@@ -118,7 +104,6 @@ const lane = laneOf(who, null);
   check('your own assign, status change, comment and self-mention: nothing', inbox(parth.id, issue.id).length === 0, types(inbox(parth.id, issue.id)));
 }
 
-// ---------- 7: muting status changes ----------
 {
   const issue = as(ada.id, () => store.createIssue({ teamId: team.id, title: 'Churn' }, ada.id));
   store.subscribe(issue.id, jun.id);
@@ -130,7 +115,6 @@ const lane = laneOf(who, null);
   store.setPreferences({ notify: { ...store.getPreferences(jun.id).notify, statusChanged: true } }, jun.id);
 }
 
-// ---------- 6: project updates: digest or single rows, not both ----------
 {
   const p = store.createProject({ name: 'Notify project' });
   store.setProjectSubscription(p.id, jun.id, { updates: true });
@@ -145,7 +129,6 @@ const lane = laneOf(who, null);
   check('initiative updates reach its owner, not an IC who posted or isn\'t on it', inbox(ada.id).some(r => r.body.startsWith('New update on Notify initiative')) && !inbox(jun.id).some(r => r.body.startsWith('New update on Notify initiative')));
 }
 
-// ---------- plain-text previews ----------
 {
   const issue = as(ada.id, () => store.createIssue({ teamId: team.id, title: 'Markdown' }, ada.id));
   store.subscribe(issue.id, jun.id);
@@ -154,7 +137,6 @@ const lane = laneOf(who, null);
   check('comment previews are plain text', b === 'Progress Did: npm test passes see PR', b);
 }
 
-// ---------- #22: one row per issue ----------
 {
   const issue = as(ada.id, () => store.createIssue({ teamId: team.id, title: 'Busy issue', assigneeId: jun.id }, ada.id));
   as(ada.id, () => store.updateIssue(issue.id, { stateId: store.stateOfType(team.id, 'started')! }, ada.id));

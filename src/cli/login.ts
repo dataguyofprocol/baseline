@@ -1,4 +1,3 @@
-// login, logout, whoami: the CLI's side of the flow in src/server/cli-auth.ts.
 import type { Command } from 'commander';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -12,7 +11,6 @@ import { openBrowser } from './system.js';
 const b64url = (buf: Buffer) => buf.toString('base64url');
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
 
-/** waits on 127.0.0.1 for the browser to come back with ?code&state */
 async function browserCode(server: URL, device: string, opts: { browser: boolean }): Promise<{ code: string; verifier: string }> {
   const verifier = b64url(randomBytes(32));
   const challenge = b64url(createHash('sha256').update(verifier).digest());
@@ -54,7 +52,6 @@ async function exchange(server: URL, code: string, verifier: string): Promise<Cl
   return { version: 1, server: server.origin, token: body.token, keyId: body.keyId, user: body.user, workspace: body.workspace ?? { name: '' } };
 }
 
-/** after a new login: the previous key for the same server is revoked, so logging in twice leaves one key */
 async function retire(previous: CliConfig, now: CliConfig): Promise<void> {
   if (previous.server !== now.server || previous.keyId === now.keyId) return;
   await connectTo(new URL(previous.server), previous.token).revokeOwnKey()

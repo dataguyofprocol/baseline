@@ -23,7 +23,6 @@ interface Draft {
   title: string; description: string; statusId?: string; priority: Priority;
   assigneeId: string | null; labelIds: string[]; projectId: string | null;
   dueDate: string | null; estimate: number | null; savedAt: string;
-  /** kept since the auto-draft on close: a draft used to lose its cycle and milestone */
   cycleId?: string | null; milestoneId?: string | null;
 }
 
@@ -66,7 +65,6 @@ export function CreateIssueModal() {
   const [appliedTemplateId, setAppliedTemplateId] = useState<string | undefined>(undefined);
 
   const titleRef = useRef<HTMLInputElement>(null);
-  // Create with no title used to do nothing at all: now the title field says what it needs
   const [titleMissing, setTitleMissing] = useState(false);
   const askForTitle = () => { setTitleMissing(true); titleRef.current?.focus(); shake(titleRef.current); };
   const editorRef = useRef<Editor | null>(null);
@@ -90,7 +88,6 @@ export function CreateIssueModal() {
       setTitle(state.title ?? '');
       setDescription('');
       setPriority(0);
-      // Preferences › Auto-assign to self (off by default, as in Linear)
       setAssigneeId(snap.workspace.preferences.autoAssign ? snap.currentUser?.id ?? null : null);
       setLabelIds([]);
       setProjectId(state.projectId ?? null);
@@ -100,7 +97,6 @@ export function CreateIssueModal() {
       setMilestoneId(null);
       setCreateMore(false);
       setAppliedTemplateId(undefined);
-      // "Make a copy…": the same properties and text, as a new issue
       const src = state.copyFrom ? snap.issues.find(i => i.id === state.copyFrom) : undefined;
       if (src) {
         setTitle(src.title); setDescription(src.description); setPriority(src.priority); setAssigneeId(src.assigneeId);
@@ -130,7 +126,6 @@ export function CreateIssueModal() {
     }
   }, [state.open]);
 
-  // the editor remounts when the modal resets (new issue, discarded draft, create-more)
   const [editorKey, setEditorKey] = useState(0);
   useEffect(() => { if (state.open) setEditorKey(k => k + 1); }, [state.open, state.parentId, state.cycleId]);
 
@@ -142,7 +137,6 @@ export function CreateIssueModal() {
   const project = projectId ? snap?.projects.find(p => p.id === projectId) : undefined;
   const teamLabels = snap?.labels.filter(l => l.teamId === team?.id) ?? [];
   const nowIso = new Date().toISOString();
-  // the cycles an issue can still go into: the current one and those ahead
   const openCycles = (snap?.cycles ?? []).filter(c => c.teamId === team?.id && !c.completedAt && c.endsAt >= nowIso).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const cycle = cycleId ? snap?.cycles.find(c => c.id === cycleId) : undefined;
   const cycleName = (c: { name?: string | null; number: number }) => c.name || `Cycle ${c.number}`;
@@ -185,13 +179,12 @@ export function CreateIssueModal() {
 
   const persistDraft = (): Draft | null => {
     if (!team) return null;
-    // the editor's onChange is debounced: read it directly so the last keystrokes are kept
     const desc = editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : description;
     const d: Draft = {
       title: title.trim(), description: desc, statusId: current?.id, priority, assigneeId,
       labelIds, projectId, dueDate, estimate, cycleId, milestoneId, savedAt: new Date().toISOString(),
     };
-    try { localStorage.setItem(draftKey(team.id), JSON.stringify(d)); } catch { /* ignore */ }
+    try { localStorage.setItem(draftKey(team.id), JSON.stringify(d)); } catch { }
     window.dispatchEvent(new Event('baseline:drafts'));
     return d;
   };
@@ -201,8 +194,6 @@ export function CreateIssueModal() {
     closeCreate();
     toast({ title: 'Draft saved', line: <>{d.title || 'Untitled issue'}</> });
   };
-  /* Esc, the X and a click outside used to throw away everything typed. Anything written is
-     kept as the team's draft instead (pressing C brings it back), and the toast can discard it. */
   const dismiss = () => {
     const desc = editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : description;
     const tid = team?.id;
@@ -210,12 +201,12 @@ export function CreateIssueModal() {
     const d = persistDraft();
     closeCreate();
     toast({ title: 'Saved as draft', line: <>{d?.title || 'Untitled issue'}</>, link: { label: 'View drafts', to: '/drafts' }, actions: [{ label: 'Discard', onClick: () => {
-      try { localStorage.removeItem(draftKey(tid)); } catch { /* ignore */ }
+      try { localStorage.removeItem(draftKey(tid)); } catch { }
       window.dispatchEvent(new Event('baseline:drafts'));
     } }] });
   };
   const discardDraft = () => {
-    if (team) { try { localStorage.removeItem(draftKey(team.id)); } catch { /* ignore */ } window.dispatchEvent(new Event('baseline:drafts')); }
+    if (team) { try { localStorage.removeItem(draftKey(team.id)); } catch { } window.dispatchEvent(new Event('baseline:drafts')); }
     setDraft(null);
     setTitle('');
     setDescription('');
@@ -227,7 +218,6 @@ export function CreateIssueModal() {
     setTimeout(() => titleRef.current?.focus(), 30);
   };
 
-  // after a pill menu closes, focus falls back to the page outside the modal, and ⌘↵ must still create
   const createRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!state.open) return;
@@ -244,11 +234,8 @@ export function CreateIssueModal() {
 
   if (!snap || !team) return null;
 
-  // ⌘↵ in the description reaches both the editor's onSubmit and the modal's keydown, so
-  // the guard is what keeps one keystroke from filing two issues
   const create = guard(async (descOverride?: string) => {
     if (!title.trim() || !current) return;
-    // read the editor's own content, because its onChange is debounced
     const desc = descOverride ?? (editorRef.current ? htmlToMarkdown(editorRef.current.getHTML()) : description);
     const { issue } = await api.createIssue({
       teamId: team.id, title: title.trim(), description: desc,
@@ -256,10 +243,8 @@ export function CreateIssueModal() {
       parentId: state.parentId ?? null, cycleId, milestoneId: project && milestoneId ? milestoneId : null,
       dueDate, estimate,
     });
-    try { localStorage.removeItem(draftKey(team.id)); } catch { /* ignore */ }
+    try { localStorage.removeItem(draftKey(team.id)); } catch { }
     window.dispatchEvent(new Event('baseline:drafts'));
-    // "Create related": wire the new issue to the one it was created from
-    // the issue exists now: if wiring it up fails, still finish (close/reset) so a retry can't file a duplicate
     const rel = state.related;
     let relFailed = false;
     if (rel) {
@@ -275,7 +260,6 @@ export function CreateIssueModal() {
       line: <><StateIcon type={current.type} color={current.color} size={12} /> {key} — {issue.title}</>,
     };
     if (createMore) {
-      // the modal stays open, so its reset effect doesn't run: clear the text for the next issue, keep the properties
       setTitle(''); setDescription(''); setDraft(null); setEditorKey(k => k + 1);
       setTimeout(() => titleRef.current?.focus(), 30);
       openCreate({ teamId: team.id, projectId, parentId: state.parentId, cycleId: cycleId ?? undefined });
@@ -304,7 +288,6 @@ export function CreateIssueModal() {
       if (title.trim() && current) void create(); else askForTitle();
     } else if (e.key === 'Enter' && !e.shiftKey && e.target === titleRef.current) {
       e.preventDefault();
-      // the editor remounts on reset, so reach it through the DOM rather than a stale ref
       const pm = document.querySelector<HTMLElement>('.cm-desc .ProseMirror');
       if (pm) { pm.focus(); editorRef.current?.commands.focus('end'); }
     }
@@ -417,7 +400,6 @@ export function CreateIssueModal() {
             <span className="chip-text">{milestone?.name ?? 'Milestone'}</span>
           </button>
         )}
-        {/* cycles and estimates are decisions only for a workspace that turned them on (Settings › Features) */}
         {(cycle || (features?.cyclesEnabled && openCycles.length > 0)) && (
           <button className={`prop-chip${cycle ? ' set' : ' cm-icon-chip'}`} onClick={cycleMenu.open} title="Cycle">
             <IconCycle size={13} style={{ color: 'var(--text-dim)' }} />
@@ -445,8 +427,6 @@ export function CreateIssueModal() {
         <button className="prop-chip cm-more-chip" onClick={e => { setMorePhase('root'); moreMenu.open(e); }} title="More properties">
           <IconMore size={13} />
         </button>
-        {/* the title reads like a known label, so offer it in place as a dashed chip
-            at the end of the row, where it moves nothing above it */}
         {suggestion && (
           <button
             key={suggestion[1]} className="prop-chip cm-suggest-chip" title="Suggested from the title"
@@ -463,7 +443,6 @@ export function CreateIssueModal() {
       </div>
 
       <div className="cm-footer">
-        {/* always laid out but only shown once there's something to save, so nothing reflows */}
         <button className="cm-link" style={{ visibility: title.trim() || !isBlank(description) ? 'visible' : 'hidden' }} onClick={saveDraft}>Save draft</button>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           <button className="cm-more" role="switch" aria-checked={createMore} onClick={() => setCreateMore(v => !v)}>
@@ -534,7 +513,6 @@ export function CreateIssueModal() {
       {labelsMenu.anchor && (
         <Menu anchor={labelsMenu.anchor} onClose={labelsMenu.close} width={244}>
           <div className="menu-header"><span>Add labels…</span></div>
-          {/* create-on-the-fly row: dot cycles the color, Enter or Add creates + applies */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 8px 8px' }} onClick={e => e.stopPropagation()}>
             <button
               className="icon-btn" title="Change color"
@@ -554,7 +532,6 @@ export function CreateIssueModal() {
             <button className="btn" style={{ height: 26, fontSize: 12, flex: 'none' }} disabled={!newLabelName.trim()} onClick={() => void createLabelInline()}>Add</button>
           </div>
           {teamLabels.length > 0 && <MenuSep />}
-          {/* raw menu-item buttons (not MenuItem) so a toggle doesn't auto-close and multi-select stays open */}
           {teamLabels.map(l => {
             const on = labelIds.includes(l.id);
             return (
@@ -628,7 +605,6 @@ function MorePropsMenu(props: {
   estimate: number | null;
   setDueDate: (d: string | null) => void;
   setEstimate: (e: number | null) => void;
-  /** the team's estimate scale (Settings › team › Estimates) */
   scale: Array<{ value: number; label: string }>;
 }) {
   const [phase, setPhase] = useState<'root' | 'due' | 'estimate'>(props.initialPhase ?? 'root');
@@ -689,8 +665,6 @@ function MorePropsMenu(props: {
   return (
     <Menu key={phase} anchor={props.anchor} onClose={props.onClose} width={220}>
       <div className="menu-header"><span>More properties</span></div>
-      {/* raw menu-item buttons (not MenuItem), because MenuItem auto-closes the menu on
-          click, which would unmount it before the due/estimate phase can render */}
       <button className="menu-item" onClick={() => setPhase('due')}>
         <span className="mi-icon"><IconCalendar size={14} /></span>
         <span className="mi-label">{props.dueDate ? `Due ${shortDate(props.dueDate)}` : 'Set due date…'}</span>

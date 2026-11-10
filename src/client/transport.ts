@@ -1,11 +1,9 @@
-// The only thing that differs between a local database and a server. Everything above it is one code path.
 import { BaselineError } from './errors.js';
 import type { Target } from './target.js';
 
 export interface WireRequest { json?: unknown; query?: Record<string, string | undefined> }
 export interface WireResponse { status: number; body: unknown }
 
-/** one request to the Baseline REST API; paths are absolute API paths ("/api/issues/x") */
 export interface Transport { request(method: string, path: string, opts?: WireRequest): Promise<WireResponse> }
 
 const withQuery = (path: string, query?: Record<string, string | undefined>) => {
@@ -24,13 +22,6 @@ async function parse(res: Response, where: string): Promise<WireResponse> {
   return { status: res.status, body: await res.json() };
 }
 
-/**
- * The same app `baseline serve` runs, built in this process and called with app.request(): every
- * request passes the same /api middleware a server request does (authenticate, adminOnly, localOnly).
- * Local mode always (a shell with BASELINE_PUBLIC_URL set must not turn the CLI into a hosted app), and
- * no mail (a CLI write must not send email from the laptop). The server module is imported here,
- * lazily, so a remote invocation never opens SQLite.
- */
 export async function localTransport(dbPath: string): Promise<Transport> {
   const { createApp } = await import('../server/index.js');
   const { app } = createApp(dbPath, { mode: 'local' }, { configured: false, send: async () => {} });
@@ -41,9 +32,6 @@ export async function localTransport(dbPath: string): Promise<Transport> {
   };
 }
 
-/** Fetch with the key as a bearer token. Never retries: a retried write could create an issue twice.
- *  `send` is the server's own app.fetch for the hosted /mcp endpoint, so its tool calls pass the
- *  same middleware, with the same key, as a CLI's. */
 export function httpTransport(url: URL, token: string, send: (req: Request) => Promise<Response> = req => fetch(req)): Transport {
   return {
     async request(method, path, opts) {

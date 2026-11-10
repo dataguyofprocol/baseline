@@ -16,14 +16,11 @@ import { EmptyState } from './EmptyState.js';
 const DAY = 86400000;
 type Snap = Snapshot;
 
-/* Linear measures cycles in points: an issue's estimate, and 1 for an issue without one
-   (or for every issue when the team doesn't estimate). */
 function pointsOf(i: Issue, snap: Snap): number {
   const team = snap.teams.find(t => t.id === i.teamId);
   return team?.estimateScale === 'none' ? 1 : i.estimate ?? (team?.estimateCountUnestimated === false ? 0 : 1);
 }
 
-/** an issue's workflow-state type at time t, replayed from its status changes */
 function typeAt(issue: Issue, t: number, changes: ActivityItem[], snap: Snap): string | undefined {
   const typeOf = (id: unknown) => snap.states.find(s => s.id === id)?.type;
   let state: unknown = changes.length ? changes[0].data.from ?? issue.stateId : issue.stateId;
@@ -34,7 +31,6 @@ function typeAt(issue: Issue, t: number, changes: ActivityItem[], snap: Snap): s
   return typeOf(state);
 }
 
-/** when the issue joined this cycle: its last move into it, else its creation */
 function joinedAt(issue: Issue, cycleId: string, activity: ActivityItem[]): number {
   const moves = activity.filter(a => a.issueId === issue.id && a.type === 'cycleChanged' && a.data.to === cycleId);
   return new Date(moves.length ? moves[moves.length - 1].createdAt : issue.createdAt).getTime();
@@ -62,12 +58,10 @@ function cycleStatus(c: Cycle, all: Cycle[]): 'Current' | 'Upcoming' | 'Planned'
   return next?.id === c.id ? 'Upcoming' : 'Planned';
 }
 const cycleName = (c: Cycle) => c.name || `Cycle ${c.number}`;
-/** a small progress ring, as in Linear's capacity / success figures */
 function Ring({ pct: p, over }: { pct: number; over?: boolean }) {
   const r = 5.5; const c = 2 * Math.PI * r; const f = Math.min(p, 100) / 100;
   return <svg width="14" height="14" viewBox="0 0 14 14" className="cy-ring"><circle cx="7" cy="7" r={r} fill="none" stroke="var(--border-strong)" strokeWidth="1.6" /><circle cx="7" cy="7" r={r} fill="none" stroke={over ? '#eb5757' : 'var(--brand)'} strokeWidth="1.6" strokeDasharray={`${c * f} ${c}`} transform="rotate(-90 7 7)" strokeLinecap="round" /></svg>;
 }
-/** Linear's cycle glyph: a play mark in a circle, filled by progress for the current cycle */
 function CycleIcon({ status, pct: p }: { status: ReturnType<typeof cycleStatus>; pct: number }) {
   const r = 5.6; const c = 2 * Math.PI * r;
   return (
@@ -80,8 +74,6 @@ function CycleIcon({ status, pct: p }: { status: ReturnType<typeof cycleStatus>;
 }
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 
-/* the cycle graph: scope, started and completed points per day, the dashed ideal pace,
-   weekends hatched, and a dot where today is */
 export function BurnUp(props: { cycle: Cycle; height?: number }) {
   const snap = useApp(s => s.snap)!;
   const issues = useMemo(() => snap.issues.filter(i => i.cycleId === props.cycle.id), [snap.issues, props.cycle.id]);
@@ -199,8 +191,6 @@ function Breakdown(props: { issues: Issue[] }) {
   );
 }
 
-/* ================= cycles list: Linear's timeline ================= */
-/** cycles are Settings › Features › Cycles: off, a link to a cycle lands here instead of the page */
 function CyclesOff() {
   const admin = useCanConfigure();
   return (
@@ -225,7 +215,6 @@ function CyclesList() {
   if (!team) return <TeamMissingRedirect />;
   const cycles = snap.cycles.filter(c => c.teamId === team.id).sort((a, b) => b.startsAt.localeCompare(a.startsAt));
   const nextNumber = cycles.length ? Math.max(...cycles.map(c => c.number)) + 1 : 1;
-  // capacity: a future cycle's scope against the average points completed over the last three
   const past = cycles.filter(c => cycleStatus(c, cycles) === 'Completed').slice(0, 3);
   const velocity = past.length ? past.reduce((a, c) => a + cycleStats(c, snap).done, 0) / past.length : 0;
 
@@ -280,7 +269,6 @@ function CyclesList() {
   );
 }
 
-/** /team/KEY/cycles/current and /upcoming land on that cycle */
 export function CycleAlias({ which }: { which: 'current' | 'upcoming' }) {
   const { teamKey = '' } = useParams();
   const navigate = useNavigate();
@@ -299,7 +287,6 @@ export function CycleAlias({ which }: { which: 'current' | 'upcoming' }) {
   return null;
 }
 
-/* ================= cycle page ================= */
 function CycleDetail() {
   const { teamKey = '', cycleId = '' } = useParams();
   const snap = useApp(s => s.snap)!;
@@ -318,7 +305,7 @@ function CycleDetail() {
   if (!cycle) return <NotFound what="Cycle" back={{ label: 'Back to cycles', to: `/team/${team.key}/cycles` }} />;
   const teamCycles = snap.cycles.filter(c => c.teamId === team.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const status = cycleStatus(cycle, teamCycles);
-  const togglePanel = () => setPanel(p => { try { localStorage.setItem('baseline:cyclePanel', p ? '0' : '1'); } catch { /* ignore */ } return !p; });
+  const togglePanel = () => setPanel(p => { try { localStorage.setItem('baseline:cyclePanel', p ? '0' : '1'); } catch { } return !p; });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -380,7 +367,6 @@ function CycleDetail() {
   );
 }
 
-/** move a cycle's start or end after it was created (it could only be renamed or deleted) */
 function CycleDatesModal(props: { cycle: Cycle; onClose: () => void }) {
   const day = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   const [start, setStart] = useState(day(props.cycle.startsAt));
@@ -388,7 +374,6 @@ function CycleDatesModal(props: { cycle: Cycle; onClose: () => void }) {
   const valid = !!start && !!end && end >= start;
   const save = () => exclusive(`cycle-dates-${props.cycle.id}`, async () => {
     if (!valid) return;
-    // both ends local, as when a cycle is created
     await api.updateCycle(props.cycle.id, { startsAt: new Date(start + 'T00:00:00').toISOString(), endsAt: new Date(end + 'T23:59:59').toISOString() });
     await useApp.getState().bootstrap();
     useApp.getState().toast({ title: 'Cycle dates changed', line: `${shortDate(start + 'T12:00')} → ${shortDate(end + 'T12:00')}` });

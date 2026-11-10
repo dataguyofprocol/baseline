@@ -58,16 +58,13 @@ function KeyboardManager() {
       const k = e.key.toLowerCase();
       const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
 
-      // ⌘Z undoes the last change made here (fields keep their own undo)
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 'z' && !typing && !s.paletteOpen && !s.createModal.open) {
         e.preventDefault(); void undoLast(); return;
       }
 
-      // everything below is a bare key: skip it while typing or while a modal owns the keyboard
       if (typing || s.paletteOpen || s.createModal.open || s.shortcutsOpen) return;
       if (document.querySelector('.menu:not(.closing)')) return;
 
-      // ⌥V saves the list on screen as a view (issues or projects)
       if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyV') {
         e.preventDefault();
         const ev = new CustomEvent('baseline:save-view', { cancelable: true });
@@ -78,12 +75,10 @@ function KeyboardManager() {
 
       const teamKey = /^\/team\/([^/]+)/.exec(location.pathname)?.[1] ?? localStorage.getItem('baseline:issuesTeam') ?? s.snap.teams[0]?.key ?? '';
 
-      // chords: G then … navigates, M then … relates
       if (chord) {
         const c = chord; chord = null; clearTimeout(chordTimer);
         if (c === 'g') {
           const to: Record<string, string> = {
-            // Linear's map: A active, E all ("everything"), W upcoming cycle, U views, D drafts
             i: '/inbox', m: '/my-issues', p: '/projects', s: '/settings/workspace', n: '/initiatives', d: '/drafts',
             a: `/team/${teamKey}/active`, e: `/team/${teamKey}/all`, b: `/team/${teamKey}/backlog`,
             t: `/team/${teamKey}/triage`, c: `/team/${teamKey}/cycles`, v: `/team/${teamKey}/cycles/current`, w: `/team/${teamKey}/cycles/upcoming`, u: '/views', x: `/team/${teamKey}/archive`, f: '/search',
@@ -91,7 +86,6 @@ function KeyboardManager() {
           if (to[k]) { e.preventDefault(); navigate(to[k]); }
           return;
         }
-        // N then …: create a project / initiative / document / view
         if (c === 'n') {
           const to: Record<string, () => void> = {
             p: () => navigate('/projects/new'),
@@ -102,7 +96,6 @@ function KeyboardManager() {
           if (to[k]) { e.preventDefault(); to[k](); }
           return;
         }
-        // O then …: open a picker of one kind
         if (c === 'o') {
           const scope = ({ i: 'issue', p: 'project', f: 'favorite', c: 'cycle', l: 'label', u: 'user', v: 'view', d: 'document', s: 'settings' } as const)[k as 'i'];
           if (scope) { e.preventDefault(); s.setPalette(true, scope); }
@@ -117,7 +110,6 @@ function KeyboardManager() {
       }
       if (plain && k === 'g' && !e.shiftKey) { startChord('g'); return; }
       if (plain && (k === 'n' || k === 'o') && !e.shiftKey && !pageIssue()) { startChord(k); return; }
-      // V: create an issue in the full-screen editor
       if (plain && k === 'v' && !e.shiftKey && !pageIssue() && !useSelection.getState().ids.length) {
         e.preventDefault();
         const team = s.snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase());
@@ -130,24 +122,20 @@ function KeyboardManager() {
         const team = s.snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase());
         const proj = /^\/projects\/([^/]+)/.exec(location.pathname)?.[1];
         const cyc = /^\/team\/[^/]+\/cycles\/([^/]+)/.exec(location.pathname)?.[1];
-        // on the triage page, C files straight into triage
         const triage = /^\/team\/[^/]+\/triage$/.test(location.pathname) ? s.snap.states.find(st => st.teamId === team?.id && st.type === 'triage') : undefined;
         s.openCreate({ teamId: team?.id, ...(proj && proj !== 'new' ? { projectId: proj } : {}), ...(cyc ? { cycleId: cyc } : {}), ...(triage ? { stateId: triage.id } : {}) });
         return;
       }
-      // ?: the help menu (shortcuts live behind ⌘/), as in Linear
       if (e.key === '?') { e.preventDefault(); window.dispatchEvent(new CustomEvent('baseline:help-menu')); return; }
       if (plain && (e.key === '/' )) { e.preventDefault(); navigate('/search'); return; }
       if (plain && k === 'f' && !e.shiftKey) { e.preventDefault(); window.dispatchEvent(new CustomEvent('baseline:focus-filter')); return; }
       if (plain && e.key === '[') { e.preventDefault(); s.toggleSidebar(); return; }
 
-      // ⌘A selects every row of the list on screen
       if ((e.metaKey || e.ctrlKey) && k === 'a' && !pageIssue() && visibleList.issues.length) {
         e.preventDefault(); useSelection.getState().setMany(visibleList.issues.map(i => i.id)); return;
       }
 
       const onPage = !!pageIssue();
-      // J/K move the list cursor, or on an issue page open the next issue of the list it came from
       if (plain && (k === 'j' || k === 'k' || e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
         const down = k === 'j' || e.key === 'ArrowDown';
         if (onPage && !s.peekIssueId) {
@@ -189,11 +177,9 @@ function KeyboardManager() {
       }
       if (plain && !e.shiftKey && k === 'x' && !onPage) { e.preventDefault(); const c = listIssueAtCursor(); if (c) useSelection.getState().toggle(c.id); return; }
 
-      // property menus
       const menuKey: Record<string, PropKind> = e.shiftKey
         ? { d: 'due', e: 'estimate', c: 'cycle', p: 'project', h: 'remind', m: 'milestone' }
         : { s: 'status', p: 'priority', a: 'assignee', l: 'labels' };
-      // ⇧E / ⇧C do nothing while Settings › Features has estimates / cycles off
       const off = (kind: PropKind) => (kind === 'estimate' && !s.snap?.workspace.features.estimatesEnabled) || (kind === 'cycle' && !s.snap?.workspace.features.cyclesEnabled);
       if (!e.metaKey && !e.ctrlKey && !e.altKey && menuKey[k] && !off(menuKey[k])) { e.preventDefault(); openQuick(targets, menuKey[k]); return; }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'p') { e.preventDefault(); openQuick(targets, 'parent'); return; }
@@ -208,7 +194,6 @@ function KeyboardManager() {
       if (!e.metaKey && !e.ctrlKey && !e.altKey && e.shiftKey && k === 'r' && onPage) { e.preventDefault(); window.dispatchEvent(new CustomEvent('baseline:rename-issue')); return; }
       if (plain && !e.shiftKey && k === 'e') { e.preventDefault(); void archiveIssues(ids); if (onPage && one) navigate(exitPathFor(one)); return; }
       if (e.key === 'Backspace' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void deleteIssues(ids); if (onPage && one) navigate(exitPathFor(one)); return; }
-      // copy chords on list rows (the issue page's toolbar handles its own)
       if ((e.metaKey || e.ctrlKey) && one && !onPage) {
         const h = handoffActions(one);
         if (e.altKey && e.code === 'KeyP') { e.preventDefault(); void h.copyPrompt(); return; }
@@ -218,7 +203,6 @@ function KeyboardManager() {
         if (!e.altKey && e.shiftKey && e.code === 'Comma') { e.preventDefault(); void h.copyUrl(); return; }
         if (!e.altKey && e.shiftKey && e.code === 'Quote') { e.preventDefault(); void h.copyTitle(); return; }
       }
-      // 1-9: jump straight to the nth status (the status menu's numbers)
       if (plain && /^[1-9]$/.test(e.key) && one) {
         const st = sortedStatesOf(one.teamId).filter(x => x.type !== 'triage')[Number(e.key) - 1];
         if (st) { e.preventDefault(); void setIssueProps(ids, { stateId: st.id }); }
@@ -240,15 +224,12 @@ function KeyboardManager() {
         const s = useApp.getState();
         s.setPalette(!s.paletteOpen);
       } else if (e.key === '/') {
-        // ⌘/ keyboard shortcuts
         e.preventDefault(); e.stopPropagation();
         const s = useApp.getState(); s.setShortcuts(!s.shortcutsOpen);
       } else if (k === 'c' && e.shiftKey && !document.getSelection()?.toString()) {
-        // ⌘⇧C copies the page's URL
         e.preventDefault(); e.stopPropagation();
         void copyText(window.location.href).then(ok => ok && useApp.getState().toast({ title: 'Copied page URL' }));
       } else if (k === 'b' && !e.shiftKey) {
-        // Linear: ⌘B flips the current view between list and board
         e.preventDefault();
         e.stopPropagation();
         window.dispatchEvent(new CustomEvent('baseline:toggle-layout'));
@@ -261,10 +242,6 @@ function KeyboardManager() {
   return null;
 }
 
-/* Navigation settles instead of hard-cutting: the incoming page rises from 40%
-   opacity (never from zero, so it can't flash the canvas or feel like a wait).
-   Switching tabs inside one page is quieter still, because the sliding register mark
-   already shows that change. */
 function RouteSettle() {
   const { pathname } = useLocation();
   const prev = useRef(pathname);
@@ -289,9 +266,6 @@ function RouteSettle() {
   return null;
 }
 
-/* A render error takes down one page, not the app: the sidebar, palette and
-   shortcuts keep working, and navigating anywhere (the boundary is keyed by
-   path) gives the next page a clean start. */
 class PageBoundary extends Component<{ children: React.ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
   static getDerivedStateFromError(error: Error) { return { error }; }
@@ -311,8 +285,6 @@ class PageBoundary extends Component<{ children: React.ReactNode }, { error: Err
   }
 }
 
-/* Settings brings its own nav (with "Back to app"), so it takes the sidebar's
-   place instead of standing beside it as a second column. */
 function ShellSidebar() {
   const { pathname } = useLocation();
   return pathname.startsWith('/settings') ? null : <Sidebar />;
@@ -323,8 +295,6 @@ function PageHost({ children }: { children: React.ReactNode }) {
   return <PageBoundary key={pathname}>{children}</PageBoundary>;
 }
 
-/** open a property menu for the targets, anchored at the matching rail property on an
- *  issue page, else at the first target's row, else near the top of the screen */
 function openQuick(targets: Issue[], kind: PropKind) {
   const prop = document.querySelector<HTMLElement>(`.peek-panel [data-prop="${kind}"], .issue-page [data-prop="${kind}"]`);
   const row = document.querySelector<HTMLElement>(`[data-issue-row="${targets[0].id}"]`);
@@ -342,7 +312,6 @@ function scrollCursorIntoView() {
   });
 }
 
-/** "/" opens your default home view (Settings › Preferences) */
 function InboxRedirect() {
   const navigate = useNavigate();
   useEffect(() => {
@@ -355,8 +324,6 @@ function InboxRedirect() {
   return null;
 }
 
-/** Right after sign-in or naming the first team: the brand screen's line climbs into the top bar and
- *  thins to its hairline while the ink ground clears off the app (arrival.ts). Plays once. */
 function Arrival() {
   const [on, setOn] = useState(() => takeArrival() && !prefersReducedMotion());
   useEffect(() => { if (!on) return; const t = window.setTimeout(() => setOn(false), 900); return () => window.clearTimeout(t); }, [on]);
@@ -364,7 +331,6 @@ function Arrival() {
   return <div className="arrival" aria-hidden="true"><span className="arrival-line" /></div>;
 }
 
-/** an address that leads nowhere, as Linear words it */
 function NotFoundPage() {
   const navigate = useNavigate();
   return (
@@ -380,10 +346,7 @@ export function App() {
   const signedOut = useApp(s => s.signedOut);
   const bootstrap = useApp(s => s.bootstrap);
   const resolvedTheme = useApp(s => s.resolvedTheme);
-  // every issue needs a team, so a workspace with none (new, or all deleted) names one before any route
   const noTeams = useApp(s => !!s.snap && !s.snap.teams.length);
-  // right after the first team is named: its setup steps on the same line, before the full page.
-  // Read on each render: the mark is set while the team screen is up, after this mounted
   const [, afterBridge] = useState(0);
   const [linkWhileSignedIn, setLinkWhileSignedIn] = useState(() => /[?&](invite|join)=/.test(window.location.search));
 
@@ -391,7 +354,6 @@ export function App() {
     document.documentElement.dataset.theme = resolvedTheme;
     void bootstrap();
   }, []);
-  // Preferences › Font size and Use pointer cursors apply to the whole app
   const fontSize = useApp(s => s.snap?.workspace.preferences.fontSize ?? 'default');
   const pointer = useApp(s => !!s.snap?.workspace.preferences.pointerCursors);
   const underline = useApp(s => !!s.snap?.workspace.preferences.underlineLinks);
@@ -400,9 +362,6 @@ export function App() {
   if (signedOut) return <SignIn />;
 
   if (!loaded) {
-    // Boot: the app appears as an object here, so it shows the tile in the large cut at 28,
-    // above a 2px paper rule that animates during the wait. The tile's own register line,
-    // hairline and node never animate; only the rule beneath it does.
     return (
       <div className="boot">
         <Logo size={28} />
@@ -411,7 +370,6 @@ export function App() {
     );
   }
 
-  // an invite or join link opened while signed in: say so instead of quietly dropping it
   if (linkWhileSignedIn) {
     const s = useApp.getState().snap!;
     const clear = () => { window.history.replaceState(null, '', window.location.pathname + window.location.hash); setLinkWhileSignedIn(false); };

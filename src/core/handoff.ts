@@ -1,5 +1,3 @@
-// Hand-off prompt rendering: turns an issue into a ready-to-paste prompt + branch name.
-// Pure functions with no db access; Store.handoffFor assembles the inputs.
 
 import { issueKey, PRIORITY_SHORT } from './types.js';
 import type { Handoff, Issue, Label, Priority, Project, Team, WorkflowState } from './types.js';
@@ -40,8 +38,6 @@ export const PROMPT_TEMPLATE_VARS = [
   ['{{tracking}}', 'how the agent keeps the issue current: its MCP tools and `baseline agent` commands'],
 ] as const;
 
-/** Filler words that carry no meaning in a branch name, dropped before the length cap
- *  so the words that identify the work survive ("fix", "add", nouns) rather than "the-issue-with". */
 const BRANCH_STOPWORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'of', 'for', 'to', 'in', 'into', 'on', 'onto', 'at',
   'by', 'from', 'with', 'without', 'as', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
@@ -49,13 +45,9 @@ const BRANCH_STOPWORDS = new Set([
   'so', 'than', 'then', 'when', 'while', 'not', 'no', 'all', 'any', 'via',
 ]);
 
-/** Words kept in a branch slug, and the slug's hard character cap. */
 const BRANCH_MAX_WORDS = 4;
 const BRANCH_MAX_CHARS = 28;
 
-/** Lowercase, hyphenated slug that stops on a word boundary, never mid-word.
- *  Titles are often a whole sentence, so this keeps the first few meaningful words
- *  instead of truncating the sentence into an unreadable stub. */
 export function slugify(text: string, maxChars = BRANCH_MAX_CHARS, maxWords = BRANCH_MAX_WORDS): string {
   const words = text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
   if (words.length === 0) return '';
@@ -71,17 +63,14 @@ export function slugify(text: string, maxChars = BRANCH_MAX_CHARS, maxWords = BR
     kept.push(w);
     len += cost;
   }
-  // a single word longer than the cap is the only case we cut mid-word
   if (kept.length === 1 && kept[0]!.length > maxChars) return kept[0]!.slice(0, maxChars).replace(/-+$/g, '');
   return kept.join('-');
 }
 
-/** e.g. ENG-42 "Fix the flaky login redirect on Safari" → `eng-42-fix-flaky-login-redirect` */
 export function branchName(key: string, title: string, format?: string, username?: string): string {
   const slug = slugify(title);
   const plain = slug ? `${key.toLowerCase()}-${slug}` : key.toLowerCase();
   if (!format) return plain;
-  // the workspace format (Settings › Integrations › GitHub), Linear's variables
   const user = (username ?? '').toLowerCase().split(/\s+/)[0]?.replace(/[^a-z0-9-]/g, '') ?? '';
   const out = format.replace(/\{issueIdentifier\}/g, key.toLowerCase()).replace(/\{issueTitle\}/g, slug).replace(/\{username\}/g, user)
     .replace(/\/+/g, '/').replace(/-+/g, '-').replace(/^[/-]+|[/-]+$/g, '').replace(/\/-|-\//g, '/');
@@ -89,7 +78,6 @@ export function branchName(key: string, title: string, format?: string, username
 }
 
 export function renderHandoff(template: string, vars: Record<string, string>): string {
-  // an empty variable (often the description) shouldn't leave a hole in the prompt
   return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => vars[name] ?? '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -99,7 +87,6 @@ export interface HandoffContext {
   projects: Project[];
   labels: Label[];
   baseUrl?: string;
-  /** workspace branch format and the person it's for */
   branchFormat?: string;
   username?: string;
 }
@@ -121,7 +108,6 @@ export function buildHandoff(
   const vars: Record<string, string> = {
     key,
     title: issue.title,
-    // mention tokens read back as "@Name" because the agent needs the person, not their id
     description: plainMentions(issue.description),
     branch,
     url: `${base}/#/issue/${key}`,
@@ -138,18 +124,13 @@ export function buildHandoff(
   return { key, title: issue.title, branchName: branch, url: vars.url, prompt: renderHandoff(template, vars) };
 }
 
-/** where the web app is, for links: the server's public URL when it has one, else this machine's */
 export function appBaseUrl(baseUrl?: string): string {
-  // core also runs in the browser (Settings ▸ Handoff preview), where `process` doesn't exist
   const env = typeof process !== 'undefined' ? process.env : {};
-  // a local CLI can't also name BASELINE_URL (that would mean a server), so its port says where the app is
   const envUrl = env.BASELINE_URL ?? (env.BASELINE_PORT ? `http://localhost:${env.BASELINE_PORT}` : undefined);
   return (baseUrl ?? envUrl ?? windowOrigin() ?? 'http://localhost:7770').replace(/\/+$/, '');
 }
 
-/** in the browser, prompt links point at the instance actually being used */
 function windowOrigin(): string | undefined {
-  // core is compiled without DOM types, so reach `location` through globalThis
   const origin = (globalThis as { location?: { origin?: string } }).location?.origin;
   return origin?.startsWith('http') ? origin : undefined;
 }

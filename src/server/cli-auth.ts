@@ -1,10 +1,3 @@
-// `baseline login`: a signed-in person approves the CLI in their browser, and the CLI receives a
-// personal API key. Loopback redirect with PKCE (RFC 8252); the key itself never travels in a URL.
-//
-//   CLI: listens on 127.0.0.1:<port>, opens /cli/authorize?port&state&challenge&device
-//   browser (signed in): [Allow] → POST /api/cli-auth/approve → a one-use code, 2 minutes
-//          → redirected to http://127.0.0.1:<port>/cb?code&state
-//   CLI: POST /auth/cli/token { code, verifier } → { token, keyId, user, workspace }
 import { createHash, randomBytes } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Hono } from 'hono';
@@ -18,7 +11,6 @@ const GRANT_MS = 2 * 60_000;
 const b64url = (buf: Buffer) => buf.toString('base64url');
 const sha256 = (s: string) => b64url(createHash('sha256').update(s).digest());
 
-/** what /cli/authorize and the approve call carry; checked before anything is stored */
 export function parseCliRequest(q: Record<string, unknown>): { port: number; state: string; challenge: string; device: string } | null {
   const port = Number(q.port);
   const { state, challenge, device } = q;
@@ -32,13 +24,11 @@ export function parseCliRequest(q: Record<string, unknown>): { port: number; sta
 export function mountCliAuth(app: Hono, d: { db: DatabaseSync; store: Store; accounts: Accounts; apiKeys: ApiKeys }): void {
   const tokenLimit = limiter(30, 10 * 60_000);
 
-  // the page the CLI opens; it asks /api/me who is signed in, so it needs no server-side session code
   app.get('/cli/authorize', (c) => {
     if (!parseCliRequest(c.req.query())) return c.text('This sign-in link is incomplete. Run `baseline login` again.', 400);
     return c.html(AUTHORIZE_PAGE, 200, { 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'" });
   });
 
-  // behind authenticate like every /api route: a signed-in person (or this machine), never a key
   app.post('/api/cli-auth/approve', async (c) => {
     const r = parseCliRequest(await c.req.json().catch(() => ({})));
     if (!r) return c.json({ error: 'This sign-in link is incomplete. Run `baseline login` again.', code: 'invalid' }, 400);
@@ -55,7 +45,6 @@ export function mountCliAuth(app: Hono, d: { db: DatabaseSync; store: Store; acc
     return c.json({ redirect: redirect.toString() });
   });
 
-  // outside /api: the code and the PKCE verifier are the credential
   app.post('/auth/cli/token', async (c) => {
     if (!tokenLimit.take(clientIp(c))) return c.json({ error: 'Too many sign-in attempts. Try again in a few minutes.', code: 'rate-limited' }, 429);
     const b = await c.req.json().catch(() => ({})) as { code?: unknown; verifier?: unknown };
@@ -64,11 +53,9 @@ export function mountCliAuth(app: Hono, d: { db: DatabaseSync; store: Store; acc
     const grant = d.db.prepare('SELECT * FROM cli_grants WHERE code_hash = ?').get(sha256(b.code)) as
       { code_hash: string; user_id: string; challenge: string; device: string; expires_at: string; used_at: string | null } | undefined;
     if (!grant || grant.used_at || Date.parse(grant.expires_at) <= Date.now() || sha256(b.verifier) !== grant.challenge) return refused();
-    // one use, even when two requests race for it
     if (Number(d.db.prepare('UPDATE cli_grants SET used_at = ? WHERE code_hash = ? AND used_at IS NULL').run(new Date().toISOString(), grant.code_hash).changes) !== 1) return refused();
     const user = d.store.snapshot().users.find(u => u.id === grant.user_id && u.status !== 'suspended');
     if (!user) return refused();
-    // read and write, never admin: an agent driving the CLI can't change how the workspace is set up
     const { key, token } = d.apiKeys.create({ name: `CLI on ${grant.device}`, userId: user.id, scopes: ['read', 'write'] });
     const ws = d.store.workspaceMeta();
     return c.json({ token, keyId: key.id, user: { id: user.id, name: user.name, email: user.email }, workspace: { id: ws.id, name: ws.name } });

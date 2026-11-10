@@ -1,12 +1,8 @@
-// Who an agent session writes as, and in which session. The front doors (the CLI and the MCP
-// server) call these once per process with what they were given; op bodies only see the result.
 import { resolve, ResolveError, type Baseline } from '../client/index.js';
 import type { User } from '../core/types.js';
 import { AGENT_HARNESSES, harnessNamed, harnessOfClient, SESSION_KEY, type AgentHarness } from '../core/work-types.js';
 import { OpError, type Actor, type SessionKey } from './operation.js';
 
-/** BASELINE_SESSION, or null. Deliberately never minted per process: an MCP server and the CLI run
- *  in one conversation must land on the same living comment. */
 export function sessionFrom(raw: string | undefined): SessionKey | null {
   const v = raw?.trim();
   if (!v) return null;
@@ -17,21 +13,15 @@ export function sessionFrom(raw: string | undefined): SessionKey | null {
 const agentNames = (users: readonly User[]) => users.filter(x => x.kind === 'agent').map(x => x.name).join(', ') || 'none yet';
 const TOOLS = AGENT_HARNESSES.map(h => h.name).join(', ');
 
-/** the coding tool's own agent user ("Claude Code"), made the first time that tool writes anywhere in the workspace */
 async function harnessActor(bl: Baseline, h: AgentHarness, users?: readonly User[]): Promise<Actor> {
   const have = users?.find(u => u.kind === 'agent' && u.name.toLowerCase() === h.name.toLowerCase());
   const u = have ?? await bl.ensureAgentUser(h.name);
   return { kind: 'agent', userId: u.id, name: u.name };
 }
 
-/** BASELINE_AS (name or user id) → the agent user the writes are attributed to. A coding tool's name
- *  (Claude Code, Codex, …) is made on first use, so `--as "Claude Code"` can't fail. Unset, or naming
- *  the signed-in person, means the person writes as themself. Another person is refused here,
- *  before the server would refuse it. */
 export async function actorFrom(bl: Baseline, name: string | undefined): Promise<Actor> {
   if (!name?.trim()) return { kind: 'person' };
   const snap = await bl.snapshot(['users', 'currentUser']);
-  // a tool's name is matched exactly: "pi" must not land on a person whose name contains it
   const h = harnessNamed(name);
   if (h) return harnessActor(bl, h, snap.users);
   let userId: string | undefined;
@@ -47,9 +37,6 @@ export async function actorFrom(bl: Baseline, name: string | undefined): Promise
   return { kind: 'agent', userId: u.id, name: u.name };
 }
 
-/** An agent operation's actor (an MCP tool or a `baseline agent` command): BASELINE_AS when it is
- *  set; else the coding tool the MCP client says it is (clientInfo.name), as its own agent user;
- *  else the workspace's agent user. Naming yourself in BASELINE_AS writes as you. */
 export async function agentActor(bl: Baseline, as: string | undefined, client?: string): Promise<Actor> {
   if (as?.trim()) return actorFrom(bl, as);
   const h = harnessOfClient(client);

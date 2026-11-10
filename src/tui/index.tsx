@@ -1,4 +1,3 @@
-// `baseline tui`: the workspace in the terminal, over the same client every other command uses.
 import { render } from 'ink';
 import { format } from 'node:util';
 import { connect, resolve, type Baseline } from '../client/index.js';
@@ -8,7 +7,6 @@ import { readPanes, readSession, rememberPane, restoreFrom, sessionPath, session
 
 export interface TuiOptions { db?: string; as?: string; issue?: string; fresh?: boolean }
 
-/** where the TUI opens: the issue asked for, else where the last session in this directory left off, else Today */
 export async function prepareStart(bl: Baseline, opts: Pick<TuiOptions, 'issue' | 'fresh'>, workspace = workspaceDir()): Promise<Pick<AppProps, 'route' | 'stack' | 'start'>> {
   const intro = takeFirstLaunch();
   if (opts.issue) {
@@ -38,7 +36,6 @@ export async function runTui(opts: TuiOptions): Promise<void> {
   const saved = { log: console.log, info: console.info, warn: console.warn, error: console.error };
   for (const k of Object.keys(saved) as Array<keyof typeof saved>) console[k] = (...args: unknown[]) => { held.push(format(...args)); };
 
-  // the panes this TUI started agents in, on this tmux server, still open
   const panes = readPanes(target, { alive: paneAlive });
   const app = render(<App bl={bl} actorId={actorId} {...start} panes={panes} onPane={(issueId, pane) => rememberPane(target, issueId, pane)} onContext={writer.update} />, {
     alternateScreen: true,

@@ -1,6 +1,3 @@
-// Teach the keyboard to people who use the mouse, gently: the third time someone clicks their way
-// to something that has a shortcut, one toast says which key does it. Each tip shows once, ever
-// (per browser), and only after a pointer press, so keyboard users never see one.
 import { createElement, Fragment } from 'react';
 import { useApp } from './store.js';
 
@@ -13,9 +10,8 @@ window.addEventListener('keydown', e => { if (!e.repeat) lastInput = 'key'; }, {
 
 type Store = Record<string, number | 'shown'>;
 const read = (): Store => { try { return JSON.parse(localStorage.getItem(KEY) ?? '{}') as Store; } catch { return {}; } };
-const write = (s: Store) => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* private window: tips just repeat their count */ } };
+const write = (s: Store) => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { } };
 
-/** `keys` like "S", "⌘K" or "M B" (a space means "then"); `what` finishes "Press S to …" */
 export function nudgeShortcut(id: string, keys: string, what: string) {
   if (lastInput !== 'pointer') return;
   const s = read();
@@ -29,7 +25,6 @@ export function nudgeShortcut(id: string, keys: string, what: string) {
     const kbds = parts.map((p, j) => createElement('span', { key: `${i}-${j}`, className: 'kbd' }, p));
     return i === 0 ? kbds : [createElement('span', { key: `t${i}`, className: 'tip-then' }, 'then'), ...kbds];
   });
-  // shown a moment later, so it doesn't land on top of the menu that was just opened
   setTimeout(() => {
     useApp.getState().toast({
       title: 'Faster with the keyboard',

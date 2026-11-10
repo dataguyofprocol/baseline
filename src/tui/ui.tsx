@@ -1,4 +1,3 @@
-// Small building blocks: a styled line, a text field with a cursor, and a bordered modal.
 import { Box, Text } from 'ink';
 import { displayWidth, truncate, type Line, type Seg } from './model.js';
 import type { TextField } from './textfield.js';
@@ -12,7 +11,6 @@ function SegText({ seg }: { seg: Seg }) {
   );
 }
 
-/** cut a line to `width` cells and pad it with spaces, so it paints over whatever was underneath */
 export function fitLine(line: Line, width: number): Line {
   const out: Line = [];
   let used = 0;
@@ -26,7 +24,6 @@ export function fitLine(line: Line, width: number): Line {
   return out;
 }
 
-/** `bg` fills the row behind every segment without its own; `dim` greys the row out behind an overlay */
 export function LineView({ line, width, bg, dim }: { line: Line; width?: number; bg?: string; dim?: boolean }) {
   let segs = width === undefined ? line : fitLine(line, width);
   if (bg) segs = segs.map(s => (s.bg ? s : { ...s, bg }));
@@ -34,7 +31,6 @@ export function LineView({ line, width, bg, dim }: { line: Line; width?: number;
   return <Text wrap="truncate-end">{segs.length ? segs.map((s, i) => <SegText key={i} seg={s} />) : ' '}</Text>;
 }
 
-/** a text field as segments: the window of the value around the cursor, the cursor cell inverse */
 export function fieldSegs(f: TextField, width: number, placeholder = ''): Line {
   const chars = [...f.value];
   if (!chars.length) return [{ text: ' ', inverse: true }, { text: truncate(placeholder, width - 1), color: theme.muted }];
@@ -45,7 +41,6 @@ export function fieldSegs(f: TextField, width: number, placeholder = ''): Line {
   return [{ text: visible.slice(0, at).join('') }, { text: visible[at] ?? ' ', inverse: true }, { text: visible.slice(at + 1).join('') }];
 }
 
-/** a long text field wrapped over several rows, the cursor cell inverse */
 export function fieldBlock(f: TextField, width: number, placeholder: string, maxRows: number): Line[] {
   const chars = [...f.value];
   if (!chars.length) return [[{ text: ' ', inverse: true }, { text: truncate(placeholder, width - 1), color: theme.muted }]];
@@ -62,10 +57,6 @@ export function fieldBlock(f: TextField, width: number, placeholder: string, max
   return rows.slice(first, first + maxRows);
 }
 
-/**
- * A bordered box drawn at an absolute position over the screen. Every cell inside is written,
- * padding included, so the screen underneath doesn't show through.
- */
 export function Modal({ title, subtitle, rows, width, left, top, footer }: {
   title: string; subtitle?: string; rows: Line[]; width: number; left: number; top: number; footer?: Line;
 }) {

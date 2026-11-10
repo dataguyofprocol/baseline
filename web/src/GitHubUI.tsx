@@ -13,22 +13,18 @@ const EVENTS: Array<[PrEvent, string]> = [['draft', 'Draft PR opened'], ['opened
 export function PrIcon({ state, size = 14, title }: { state: PullRequest['state']; size?: number; title?: string }) {
   return <span className="pr-icon" style={{ color: PR_COLOR[state] }} title={title ?? `PR ${state}`}><IconPr size={size} /></span>;
 }
-/** the hover text for an issue's PR icon: each linked PR, newest first */
 export function prSummary(prs: PullRequest[]): string {
   return prs.map(p => `${p.repo}#${p.number} · ${p.state} · ${p.title}`).join('\n');
 }
-/** the PR state an inbox notification's text describes ("PR #12 merged: …") */
 export function prStateOfNotice(body: string): PullRequest['state'] {
   const what = /^PR #\d+ ([a-z ]+):/.exec(body)?.[1] ?? '';
   return what === 'merged' ? 'merged' : what === 'closed' ? 'closed' : 'open';
 }
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
-/** the PRs linked to an issue (unlinked ones left out) */
 export function issuePrList(snap: Snap, issueId: string): PullRequest[] {
   return snap.issuePrs.filter(l => l.issueId === issueId && !l.dismissed).map(l => snap.pullRequests.find(p => p.id === l.prId)).filter(Boolean) as PullRequest[];
 }
-/** the furthest-along PR linked to an issue, for list rows */
 export function issuePrState(snap: Snap, issueId: string): PullRequest['state'] | null {
   const prs = issuePrList(snap, issueId);
   if (!prs.length) return null;
@@ -36,7 +32,6 @@ export function issuePrState(snap: Snap, issueId: string): PullRequest['state'] 
   return order.find(s => prs.some(p => p.state === s)) ?? null;
 }
 
-/* ================= issue page: pull requests and commits ================= */
 export function IssuePullRequests({ issueId }: { issueId: string }) {
   const snap = useApp(s => s.snap)!;
   const links = snap.issuePrs.filter(l => l.issueId === issueId && !l.dismissed);
@@ -69,10 +64,6 @@ export function IssuePullRequests({ issueId }: { issueId: string }) {
   );
 }
 
-/* ================= Settings › Integrations › GitHub =================
-   One path first: access (a read-only token, or the gh sign-in on a laptop) → repositories, each
-   mapped to a team → what syncing found. Automations sit on the same page. How it stays read-only,
-   webhooks and issue import are an "advanced" fold for whoever wants them. */
 export function GitHubSettings() {
   const snap = useApp(s => s.snap)!;
   const f = snap.workspace.features;
@@ -90,12 +81,10 @@ export function GitHubSettings() {
     finally { setSyncing(false); }
   };
   const syncButton = <button className="btn secondary sm" disabled={syncing} onClick={sync}>{syncing ? 'Syncing…' : 'Sync now'}</button>;
-  // examples use a real key from this workspace, never a made-up team
   const sample = snap.issues.find(i => !i.deletedAt);
   const teamKey = (sample && snap.teams.find(t => t.id === sample.teamId)?.key) ?? snap.teams[0]?.key ?? 'CORE';
   const sampleKey = sample ? `${teamKey}-${sample.number}` : `${teamKey}-42`;
   const canRead = !!status && ((hosted && !!snap.myGithub) || status.source === 'token' || (status.source === 'login' && !!status.ghUser));
-  // hosted, a member manages their own connection and repos here; the workspace's setup stays the admins'
   const member = hosted && !snap.currentUser.admin;
   return (
     <div className="settings-card" data-github-settings>
@@ -142,7 +131,6 @@ export function GitHubSettings() {
   );
 }
 
-/** the payoff line: what syncing found */
 function GitHubPayoff({ summary, lastSyncAt, syncButton }: { summary: GithubSummary | null; lastSyncAt: string | null; syncButton: React.ReactNode }) {
   const s = summary;
   const synced = !!lastSyncAt && !!s;
@@ -161,14 +149,12 @@ function GitHubPayoff({ summary, lastSyncAt, syncButton }: { summary: GithubSumm
   );
 }
 
-/* ================= access: a read-only token, or (laptop) the gh sign-in ================= */
 const TOKEN_PERMISSIONS = ['Metadata', 'Contents', 'Pull requests', 'Issues', 'Checks'];
-export function GitHubAccess({ status, hosted, onChange, bare }: { status: GitStatus; hosted: boolean; onChange: () => Promise<void>; /** without its numbered heading (the setup flow has its own) */ bare?: boolean }) {
+export function GitHubAccess({ status, hosted, onChange, bare }: { status: GitStatus; hosted: boolean; onChange: () => Promise<void>; bare?: boolean }) {
   const [token, setToken] = useState('');
   const [replacing, setReplacing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  // hosted, everyone connects their own token: Baseline reads the repos you add as you, and only those
   const mine = useApp(s => s.snap?.myGithub ?? null);
   const t = hosted ? mine : status.token;
   const save = async () => {
@@ -222,14 +208,9 @@ export function GitHubAccess({ status, hosted, onChange, bare }: { status: GitSt
   );
 }
 
-/* ================= the repositories Baseline syncs =================
-   A repo isn't any one team's: a pull request moves whatever issues it names, in any team, so one
-   team can carry a feature across every repository it touches. Hosted, each person adds repos their
-   own connection can read, and Baseline reads each one as someone who added it. */
 export function GitHubRepos({ status, hosted, canRead, onChange, onAdded, bare }: { status: GitStatus; hosted: boolean; canRead: boolean; onChange: () => Promise<void>; onAdded: () => Promise<void>; bare?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const me = snap.currentUser;
-  // hosted with your own connection: your routes. An admin with only the workspace token keeps the old ones
   const own = hosted && !!snap.myGithub;
   const [available, setAvailable] = useState<string[] | null>(null);
   const [picking, setPicking] = useState(false);
@@ -250,7 +231,6 @@ export function GitHubRepos({ status, hosted, canRead, onChange, onAdded, bare }
   const remove = async (repo: string) => {
     try { if (hosted) await api.removeMyGithubRepo(repo); else await api.setGithubRepos(picked.filter(x => x !== repo)); await done(false); } catch (e) { setError((e as Error).message); }
   };
-  // hosted, you remove what you added; an admin can remove anything
   const canRemove = (r: { addedBy: string[] }) => !hosted || me.admin || r.addedBy.includes(me.id);
   const who = (ids: string[]) => ids.map(id => snap.users.find(u => u.id === id)?.name.split(' ')[0]).filter(Boolean).join(', ');
   return (
@@ -299,7 +279,6 @@ export function GitHubRepos({ status, hosted, canRead, onChange, onAdded, bare }
   );
 }
 
-/* ================= people: PR authors matched to members ================= */
 function GitHubPeople({ onChange }: { onChange: () => Promise<void> }) {
   const snap = useApp(s => s.snap)!;
   const [authors, setAuthors] = useState<GithubAuthor[] | null>(null);
@@ -335,7 +314,6 @@ function GitHubPeople({ onChange }: { onChange: () => Promise<void> }) {
   );
 }
 
-/** PR automations for one team at a time, on the GitHub page (the team's Workflows page has the same) */
 function PrAutomationPicker() {
   const snap = useApp(s => s.snap)!;
   const [teamId, setTeamId] = useState(snap.teams[0]?.id ?? '');
@@ -351,7 +329,6 @@ function PrAutomationPicker() {
   );
 }
 
-/* ================= webhooks: real-time, inbound only ================= */
 const DELIVERY_COLOR: Record<WebhookDelivery['status'], string> = { processed: '#4cb782', ignored: 'var(--text-dim)', rejected: '#eb5757' };
 function WebhookSettings({ polls }: { polls: boolean }) {
   const toast = useApp(s => s.toast);
@@ -418,7 +395,6 @@ function WebhookSettings({ polls }: { polls: boolean }) {
   );
 }
 
-/* ================= GitHub Issues → Baseline (one way) ================= */
 function IssueImportSettings({ repos }: { repos: string[] }) {
   const snap = useApp(s => s.snap)!;
   const toast = useApp(s => s.toast);
@@ -459,8 +435,7 @@ function IssueImportSettings({ repos }: { repos: string[] }) {
   );
 }
 
-/* ================= team settings: pull request automations ================= */
-export function PrAutomationSettings({ teamId, bare }: { teamId: string; /** without its own heading (the GitHub page has one) */ bare?: boolean }) {
+export function PrAutomationSettings({ teamId, bare }: { teamId: string; bare?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const [auto, setAuto] = useState<PrAutomation | null>(null);
   useEffect(() => { void api.gitAutomation(teamId).then(setAuto); }, [teamId, snap.states.length]);

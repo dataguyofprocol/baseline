@@ -7,9 +7,6 @@ import { GitHubAccess, GitHubRepos } from './GitHubUI.js';
 import { IconClose, IconGithub, IconShieldUser } from './icons.js';
 import type { GitStatus, GithubSummary } from '../../src/core/types.js';
 
-/* Connecting GitHub from setup, without leaving for Settings: access, then repositories, then what
-   the first sync found. It reuses the settings page's access and repository pieces, so the gh sign-in,
-   token expiry and missing-CLI cases behave the same in both places. */
 
 const STEPS = ['Access', 'Repositories', 'Done'] as const;
 const DOCS_TOKEN = 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token';
@@ -30,11 +27,10 @@ export function GitHubSetup({ onClose }: { onClose: () => void }) {
   };
   useEffect(() => { void load(); }, []);
   const mine = useApp(s => s.snap?.myGithub ?? null);
-  // hosted, your own connection is what reads your repos
   const canRead = !!status && ((hosted && !!mine) || status.source === 'token' || (status.source === 'login' && !!status.ghUser));
   const sync = async () => {
     setSyncing(true);
-    try { await api.gitSync(); await refresh(); await load(); } catch { /* the done step shows lastError */ } finally { setSyncing(false); }
+    try { await api.gitSync(); await refresh(); await load(); } catch { } finally { setSyncing(false); }
   };
   const next = async () => {
     if (step === 1) { setStep(2); await sync(); return; }

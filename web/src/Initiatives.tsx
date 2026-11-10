@@ -30,7 +30,6 @@ type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 const refresh = () => useApp.getState().bootstrap();
 const toast = (title: string) => useApp.getState().toast({ title });
 
-/* ================= vocabulary ================= */
 export const INITIATIVE_STATUS: Array<[InitiativeStatus, string, string]> = [
   ['proposed', 'Proposed', '#95a2b3'], ['planned', 'Planned', '#8a8f98'], ['active', 'Active', '#f2c94c'],
   ['completed', 'Completed', '#5e6ad2'], ['canceled', 'Canceled', '#7d8084'],
@@ -46,7 +45,6 @@ export function InitiativeStatusIcon({ status, size = 14 }: { status: Initiative
   return <span style={{ display: 'inline-flex', color: c }}><StateIcon type={STATE_GLYPH[status] ?? 'unstarted'} color={c} size={size} /></span>;
 }
 
-/* ---------- icons: Linear-style glyphs tinted with the initiative's color (emoji still work) ---------- */
 const GLYPHS: Record<string, LucideIcon> = {
   rocket: Rocket, target: Target, flag: Flag, star: Star, zap: Zap, leaf: Leaf, globe: Globe, shield: Shield, heart: Heart,
   trending: TrendingUp, compass: Compass, box: Box, gem: Gem, puzzle: Puzzle, key: Key, megaphone: Megaphone, book: BookOpen,
@@ -57,7 +55,6 @@ const GLYPHS: Record<string, LucideIcon> = {
 export const INITIATIVE_COLORS = ['#95a2b3', '#5e6ad2', '#4ea7fc', '#26b5ce', '#4cb782', '#f2c94c', '#f2994a', '#eb5757', '#e255a1', '#9b6ef3'];
 const EMOJI = ['🎯', '🚀', '🌱', '💡', '🔥', '⚡', '🧭', '🏆', '🛡️', '💎', '🌍', '📈', '🤖', '📱', '🧩', '🔒', '💬', '❤️'];
 
-/** the initiative glyph (Linear's: an up-pointing arrowhead) */
 function InitiativeGlyph({ size, color }: { size: number; color: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" style={{ flex: 'none' }}>
@@ -101,7 +98,6 @@ function IconPicker({ value, color, onPick }: { value: string; color: string; on
   );
 }
 
-/* ---------- target dates with Linear's resolutions: Nov 30 · May 2026 · Q2 2026 · H2 2026 · 2026 ---------- */
 const pad = (n: number) => String(n).padStart(2, '0');
 const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 export function formatTarget(date: string | null, res: DateResolution | null | undefined): string {
@@ -124,7 +120,6 @@ function periodOptions(res: Exclude<DateResolution, 'day'>): Array<{ label: stri
     if (res === 'quarter') for (const q of [1, 2, 3, 4]) out.push({ label: `Q${q} ${y}`, iso: isoDay(new Date(y, q * 3, 0)) });
     if (res === 'month') for (let m = 0; m < 12; m++) out.push({ label: new Date(y, m, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }), iso: isoDay(new Date(y, m + 1, 0)) });
   }
-  // periods already over aren't useful targets
   return out.filter(o => o.iso >= isoDay(now)).slice(0, res === 'month' ? 14 : 8);
 }
 function TargetMenuBody({ ini, onSet }: { ini: Initiative; onSet: (iso: string | null, res: DateResolution | null) => void }) {
@@ -142,7 +137,6 @@ function TargetMenuBody({ ini, onSet }: { ini: Initiative; onSet: (iso: string |
   );
 }
 
-/* ---------- roll-ups ---------- */
 export function descendants(snap: Snap, id: string, seen = new Set<string>()): Initiative[] {
   const out: Initiative[] = [];
   for (const k of snap.initiatives.filter(i => i.parentId === id)) {
@@ -151,13 +145,11 @@ export function descendants(snap: Snap, id: string, seen = new Set<string>()): I
   }
   return out;
 }
-/** an initiative's projects, including every sub-initiative's */
 export function rollupProjects(snap: Snap, ini: Initiative): Project[] {
   const ids = new Set(ini.projectIds);
   for (const d of descendants(snap, ini.id)) d.projectIds.forEach(p => ids.add(p));
   return snap.projects.filter(p => ids.has(p.id));
 }
-/** an initiative's progress: issues done across its projects (and its sub-initiatives' projects) */
 export function initiativeProgress(snap: Snap, ini: Initiative): { pct: number; total: number; done: number; projects: number } {
   let done = 0; let total = 0;
   const projects = rollupProjects(snap, ini);
@@ -173,13 +165,11 @@ const ageShort = (iso: string) => {
   return `${Math.round(d / 365)}y`;
 };
 const projectHealthKey = (snap: Snap, p: Project): ProjectHealth | 'none' => snap.projectUpdates.some(u => u.projectId === p.id) ? p.health : 'none';
-/** issues completed across the roll-up in the last 7 days */
 function recentlyCompleted(snap: Snap, projects: Project[]): number {
   const ids = new Set(projects.map(p => p.id)); const since = Date.now() - 7 * 86400000;
   return snap.issues.filter(i => i.projectId && ids.has(i.projectId) && i.completedAt && new Date(i.completedAt).getTime() > since).length;
 }
 
-/* ---------- small glyphs ---------- */
 export function HealthIcon({ health, size = 14 }: { health: ProjectHealth | null | undefined; size?: number }) {
   const h = healthOf(health);
   if (!h) return <svg width={size} height={size} viewBox="0 0 14 14" style={{ flex: 'none' }}><circle cx="7" cy="7" r="5.6" fill="none" stroke="var(--text-dim)" strokeWidth="1.2" /></svg>;
@@ -208,7 +198,6 @@ function ActivityGlyph({ level }: { level: 0 | 1 | 2 | 3 }) {
   );
 }
 
-/* ================= list ================= */
 type Col = 'id' | 'priority' | 'labels' | 'team' | 'owner' | 'target' | 'health' | 'projects' | 'active' | 'activity' | 'status' | 'progress';
 const COLS: Array<[Col, string, string]> = [
   ['id', 'ID', '44px'], ['priority', 'Priority', '52px'], ['labels', 'Labels', '128px'], ['team', 'Team', '100px'],
@@ -221,10 +210,8 @@ const DEFAULT_PREFS: IniPrefs = {
   cols: { id: true, priority: true, labels: true, team: false, owner: true, target: true, health: true, projects: true, active: true, activity: true, status: false, progress: false },
 };
 const CLEAR_FILTERS: Partial<IniPrefs> = { health: [], owners: [], statuses: [], priorities: [], labels: [] };
-/** urgent first, no priority last (as Linear sorts priority) */
 const priorityRank = (p: Priority) => (p === 0 ? 5 : p);
 
-/* ---------- priority, labels, lead team ---------- */
 export function InitiativeLabelChips({ ini, max = 2 }: { ini: Pick<Initiative, 'labelIds'>; max?: number }) {
   const snap = useApp(s => s.snap)!;
   const labels = snap.initiativeLabels.filter(l => ini.labelIds.includes(l.id));
@@ -234,7 +221,6 @@ export function InitiativeLabelChips({ ini, max = 2 }: { ini: Pick<Initiative, '
 function PriorityMenuItems({ value, onPick }: { value: Priority; onPick: (p: Priority) => void }) {
   return <>{([0, 1, 2, 3, 4] as Priority[]).map((v, n) => <MenuItem key={v} icon={<PriorityIcon priority={v} size={14} />} label={PRIORITY_LABELS[v]} selected={value === v} right={<span className="kbd">{n}</span>} onClick={() => onPick(v)} />)}</>;
 }
-/** toggle labels on an initiative; type a name that doesn't exist to create it */
 function LabelMenuBody({ ini, onChange }: { ini: Pick<Initiative, 'labelIds'>; onChange: (labelIds: string[]) => void }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -270,13 +256,12 @@ export function InitiativesPage() {
   const navigate = useNavigate();
   const { tab = 'active' } = useParams();
   const location = useLocation();
-  // N then I lands here with the create dialog open
   const [creating, setCreating] = useState(() => !!(location.state as { create?: boolean } | null)?.create);
   useEffect(() => { if ((location.state as { create?: boolean } | null)?.create) setCreating(true); }, [location.state]);
   const [prefs, setPrefs] = useState<IniPrefs>(() => {
     try { const p = JSON.parse(localStorage.getItem('baseline:iniPrefs') ?? '{}'); return { ...DEFAULT_PREFS, ...p, cols: { ...DEFAULT_PREFS.cols, ...(p.cols ?? {}) }, statuses: p.statuses ?? [], priorities: p.priorities ?? [], labels: p.labels ?? [], collapsed: p.collapsed ?? [] }; } catch { return DEFAULT_PREFS; }
   });
-  const patchPrefs = (p: Partial<IniPrefs>) => setPrefs(cur => { const n = { ...cur, ...p }; try { localStorage.setItem('baseline:iniPrefs', JSON.stringify(n)); } catch { /* ignore */ } return n; });
+  const patchPrefs = (p: Partial<IniPrefs>) => setPrefs(cur => { const n = { ...cur, ...p }; try { localStorage.setItem('baseline:iniPrefs', JSON.stringify(n)); } catch { } return n; });
   const filterMenu = useMenu(); const displayMenu = useMenu();
   const order = (a: Initiative, b: Initiative) => prefs.order === 'name' ? a.name.localeCompare(b.name) : prefs.order === 'priority' ? priorityRank(a.priority) - priorityRank(b.priority) || a.position - b.position : prefs.order === 'target' ? (a.targetDate ?? '9999').localeCompare(b.targetDate ?? '9999') : prefs.order === 'created' ? b.createdAt.localeCompare(a.createdAt) : a.position - b.position;
   const matches = (i: Initiative) => (tab === 'all' || i.status === tab)
@@ -284,7 +269,6 @@ export function InitiativesPage() {
     && (!prefs.health.length || prefs.health.includes(i.health ?? 'none')) && (!prefs.owners.length || prefs.owners.includes(i.ownerId ?? 'none'))
     && (!prefs.priorities.length || prefs.priorities.includes(i.priority))
     && (!prefs.labels.length || prefs.labels.some(l => l === 'none' ? !i.labelIds.length : i.labelIds.includes(l)));
-  // nested: a root shows when it, or anything under it, matches; children render as a tree beneath it
   const roots = snap.initiatives.filter(i => !prefs.subs || !i.parentId || !snap.initiatives.some(p => p.id === i.parentId))
     .filter(i => matches(i) || (prefs.subs && descendants(snap, i.id).some(matches))).sort(order);
   const toggle = <T,>(arr: T[], v: T) => arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
@@ -300,7 +284,6 @@ export function InitiativesPage() {
         {([['active', 'Active', <StateIcon key="a" type="started" color="currentColor" size={13} />], ['planned', 'Planned', <StateIcon key="p" type="unstarted" color="currentColor" size={13} />], ['all', 'All initiatives', null]] as const).map(([k, l, ic]) => (
           <button key={k} className={`pill-tab${tab === k ? ' on' : ''}`} onClick={() => navigate(`/initiatives/view/${k}`)}>{ic}{l}{snap.initiatives.length > 0 && <span className="pill-count">{counts[k]}</span>}</button>
         ))}
-        {/* filter and display as icon buttons at the end of the tab row, like Issues, Projects and Views */}
         {snap.initiatives.length > 0 && <>
           <span style={{ flex: 1 }} />
           {filtered > 0 && <button className="btn ghost sm dim" onClick={() => patchPrefs(CLEAR_FILTERS)}>Clear filters</button>}
@@ -373,7 +356,6 @@ export function InitiativesPage() {
   );
 }
 
-/** one initiative row plus (when nested and expanded) its sub-initiatives, with Linear's tree guides */
 function InitiativeRows(props: { ini: Initiative; depth: number; prefs: IniPrefs; cols: Col[]; matches: (i: Initiative) => boolean; guides: boolean[]; last: boolean; onToggle: (id: string) => void }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -392,7 +374,7 @@ function InitiativeRows(props: { ini: Initiative; depth: number; prefs: IniPrefs
   const level = (recent === 0 ? 0 : recent < 3 ? 1 : recent < 6 ? 2 : 3) as 0 | 1 | 2 | 3;
   const summary = prefs.summaries ? ini.summary || '' : '';
   const iconY = summary ? 18 : 22;
-  const x = (d: number) => 12 + d * 24 + 8; // icon centre at a depth
+  const x = (d: number) => 12 + d * 24 + 8;
   const st = INITIATIVE_STATUS.find(s => s[0] === ini.status)!;
   const team = snap.teams.find(t => t.id === ini.teamId);
   const cell = (c: Col): React.ReactNode => {
@@ -418,7 +400,6 @@ function InitiativeRows(props: { ini: Initiative; depth: number; prefs: IniPrefs
   return (
     <>
       <div className={`ini-row${summary ? ' has-summary' : ''}`} onClick={() => navigate(`/initiatives/${ini.id}`)} onContextMenu={ctx.open}>
-        {/* tree guides: ancestors' continuations, our elbow, and the stem down to our children */}
         {props.guides.map((g, k) => g ? <span key={k} className="ini-guide" style={{ left: x(k) }} /> : null)}
         {depth > 0 && (props.last ? <span className="ini-elbow" style={{ left: x(depth - 1), height: iconY }} /> : <><span className="ini-guide" style={{ left: x(depth - 1) }} /><span className="ini-elbow" style={{ left: x(depth - 1), height: iconY }} /></>)}
         {kids.length > 0 && !collapsed && <span className="ini-guide" style={{ left: x(depth), top: iconY + 10 }} />}
@@ -507,7 +488,6 @@ function InitiativeContextMenu({ ini, anchor, onClose }: { ini: Initiative; anch
   );
 }
 
-/* ================= create ================= */
 function NewInitiativeModal(props: { onClose: () => void; onCreated?: (id: string) => void; parentId?: string; initialStatus?: InitiativeStatus }) {
   const snap = useApp(s => s.snap)!;
   const { busy, guard } = useInFlight();
@@ -532,7 +512,6 @@ function NewInitiativeModal(props: { onClose: () => void; onCreated?: (id: strin
   const parent = snap.initiatives.find(i => i.id === props.parentId);
   return (
     <Modal onClose={props.onClose} className="modal modal-create np-modal ini-modal">
-      {/* same scaffold as New project (cm-header, np-*, cm-pills, cm-footer) so the two read as one family */}
       <div className="cm-root" onKeyDown={e => {
         if ((e.target as HTMLElement).closest?.('.menu')) return;
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void create(); }
@@ -577,14 +556,12 @@ function NewInitiativeModal(props: { onClose: () => void; onCreated?: (id: strin
   );
 }
 
-/* ================= initiative page ================= */
 export function InitiativePage() {
   const { initiativeId = '', tab: rawTab } = useParams();
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const routeState = useLocation().state as { compose?: boolean } | null;
   const tab = rawTab === 'projects' || rawTab === 'updates' ? rawTab : 'overview';
-  // /initiatives/I-12 works as well as the id
   const ini = snap.initiatives.find(i => i.id === initiativeId) ?? (/^i-\d+$/i.test(initiativeId) ? snap.initiatives.find(i => i.number === Number(initiativeId.slice(2))) : undefined);
   useEffect(() => {
     if (!ini) return;
@@ -715,7 +692,6 @@ function UpdateComposer({ ini, onDone }: { ini: Initiative; onDone: () => void }
   );
 }
 
-/** the update schedule's next due date, under the update card (mirrors a project's) */
 function InitiativeUpdateDue({ ini }: { ini: Initiative }) {
   const snap = useApp(s => s.snap)!;
   const cadence = ini.updateCadence ?? snap.workspace.features.initiativeUpdateCadence;
@@ -728,7 +704,6 @@ function InitiativeUpdateDue({ ini }: { ini: Initiative }) {
   return <div className={`update-due${overdue ? ' overdue' : ''}`}>{overdue ? `Update overdue since ${shortDate(due.toISOString())}` : `Next update due ${shortDate(due.toISOString())}`} · {UPDATE_CADENCE_LABELS[cadence].toLowerCase()}{owner ? ` · ${owner.id === snap.currentUser.id ? 'you get' : `${owner.name} gets`} a reminder` : ''}</div>;
 }
 
-/** reactions on an initiative update, with the add-reaction button */
 function UpdateReactions({ update }: { update: InitiativeUpdate }) {
   const menu = useMenu();
   const toggle = async (emoji: string) => { await api.toggleInitiativeUpdateReaction(update.id, emoji); await refresh(); };
@@ -773,16 +748,14 @@ function InitiativeUpdateCard({ ini, latest }: { ini: Initiative; latest?: Snap[
   );
 }
 
-/* ---------- projects, grouped by the initiative they belong to ---------- */
 function InitiativeProjects({ ini, full = false }: { ini: Initiative; full?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const menu = useMenu();
   const [q, setQ] = useState('');
   const [sub, setSub] = useState(false);
-  // the Projects tab lays its projects out as Linear does: a list, a board by status, or a timeline
   const [layout, setLayout] = useState<'list' | 'board' | 'timeline'>(() => { try { return (localStorage.getItem('baseline:iniProjectsLayout') as 'board') || 'list'; } catch { return 'list'; } });
-  const pickLayout = (l: typeof layout) => { setLayout(l); try { localStorage.setItem('baseline:iniProjectsLayout', l); } catch { /* ignore */ } };
+  const pickLayout = (l: typeof layout) => { setLayout(l); try { localStorage.setItem('baseline:iniProjectsLayout', l); } catch { } };
   const shown = full ? layout : 'list';
   const groups: Array<[Initiative, Project[]]> = [ini, ...descendants(snap, ini.id)].map(i => [i, snap.projects.filter(p => i.projectIds.includes(p.id))]);
   const kids = snap.initiatives.filter(i => i.parentId === ini.id);
@@ -855,7 +828,6 @@ function InitiativeProjects({ ini, full = false }: { ini: Initiative; full?: boo
   );
 }
 
-/* ---------- the initiative graph: weekly completed issues per project, stacked ---------- */
 function InitiativeGraph({ ini }: { ini: Initiative }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -871,7 +843,6 @@ function InitiativeGraph({ ini }: { ini: Initiative }) {
         const w = Math.floor((new Date(i.completedAt).getTime() - start.getTime()) / (7 * 86400000));
         if (w >= 0 && w < WEEKS) v[w]++;
       }
-      // a rate, not a tally: smooth each week with its neighbours (twice) so sparse weeks read as one curve
       let r = v;
       for (let pass = 0; pass < 2; pass++) r = r.map((n, w) => (r[w - 1] ?? n) * 0.25 + n * 0.5 + (r[w + 1] ?? n) * 0.25);
       return { p, v: r, total: v.reduce((a, b) => a + b, 0) };
@@ -889,7 +860,6 @@ function InitiativeGraph({ ini }: { ini: Initiative }) {
     const pts = ys.map((n, w) => [X(w), Y(n)] as const); if (rev) pts.reverse();
     return pts.map(([x, y], k) => { if (!k) return `${rev ? 'L' : 'M'}${x},${y}`; const [px, py] = pts[k - 1]; const mx = (px + x) / 2; return `C${mx},${py} ${mx},${y} ${x},${y}`; }).join(' ');
   };
-  // projects without distinct colours of their own still need distinct swatches, or every legend dot reads the same
   const ownColors = layers.every(l => l.p.color) && new Set(layers.map(l => l.p.color)).size === layers.length;
   const colorOf = (l: (typeof layers)[number]) => (ownColors ? l.p.color : null) || SERIES_COLORS[layers.indexOf(l) % SERIES_COLORS.length];
   const hov = layers.find(l => l.p.id === hover);
@@ -922,7 +892,6 @@ function InitiativeGraph({ ini }: { ini: Initiative }) {
   );
 }
 
-/* ---------- updates tab: the initiative's updates, optionally with its projects' ---------- */
 function InitiativeUpdatesTab({ ini, compose }: { ini: Initiative; compose: boolean }) {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -939,7 +908,7 @@ function InitiativeUpdatesTab({ ini, compose }: { ini: Initiative; compose: bool
         {!composing && <button className="btn secondary sm" onClick={() => setComposing(true)}><IconEdit size={12} /> Write update</button>}
         <span style={{ flex: 1 }} />
         <label className="ini-upd-toggle"><span>Include project updates</span>
-          <button className={`switch${withProjects ? ' on' : ''}`} role="switch" aria-checked={withProjects} onClick={() => setWithProjects(v => { try { localStorage.setItem('baseline:iniUpdatesProjects', v ? '0' : '1'); } catch { /* ignore */ } return !v; })}><span /></button>
+          <button className={`switch${withProjects ? ' on' : ''}`} role="switch" aria-checked={withProjects} onClick={() => setWithProjects(v => { try { localStorage.setItem('baseline:iniUpdatesProjects', v ? '0' : '1'); } catch { } return !v; })}><span /></button>
         </label>
       </div>
       {composing && <UpdateComposer ini={ini} onDone={() => setComposing(false)} />}
@@ -964,7 +933,6 @@ function InitiativeUpdatesTab({ ini, compose }: { ini: Initiative; compose: bool
   );
 }
 
-/* ================= a project's initiatives (project properties row) ================= */
 export function ProjectInitiatives({ projectId }: { projectId: string }) {
   const snap = useApp(s => s.snap)!;
   const menu = useMenu();

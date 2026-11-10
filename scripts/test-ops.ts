@@ -1,12 +1,3 @@
-// The agent operations end to end: each op through runOp and the real client, over the app's own
-// routes with an API key (the person), writing as the workspace's Agent (or a coding tool's own agent
-// user). Checks that repeats converge (one comment, one draft, one state change), that new issues are
-// drafts until create_issue, that follow-ups land in Triage (Backlog with triage off), that every
-// new write undoes, that undo refuses a field someone changed since, and that a key can draft but
-// never publish a project update.
-// Runs against a throwaway database and never touches ~/.baseline.
-//
-//   npx tsx scripts/test-ops.ts
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,7 +26,6 @@ const check = (name: string, ok: boolean, detail: unknown = '') => {
   console.log(`${ok ? '✓' : '✗'} ${name}${ok || detail === '' ? '' : `  — ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`}`);
 };
 
-/** the app over HTTP semantics, with the key as a bearer token (or as this machine, with no key) */
 const transport = (token: string | null): Transport => ({
   async request(method, path, opts) {
     const q = new URLSearchParams(Object.entries(opts?.query ?? {}).filter((e): e is [string, string] => e[1] !== undefined));
@@ -62,7 +52,6 @@ const todo = store.listIssues({ teamId: snap0.teams.find(t => t.key === 'CORE')!
   ?? store.createIssue({ teamId: snap0.teams.find(t => t.key === 'CORE')!.id, title: 'Unassigned todo for the ops test' }, owner.id);
 const K = store.keyOf(todo);
 
-// ---------- the registry ----------
 check('14 operations, unique names', OPERATIONS.length === 14 && new Set(OPERATIONS.map(o => o.name)).size === 14);
 check('annotations derive from effect: reads read-only, undo destructive, all idempotent',
   annotationsOf(op('get_issue')).readOnlyHint && !annotationsOf(op('start_issue')).readOnlyHint && annotationsOf(op('undo')).destructiveHint && OPERATIONS.every(o => annotationsOf(o).idempotentHint));
@@ -82,7 +71,6 @@ check('an MCP client named claude-code writes as "Claude Code"', ccCtx.actor.kin
 }
 check('BASELINE_AS naming a person is refused', await ctxFor('Ada Osei').then(() => false, e => e instanceof OpError && /a person/.test(e.message)));
 
-// ---------- start_issue ----------
 const s1 = await call('start_issue', { issue: K });
 check(`start_issue ${K}: moves to In Progress, assigns the person, attributed to the agent via the person`,
   !!s1.op_id && s1.state === 'In Progress' && s1.assignee === owner.name && s1.attributed_to === `Agent via ${owner.name}`, s1);
@@ -92,13 +80,11 @@ const s2 = await call('start_issue', { issue: K });
 check('start_issue twice: no op, already_started, still one state change', s2.op_id === null && s2.already_started
   && count("SELECT COUNT(*) n FROM activity WHERE issue_id = ? AND type = 'stateChanged'", todo.id) === 1, s2);
 check('start_issue twice: the short answer, without the brief', s2.brief === null && op('start_issue').text(s2, 'mcp').length < 400, op('start_issue').text(s2, 'mcp'));
-// a local front door checks the branch out (src/cli/repo.ts does it for real; here, what the op asks for)
 const asked: string[] = [];
 const localCtx: OpContext = { ...agentCtx, local: { team: 'CORE', checkout: async b => { asked.push(b); return { status: 'created', branch: b, command: `git checkout --no-track -b ${b} main` }; } } };
 const s3 = await call('start_issue', { issue: K }, localCtx);
 check('start_issue with a local repo checks the issue\'s branch out', s3.git.status === 'created' && asked[0] === s1.branch, s3.git);
 
-// ---------- start_issue on another person's issue ----------
 const adas = store.createIssue({ teamId: todo.teamId, title: 'Ada\'s own work', assigneeId: ada.id, stateId: store.stateOfType(todo.teamId, 'started') }, ada.id);
 const AdaK = store.keyOf(adas);
 const theirs = await refused('start_issue', { issue: AdaK });
@@ -109,7 +95,6 @@ check('take_over: true reassigns it to the person and starts it', !!take.op_id &
 const untake = await call('undo', { op_id: take.op_id });
 check('undo the take-over: Ada has it again', !!untake.op_id && issueByKey(AdaK).assigneeId === ada.id, untake);
 
-// ---------- post_progress ----------
 const p1 = await call('post_progress', { issue: K, did: 'Reproduced the bug', left: 'Fix and test' });
 const p2 = await call('post_progress', { issue: K, did: 'Fixed it', pr_url: 'https://github.com/o/r/pull/12' });
 const p3 = await call('post_progress', { issue: K, did: 'Fixed it', links: ['https://github.com/o/r/pull/12'] });
@@ -123,7 +108,6 @@ await call('post_progress', { issue: K, did: 'Second session' }, await ctxFor('A
 check('another BASELINE_SESSION keeps its own note', comments().length === 2);
 check('an empty string clears a field', (await call('post_progress', { issue: K, left: '' })).progress.left === null);
 
-// ---------- create_sub_issues ----------
 const sub1 = await call('create_sub_issues', { issue: K, titles: ['Write the retry helper', 'Wire it into the importer'] });
 const kids = () => store.listIssues({ teamId: todo.teamId }).filter(i => i.parentId === todo.id && !i.deletedAt);
 check('create_sub_issues: one per title, under the started issue, with its assignee, in Todo', !!sub1.op_id && sub1.created.length === 2 && kids().length === 2
@@ -135,7 +119,6 @@ check('create_sub_issues on an issue that isn\'t started is refused', /start_iss
 const subUndo = await call('undo', { op_id: sub1.op_id });
 check('undo create_sub_issues: both sub-issues deleted', !!subUndo.op_id && kids().length === 0, subUndo);
 
-// ---------- propose_followup: a note until the person approves it at finish ----------
 const ago = store.listIssues({ teamId: snap0.teams.find(t => t.key === 'AGO')!.id }).find(i => !i.deletedAt)!;
 const AK = store.keyOf(ago);
 const issuesBefore = count('SELECT COUNT(*) n FROM issues');
@@ -159,7 +142,6 @@ store.updateTeam(ago.teamId, { triageEnabled: true });
 const f1Filed = await call('create_issue', { draft_id: f1.draft_id });
 check('an approved follow-up on a team with triage goes to Triage', f1Filed.state === 'Triage' && !!f1Filed.op_id, f1Filed);
 
-// ---------- finish_issue ----------
 const fin1 = await call('finish_issue', { issue: K, outcome: 'in_review', summary: 'PR #12 fixes it; tests pass' });
 const fin2 = await call('finish_issue', { issue: K, outcome: 'in_review', summary: 'PR #12 fixes it; tests pass' });
 check('finish_issue in_review: In Review', fin1.state === 'In Review' && !!fin1.op_id, fin1);
@@ -168,14 +150,12 @@ check('finish_issue twice: no op, one move to In Review', fin2.op_id === null
 check('the living comment became the final summary', comments().some(c => c.body.startsWith('**Finished: ready for review**')));
 check('…keeping the last progress under it, collapsed', comments().some(c => c.body.startsWith('**Finished') && /<details><summary>Progress before finishing<\/summary>\n\n\*\*Did:\*\*/.test(c.body)));
 {
-  // a team without an In Review status: the card says why the status didn't follow
   const { renderFinal } = await import('../src/core/work.js');
   const body = renderFinal('in_review', 'done', null, [], { stays: 'CORE-1 stays In Progress: its team has no In Review status.' });
   check('a finish whose status can\'t follow says so under the heading', body.split('\n\n')[1] === '_CORE-1 stays In Progress: its team has no In Review status._', body);
 }
 check('stopped without left is refused', (await refused('finish_issue', { issue: K, outcome: 'stopped', summary: 'gave up' }))?.code === 'invalid');
 
-// ---------- undo ----------
 const u1 = await call('undo', { op_id: fin1.op_id });
 check('undo finish_issue: state back to In Progress, note back to progress', !!u1.op_id && stateOf(K) === 'In Progress' && comments().some(c => c.body.startsWith('**Progress**')) && !comments().some(c => c.body.startsWith('**Finished')), u1);
 check('undo twice: already undone, nothing written', (await call('undo', { op_id: fin1.op_id })).already_undone);
@@ -204,7 +184,6 @@ check('after undo, noting the same title makes a new draft', !f3.deduplicated &&
 const aliasOut = await runOp(op('propose_followup'), agentCtx, { from_issue: AK, title: 'Old tool name still works' }) as Record<string, any>;
 check('file_followup is an alias of propose_followup', OP_ALIASES.file_followup === 'propose_followup' && !!aliasOut.draft_id);
 
-// ---------- propose_issue → create_issue ----------
 const created0 = count('SELECT COUNT(*) n FROM issues');
 const pi1 = await call('propose_issue', { title: 'Fix login redirect after SSO', team: 'CORE', priority: 'high' });
 const pi2 = await call('propose_issue', { title: 'fix login redirect after sso', team: 'CORE' });
@@ -228,11 +207,9 @@ check('create_issue with someone else\'s draft id is refused', (await refused('c
 const piUndo = await call('undo', { op_id: pi1.op_id });
 check('undo propose_issue: the draft is discarded', !!piUndo.op_id && !store.ext.work.agentDraft(pi1.draft_id), piUndo);
 
-// ---------- receipts name the tool over MCP, the command on the CLI ----------
 check('a receipt says `baseline agent undo` on the CLI and the undo tool over MCP', /baseline agent undo op_/.test(op('create_issue').text(ci2, 'cli'))
   && /call the undo tool with op_id op_/.test(op('create_issue').text(ci2, 'mcp')) && !/baseline agent/.test(op('create_issue').text(ci2, 'mcp')));
 
-// ---------- draft_project_update: drafted by a key, published only by a person ----------
 const project = store.snapshot().projects[0]!;
 const updates = () => count('SELECT COUNT(*) n FROM project_updates WHERE project_id = ?', project.id);
 const before = updates();
@@ -250,11 +227,9 @@ check('the person (this machine, no key) publishes it: one update, by them, draf
   && count('SELECT COUNT(*) n FROM project_update_drafts WHERE project_id = ?', project.id) === 0
   && count('SELECT COUNT(*) n FROM project_updates WHERE project_id = ? AND user_id = ? AND via_user_id IS NULL', project.id, owner.id) >= 1, pubLocal);
 
-// ---------- attribution, across everything above ----------
 check('every activity row by Agent is via the person', count('SELECT COUNT(*) n FROM activity WHERE user_id = ? AND op_id IS NOT NULL AND (via_user_id IS NULL OR via_user_id != ?)', agent.id, owner.id) === 0
   && count('SELECT COUNT(*) n FROM activity WHERE user_id = ? AND op_id IS NOT NULL', agent.id) > 0);
 
-// ---------- read ops ----------
 const g = await call('get_issue', { issue: K.toLowerCase() });
 check('get_issue shows the agent work threads', g.issue.key === K && g.agent_work.length === 2 && g.agent_work.some((w: { session: string | null; via: string }) => w.session === 's1' && w.via === owner.name), g.agent_work);
 const waits = store.createIssue({ teamId: todo.teamId, title: 'Waits on another' }, owner.id);
@@ -272,7 +247,6 @@ const loginIssue = store.createIssue({ teamId: todo.teamId, title: 'Fix login re
 const lq = await call('list_issues', { query: 'login redirect' });
 check('list_issues with a query searches everyone\'s issues, not only the person\'s', lq.issues.some((i: { key: string }) => i.key === store.keyOf(loginIssue)) && /anyone/.test(lq.filter), lq);
 
-// ---------- find_issues ----------
 const fi = await call('find_issues', { query: 'the redirect bug on login' });
 check('find_issues: word order and filler words don\'t matter, unassigned issues found, says what it searched', fi.issues[0]?.key === store.keyOf(loginIssue)
   && fi.searched.words.join() === 'redirect,login' && fi.searched.issues > 0 && /Searched \d+ open issue/.test(op('find_issues').text(fi, 'cli')), fi);
@@ -281,7 +255,6 @@ check('find_issues with no match says so and points at propose_issue', fiNone.is
 const fiRepo = await call('find_issues', { query: 'login redirect' }, localCtx);
 check('find_issues defaults to the repo\'s team', fiRepo.searched.teams.join() === 'CORE', fiRepo.searched);
 
-// ---------- next_issue ----------
 const blocker = store.createIssue({ teamId: todo.teamId, title: 'Blocker', stateId: store.stateOfType(todo.teamId, 'unstarted') }, owner.id);
 const urgentTodo = store.createIssue({ teamId: todo.teamId, title: 'Urgent but blocked', priority: 1, assigneeId: owner.id, stateId: store.stateOfType(todo.teamId, 'unstarted') }, owner.id);
 store.setRelation(urgentTodo.id, blocker.id, 'blocked_by');
@@ -291,7 +264,6 @@ check('next_issue: in progress first, then Todo, unblocked only', nx.issues.leng
   && !nx.issues.some((i: { key: string }) => i.key === store.keyOf(urgentTodo)) && nx.blocked_skipped >= 1, nx);
 check('next_issue defaults to 3', (await call('next_issue', {})).issues.length <= 3);
 
-// ---------- my_activity ----------
 await call('start_issue', { issue: store.keyOf(blocker) });
 await call('post_progress', { issue: store.keyOf(blocker), did: 'Found the cause' });
 const act = await call('my_activity', { since: '1d' });
@@ -301,7 +273,6 @@ check('my_activity: the person\'s issues and their agents\' work since then, as 
 check('my_activity: a bad since is refused with the valid forms', /yesterday, today/.test((await refused('my_activity', { since: 'whenever' }))?.message ?? ''));
 
 
-// ---------- migration: the per-tool agent users fold into the workspace's Agent ----------
 {
   const path = join(work, 'fold.db');
   let mdb = openDb(path);

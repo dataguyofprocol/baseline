@@ -1,4 +1,3 @@
-// What the TUI reads from a workspace: snapshot sections plus indexes built once per fetch.
 import type { Baseline } from '../client/index.js';
 import { needsYou } from '../core/inbox.js';
 import { issueKey, type Issue, type Label, type Project, type Snapshot, type Team, type User, type WorkflowState } from '../core/types.js';
@@ -12,7 +11,6 @@ export const TUI_SECTIONS = [
 
 export type TuiSnapshot = Pick<Snapshot, typeof TUI_SECTIONS[number]>;
 
-/** what the snapshot doesn't carry: agent work on the issues Today watches, and the person's follow-up drafts */
 export interface TuiExtras {
   threads: ReadonlyMap<string, WorkThread[]>;
   drafts: AgentDraft[];
@@ -57,7 +55,6 @@ export function buildData(snap: TuiSnapshot & Partial<TuiExtras>): TuiData {
   };
 }
 
-/** the issues whose agent work Today shows: my started issues, and the issues of what needs me */
 export function watchedIssueIds(snap: TuiSnapshot): string[] {
   const started = new Set(snap.states.filter(s => s.type === 'started').map(s => s.id));
   const ids = new Set<string>();
@@ -66,7 +63,6 @@ export function watchedIssueIds(snap: TuiSnapshot): string[] {
   return [...ids];
 }
 
-/** the snapshot, plus agent threads and drafts; a key that can't read those still gets the rest */
 export async function fetchData(bl: Baseline): Promise<TuiData> {
   const snap = await bl.snapshot(TUI_SECTIONS);
   const ids = watchedIssueIds(snap);
@@ -77,7 +73,6 @@ export async function fetchData(bl: Baseline): Promise<TuiData> {
   return buildData({ ...snap, threads: new Map(threads), drafts });
 }
 
-/** the data with one issue changed locally, ahead of the server's answer */
 export function patchIssue(data: TuiData, issueId: string, patch: Partial<Issue>): TuiData {
   return buildData({ ...data, issues: data.issues.map(i => (i.id === issueId ? { ...i, ...patch } : i)) });
 }

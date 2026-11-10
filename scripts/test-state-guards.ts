@@ -1,10 +1,3 @@
-// Regression tests for lifecycle invariants that used to be enforced only by convention:
-//  - an issue's completedAt/canceledAt come only from its state, never from a raw PATCH body
-//  - the workspace always keeps at least one active admin, whichever route changes admin rights
-//  - importing a backup is all-or-nothing: a bad file leaves the current workspace untouched
-// Runs against a throwaway local-mode database and never touches ~/.baseline.
-//
-//   npx tsx scripts/test-state-guards.ts
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,7 +19,6 @@ const call = (method: string, path: string, body?: unknown) => app.fetch(new Req
 const row = (issueId: string) => db.prepare('SELECT state_id, completed_at, canceled_at, archived_at, team_id, number FROM issues WHERE id = ?').get(issueId) as
   { state_id: string; completed_at: string | null; canceled_at: string | null; archived_at: string | null; team_id: string; number: number };
 
-// ---------- the sample workspace itself is consistent ----------
 {
   const bad = db.prepare(`SELECT COUNT(*) n FROM issues i JOIN states s ON s.id = i.state_id
     WHERE (i.completed_at IS NOT NULL) != (s.type = 'completed') OR (i.canceled_at IS NOT NULL AND s.type != 'canceled')`).get() as { n: number };
@@ -36,7 +28,6 @@ const row = (issueId: string) => db.prepare('SELECT state_id, completed_at, canc
   check('listIssues honours its stateType filter', done.length > 0 && done.every(i => store.snapshot().states.find(s => s.id === i.stateId)?.type === 'completed'));
 }
 
-// ---------- issue PATCH: lifecycle timestamps are derived, not written ----------
 {
   const snap = store.snapshot();
   const core = snap.teams.find(t => t.key === 'CORE')!;
@@ -66,11 +57,9 @@ const row = (issueId: string) => db.prepare('SELECT state_id, completed_at, canc
   await call('PATCH', `/api/issues/${issue.id}`, { archivedAt: null });
 }
 
-// ---------- admin rights: never zero admins ----------
 {
   const activeAdmins = () => (db.prepare("SELECT id FROM users WHERE admin = 1 AND status = 'active' AND kind = 'human'").all() as Array<{ id: string }>).map(u => u.id);
   const humans = (db.prepare("SELECT id FROM users WHERE kind = 'human' AND status = 'active'").all() as Array<{ id: string }>).map(u => u.id);
-  // reduce to exactly one admin through the route, then try to remove that one too
   const keep = activeAdmins()[0] ?? humans[0]!;
   if (!activeAdmins().length) await call('PATCH', `/api/users/${keep}`, { admin: true });
   for (const id of activeAdmins().filter(id => id !== keep)) await call('PATCH', `/api/users/${id}`, { admin: false });
@@ -90,12 +79,10 @@ const row = (issueId: string) => db.prepare('SELECT state_id, completed_at, canc
   check('a profile edit alongside admin still saves the profile', rename.status === 200 && (db.prepare('SELECT name FROM users WHERE id = ?').get(other) as { name: string }).name === 'Still Admin');
 }
 
-// ---------- import: all-or-nothing ----------
 {
   const count = (t: string) => (db.prepare(`SELECT COUNT(*) n FROM ${t}`).get() as { n: number }).n;
   const backup = JSON.parse(store.exportJson()) as { issues: unknown[] };
   const before = { issues: count('issues'), teams: count('teams'), users: count('users'), meta: count('meta') };
-  // a backup that wipes fine, then breaks partway: the same issue twice violates the primary key
   const broken = JSON.stringify({ ...backup, issues: [...backup.issues, backup.issues[0]] });
   const r = await call('POST', '/api/import', { json: broken });
   check('a broken backup is rejected', r.status === 400);
@@ -107,12 +94,11 @@ const row = (issueId: string) => db.prepare('SELECT state_id, completed_at, canc
   check('a good backup still imports', ok.status === 200 && count('issues') === before.issues, `${ok.status} ${count('issues')}`);
   check('store.transaction rolls back a throwing body', (() => {
     const n = count('issues');
-    try { store.transaction(() => { db.exec('DELETE FROM issues'); throw new Error('boom'); }); } catch { /* expected */ }
+    try { store.transaction(() => { db.exec('DELETE FROM issues'); throw new Error('boom'); }); } catch { }
     return count('issues') === n;
   })());
 }
 
-// ---------- cycles: a bad create is a 400, not a 500 ----------
 {
   const count = (t: string) => (db.prepare(`SELECT COUNT(*) n FROM ${t}`).get() as { n: number }).n;
   const core = store.snapshot().teams.find(t => t.key === 'CORE')!;
@@ -125,12 +111,10 @@ const row = (issueId: string) => db.prepare('SELECT state_id, completed_at, canc
   check('…and a good one still makes a cycle', (await call('POST', '/api/cycles', { teamId: core.id, number: 99, startsAt: '2027-01-01T00:00:00.000Z', endsAt: '2027-01-14T00:00:00.000Z' })).status === 201);
 }
 
-// ---------- team leads: the migration adds a role, promotes nobody; a new team's creator leads it ----------
 {
   const { openDb } = await import('../src/core/db.js');
   const file = join(work, 'old.db');
   const old = openDb(file);
-  // a database from before team leads: no role column, a team with two members
   old.exec("ALTER TABLE team_members DROP COLUMN role; INSERT INTO teams (id, key, name, icon, color, description, position) VALUES ('t_old', 'OLD', 'Old', '', '', '', 1)");
   old.exec("INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES ('u_a', 'A', 'a@x', 'A', '', 1, 'human'), ('u_b', 'B', 'b@x', 'B', '', 0, 'human')");
   old.exec("INSERT INTO team_members (team_id, user_id, created_at) VALUES ('t_old', 'u_a', '2026-01-01'), ('t_old', 'u_b', '2026-01-02')");
@@ -143,7 +127,6 @@ const row = (issueId: string) => db.prepare('SELECT state_id, completed_at, canc
   check('whoever creates a team leads it', made.team.leadIds.join() === store.actor());
 }
 
-// ---------- Settings › Features: off for a new workspace, on where the data already exists ----------
 {
   const f = store.getFeatures();
   check('the sample workspace starts with cycles and estimates on (it has them)', f.cyclesEnabled && f.estimatesEnabled, JSON.stringify(f));

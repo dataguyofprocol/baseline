@@ -1,4 +1,3 @@
-// People in a workspace: invites, roles, suspension, team membership, and who may join.
 import type { Context, Hono } from 'hono';
 import { AccountError, emailProblem, isEmail, normalizeEmail, type Accounts, type InviteRow } from '../core/accounts.js';
 import type { Store } from '../core/store.js';
@@ -11,7 +10,6 @@ import { limiter } from './ratelimit.js';
 const MAX_INVITES = 50;
 
 
-/** `userIds` name people already in the workspace; `emails` is whatever was pasted ("a@x.com, b@x.com" or one per line) */
 function inviteEntries(b: { emails?: unknown; userIds?: unknown }): InviteEntry[] {
   const ids = Array.isArray(b.userIds) ? b.userIds.filter((x): x is string => typeof x === 'string') : [];
   const text = Array.isArray(b.emails) ? b.emails.filter((x): x is string => typeof x === 'string').join(' ') : typeof b.emails === 'string' ? b.emails : '';
@@ -24,7 +22,6 @@ function inviteEntries(b: { emails?: unknown; userIds?: unknown }): InviteEntry[
 
 export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; mailer: Mailer; hosted: HostedAuth | null }): void {
   const { store, accounts, mailer, hosted } = o;
-  // invites send email in the workspace's name: at most 100 addresses (or resends) per person per hour
   const inviteLimit = limiter(100, 60 * 60_000);
   const tooMany = (c: Context) => c.json({ error: 'You\'ve sent a lot of invites. Try again in an hour.', code: 'rate-limited' }, 429);
   const forbid = (c: Context, error: string) => c.json({ error, code: 'forbidden' }, 403);
@@ -47,38 +44,28 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
       return { emailed: 'failed', error: (err as Error).message };
     }
   };
-  // as in Linear: anyone on a team, or an admin, adds people to it; only admins remove someone else.
-  // A laptop has one person, who passes every admin and team check.
   const admin = () => !hosted || accounts.isAdmin(me());
   const canAddTo = (team: Team) => admin() || team.memberIds.includes(me());
-  /** a team's lead, or an admin (who leads every team, CORE_FLOW.md › Roles) */
   const leads = (team: Team) => admin() || team.leadIds.includes(me());
   const cantAdd = (c: Context, team: Team) => forbid(c, `Only ${team.name}'s members and admins can add people to it`);
-  /** puts active people on a team and tells them in their inbox; returns who wasn't on it already */
   const addToTeam = (team: Team, ids: string[]): string[] => {
     const added = ids.filter(id => !team.memberIds.includes(id));
     for (const id of added) store.addTeamMember(team.id, id);
     store.notifyEach(added, 'teamMemberAdded', { actorId: me(), body: `${team.id}|${team.name}` });
     return added;
   };
-  // invites only make sense where people sign in
   const invitesOff = (c: Context) => !hosted ? c.json({ error: 'Invites need a hosted workspace (BASELINE_PUBLIC_URL)', code: 'not-hosted' }, 400) : null;
 
-  // ---------- invites ----------
   app.get('/api/invites', (c) => {
     if (!accounts.canInvite(me())) return forbid(c, 'You can\'t invite people to this workspace');
     return c.json({ invites: accounts.openInvites().map(toInvite) });
   });
-  // One request names people already here (by id, or by an address that's theirs) and new addresses.
-  // Someone already here isn't invited again: they're put on the requested teams under the same rule
-  // as Team settings › Members, so only new addresses need permission to invite.
   app.post('/api/invites', async (c) => {
     const off = invitesOff(c); if (off) return off;
     const b = await c.req.json().catch(() => ({})) as { emails?: unknown; userIds?: unknown; admin?: unknown; teamIds?: unknown };
     const entries = inviteEntries(b);
     if (!entries.length) return c.json({ error: 'Add at least one person or email address', code: 'invalid' }, 400);
     if (entries.length > MAX_INVITES) return c.json({ error: `Invite at most ${MAX_INVITES} people at a time` }, 400);
-    // agents work in every team, so they're never on one; nor is someone who can't sign in
     const refused = entries.flatMap(e => e.kind === 'member' && !accounts.isActivePerson(e.userId) ? [e.userId] : []);
     if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team. Agents work in every team.', code: 'invalid', userIds: refused }, 400);
 
@@ -136,15 +123,11 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
   app.delete('/api/invites/:id', (c) => {
     const row = accounts.getInvite(c.req.param('id'));
     if (!row) return c.json({ error: 'not found' }, 404);
-    // whoever sent it, or an admin
     if (row.invited_by !== me() && !accounts.isAdmin(me())) return forbid(c, 'Only admins can revoke other people\'s invites');
     accounts.revokeInvite(row.id);
     return c.json({ ok: true });
   });
 
-  // ---------- team join links ----------
-  // One link per team that anyone can open to make an account on it. Admins and the team's lead make and revoke them;
-  // anyone who may invite can see and copy the open one.
   const toJoinLink = (teamId: string): TeamJoinLink | null => {
     const r = accounts.joinLinkFor(teamId);
     return r && hosted ? { teamId, link: new URL(`/?join=${r.code}`, hosted.publicUrl).toString(), createdBy: r.created_by, createdAt: r.created_at } : null;
@@ -172,7 +155,6 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     return c.json({ ok: true });
   });
 
-  // ---------- people ----------
   app.patch('/api/members/:id', async (c) => {
     if (!accounts.isAdmin(me())) return forbid(c, 'Only admins can change people\'s access');
     const b = await c.req.json() as { admin?: boolean; suspended?: boolean; teamIds?: string[] };
@@ -188,8 +170,6 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     return c.json({ ok: true });
   });
 
-  // a one-use link that sets this person's password. The admin shares it, so no email is needed
-  // (a key can't ask for one, see principal.ts)
   app.post('/api/members/:id/reset-link', (c) => {
     if (!hosted) return c.json({ error: 'Passwords are for hosted workspaces (BASELINE_PUBLIC_URL)', code: 'not-hosted' }, 400);
     if (!accounts.isAdmin(me())) return forbid(c, 'Only admins can make password reset links');
@@ -200,7 +180,6 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     return c.json({ link: resetLink(hosted.publicUrl, token), expiresAt });
   });
 
-  // ---------- team membership (TEAM_PLAN.md › Team membership) ----------
   app.post('/api/teams/:id/members', async (c) => {
     const team = store.getTeam(c.req.param('id'));
     if (!team) return c.json({ error: 'not found' }, 404);
@@ -208,7 +187,6 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     const b = await c.req.json().catch(() => ({})) as { userIds?: unknown };
     const ids = Array.isArray(b.userIds) ? [...new Set(b.userIds.filter((x): x is string => typeof x === 'string'))] : [];
     if (!ids.length) return c.json({ error: 'Pick at least one person', code: 'invalid' }, 400);
-    // agents work in every team, so they're never on one; nor is someone who can't sign in
     const refused = ids.filter(id => !accounts.isActivePerson(id));
     if (refused.length) return c.json({ error: 'Only active people in this workspace can be added to a team. Agents work in every team.', code: 'invalid', userIds: refused }, 400);
     return c.json({ added: addToTeam(team, ids) });
@@ -218,12 +196,9 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     if (!team) return c.json({ error: 'not found' }, 404);
     const target = c.req.param('userId');
     if (target !== me() && !leads(team)) return forbid(c, `Only ${team.name}'s lead or an admin can remove someone else from it`);
-    // every team is open to everyone, so a team nobody is on is still reachable: no last-member rule
     store.removeTeamMember(team.id, target);
     return c.json({ ok: true });
   });
-  // make someone a team's lead, or not: its leads and admins decide. A team may end up with no
-  // lead; its admins then set it up, as before team leads existed
   app.put('/api/teams/:id/leads/:userId', async (c) => {
     const team = store.getTeam(c.req.param('id'));
     if (!team) return c.json({ error: 'not found' }, 404);
@@ -237,9 +212,6 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     return c.json({ team: store.getTeam(team.id) });
   });
 
-  // ---------- "Ask <name>" ----------
-  // A member who meets a setting they can't change asks someone who can, in one click: a plain row in
-  // that person's inbox saying what was asked, linking to the page. Only admins and team leads are askable.
   const askLimit = limiter(30, 60 * 60_000);
   app.post('/api/access-requests', async (c) => {
     const b = await c.req.json().catch(() => ({})) as { to?: unknown; what?: unknown; path?: unknown };
@@ -255,7 +227,6 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
     return c.json({ ok: true }, 201);
   });
 
-  // anyone can join or leave a team themselves
   app.post('/api/teams/:id/join', (c) => {
     if (!knownTeams([c.req.param('id')]).length) return c.json({ error: 'not found' }, 404);
     store.addTeamMember(c.req.param('id'), me());
@@ -263,7 +234,6 @@ export function mountMembers(app: Hono, o: { store: Store; accounts: Accounts; m
   });
   app.post('/api/teams/:id/leave', (c) => { store.removeTeamMember(c.req.param('id'), me()); return c.json({ ok: true }); });
 
-  // ---------- who may join ----------
   app.patch('/api/security', async (c) => {
     if (!accounts.isAdmin(me())) return forbid(c, 'Only admins can change security settings');
     const b = await c.req.json() as { approvedDomains?: string[]; domainTeamIds?: string[]; whoCanInvite?: 'admins' | 'members'; smallTeamInvites?: boolean };

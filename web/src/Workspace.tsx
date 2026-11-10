@@ -12,9 +12,6 @@ import { EmptyState } from './EmptyState.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 
-/* ================= Teams & Members (workspace directories) ================= */
-/** join or leave a team right in a list whose row opens the team. Joining is one click; leaving
- *  takes two ("Joined" → "Leave?"), since the chip sits inside a row that opens the team. */
 export function TeamJoinChip({ team }: { team: Team }) {
   const joined = useApp(s => team.memberIds.includes(s.snap!.currentUser.id));
   const [armed, setArmed] = useState(false);
@@ -48,7 +45,6 @@ export function TeamsPage() {
       <TopBar crumbs={[{ label: 'Teams' }]} right={<button className="btn secondary" onClick={() => navigate('/settings/new-team')}><IconPlus size={13} /> New team</button>} />
       <div className="subnav"><div className="set-filter" style={{ border: 0, margin: 0, flex: 1 }}><IconSearch size={13} /><input placeholder="Find teams…" value={q} onChange={e => setQ(e.target.value)} /></div></div>
       <div className="content">
-        {/* the Cycle column stays (the grid is fixed) but says nothing while cycles are off */}
         <div className="wtable">
           <div className="wt-head wt-teams"><span>Name</span><span>Description</span><span>Membership</span><span>Members</span><span>{cyclesOn ? 'Cycle' : ''}</span><span>Active projects</span></div>
           {!list.length && <div className="set-empty">No teams match “{q.trim()}”.</div>}
@@ -117,7 +113,6 @@ export function MembersPage() {
   );
 }
 
-/* ================= Drafts ================= */
 export interface DraftEntry { teamId: string; title: string; description: string; savedAt: string }
 export function readDrafts(): DraftEntry[] {
   const out: DraftEntry[] = [];
@@ -129,7 +124,7 @@ export function readDrafts(): DraftEntry[] {
       const d = JSON.parse(localStorage.getItem(k!) ?? 'null') as { title?: string; description?: string; savedAt?: string } | null;
       if (d) out.push({ teamId: m[1], title: d.title ?? '', description: d.description ?? '', savedAt: d.savedAt ?? '' });
     }
-  } catch { /* storage unavailable */ }
+  } catch { }
   return out.sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 }
 export function useDrafts(): DraftEntry[] {
@@ -161,7 +156,7 @@ export function DraftsPage() {
                   {t && teamDisplayIcon(t)}
                   <span className="row-title-wrap"><span className="row-title">{d.title || 'Untitled draft'}</span><span className="row-parent">{d.description.replace(/\s+/g, ' ').slice(0, 80)}</span></span>
                   <span className="row-meta"><span className="row-date">{d.savedAt ? relTime(d.savedAt) : ''}</span>
-                    <ConfirmIconButton className="icon-btn" title="Delete draft" onConfirm={e => { e.stopPropagation(); try { localStorage.removeItem(`baseline:draft:${d.teamId}`); } catch { /* ignore */ } window.dispatchEvent(new Event('baseline:drafts')); }}><IconTrash size={13} /></ConfirmIconButton>
+                    <ConfirmIconButton className="icon-btn" title="Delete draft" onConfirm={e => { e.stopPropagation(); try { localStorage.removeItem(`baseline:draft:${d.teamId}`); } catch { } window.dispatchEvent(new Event('baseline:drafts')); }}><IconTrash size={13} /></ConfirmIconButton>
                   </span>
                 </div>
               );
@@ -173,9 +168,6 @@ export function DraftsPage() {
   );
 }
 
-/* ================= Customize sidebar ================= */
-// Customize sidebar is cut (CORE_FLOW.md › Core vs niche): everyone gets the defaults. Stored
-// choices stay in preferences, unread, in case it comes back
 export function sidebarVisibility(_snap: Snap, key: string): SidebarVisibility {
   return SIDEBAR_DEFAULTS[key] ?? 'show';
 }

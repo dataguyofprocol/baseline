@@ -18,19 +18,15 @@ interface TeamRow { id: string; key: string; name: string; icon: string; color: 
 interface CommentRow { id: string; issue_id: string; user_id: string; via_user_id: string | null; body: string; created_at: string; edited_at: string | null; reactions: string; resolved_at: string | null; parent_id: string | null }
 interface AttachmentRow { id: string; issue_id: string; user_id: string; kind: string; url: string; title: string; mime: string; size: number; created_at: string }
 const DAY = 86400000;
-/** activity types of removed features: old databases keep the rows, the timeline no longer shows them */
 const RETIRED_ACTIVITY = ['releaseChanged', 'askSubmitted'].map(t => `'${t}'`).join(', ');
 
 interface IssueRow { id: string; team_id: string; number: number; title: string; description: string; state_id: string; priority: number; assignee_id: string | null; project_id: string | null; cycle_id: string | null; parent_id: string | null; location_id: string | null; milestone_id: string | null; creator_id: string | null; snoozed_until: string | null; estimate: number | null; due_date: string | null; sort_order: number; labels: string; created_at: string; updated_at: string; archived_at: string | null; completed_at: string | null; canceled_at: string | null; deleted_at: string | null; sla_rule_id?: string | null; sla_breaches_at?: string | null; }
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
-/** notification kinds whose body is text someone wrote (stored as a plain-text preview) */
 const PLAIN_BODY = new Set<NotificationType>(['issueCommented', 'issueMentioned', 'issueReplied', 'commentReacted', 'projectUpdate', 'agentFinished', 'agentBlocked']);
 function clip(s: string, n: number): string { return s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s; }
 
-/** Stored first-run state over the defaults, keeping only today's keys: rows from the old step
- *  wizard carry keys it no longer has, and some lack `flow`. */
 function gettingStartedFrom(raw: unknown): GettingStarted {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof GettingStarted, unknown>>;
   const d = DEFAULT_PREFERENCES.gettingStarted;
@@ -43,24 +39,18 @@ function gettingStartedFrom(raw: unknown): GettingStarted {
 
 export { normalizeDir };
 
-/** PATCH bodies reach the store raw from the server, so only whitelisted keys may build SQL */
 function sqlPairs<T extends object>(patch: T, allowed: Array<keyof T>): Array<[string, unknown]> {
   return Object.entries(patch).filter(([k]) => (allowed as string[]).includes(k));
 }
 
-/** the issue fields updateIssue accepts; everything else on an Issue is derived or fixed */
 const ISSUE_PATCH_KEYS = new Set<string>(['title', 'description', 'stateId', 'priority', 'assigneeId', 'projectId', 'parentId', 'cycleId', 'locationId', 'milestoneId', 'estimate', 'dueDate', 'labelIds', 'sortOrder', 'archivedAt']);
 
 export class Store {
-  /** extension modules (initiatives, SLAs, loops, git); see extensions.ts */
   readonly ext: Extensions;
-  /** called after every issue create (before = null) and update */
   readonly issueHooks: Array<(before: Issue | null, after: Issue, actorId?: string) => void> = [];
-  /** called on every tick */
   readonly tickHooks: Array<(now: Date) => void> = [];
   constructor(private db: DatabaseSync) { this.ext = createExtensions(this, db); }
 
-  // ---------- mappers ----------
   private mapIssue = (r: IssueRow): Issue => ({
     id: r.id, teamId: r.team_id, number: r.number, title: r.title, description: r.description,
     stateId: r.state_id, priority: r.priority as Priority, assigneeId: r.assignee_id,
@@ -103,7 +93,6 @@ export class Store {
     };
   }
 
-  // ---------- snapshot ----------
   snapshot(): Snapshot {
     const rows = <T>(sql: string, ...params: string[]): T[] => this.db.prepare(sql).all(...params) as unknown as T[];
     const me = this.actor();
@@ -143,7 +132,6 @@ export class Store {
     };
   }
 
-  // ---------- users ----------
   userKind(userId: string): User['kind'] | undefined {
     return (this.db.prepare('SELECT kind FROM users WHERE id = ?').get(userId) as { kind: User['kind'] } | undefined)?.kind;
   }
@@ -155,7 +143,6 @@ export class Store {
     return user;
   }
 
-  // ---------- teams ----------
   createTeam(key: string, name: string, icon = '📦', color = '#5e6ad2'): Team {
     const position = (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM teams').get() as { p: number }).p;
     const tid = id('t');
@@ -166,7 +153,6 @@ export class Store {
       ['In Review', 'started', '#4cb782'], ['Done', 'completed', '#5e6ad2'], ['Canceled', 'canceled', '#7d8084'],
     ];
     defaults.forEach(([name2, type, color2], i) => this.createState(team.id, name2, type, color2, i + 1));
-    // whoever makes a team belongs to it and leads it (agents aren't members; they're assigned, not on teams)
     const me = this.actor();
     if (me && (this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'human'").get(me))) { this.addTeamMember(tid, me); this.setTeamLead(tid, me, true); }
     return this.getTeam(tid)!;
@@ -190,8 +176,6 @@ export class Store {
     if (!sets.length) return;
     vals.push(teamId);
     this.db.prepare(`UPDATE teams SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-    // triage is a workflow state of its own: turning it on adds one, turning it off sends
-    // anything still waiting to the backlog and removes it
     if (patch.triageEnabled === true && !this.stateOfType(teamId, 'triage')) this.createState(teamId, 'Triage', 'triage', '#fc7840', 0);
     if (patch.triageEnabled === false) {
       const triage = this.stateOfType(teamId, 'triage');
@@ -202,7 +186,6 @@ export class Store {
   addTeamMember(teamId: string, userId: string): void {
     this.db.prepare('INSERT OR IGNORE INTO team_members (team_id, user_id, created_at) VALUES (?, ?, ?)').run(teamId, userId, ts());
   }
-  /** make a team's member its lead, or a member again (adds them to the team first) */
   setTeamLead(teamId: string, userId: string, lead: boolean): void {
     this.addTeamMember(teamId, userId);
     this.db.prepare('UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ?').run(lead ? 'lead' : 'member', teamId, userId);
@@ -210,7 +193,6 @@ export class Store {
   removeTeamMember(teamId: string, userId: string): void {
     this.db.prepare('DELETE FROM team_members WHERE team_id = ? AND user_id = ?').run(teamId, userId);
   }
-  /** replace someone's teams with exactly these (unknown team ids are ignored) */
   setUserTeams(userId: string, teamIds: string[]): void {
     const known = new Set((this.db.prepare('SELECT id FROM teams').all() as Array<{ id: string }>).map(r => r.id));
     const want = new Set(teamIds.filter(t => known.has(t)));
@@ -220,11 +202,9 @@ export class Store {
     for (const t of want) this.addTeamMember(t, userId);
   }
   deleteTeam(teamId: string): void {
-    this.db.prepare('DELETE FROM teams WHERE id = ?').run(teamId); // issues cascade
+    this.db.prepare('DELETE FROM teams WHERE id = ?').run(teamId);
   }
 
-  // ---------- users ----------
-  /** profile fields only; admin rights go through Accounts.setAdmin, which keeps at least one admin */
   updateUser(userId: string, patch: Partial<Pick<User, 'name' | 'email' | 'color' | 'title' | 'username' | 'githubUsername' | 'avatarUrl'>>): void {
     const cur = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as { name: string; email: string } | undefined;
     if (!cur) return;
@@ -240,7 +220,6 @@ export class Store {
     this.db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
 
-  // ---------- states ----------
   createState(teamId: string, name: string, type: WorkflowStateType, color: string, position?: number): WorkflowState {
     const pos = position ?? (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM states WHERE team_id=?').get(teamId) as { p: number }).p;
     const state: WorkflowState = { id: id('s'), teamId, name, type, color, position: pos };
@@ -255,8 +234,6 @@ export class Store {
     this.db.prepare(`UPDATE states SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
   deleteState(stateId: string): string | undefined {
-    // migrate the state's issues to another state of the same team. Prefer the backlog,
-    // and fall back to the first remaining state. The last state of a team cannot be deleted
     const others = this.db.prepare('SELECT id, type FROM states WHERE team_id = (SELECT team_id FROM states WHERE id = ?) AND id != ? ORDER BY position').all(stateId, stateId) as Array<{ id: string; type: string }>;
     if (!others.length) throw new Error('Cannot delete the only workflow state of a team');
     const movedTo = (others.find(s => s.type === 'backlog') ?? others[0]).id;
@@ -265,7 +242,6 @@ export class Store {
     return movedTo;
   }
 
-  // ---------- labels ----------
   createLabel(teamId: string, name: string, color: string, description = ''): Label {
     const label: Label = { id: id('l'), teamId, name, color, description };
     this.db.prepare('INSERT INTO labels (id, team_id, name, color, description) VALUES (?, ?, ?, ?, ?)').run(label.id, teamId, name, color, description);
@@ -285,7 +261,6 @@ export class Store {
     this.db.prepare('DELETE FROM labels WHERE id = ?').run(labelId);
   }
 
-  // ---------- issue templates ----------
   createTemplate(teamId: string, name: string, title = '', description = ''): IssueTemplate {
     const t: IssueTemplate = { id: id('tpl'), teamId, name, title, description, position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM issue_templates WHERE team_id = ?').get(teamId) as { p: number }).p, createdAt: ts() };
     this.db.prepare('INSERT INTO issue_templates (id, team_id, name, title, description, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(t.id, t.teamId, t.name, t.title, t.description, t.position, t.createdAt);
@@ -302,7 +277,6 @@ export class Store {
     this.db.prepare('DELETE FROM issue_templates WHERE id = ?').run(templateId);
   }
 
-  // ---------- handoff ----------
   handoffFor(issueId: string, baseUrl?: string): Handoff | undefined {
     const issue = this.getIssue(issueId);
     if (!issue) return undefined;
@@ -310,13 +284,11 @@ export class Store {
     const template = getMeta(this.db, 'handoffPromptTemplate') ?? DEFAULT_PROMPT_TEMPLATE;
     return buildHandoff(issue, { teams: snap.teams, states: snap.states, projects: snap.projects, labels: snap.labels, branchFormat: snap.workspace.features.branchFormat, username: snap.currentUser?.username || snap.currentUser?.name, baseUrl }, template);
   }
-  /** null resets to the built-in default */
   setHandoffTemplate(template: string | null): void {
     if (template == null) this.db.prepare('DELETE FROM meta WHERE key = ?').run('handoffPromptTemplate');
     else setMeta(this.db, 'handoffPromptTemplate', template);
   }
 
-  // ---------- coding tools ----------
   getAgentConfig(): { agentUserId: string | null; terminalApp: TerminalApp } {
     return {
       agentUserId: getMeta(this.db, 'agentUserId'),
@@ -326,24 +298,20 @@ export class Store {
   setAgentConfig(patch: { terminalApp?: TerminalApp }): void {
     if (patch.terminalApp !== undefined) setMeta(this.db, 'terminalApp', toTerminalApp(patch.terminalApp));
   }
-  /** the one location an issue's agent works in, never a guess; unset means "ask" */
   locationFor(issue: Pick<Issue, 'locationId'>): Location | undefined {
     return issue.locationId ? this.getLocation(issue.locationId) : undefined;
   }
 
-  // ---------- locations ----------
   listLocations(): Location[] {
     return (this.db.prepare('SELECT * FROM locations ORDER BY name COLLATE NOCASE').all() as Array<{ id: string; name: string; path: string; created_at: string }>)
       .map(l => ({ id: l.id, name: l.name, path: l.path, createdAt: l.created_at }));
   }
   getLocation(locationId: string): Location | undefined { return this.listLocations().find(l => l.id === locationId); }
-  /** by id, exact name (case-insensitive), or path */
   resolveLocation(ref: string): Location | undefined {
     const all = this.listLocations();
     const path = normalizeDir(ref);
     return all.find(l => l.id === ref) ?? all.find(l => l.name.toLowerCase() === ref.trim().toLowerCase()) ?? all.find(l => l.path === path);
   }
-  /** registers a directory (idempotent by path); the name defaults to the folder name, made unique */
   createLocation(rawPath: string, name?: string): Location {
     const path = normalizeDir(rawPath);
     if (!path) throw new Error('A location needs a path');
@@ -362,7 +330,6 @@ export class Store {
     if (this.listLocations().some(l => l.id !== locationId && l.name.toLowerCase() === n.toLowerCase())) throw new Error(`A location named "${n}" already exists`);
     this.db.prepare('UPDATE locations SET name = ? WHERE id = ?').run(n, locationId);
   }
-  /** unregisters it: projects drop it and issues pinned to it go back to "no location" */
   deleteLocation(locationId: string): void {
     this.db.prepare('UPDATE issues SET location_id = NULL WHERE location_id = ?').run(locationId);
     this.db.prepare('DELETE FROM project_locations WHERE location_id = ?').run(locationId);
@@ -381,18 +348,14 @@ export class Store {
     [...new Set(locationIds)].filter(l => known.has(l)).forEach((lid, n) =>
       this.db.prepare('INSERT INTO project_locations (project_id, location_id, position) VALUES (?, ?, ?)').run(projectId, lid, n));
   }
-  /** where a new issue starts: a sub-issue where its parent happens; anything else has no location
-   *  until someone picks one. A project's locations are suggestions, never defaults */
   defaultLocationFor(input: { parentId?: string | null }): string | null {
     const parent = input.parentId ? this.getIssue(input.parentId) : undefined;
     return parent?.locationId ?? null;
   }
-  /** the workspace's agent user: agent sessions write as it, on a person's behalf */
   agentUserId(): string {
     const uid = getMeta(this.db, 'agentUserId');
     return uid && this.db.prepare('SELECT 1 FROM users WHERE id = ?').get(uid) ? uid : ensureWorkspaceAgent(this.db);
   }
-  /** first state of a type by position, e.g. the team's "In Progress" for 'started' */
   stateOfType(teamId: string, type: WorkflowStateType): string | undefined {
     return (this.db.prepare('SELECT id FROM states WHERE team_id = ? AND type = ? ORDER BY position LIMIT 1').get(teamId, type) as { id: string } | undefined)?.id;
   }
@@ -400,7 +363,6 @@ export class Store {
     return (this.db.prepare('SELECT type FROM states WHERE id = ?').get(stateId) as { type: WorkflowStateType } | undefined)?.type;
   }
 
-  // ---------- issues ----------
   private nextNumber(teamId: string): number {
     return (this.db.prepare('SELECT COALESCE(MAX(number), 0) + 1 AS n FROM issues WHERE team_id = ?').get(teamId) as { n: number }).n;
   }
@@ -413,7 +375,6 @@ export class Store {
   createIssue(input: { teamId: string; title: string; description?: string; stateId?: string; priority?: Priority; assigneeId?: string | null; projectId?: string | null; parentId?: string | null; cycleId?: string | null; labelIds?: string[]; dueDate?: string | null; estimate?: number | null; locationId?: string | null; milestoneId?: string | null }, actorId?: string): Issue {
     const now = ts();
     const creatorId = actorId ?? this.actor();
-    // with triage on, work filed by anyone but you (agents, teammates on the CLI) waits for review
     const triage = this.getTeam(input.teamId)?.triageEnabled && creatorId !== this.actor() ? this.stateOfType(input.teamId, 'triage') : undefined;
     const stateId = input.stateId ?? triage ?? this.defaultState(input.teamId);
     const maxOrder = (this.db.prepare('SELECT COALESCE(MAX(sort_order), 0) m FROM issues WHERE team_id = ?').get(input.teamId) as { m: number }).m;
@@ -433,7 +394,6 @@ export class Store {
     this.logActivity({ issueId: issue.id, type: 'created', data: { title: issue.title } }, actorId);
     if (issue.creatorId) this.subscribe(issue.id, issue.creatorId);
     if (issue.assigneeId) { this.subscribe(issue.id, issue.assigneeId); this.notifyAssign(issue.id, issue.assigneeId, actorId); }
-    // a mention notifies once; it doesn't follow the issue for them (commenting does)
     for (const uid of this.mentions(issue.description)) this.notifyMention(issue.id, uid, creatorId, issue.title);
     if (issue.projectId) this.notifyProject(issue.projectId, 'issueAdded', 'projectIssueAdded', creatorId, issue.title, issue.id);
     for (const h of this.issueHooks) h(null, issue, actorId);
@@ -441,11 +401,6 @@ export class Store {
   }
 
   updateIssue(issueId: string, rawPatch: Partial<Pick<Issue, 'title' | 'description' | 'stateId' | 'priority' | 'assigneeId' | 'projectId' | 'parentId' | 'cycleId' | 'locationId' | 'milestoneId' | 'estimate' | 'dueDate' | 'labelIds' | 'sortOrder' | 'archivedAt'>>, actorId?: string): Issue | undefined {
-    // keep only the fields a caller may set, and drop explicitly-undefined keys so partial
-    // patches never clobber values. The REST route hands us the raw request body: without the
-    // allow-list, `completedAt`/`canceledAt` (or `teamId`, `number`…) would be spread into
-    // `next` and persisted, giving e.g. a Todo issue a completion date. Those timestamps are
-    // only ever derived from a state change below.
     const patch = Object.fromEntries(Object.entries(rawPatch).filter(([k, v]) => v !== undefined && ISSUE_PATCH_KEYS.has(k))) as typeof rawPatch;
     const row = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(issueId) as IssueRow | undefined;
     if (!row) return undefined;
@@ -453,26 +408,21 @@ export class Store {
     const now = ts();
     const next: Issue = { ...before, ...patch, updatedAt: now };
     if (patch.locationId !== undefined && patch.locationId !== null && !this.getLocation(patch.locationId)) next.locationId = before.locationId;
-    // a parent can't be the issue itself or one of its own sub-issues (at any depth): that makes a loop
     if (patch.parentId && patch.parentId !== before.parentId) {
       for (let at: string | null = patch.parentId, hops = 0; at && hops < 1000; hops++) {
         if (at === issueId) throw new Error('An issue can’t be the parent of its own parent issue');
         at = (this.db.prepare('SELECT parent_id FROM issues WHERE id = ?').get(at) as { parent_id: string | null } | undefined)?.parent_id ?? null;
       }
     }
-    // a milestone belongs to one project: leaving the project (or picking a milestone of another) clears it
     if (next.milestoneId) {
       const ms = this.db.prepare('SELECT project_id FROM milestones WHERE id = ?').get(next.milestoneId) as { project_id: string } | undefined;
       if (!ms || ms.project_id !== next.projectId) next.milestoneId = null;
     }
 
-    // state side-effects
     if (patch.stateId && patch.stateId !== before.stateId) {
       const st = this.db.prepare('SELECT type FROM states WHERE id = ?').get(patch.stateId) as { type: WorkflowStateType };
       next.completedAt = st.type === 'completed' ? now : null;
       next.canceledAt = st.type === 'canceled' ? now : null;
-      // Preferences › On move to started status, assign to yourself (people only: the GitHub and
-      // Automation agents move issues too, and must never become the assignee)
       const me = actorId ?? this.actor();
       if (st.type === 'started' && !next.assigneeId && patch.assigneeId === undefined && me && this.getPreferences(me).assignOnStart
         && this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'human'").get(me)) {
@@ -482,7 +432,6 @@ export class Store {
     this.db.prepare(`UPDATE issues SET title=?, description=?, state_id=?, priority=?, assignee_id=?, project_id=?, cycle_id=?, parent_id=?, location_id=?, milestone_id=?, estimate=?, due_date=?, sort_order=?, labels=?, updated_at=?, completed_at=?, canceled_at=?, archived_at=? WHERE id=?`)
       .run(next.title, next.description, next.stateId, next.priority, next.assigneeId, next.projectId, next.cycleId, next.parentId, next.locationId, next.milestoneId, next.estimate, next.dueDate, next.sortOrder, JSON.stringify(next.labelIds), now, next.completedAt, next.canceledAt, next.archivedAt, issueId);
 
-    // activity diffs
     const acts: Array<[ActivityType, Record<string, unknown>]> = [];
     if (patch.title !== undefined && patch.title !== before.title) acts.push(['renamed', { from: before.title, to: next.title }]);
     if (patch.description !== undefined && patch.description !== before.description) {
@@ -525,8 +474,6 @@ export class Store {
     return next;
   }
 
-  /** Linear's "on git branch copy, move issue to started status": an issue still in backlog or
-   *  unstarted moves to its team's first started state, and an unassigned one goes to `userId` */
   startIssue(issueId: string, userId: string): { moved: boolean; assigned: boolean; stateName?: string } {
     const issue = this.getIssue(issueId);
     const type = issue && this.stateType(issue.stateId);
@@ -574,31 +521,24 @@ export class Store {
     this.updateIssue(issueId, { sortOrder });
   }
 
-  /** soft-delete: keeps the row (and the children's parent_id) so undo restores everything;
-      deleted issues are hidden at snapshot level, so detached-looking children never show */
   deleteIssue(issueId: string): void {
     this.db.prepare('UPDATE issues SET deleted_at = ? WHERE id = ?').run(ts(), issueId);
   }
-  /** triage snooze: out of the queue until `until` (null brings it back now) */
   snoozeIssue(issueId: string, until: string | null): void {
     this.db.prepare('UPDATE issues SET snoozed_until = ? WHERE id = ?').run(until, issueId);
   }
-  /** archived (not deleted) issues, newest first, for the team's Archive view */
   listArchived(teamId?: string): Issue[] {
     const rows = teamId
       ? this.db.prepare('SELECT * FROM issues WHERE archived_at IS NOT NULL AND deleted_at IS NULL AND team_id = ? ORDER BY archived_at DESC').all(teamId)
       : this.db.prepare('SELECT * FROM issues WHERE archived_at IS NOT NULL AND deleted_at IS NULL ORDER BY archived_at DESC').all();
     return (rows as unknown as IssueRow[]).map(this.mapIssue);
   }
-  /** soft-deleted issues, newest first, for the Trash view; they can be restored or purged */
   listDeleted(teamId?: string): Issue[] {
     const rows = teamId
       ? this.db.prepare('SELECT * FROM issues WHERE deleted_at IS NOT NULL AND team_id = ? ORDER BY deleted_at DESC').all(teamId)
       : this.db.prepare('SELECT * FROM issues WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC').all();
     return (rows as unknown as IssueRow[]).map(this.mapIssue);
   }
-  /** move an issue to another team: it takes the next number there, its status maps to the
-   *  new team's first state of the same type, and team-scoped labels and cycles drop off */
   moveIssueToTeam(issueId: string, teamId: string, actorId?: string): Issue | undefined {
     const issue = this.getIssue(issueId);
     if (!issue || issue.teamId === teamId || !this.getTeam(teamId)) return issue;
@@ -613,8 +553,6 @@ export class Store {
     this.logActivity({ issueId, type: 'teamChanged', data: { from: fromKey, to: this.keyOf(moved) } }, actorId);
     return moved;
   }
-  /** Linear's "Convert to project": the issue's title, description, lead and priority become a
-   *  project, its sub-issues become that project's issues, and the issue itself is archived */
   convertIssueToProject(issueId: string, actorId?: string): { project: Project; moved: string[] } | undefined {
     const issue = this.getIssue(issueId);
     if (!issue) return undefined;
@@ -635,7 +573,6 @@ export class Store {
   restoreIssue(issueId: string): void {
     this.db.prepare('UPDATE issues SET deleted_at = NULL, archived_at = NULL WHERE id = ?').run(issueId);
   }
-  /** hard delete: cascades comments/relations and detaches children */
   purgeIssue(issueId: string): void {
     this.db.prepare('DELETE FROM activity WHERE issue_id = ?').run(issueId);
     this.db.prepare('DELETE FROM notifications WHERE issue_id = ?').run(issueId);
@@ -645,19 +582,15 @@ export class Store {
     this.db.prepare('DELETE FROM issues WHERE id = ?').run(issueId);
   }
 
-  // ---------- comments ----------
   addComment(issueId: string, userId: string, body: string, parentId: string | null = null): Comment {
     const now = ts();
-    // replies hang off the thread's root, never off another reply
     const root = parentId ? this.db.prepare('SELECT id, parent_id, user_id FROM comments WHERE id = ?').get(parentId) as { id: string; parent_id: string | null; user_id: string } | undefined : undefined;
     const threadId = root ? root.parent_id ?? root.id : null;
     const c: Comment = { id: id('c'), issueId, userId, viaUserId: viaFor(userId), body, createdAt: now, editedAt: null, reactions: {}, resolvedAt: null, parentId: threadId };
     this.db.prepare('INSERT INTO comments (id, issue_id, user_id, via_user_id, body, created_at, reactions, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(c.id, issueId, userId, c.viaUserId, body, now, '{}', threadId);
     this.logActivity({ issueId, type: 'commented', data: { commentId: c.id } }, userId);
-    // commenting follows the issue; being mentioned only notifies, once (replying is what subscribes)
     this.subscribe(issueId, userId);
     const mentioned = this.mentions(body);
-    // a mention outranks a reply, which outranks the plain comment notification, so never raise two for one person
     const threadAuthors = threadId ? (this.db.prepare('SELECT DISTINCT user_id FROM comments WHERE id = ? OR parent_id = ?').all(threadId, threadId) as Array<{ user_id: string }>).map(r => r.user_id) : [];
     for (const uid of mentioned) this.notifyMention(issueId, uid, userId, body);
     const replied = threadAuthors.filter(u => !mentioned.includes(u));
@@ -665,7 +598,6 @@ export class Store {
     this.notifySubscribed(issueId, 'issueCommented', userId, body, 'comments', [...mentioned, ...replied]);
     return c;
   }
-  /** an edit notifies nobody, except people it newly mentions (once each, as a fresh mention would) */
   updateComment(commentId: string, body: string): void {
     const before = this.db.prepare('SELECT issue_id, user_id, body FROM comments WHERE id = ?').get(commentId) as { issue_id: string; user_id: string; body: string } | undefined;
     this.db.prepare('UPDATE comments SET body = ?, edited_at = ? WHERE id = ?').run(body, ts(), commentId);
@@ -673,7 +605,6 @@ export class Store {
     const had = new Set(this.mentions(before.body));
     for (const uid of this.mentions(body)) if (!had.has(uid)) this.notifyMention(before.issue_id, uid, before.user_id, body);
   }
-  /** resolving closes a whole thread (its root carries the mark) */
   resolveComment(commentId: string, resolved: boolean): void {
     const row = this.db.prepare('SELECT id, parent_id FROM comments WHERE id = ?').get(commentId) as { id: string; parent_id: string | null } | undefined;
     if (!row) return;
@@ -681,7 +612,6 @@ export class Store {
   }
   deleteComment(commentId: string): void { this.db.prepare('DELETE FROM comments WHERE id = ? OR parent_id = ?').run(commentId, commentId); }
 
-  // ---------- subscriptions ----------
   subscribe(issueId: string, userId: string): void {
     this.db.prepare('INSERT OR IGNORE INTO subscriptions (issue_id, user_id) VALUES (?, ?)').run(issueId, userId);
   }
@@ -692,7 +622,6 @@ export class Store {
     return !!this.db.prepare('SELECT 1 FROM subscriptions WHERE issue_id = ? AND user_id = ?').get(issueId, userId);
   }
 
-  // ---------- attachments ----------
   addAttachment(input: { issueId: string; kind: 'link' | 'file'; url: string; title?: string; mime?: string; size?: number; id?: string }, userId?: string): Attachment {
     const a: Attachment = {
       id: input.id ?? id('att'), issueId: input.issueId, userId: userId ?? this.actor(), kind: input.kind,
@@ -719,14 +648,11 @@ export class Store {
     r[emoji] = arr.includes(userId) ? arr.filter(u => u !== userId) : [...arr, userId];
     if (r[emoji].length === 0) delete r[emoji];
     this.db.prepare('UPDATE comments SET reactions = ? WHERE id = ?').run(JSON.stringify(r), commentId);
-    // someone else reacting to your comment reaches your inbox (Notifications › Reactions)
     const c = this.db.prepare('SELECT issue_id, user_id, body FROM comments WHERE id = ?').get(commentId) as { issue_id: string; user_id: string; body: string };
     if (!arr.includes(userId)) this.notifyEach([c.user_id], 'commentReacted', { actorId: userId, issueId: c.issue_id, body: `${emoji} ${c.body}` });
   }
 
-  // ---------- relations ----------
   setRelation(issueId: string, relatedId: string, type: RelationType, actorId?: string): IssueRelation {
-    // blocks/blocked_by are directional; store the inverse row too so both issues see it
     const rel: IssueRelation = { id: id('r'), issueId, relatedIssueId: relatedId, type };
     this.db.prepare('INSERT INTO relations (id, issue_id, related_id, type) VALUES (?, ?, ?, ?)').run(rel.id, issueId, relatedId, type);
     if (type === 'blocks' || type === 'blocked_by') {
@@ -747,7 +673,6 @@ export class Store {
     this.logActivity({ issueId: row.issue_id, type: 'unrelated', data: { relatedId: row.related_id, type: row.type } });
   }
 
-  // ---------- projects ----------
   createProject(input: { name: string; teamId?: string | null; summary?: string; description?: string; icon?: string; color?: string; status?: Project['status']; leadId?: string | null; targetDate?: string | null; startDate?: string | null; priority?: Priority; memberIds?: string[]; locationIds?: string[]; labelIds?: string[]; statusId?: string | null }): Project {
     const now = ts();
     const p: Project = {
@@ -764,7 +689,6 @@ export class Store {
     p.statusId = named?.id ?? this.defaultProjectStatus(p.status)?.id ?? null;
     this.db.prepare('INSERT INTO projects (id, team_id, name, summary, description, icon, color, status, health, priority, start_date, target_date, lead_id, members, position, created_at, updated_at, labels, status_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(p.id, p.teamId, p.name, p.summary, p.description, p.icon, p.color, p.status, p.health, p.priority, p.startDate, p.targetDate, p.leadId, JSON.stringify(p.memberIds), p.position, now, now, JSON.stringify(p.labelIds), p.statusId);
-    // the person who makes a project follows it (the bell on the project page)
     const me = this.actor();
     if (me) this.setProjectSubscription(p.id, me, { comments: true, updates: true });
     this.logActivity({ projectId: p.id, type: 'projectCreated', data: {} });
@@ -775,7 +699,6 @@ export class Store {
     const cur = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as Record<string, unknown> | undefined;
     if (!cur) return;
     const patch = { ...rawPatch };
-    // a named status carries its category; a bare category picks that category's first status
     if (patch.statusId) { const st = this.projectStatus(patch.statusId); if (st) patch.status = st.type; else delete patch.statusId; }
     else if (patch.status && patch.status !== cur.status) patch.statusId = this.defaultProjectStatus(patch.status)?.id ?? null;
     if (patch.status && patch.status !== cur.status && patch.completedAt === undefined) patch.completedAt = patch.status === 'completed' ? ts() : null;
@@ -788,7 +711,6 @@ export class Store {
     this.logActivity({ projectId, type: 'projectUpdated', data: { fields: Object.keys(patch) } }, actorId);
     if (patch.health) this.logActivity({ projectId, type: 'projectHealth', data: { to: patch.health } }, actorId);
   }
-  // ---------- documents & team links ----------
   createDoc(input: { title?: string; content?: string; icon?: string; projectId?: string | null; teamId?: string | null; initiativeId?: string | null }, actorId?: string): Doc {
     const now = ts();
     const d: Doc = { id: id('doc'), title: input.title ?? '', icon: input.icon ?? '', content: input.content ?? '', projectId: input.projectId ?? null, teamId: input.teamId ?? null, initiativeId: input.initiativeId ?? null, creatorId: actorId ?? this.actor(), createdAt: now, updatedAt: now };
@@ -801,10 +723,8 @@ export class Store {
     const pairs = sqlPairs(patch, ['title', 'content', 'icon']);
     if (!pairs.length) return;
     this.db.prepare(`UPDATE documents SET ${pairs.map(([k]) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...(pairs.map(([, v]) => v) as string[]), ts(), docId);
-    // someone else (an agent, a teammate) changing a document you wrote reaches your inbox
     const d = this.db.prepare('SELECT title, creator_id, project_id FROM documents WHERE id = ?').get(docId) as { title: string; creator_id: string | null; project_id: string | null } | undefined;
     if (d?.creator_id && actorId && actorId !== d.creator_id) {
-      // one notification per document per hour, not one per keystroke
       const recent = this.db.prepare("SELECT 1 FROM notifications WHERE type = 'docChanged' AND user_id = ? AND body LIKE ? AND created_at > ?").get(d.creator_id, `${docId}|%`, new Date(Date.now() - 3600_000).toISOString());
       if (!recent) this.notifyEach([d.creator_id], 'docChanged', { actorId, projectId: d.project_id, body: `${docId}|${d.title || 'Untitled document'}` });
     }
@@ -835,11 +755,9 @@ export class Store {
     return u;
   }
 
-  /** who posted a project update (the route lets only them, or an admin, change it); null when it's gone */
   projectUpdateAuthor(updateId: string): string | null {
     return (this.db.prepare('SELECT user_id FROM project_updates WHERE id = ?').get(updateId) as { user_id: string } | undefined)?.user_id ?? null;
   }
-  /** fix a posted update's text (a typo was permanent before) */
   editProjectUpdate(updateId: string, body: string): void {
     this.db.prepare('UPDATE project_updates SET body = ? WHERE id = ?').run(body, updateId);
   }
@@ -855,7 +773,6 @@ export class Store {
     return { total, done, percent: total ? Math.round((done / total) * 100) : 0 };
   }
 
-  // ---------- cycles ----------
   createCycle(teamId: string, number: number, startsAt: string, endsAt: string, name = ''): Cycle {
     const c: Cycle = { id: id('cy'), teamId, number, name, startsAt, endsAt, completedAt: null };
     this.db.prepare('INSERT INTO cycles (id, team_id, number, name, starts_at, ends_at) VALUES (?, ?, ?, ?, ?, ?)').run(c.id, teamId, number, name, startsAt, endsAt);
@@ -872,8 +789,6 @@ export class Store {
     this.db.prepare('UPDATE issues SET cycle_id = NULL WHERE cycle_id = ?').run(cycleId);
     this.db.prepare('DELETE FROM cycles WHERE id = ?').run(cycleId);
   }
-  /** keep a team on its cadence: with automation on, the running cycle plus `cycleUpcoming`
-   *  future cycles always exist, laid end to end (cooldown weeks between them) */
   scheduleCycles(teamId: string, now = new Date()): void {
     const team = this.getTeam(teamId);
     if (!team?.autoCycles) return;
@@ -884,12 +799,10 @@ export class Store {
     let start: number;
     if (cycles.length) start = new Date(cycles[cycles.length - 1].ends_at).getTime() + 1000 + gap;
     else {
-      // the first cycle starts on the most recent Monday
       const d = new Date(now); d.setHours(0, 0, 0, 0);
       d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
       start = d.getTime();
     }
-    // catch up from a long gap without back-filling empty cycles
     while (start + len < now.getTime()) start += len + gap;
     const future = () => (this.db.prepare('SELECT COUNT(*) n FROM cycles WHERE team_id = ? AND ends_at > ?').get(teamId, now.toISOString()) as { n: number }).n;
     for (let guard = 0; future() < team.cycleUpcoming + 1 && guard < 12; guard++) {
@@ -899,7 +812,6 @@ export class Store {
       start = end + 1000 + gap;
     }
   }
-  /** close cycles whose time is up; with rollover on, their unfinished issues move to the next cycle */
   completeEndedCycles(now = new Date()): void {
     const ended = this.db.prepare('SELECT c.id, c.team_id, c.ends_at, t.cycle_rollover FROM cycles c JOIN teams t ON t.id = c.team_id WHERE c.completed_at IS NULL AND c.ends_at < ?').all(now.toISOString()) as Array<{ id: string; team_id: string; ends_at: string; cycle_rollover: number }>;
     for (const c of ended) {
@@ -913,8 +825,6 @@ export class Store {
       this.db.prepare('UPDATE cycles SET completed_at = ? WHERE id = ?').run(now.toISOString(), c.id);
     }
   }
-  /** periodic upkeep run before each snapshot: cycle cadence and rollover, recurring issues */
-  /** did anything snoozed (an inbox row, a "Remind me", an issue in triage) come due in (from, to]? */
   wokeBetween(from: Date, to: Date): boolean {
     const [a, b] = [from.toISOString(), to.toISOString()];
     return !!this.db.prepare('SELECT 1 FROM notifications WHERE snoozed_until > ? AND snoozed_until <= ? LIMIT 1').get(a, b)
@@ -930,7 +840,6 @@ export class Store {
     for (const h of this.tickHooks) h(now);
   }
 
-  // ---------- recurring issues ----------
   static nextOccurrence(from: Date, cadence: RecurringIssue['cadence']): Date {
     const d = new Date(from);
     if (cadence === 'daily') d.setDate(d.getDate() + 1);
@@ -956,7 +865,6 @@ export class Store {
     this.db.prepare(`UPDATE recurring_issues SET ${pairs.map(([k]) => `${col[k] ?? k} = ?`).join(', ')} WHERE id = ?`).run(...(pairs.map(([, v]) => v) as Array<string | number | null>), recId);
   }
   deleteRecurring(recId: string): void { this.db.prepare('DELETE FROM recurring_issues WHERE id = ?').run(recId); }
-  /** file every recurring issue whose time has come (once each, so a long gap doesn't flood the backlog) */
   fileRecurring(now = new Date()): void {
     const due = this.db.prepare('SELECT * FROM recurring_issues WHERE next_at <= ?').all(now.toISOString()) as Array<{ id: string; team_id: string; title: string; description: string; priority: number; assignee_id: string | null; labels: string; project_id: string | null; cadence: RecurringIssue['cadence']; next_at: string }>;
     for (const r of due) {
@@ -967,7 +875,6 @@ export class Store {
     }
   }
 
-  // ---------- milestones ----------
   createMilestone(projectId: string, name: string, targetDate: string | null = null): Milestone {
     const m: Milestone = { id: id('ms'), projectId, name, targetDate, status: 'planned', position: (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM milestones WHERE project_id = ?').get(projectId) as { p: number }).p, createdAt: ts() };
     this.db.prepare('INSERT INTO milestones (id, project_id, name, target_date, status, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(m.id, projectId, name, targetDate, m.status, m.position, m.createdAt);
@@ -984,7 +891,6 @@ export class Store {
     this.db.prepare('DELETE FROM milestones WHERE id = ?').run(milestoneId);
   }
 
-  // ---------- views ----------
   createView(name: string, filters: ViewFilters, opts: { teamId?: string | null; icon?: string; groupBy?: GroupBy; orderBy?: OrderBy; layout?: 'list' | 'board'; kind?: SavedView['kind']; projectOptions?: Record<string, unknown> | null; shared?: boolean }): SavedView {
     const v: SavedView = {
       ownerId: this.actor() || null, shared: opts.shared !== false,
@@ -997,11 +903,9 @@ export class Store {
       .run(v.id, v.teamId, v.name, v.icon, JSON.stringify(v.filters), v.groupBy, v.orderBy, v.layout, v.position, ts(), v.kind, v.projectOptions ? JSON.stringify(v.projectOptions) : null, v.ownerId, v.shared ? 1 : 0);
     return v;
   }
-  /** a view you can see: shared with the workspace, or yours */
   private visibleView(viewId: string): { owner_id: string | null; shared: number } | undefined {
     return this.db.prepare('SELECT owner_id, shared FROM views WHERE id = ? AND (shared = 1 OR owner_id = ?)').get(viewId, this.actor()) as { owner_id: string | null; shared: number } | undefined;
   }
-  /** anyone may edit a shared view; only its owner decides whether it's shared */
   updateView(viewId: string, patch: Partial<Pick<SavedView, 'name' | 'icon' | 'filters' | 'groupBy' | 'orderBy' | 'layout' | 'position' | 'projectOptions' | 'shared'>>): boolean {
     const view = this.visibleView(viewId);
     if (!view) return false;
@@ -1021,8 +925,6 @@ export class Store {
     return true;
   }
 
-  // ---------- favorites ----------
-  /** star or unstar for whoever is acting; everyone keeps their own favorites */
   toggleFavorite(type: Favorite['type'], refId: string): void {
     const me = this.actor();
     const existing = this.db.prepare('SELECT id FROM favorites WHERE type = ? AND ref_id = ? AND user_id = ?').get(type, refId, me) as { id: string } | undefined;
@@ -1030,26 +932,15 @@ export class Store {
     else this.db.prepare('INSERT INTO favorites (id, type, ref_id, position, user_id) VALUES (?, ?, ?, ?, ?)').run(id('f'), type, refId, (this.db.prepare('SELECT COALESCE(MAX(position),0)+1 p FROM favorites WHERE user_id = ?').get(me) as { p: number }).p, me);
   }
 
-  // ---------- notifications ----------
-  // only notify when someone else assigned it to you, never for self-assignment
   private notifyAssign(issueId: string, assigneeId: string, actorId?: string): void {
-    // the actor is who the inbox row leads with; without it the row falls back
-    // to the app's own tile, which reads as a system message it isn't
     this.notifyEach([assigneeId], 'issueAssignedToYou', { actorId, issueId, body: 'You were assigned this issue' });
   }
-  /** single insert point for every notification the store raises; `userId` is whose inbox it lands in */
   notify(type: NotificationType, o: { userId: string; actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string }): void {
-    // text people wrote is a preview line: plain text, not markdown or mention tokens. Other
-    // bodies are structured ("<docId>|<title>") and keep their exact text.
     const raw = o.body ?? '';
     const body = PLAIN_BODY.has(type) ? clip(plainText(raw), 160) : plainMentions(raw);
     this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, project_id, body, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id('n'), type, o.actorId ?? null, o.issueId ?? null, o.projectId ?? null, body, o.createdAt ?? ts(), o.userId);
   }
-  /** one notification in each recipient's inbox: once per person, never to agents (they have no
-   *  inbox), and never to whoever is acting unless `selfToo` (as in Linear: your own action isn't news).
-   *  An agent acting for someone counts as that person here: their own agent's moves aren't news
-   *  to them either (only its finish and blocked reports are, which pass `selfToo`). */
   notifyEach(recipients: Iterable<string | null | undefined>, type: NotificationType, o: { actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string; selfToo?: boolean }): void {
     const { selfToo, ...rest } = o;
     const actorId = o.actorId === undefined ? this.actor() : o.actorId;
@@ -1060,17 +951,12 @@ export class Store {
       this.notify(type, { ...rest, actorId, userId });
     }
   }
-  /** who a text mentions: `@[Name](user:id)` tokens, plus plain "@Name" when the name is unambiguous */
   private mentions(body: string): string[] {
     return mentionedIds(body, this.db.prepare('SELECT id, name FROM users').all() as unknown as Array<{ id: string; name: string }>);
   }
-  /** everyone following an issue */
   subscribers(issueId: string): string[] {
     return (this.db.prepare('SELECT user_id FROM subscriptions WHERE issue_id = ?').all(issueId) as Array<{ user_id: string }>).map(r => r.user_id);
   }
-  /** raise one for each person following the issue, except whoever acted and anyone who muted
-   *  this kind (`Preferences.notify`, e.g. status changes, switched from the inbox's display
-   *  options). `skip`: people a stronger notification already reached. */
   private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, pref: keyof Preferences['notify'], skip: Iterable<string> = []): void {
     const done = new Set(skip);
     this.notifyEach(this.subscribers(issueId).filter(u => !done.has(u) && this.getPreferences(u).notify[pref] !== false), type, { actorId, issueId, body });
@@ -1079,28 +965,22 @@ export class Store {
     this.notifyEach([userId], 'issueMentioned', { actorId, issueId, body });
   }
   listNotifications(): Notification[] { return this.snapshot().notifications; }
-  // everyone reads, snoozes and clears only their own inbox
   markNotificationRead(notificationId: string, read = true): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ?').run(read ? ts() : null, notificationId, this.actor()); }
   markAllNotificationsRead(): void { this.db.prepare('UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND user_id = ?').run(ts(), this.actor()); }
   deleteNotification(notificationId: string): void { this.db.prepare('DELETE FROM notifications WHERE id = ? AND user_id = ?').run(notificationId, this.actor()); }
   deleteReadNotifications(): void { this.db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL AND user_id = ?').run(this.actor()); }
-  /** "Remind me": a notification in your own inbox that stays hidden until `at` */
   remindIssue(issueId: string, at: string): void {
     this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, body, snoozed_until, created_at, user_id) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)')
       .run(id('n'), 'issueReminder', issueId, 'Reminder', at, at, this.actor());
   }
-  /** null wakes it now; a snoozed notification comes back unread */
   snoozeNotification(notificationId: string, until: string | null): void {
     this.db.prepare('UPDATE notifications SET snoozed_until = ?, read_at = NULL WHERE id = ? AND user_id = ?').run(until, notificationId, this.actor());
   }
 
-  // ---------- preferences ----------
-  /** someone's own preferences (the acting person's by default) over the defaults */
   getPreferences(userId = this.actor()): Preferences {
     try {
       const row = this.db.prepare('SELECT json FROM user_preferences WHERE user_id = ?').get(userId) as { json: string } | undefined;
       const raw = JSON.parse(row?.json ?? '{}') as Partial<Preferences>;
-      // push.browser was stored as push.desktop before the rename
       const { desktop, ...rawPush } = (raw.push ?? {}) as Partial<Preferences['push']> & { desktop?: boolean };
       return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, push: { ...DEFAULT_PREFERENCES.push, ...(desktop === undefined ? {} : { browser: desktop }), ...rawPush, types: { ...DEFAULT_PREFERENCES.push.types, ...(raw.push?.types ?? {}) } }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } }, gettingStarted: gettingStartedFrom(raw.gettingStarted) };
     } catch { return DEFAULT_PREFERENCES; }
@@ -1113,13 +993,10 @@ export class Store {
   }
 
   getFeatures(): WorkspaceFeatures {
-    // keys of switches that no longer exist are dropped, so old workspaces don't leak them
     let stored: Record<string, unknown> = {};
-    try { stored = JSON.parse(getMeta(this.db, 'features') ?? '{}') as Record<string, unknown>; } catch { /* defaults */ }
+    try { stored = JSON.parse(getMeta(this.db, 'features') ?? '{}') as Record<string, unknown>; } catch { }
     return { ...DEFAULT_FEATURES, ...this.featuresInUse(stored), ...Object.fromEntries(Object.entries(stored).filter(([k]) => k in DEFAULT_FEATURES)) } as WorkspaceFeatures;
   }
-  /** the off-by-default switches nobody has set yet start on when the workspace already uses them,
-   *  so a workspace from before Settings › Features (or the sample workspace) keeps what it has */
   private featuresInUse(stored: Record<string, unknown>): Partial<WorkspaceFeatures> {
     const has = (sql: string) => { try { return !!this.db.prepare(sql).get(); } catch { return false; } };
     const probes: Array<[keyof WorkspaceFeatures, string]> = [
@@ -1143,7 +1020,6 @@ export class Store {
   setSecurity(patch: Partial<WorkspaceSecurity>): WorkspaceSecurity {
     const cur = this.getSecurity();
     const next: WorkspaceSecurity = {
-      // "@Acme.dev " and "acme.dev" are the same domain
       approvedDomains: patch.approvedDomains ? [...new Set(patch.approvedDomains.map(d => d.trim().toLowerCase().replace(/^@/, '')).filter(d => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)))] : cur.approvedDomains,
       domainTeamIds: patch.domainTeamIds ?? cur.domainTeamIds,
       whoCanInvite: patch.whoCanInvite === 'members' || patch.whoCanInvite === 'admins' ? patch.whoCanInvite : cur.whoCanInvite,
@@ -1153,7 +1029,6 @@ export class Store {
     return next;
   }
 
-  // ---------- project labels ----------
   createProjectLabel(input: { name: string; color?: string; description?: string; parentId?: string | null; isGroup?: boolean }): ProjectLabel {
     const l: ProjectLabel = { id: id('pl'), name: input.name.trim(), color: input.color ?? '#8a8f98', description: input.description ?? '', parentId: input.parentId ?? null, isGroup: !!input.isGroup, createdAt: ts() };
     this.db.prepare('INSERT INTO project_labels (id, name, color, description, parent_id, is_group, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(l.id, l.name, l.color, l.description, l.parentId, l.isGroup ? 1 : 0, l.createdAt);
@@ -1167,7 +1042,6 @@ export class Store {
     vals.push(labelId);
     this.db.prepare(`UPDATE project_labels SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
-  /** deleting a group deletes the labels in it; every project loses the removed labels */
   deleteProjectLabel(labelId: string): void {
     const gone = [labelId, ...(this.db.prepare('SELECT id FROM project_labels WHERE parent_id = ?').all(labelId) as Array<{ id: string }>).map(r => r.id)];
     for (const l of gone) this.db.prepare('DELETE FROM project_labels WHERE id = ?').run(l);
@@ -1178,7 +1052,6 @@ export class Store {
     }
   }
 
-  // ---------- project statuses ----------
   projectStatus(statusId: string): ProjectStatusDef | undefined {
     const x = this.db.prepare('SELECT * FROM project_statuses WHERE id = ?').get(statusId) as { id: string; type: Project['status']; name: string; color: string; description: string; position: number } | undefined;
     return x ? { id: x.id, type: x.type, name: x.name, color: x.color, description: x.description, position: x.position } : undefined;
@@ -1200,7 +1073,6 @@ export class Store {
     vals.push(statusId);
     this.db.prepare(`UPDATE project_statuses SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
-  /** a category keeps at least one status; projects on a deleted status move to the category's first */
   deleteProjectStatus(statusId: string): boolean {
     const st = this.projectStatus(statusId);
     if (!st) return false;
@@ -1211,7 +1083,6 @@ export class Store {
     return true;
   }
 
-  // ---------- project subscriptions (the bell) ----------
   setProjectSubscription(projectId: string, userId: string, flags: Partial<Omit<ProjectSubscription, 'projectId' | 'userId'>>): void {
     const cur = this.db.prepare('SELECT * FROM project_subscriptions WHERE project_id = ? AND user_id = ?').get(projectId, userId) as { issue_added: number; issue_closed: number; comments: number; updates: number } | undefined;
     const v = {
@@ -1222,25 +1093,20 @@ export class Store {
     this.db.prepare('INSERT INTO project_subscriptions (project_id, user_id, issue_added, issue_closed, comments, updates) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id) DO UPDATE SET issue_added = excluded.issue_added, issue_closed = excluded.issue_closed, comments = excluded.comments, updates = excluded.updates')
       .run(projectId, userId, v.issue_added ? 1 : 0, v.issue_closed ? 1 : 0, v.comments ? 1 : 0, v.updates ? 1 : 0);
   }
-  /** notify everyone following a project for this kind of event, but never about their own changes */
   private notifyProject(projectId: string, flag: 'issueAdded' | 'issueClosed' | 'comments' | 'updates', type: NotificationType, actorId: string | undefined | null, body: string, issueId?: string): void {
     const col = { issueAdded: 'issue_added', issueClosed: 'issue_closed', comments: 'comments', updates: 'updates' }[flag];
     let subs = this.db.prepare(`SELECT user_id FROM project_subscriptions WHERE project_id = ? AND ${col} = 1`).all(projectId) as Array<{ user_id: string }>;
-    // project updates reach a person one way: in their summary while summaries are on, one by one only when off
     if (flag === 'updates') subs = subs.filter(r => this.getPreferences(r.user_id).updatesSummary === 'off');
     this.notifyEach(subs.map(r => r.user_id), type, { actorId: actorId ?? this.actor(), projectId, issueId: issueId ?? null, body });
   }
 
-  // ---------- update schedule & summaries ----------
   private cadenceDays(c: UpdateCadence): number | null { return c === 'weekly' ? 7 : c === 'biweekly' ? 14 : c === 'monthly' ? 30 : null; }
-  /** when the next update is due on a project (null: no expectation) */
   updateDueAt(project: Pick<Project, 'id' | 'updateCadence' | 'createdAt'>): string | null {
     const days = this.cadenceDays(project.updateCadence ?? this.getFeatures().updateCadence);
     if (!days) return null;
     const last = this.db.prepare('SELECT MAX(created_at) t FROM project_updates WHERE project_id = ?').get(project.id) as { t: string | null };
     return new Date(new Date(last.t ?? project.createdAt).getTime() + days * 86400000).toISOString();
   }
-  /** each project's lead gets one inbox reminder each time an update falls due */
   private remindUpdates(now: Date): void {
     for (const row of this.db.prepare("SELECT * FROM projects WHERE lead_id IS NOT NULL AND status NOT IN ('completed', 'canceled')").all() as Array<Record<string, unknown>>) {
       const p = this.mapProject(row);
@@ -1250,8 +1116,6 @@ export class Store {
       if (!already) this.notifyEach([p.leadId], 'projectUpdateReminder', { actorId: null, projectId: p.id, body: `An update on ${p.name} is due`, createdAt: now.toISOString() });
     }
   }
-  /** each active person gets a summary of new updates on projects they lead, are a member of, or
-   *  follow, on their own schedule (Settings › Notifications); nothing new, no summary */
   private updatesDigest(now: Date): void {
     for (const { id: userId } of this.db.prepare("SELECT id FROM users WHERE kind != 'agent' AND status = 'active'").all() as Array<{ id: string }>) {
       const schedule = this.getPreferences(userId).updatesSummary;
@@ -1264,7 +1128,6 @@ export class Store {
       if (n) this.notify('updatesDigest', { userId, body: `${n} project update${n === 1 ? '' : 's'} since your last summary`, createdAt: now.toISOString() });
     }
   }
-  /** the updates a person's summary covers: posted in (since, until] on projects they're on or follow */
   private summaryUpdates(userId: string, since: string, until: string): Array<{ id: string }> {
     return this.db.prepare(`SELECT u.id FROM project_updates u JOIN projects p ON p.id = u.project_id
       WHERE u.created_at > ? AND u.created_at <= ? AND (p.lead_id = ? OR EXISTS (SELECT 1 FROM json_each(p.members) WHERE value = ?)
@@ -1272,7 +1135,6 @@ export class Store {
       ORDER BY u.created_at DESC`).all(since, until, userId, userId, userId) as Array<{ id: string }>;
   }
 
-  // ---------- activity ----------
   logActivity(e: { issueId?: string; projectId?: string; type: ActivityType; data?: Record<string, unknown> }, actorId?: string): void {
     const uid = actorId ?? this.actor();
     this.db.prepare('INSERT INTO activity (id, issue_id, project_id, user_id, via_user_id, type, data, created_at, op_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -1280,14 +1142,12 @@ export class Store {
   }
   issueActivity(issueId: string): ActivityItem[] { return this.snapshot().activity.filter(a => a.issueId === issueId).reverse(); }
 
-  // ---------- search ----------
   search(q: string): { issues: Issue[]; projects: Project[] } {
     const issues = this.listIssues({ query: q, limit: 20 });
     const projects = (this.db.prepare('SELECT * FROM projects WHERE name LIKE ? ORDER BY position LIMIT 10').all(`%${q}%`) as Array<Record<string, unknown>>).map(p => this.mapProject(p as Record<string, unknown>));
     return { issues, projects };
   }
 
-  // ---------- workspace meta ----------
   workspaceMeta(): { id: string; name: string; createdAt: string; currentUser: string } {
     return {
       id: getMeta(this.db, 'workspaceId') ?? '', name: getMeta(this.db, 'workspaceName') ?? 'Workspace',
@@ -1295,16 +1155,12 @@ export class Store {
     };
   }
   setWorkspaceName(name: string): void { setMeta(this.db, 'workspaceName', name); }
-  /** who this write is by: the signed-in person on a server request, else the workspace's own user */
   actor(): string { return actingUser.getStore() ?? getMeta(this.db, 'currentUser') ?? ''; }
   setCurrentUser(userId: string): void { setMeta(this.db, 'currentUser', userId); }
 
-  // ---------- export / import / reset ----------
   exportJson(): string {
     const snap = this.snapshot();
-    // the snapshot hides archived and trashed issues; a backup keeps them
     const issues = (this.db.prepare('SELECT * FROM issues').all() as unknown as IssueRow[]).map(this.mapIssue);
-    // uploaded images are included as base64; they're small, so the JSON stays a complete backup
     const files = (this.db.prepare('SELECT * FROM files ORDER BY created_at').all() as Array<Record<string, unknown>>).map(f => ({
       id: f.id, name: f.name, mime: f.mime, size: f.size, sha256: f.sha256,
       ownerType: f.owner_type, ownerId: f.owner_id, uploadedBy: f.uploaded_by, createdAt: f.created_at,
@@ -1312,14 +1168,10 @@ export class Store {
     }));
     return JSON.stringify({ exportedAt: ts(), ...snap, issues, files }, null, 2);
   }
-  /** restore a full workspace from an exportJson payload (keeps ids) */
   importJson(json: string): void {
     const data = JSON.parse(json) as Record<string, unknown>;
-    // all-or-nothing: the wipe and every insert commit together, so a bad backup leaves the
-    // current workspace exactly as it was instead of wiped and half-restored
     this.transaction(() => this.restore(data));
   }
-  /** run `fn` in one SQLite transaction (rolled back if it throws); nested calls join the outer one */
   transaction<T>(fn: () => T): T {
     if (this.txDepth > 0) return fn();
     this.db.exec('BEGIN IMMEDIATE');
@@ -1344,10 +1196,8 @@ export class Store {
       if (ws.id) setMeta(this.db, 'workspaceId', ws.id);
       if (ws.name) setMeta(this.db, 'workspaceName', ws.name);
       if (ws.createdAt) setMeta(this.db, 'workspaceCreatedAt', ws.createdAt);
-      // restore the coding-tools settings too
       if (ws.handoffPromptTemplate && ws.handoffPromptTemplate !== DEFAULT_PROMPT_TEMPLATE) setMeta(this.db, 'handoffPromptTemplate', ws.handoffPromptTemplate);
       if (ws.terminalApp) setMeta(this.db, 'terminalApp', toTerminalApp(ws.terminalApp));
-      // exports from before locations carried a default directory and recent picks; hand them to the migration below
       const legacy = ws as { agentCwd?: string; recentDirectories?: string[] };
       if (legacy.agentCwd) setMeta(this.db, 'agentCwd', normalizeDir(legacy.agentCwd));
       if (Array.isArray(legacy.recentDirectories)) setMeta(this.db, 'recentDirectories', JSON.stringify(legacy.recentDirectories.map(normalizeDir).filter(Boolean)));
@@ -1361,7 +1211,6 @@ export class Store {
     if (cu?.id) setMeta(this.db, 'currentUser', cu.id);
     for (const t of arr<Record<string, unknown>>(data.teams)) insert('teams', ['id', 'key', 'name', 'icon', 'color', 'description', 'position', 'triage_enabled', 'auto_cycles', 'cycle_duration', 'cycle_cooldown', 'cycle_upcoming', 'cycle_rollover', 'estimate_scale', 'estimate_zero', 'estimate_extended', 'estimate_count_unestimated'],
       { ...t, estimate_zero: t.estimateZero ? 1 : 0, estimate_extended: t.estimateExtended ? 1 : 0, estimate_count_unestimated: t.estimateCountUnestimated ? 1 : 0, triage_enabled: t.triageEnabled ? 1 : 0, auto_cycles: t.autoCycles ? 1 : 0, cycle_duration: t.cycleDuration ?? 2, cycle_cooldown: t.cycleCooldown ?? 0, cycle_upcoming: t.cycleUpcoming ?? 2, cycle_rollover: t.cycleRollover === false ? 0 : 1, estimate_scale: t.estimateScale ?? 'fibonacci' });
-    // memberships travel on the teams; an export from before memberships puts every person on every team
     const humans = arr<Record<string, unknown>>(data.users).filter(u => (u.kind ?? 'human') === 'human').map(u => String(u.id));
     for (const t of arr<Record<string, unknown>>(data.teams)) for (const uid of Array.isArray(t.memberIds) ? t.memberIds as string[] : humans) {
       if (humans.includes(uid)) this.addTeamMember(String(t.id), uid);
@@ -1395,7 +1244,6 @@ export class Store {
     if (ownId && ws && (ws as { preferences?: Preferences }).preferences) this.setPreferences((ws as { preferences?: Preferences }).preferences!, ownId);
     for (const a of arr<Record<string, unknown>>(data.activity)) insert('activity', ['id', 'issue_id', 'project_id', 'user_id', 'via_user_id', 'type', 'data', 'created_at'], { ...a, issue_id: a.issueId, project_id: a.projectId, user_id: a.userId, via_user_id: a.viaUserId ?? null, data: JSON.stringify(a.data ?? {}), created_at: a.createdAt });
     for (const l of arr<Record<string, unknown>>(data.projectLabels)) insert('project_labels', ['id', 'name', 'color', 'description', 'parent_id', 'is_group', 'created_at'], { ...l, description: l.description ?? '', parent_id: l.parentId ?? null, is_group: l.isGroup ? 1 : 0, created_at: l.createdAt ?? ts() });
-    // the export's statuses replace the defaults wipe() put back
     if (arr(data.projectStatuses).length) this.db.exec('DELETE FROM project_statuses');
     for (const x of arr<Record<string, unknown>>(data.projectStatuses)) insert('project_statuses', ['id', 'type', 'name', 'color', 'description', 'position'], { ...x, description: x.description ?? '', position: x.position ?? 0 });
     for (const x of arr<Record<string, unknown>>(data.projectSubscriptions)) insert('project_subscriptions', ['project_id', 'user_id', 'issue_added', 'issue_closed', 'comments', 'updates'], { project_id: x.projectId, user_id: x.userId, issue_added: x.issueAdded ? 1 : 0, issue_closed: x.issueClosed ? 1 : 0, comments: x.comments ? 1 : 0, updates: x.updates ? 1 : 0 });
@@ -1410,9 +1258,7 @@ export class Store {
     this.ext.importData(data, insert);
     for (const i of arr<Record<string, unknown>>(data.issues)) this.db.prepare('UPDATE issues SET sla_rule_id = ?, sla_breaches_at = ? WHERE id = ?').run((i.slaRuleId as string | null) ?? null, (i.slaBreachesAt as string | null) ?? null, i.id as string);
     ensureDefaults(this.db);
-    // a pre-locations export: its project directories and default become locations, as on upgrade
     migrateDirectoriesToLocations(this.db);
-    // an export from when each coding tool had its own agent user
     ensureWorkspaceAgent(this.db);
   }
   wipe(): void {

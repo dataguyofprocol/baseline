@@ -9,10 +9,6 @@ import { IconUser, IconCycle, IconEstimate, IconClose, IconCheck, IconBox, IconC
 import { teamScale, type Issue, type Priority } from '../../src/core/types.js';
 import { nextLabelColor } from './labelColors.js';
 
-/* Linear's property menus all share one shape: a filter field on top (with the
-   shortcut that opened it), then the values, each with a number key where order
-   is meaningful. They act on one issue or a whole selection. */
-
 export type PropKind = 'status' | 'priority' | 'assignee' | 'labels' | 'project' | 'milestone' | 'cycle' | 'estimate' | 'due' | 'team' | 'parent'
   | 'blocked_by' | 'blocks' | 'related' | 'duplicate' | 'parent_of' | 'remind';
 
@@ -32,7 +28,6 @@ function Shell(props: { placeholder: string; kind: PropKind; query: string; setQ
   );
 }
 
-/** the property menu as its own popover, anchored to whatever opened it */
 export function PropertyMenu(props: { kind: PropKind; issues: Issue[]; anchor: DOMRect; onClose: () => void }) {
   return (
     <Menu anchor={props.anchor} onClose={props.onClose} width={WIDTH[props.kind] ?? 240}>
@@ -53,13 +48,11 @@ export function sortedStatesOf(teamId: string) {
   });
 }
 
-/** the menu's content (filter field + values), embedded in a popover or a context-menu flyout */
 const TIP_WHAT: Partial<Record<PropKind, string>> = { status: 'change status', priority: 'set priority', assignee: 'assign', labels: 'add labels', project: 'set the project', cycle: 'set the cycle', estimate: 'set the estimate', due: 'set a due date', remind: 'set a reminder' };
 
 export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClose: () => void }) {
   const snap = useApp(s => s.snap)!;
   const [q, setQ] = useState('');
-  // opened with the mouse a few times: say which key opens it (not a submenu passed over on the way)
   const inSubmenu = useContext(SubmenuContext);
   useEffect(() => {
     const keys = PROP_KBD[props.kind], what = TIP_WHAT[props.kind];
@@ -79,7 +72,6 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
       const current = same(i => i.stateId);
       const pick = async (stateId: string) => {
         const target = snap.states.find(s => s.id === stateId)!;
-        // a selection spanning teams moves to each team's state of the same name (or type)
         const byTeam = new Map<string, string[]>();
         for (const i of issues) byTeam.set(i.teamId, [...(byTeam.get(i.teamId) ?? []), i.id]);
         for (const [teamId, group] of byTeam) {
@@ -149,7 +141,6 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
       };
       return (
         <Shell {...common} placeholder={`Change labels${plural}…`}>
-          {/* raw items so toggling keeps the menu open, since labels are multi-select */}
           {shown.map(l => {
             const on = issues.every(i => i.labelIds.includes(l.id));
             const some = !on && issues.some(i => i.labelIds.includes(l.id));
@@ -280,7 +271,6 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
       );
     }
     case 'parent': {
-      // never offer an issue's own sub-issues at any depth: picking one would make a loop
       const below = new Set(ids);
       for (let grew = true; grew;) { grew = false; for (const i of snap.issues) if (i.parentId && below.has(i.parentId) && !below.has(i.id)) { below.add(i.id); grew = true; } }
       const pool = snap.issues.filter(i => !below.has(i.id));
@@ -346,7 +336,6 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
         await useApp.getState().bootstrap();
         useApp.getState().toast({ title: 'Reminder set', line: <>You'll get an inbox notification {fmt(d)}</> });
       };
-      // a reminder that's still waiting can be called off (once set, there was no way to remove it)
       const nowIso = now.toISOString();
       const pending = snap.notifications.filter(n => n.type === 'issueReminder' && n.issueId && ids.includes(n.issueId) && n.snoozedUntil && n.snoozedUntil > nowIso);
       return (
@@ -366,7 +355,6 @@ export function PropertyMenuBody(props: { kind: PropKind; issues: Issue[]; onClo
   }
 }
 
-/** "4 pm", "2 days", "in 5 weeks", "tomorrow 10am", "fri" → a Date */
 export function parseReminder(raw: string): Date | null {
   const s = raw.trim().toLowerCase().replace(/^in /, '');
   if (!s) return null;
@@ -398,7 +386,6 @@ function Empty({ text = 'No results' }: { text?: string }) {
   return <div className="menu-empty">{text}</div>;
 }
 
-/** "fri", "next mon", "dec 3", "3/12", "2026-12-03", "in 3 days" → YYYY-MM-DD */
 export function parseDateInput(raw: string): string | null {
   const s = raw.trim().toLowerCase();
   if (!s) return null;

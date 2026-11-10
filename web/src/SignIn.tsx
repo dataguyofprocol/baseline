@@ -4,7 +4,6 @@ import { markArrival, reducedMotion } from './arrival.js';
 import { api, authApi } from './api.js';
 import { PASSWORD_MIN, type SignInMethod } from '../../src/core/types.js';
 
-/** why the last Google sign-in came back (the server redirects to /?auth_error=…) */
 const REASONS: Record<string, string> = {
   'not-invited': 'That Google account isn’t a member of this workspace. Ask an admin to invite you.',
   suspended: 'This account has been suspended. Ask an admin if that’s a mistake.',
@@ -20,13 +19,11 @@ type InviteInfo = Awaited<ReturnType<typeof api.inviteInfo>>;
 type ResetInfo = Awaited<ReturnType<typeof authApi.resetInfo>>;
 type Config = Awaited<ReturnType<typeof authApi.config>>;
 
-/** the same rule as the server's safeNext: only a path on this site */
 const sameSite = (next: string | null) =>
   next && next.startsWith('/') && !next.startsWith('//') && !next.includes('\\') && !/[\u0000-\u001f]/.test(next) ? next : null;
 
 interface Params { error: string | null; invite: string | null; join: string | null; reset: string | null; next: string | null }
 
-/** read the sign-in params once, then drop them from the address bar so a reload is clean */
 function takeParams(): Params {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('auth_error');
@@ -35,14 +32,10 @@ function takeParams(): Params {
   return { error: code ? REASONS[code] ?? REASONS.google! : null, ...p };
 }
 
-/** Hosted mode, no session. One screen picks itself from the link that brought you here and the
- *  server's state: first-run setup, a reset link, an invite, or plain sign-in. */
 export function SignIn() {
   const [params] = useState(takeParams);
   const [config, setConfig] = useState<Config | null>(null);
-  // unreachable server: fall back to the password form rather than a blank shell
   useEffect(() => { void authApi.config().then(setConfig, () => setConfig({ methods: ['password'], setup: false, mail: false } as Config)); }, []);
-  // where to land once signed in: back to the page that asked (the CLI's approval page sends ?next)
   const back = params.next ?? window.location.pathname + window.location.hash;
   const [leaving, setLeaving] = useState(false);
   const go = () => {
@@ -51,8 +44,6 @@ export function SignIn() {
     if (to.pathname === window.location.pathname && to.search === window.location.search) { window.location.hash = to.hash; window.location.reload(); }
     else window.location.replace(to.href);
   };
-  // signed in: the word and form leave and the line hands over to the app's top bar, then the page
-  // reloads. A ?next page (the CLI's approval) isn't the app, so it goes straight there.
   const done = () => {
     if (params.next || reducedMotion()) return go();
     setLeaving(true);
@@ -74,18 +65,12 @@ export function SignIn() {
   );
 }
 
-/** set once the request succeeded and the frame is playing its exit */
 const Leaving = createContext(false);
 
 interface Ctx { methods: SignInMethod[]; mail: boolean; done: () => void; google: (invite?: string | null, kind?: 'invite' | 'join') => void }
 
-/* ---------- the brand frame every signed-out screen shares ---------- */
-
-/** when the first signed-out frame mounted: a later Shell (loading → form, sign in → forgot)
- *  continues the entrance from there instead of replaying it */
 let shellStart: number | null = null;
 
-/** What Baseline is for, running under the line. Product copy, never workspace data: nobody is signed in yet. */
 const TICKER: Array<[string, string, string]> = [
   ['Issues', 'triaged from the keyboard', 'var(--status-started)'],
   ['Cycles', 'with a burn-up chart', 'var(--brand-register)'],
@@ -99,31 +84,19 @@ interface ShellProps {
   headline: string;
   sub: React.ReactNode;
   children?: React.ReactNode;
-  /** how much of the form is filled in, 0–1: the node rides the line that far */
   progress?: number;
-  /** the request is out (the node runs to the end) or was refused (the line goes red and the node shakes) */
   state?: 'busy' | 'error' | null;
-  /** a short line under the headline saying what comes next */
   step?: string;
-  /** top right of the page */
   aside?: React.ReactNode;
-  /** the strip along the bottom */
   foot?: React.ReactNode;
-  /** the giant word on the line (default: Baseline) */
   word?: string;
-  /** the word is typed (a team key): letters added later rise at once instead of joining the entrance */
   wordLive?: boolean;
-  /** marks along the line in place of the ticker (a team's first issue keys) */
   ticks?: string[];
-  /** anything else under the line in place of the ticker (the setup stops) */
   under?: React.ReactNode;
-  /** place the node at this share of the content column instead of by progress (a picked stop) */
   at?: number;
-  /** the frame's exit: word and form leave, the node runs to the end */
   leaving?: boolean;
 }
 
-/** The brand frame: sign-in, first run and the first team all sit on this line. */
 export function LineFrame(props: ShellProps) {
   const [since] = useState(() => {
     if (shellStart === null) shellStart = performance.now();
@@ -131,8 +104,6 @@ export function LineFrame(props: ShellProps) {
   });
   const word = props.word || 'Baseline';
   const firstLetters = useRef(word.length);
-  // the node starts under the wordmark's first letter; filled in, it's two thirds of the way to the
-  // window's edge; sent, it runs the whole way (CSS turns --p into a position: .auth-line)
   const p = props.state === 'busy' || props.leaving ? 1 : 0.66 * Math.min(1, Math.max(0, props.progress ?? 0));
   return (
     <div className={`on-ink auth-page${props.leaving ? ' auth-leaving' : ''}`} style={{ '--auth-since': `${since}ms` } as React.CSSProperties}>
@@ -152,7 +123,6 @@ export function LineFrame(props: ShellProps) {
           <div className={`auth-line${props.state ? ' ' + props.state : ''}${props.at !== undefined && !props.leaving ? ' col' : ''}`} style={{ '--p': props.at !== undefined && !props.leaving ? props.at : p } as React.CSSProperties} aria-hidden="true">
             <div className="auth-line-rule" />
             <div className="auth-line-fill" />
-            {/* keyed on the state so each refusal replays the shake */}
             <div className="auth-node"><span key={props.state ?? 'idle'} className="auth-node-ground"><span className="auth-node-dot" /></span></div>
           </div>
           {props.under ? props.under : props.ticks ? (
@@ -185,19 +155,15 @@ export function LineFrame(props: ShellProps) {
   );
 }
 
-/** the signed-out screens: the frame, leaving with the rest once signed in */
 function Shell(props: ShellProps) {
   const leaving = useContext(Leaving);
   return <LineFrame {...props} leaving={leaving} />;
 }
 
-/** the share of these that are filled in */
 export const filled = (...values: string[]) => values.filter(v => v.trim()).length / values.length;
-/** the line's state from a form's request */
 export const lineState = (busy: boolean, error: string | null | undefined) => busy ? 'busy' : error ? 'error' : null;
 
 function Field(props: { label: string; hint?: string; value: string; onChange: (v: string) => void; type?: string; autoComplete?: string; autoFocus?: boolean; placeholder?: string; mono?: boolean; name?: string }) {
-  // a password field can be shown, so a new password can be checked before it's set
   const [shown, setShown] = useState(false);
   const isPassword = props.type === 'password';
   return (
@@ -215,7 +181,6 @@ function Field(props: { label: string; hint?: string; value: string; onChange: (
 
 const Alert = ({ children }: { children: React.ReactNode }) => children ? <div role="alert" className="auth-alert">{children}</div> : null;
 
-/** a form that posts to /auth/*, shows the server's reason when refused, and lands signed in */
 function useSubmit(path: string, onOk: () => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -247,7 +212,6 @@ function GoogleButton({ onClick, label = 'Continue with Google' }: { onClick: ()
   );
 }
 
-/** the paper button: an arrow at rest, a blinking dot while the request is out */
 function Submit({ busy, disabled, children }: { busy: boolean; disabled: boolean; children: React.ReactNode }) {
   return (
     <button className="btn primary auth-submit auth-go" disabled={disabled}>
@@ -259,7 +223,6 @@ function Submit({ busy, disabled, children }: { busy: boolean; disabled: boolean
   );
 }
 
-/* ---------- first run: the owner account ---------- */
 function Setup({ ctx }: { ctx: Ctx }) {
   const [token, setToken] = useState('');
   const [name, setName] = useState('');
@@ -282,7 +245,6 @@ function Setup({ ctx }: { ctx: Ctx }) {
   );
 }
 
-/* ---------- sign in, or join through an invite ---------- */
 function SignInOrJoin({ ctx, invite, kind, error: initialError }: { ctx: Ctx; invite: string | null; kind: 'invite' | 'join'; error: string | null }) {
   const [info, setInfo] = useState<InviteInfo | null>(null);
   const [mode, setMode] = useState<'join' | 'signin' | 'forgot'>(invite ? 'join' : 'signin');
@@ -295,7 +257,6 @@ function SignInOrJoin({ ctx, invite, kind, error: initialError }: { ctx: Ctx; in
   return <PasswordSignIn ctx={ctx} problem={initialError ?? (info && inviteProblem(info, kind))} onForgot={() => setMode('forgot')} invite={valid ? invite : null} kind={kind} onJoin={valid ? () => setMode('join') : undefined} />;
 }
 
-/** why an invite or join link can't be used (null: it can) */
 function inviteProblem(info: InviteInfo, kind: 'invite' | 'join'): string | null {
   if (info.state === 'valid') return null;
   if (kind === 'join') return 'That join link was turned off. Ask your team for a new one.';
@@ -304,7 +265,6 @@ function inviteProblem(info: InviteInfo, kind: 'invite' | 'join'): string | null
     : `This invite has ${info.state === 'revoked' ? 'been revoked' : 'expired'}. Ask ${info.inviter ?? 'whoever sent it'} for a new one.`;
 }
 
-/** "Engineering", "Engineering and Design" */
 const listOf = (names: string[] = []) => names.length <= 1 ? names[0] ?? '' : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 
 function PasswordSignIn({ ctx, problem, onForgot, invite, kind = 'invite', onJoin }: { ctx: Ctx; problem: string | null; onForgot: () => void; invite: string | null; kind?: 'invite' | 'join'; onJoin?: () => void }) {
@@ -337,8 +297,6 @@ function PasswordSignIn({ ctx, problem, onForgot, invite, kind = 'invite', onJoi
   );
 }
 
-/** An invite names its address, so it's filled in (accepting still checks it). A team's join link names
- *  no one, so the person types theirs. Either way the screen says who asked them and to which team. */
 function Join({ ctx, code, kind, info, error: googleError, onSignIn }: { ctx: Ctx; code: string; kind: 'invite' | 'join'; info: InviteInfo; error: string | null; onSignIn: () => void }) {
   const fixed = kind === 'invite' && info.email ? info.email : null;
   const [email, setEmail] = useState(fixed ?? '');
@@ -368,8 +326,6 @@ function Join({ ctx, code, kind, info, error: googleError, onSignIn }: { ctx: Ct
   );
 }
 
-/** An invite or join link opened while already signed in. The app used to swallow the link and show
- *  your own inbox; now it says whose link it is and what to do. */
 export function SignedInInvite({ me, teams, onDone, onSignOut, onJoinTeam }: {
   me: { name: string; email: string }; teams: Array<{ id: string; name: string; joined: boolean }>;
   onDone: () => void; onSignOut: () => void; onJoinTeam: (teamId: string) => Promise<void>;
@@ -386,7 +342,6 @@ export function SignedInInvite({ me, teams, onDone, onSignOut, onJoinTeam }: {
   const problem = inviteProblem(info, kind);
   if (problem) return <Shell headline="This link can’t be used" sub={<>{problem} {you}</>}><div className="auth-actions">{continueBtn}</div></Shell>;
   if (kind === 'join') {
-    // already in the workspace: the link's team is one click away
     const team = teams.find(t => t.name === info.teams?.[0]);
     return (
       <Shell headline={`Join ${info.teams?.[0] ?? 'this team'}`} sub={<>{you} {team?.joined ? `You’re already on ${team.name}.` : 'You’re already in this workspace, so you can join the team now.'}</>}>
@@ -431,7 +386,6 @@ function Forgot({ onBack }: { onBack: () => void }) {
   );
 }
 
-/* ---------- a one-use reset link (from an admin, or a forgot-password email) ---------- */
 function ResetPassword({ token, ctx }: { token: string; ctx: Ctx }) {
   const [info, setInfo] = useState<ResetInfo | null>(null);
   const [password, setPassword] = useState('');

@@ -1,11 +1,9 @@
-// A single-line text field as data: the value and a cursor counted in characters, edited by key names.
 
 export interface TextField { value: string; cursor: number }
 
 export const emptyField: TextField = { value: '', cursor: 0 };
 export const fieldOf = (value: string): TextField => ({ value, cursor: [...value].length });
 
-/** the field after one key, or null when the key isn't an edit (so the caller can treat it as a command) */
 export function editField(f: TextField, name: string, raw: string): TextField | null {
   const chars = [...f.value];
   const at = Math.min(f.cursor, chars.length);

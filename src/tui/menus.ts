@@ -1,5 +1,3 @@
-// The space menu and its submenus, as data. The space menu's rows are the list's own letters, read from
-// the keymap, so the menu teaches exactly the keys that work without it. Pure.
 import type { Handoff, Issue } from '../core/types.js';
 import type { TuiData } from './data.js';
 import { fieldRows } from './detail.js';
@@ -14,10 +12,8 @@ export type MenuId = 'actions' | 'edit' | 'agent' | 'copy';
 export interface MenuCtx {
   issue: Issue;
   data: TuiData;
-  /** the issue's handoff (prompt, branch, link), once fetched */
   handoff: Handoff | undefined;
   env: NodeJS.ProcessEnv;
-  /** where an agent would run, and a note when the issue's location isn't on this disk */
   where: { cwd: string; note: string | null };
   now: number;
 }
@@ -25,18 +21,14 @@ export interface MenuCtx {
 export interface MenuRow {
   key: string;
   label: string | ((c: MenuCtx) => string);
-  /** the dim column: the field's current value, or what the row does */
   value?: (c: MenuCtx) => Seg[];
   command: CommandId;
-  /** rows with the same section sit together; a rule separates sections */
   section: number;
-  /** true, or why the row can't run here */
   enabled?: (c: MenuCtx) => true | string;
 }
 
 export interface Menu { title: (c: MenuCtx) => string; rows: MenuRow[]; extra?: (c: MenuCtx, width: number) => Line[] }
 
-/** commands that open a submenu: from a list they open it, inside a menu they step into it */
 export const SUBMENU: Partial<Record<CommandId, MenuId>> = { editMenu: 'edit', agentMenu: 'agent', copyMenu: 'copy' };
 
 const dim = (text: string): Seg[] => [{ text, color: theme.muted }];
@@ -102,7 +94,6 @@ export const MENUS: Record<MenuId, Menu> = {
   },
 };
 
-/** "will run $ claude '…'" and where: the agent menu and / show it before anything starts */
 export function agentPreview(c: MenuCtx, width: number): Line[] {
   const cmd = agentCommand(c.handoff?.prompt ?? '…', c.env);
   const loc = c.issue.locationId ? c.data.locations.find(l => l.id === c.issue.locationId) : undefined;
@@ -115,7 +106,6 @@ export function agentPreview(c: MenuCtx, width: number): Line[] {
 
 export const rowLabel = (r: MenuRow, c: MenuCtx) => (typeof r.label === 'string' ? r.label : r.label(c));
 
-/** the key that opened each step of the menu path: "space › w" */
 export function menuTrail(path: readonly MenuId[]): string[] {
   return path.map((id, i) => {
     if (i === 0) return id === 'actions' ? directBinding('actions')!.keys[0] : directBinding(Object.entries(SUBMENU).find(([, m]) => m === id)![0] as CommandId)!.keys[0];
@@ -123,13 +113,10 @@ export function menuTrail(path: readonly MenuId[]): string[] {
   });
 }
 
-// ---------- the ? card ----------
-
 const HELP_ORDER: Task[] = ['Move around', 'Decide', 'Change an issue', 'Agents and copying', 'Find and views'];
 
 export interface HelpRow { key: string; label: string; sub?: boolean }
 
-/** every key once, by what you are trying to do; a key that opens a submenu is followed by that submenu's letters */
 export function helpSections(env: NodeJS.ProcessEnv = process.env): Array<{ group: Task; rows: HelpRow[] }> {
   const sections = new Map<Task, HelpRow[]>(HELP_ORDER.map(g => [g, []]));
   const seen = new Set<string>();
@@ -149,7 +136,6 @@ export function helpSections(env: NodeJS.ProcessEnv = process.env): Array<{ grou
   return [...sections].map(([group, rows]) => ({ group, rows }));
 }
 
-/** the first-launch card: the five rules every key follows, and why trying things is safe */
 export function introLines(data: TuiData, tabs: number, target: string, width: number): Line[] {
   const first = data.currentUser.name.split(/\s+/)[0];
   const row = (k: string, text: string): Line => [{ text: k, color: theme.key, bold: true }, { text: ' '.repeat(Math.max(2, 8 - k.length)) }, { text }];

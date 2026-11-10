@@ -1,40 +1,26 @@
 @import 'tailwindcss';
-/* Linear's faces (OFL, self-hosted so the app keeps working offline):
-   Inter Variable with the optical-size axis on everything (text cut at UI sizes, display cut on titles),
-   with Linear's cv01 + ss03 features. Code is Berkeley Mono on Linear (commercial), used when installed,
-   otherwise JetBrains Mono. */
 @import '@fontsource-variable/inter/opsz.css';
 @import '@fontsource-variable/jetbrains-mono';
 
-/* ---------- motion tokens (canonical spec: "Design polish and refinement" handover) ----------
-   Global ease cubic-bezier(.16,1,.3,1). Durations: hover 110ms · menu 150ms · modal 220ms in / 140ms out
-   · toast 260ms in / 220ms out · status morph 260+240ms · reflow 300+340ms · progress 900ms · shimmer 1.6s. */
 :root {
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* ---------- brand faces ---------- */
   --font-ui: 'Inter Variable', 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-  /* one family, as on Linear: titles get Inter's display cut through the optical-size axis */
   --font-display: var(--font-ui);
-  /* Linear's weight stops */
   --fw-regular: 400; --fw-medium: 510; --fw-semibold: 590; --fw-bold: 680;
-  /* Linear sets IDs, dates and counts in the UI font with tabular figures; only code is monospace */
   --font-mono: inherit;
   --font-code: 'Berkeley Mono', 'JetBrains Mono Variable', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
 
-  /* ---------- brand grounds (constant across themes, because these ARE the brand) ---------- */
   --brand-ink: #14151a;
   --brand-paper: #f3f1ec;
-  --brand-register: #5e6ad2;   /* same value as --brand */
+  --brand-register: #5e6ad2;
   --brand-graphite: #6b6f76;
   --register-w: 2px;
 }
 
-/* ---------- theme tokens (dark is the default; values sampled from reference) ---------- */
 :root, :root[data-theme='dark'] {
   --bg-main: #121213;
   --bg-sidebar: #09090a;
-  /* app tile: paper cut on dark chrome (see Logo.tsx) */
   --logo-ground: var(--brand-paper);
   --logo-fg: var(--brand-ink);
   --logo-edge: rgba(9, 9, 10, 0.1);
@@ -45,8 +31,6 @@
   --bg-input: #17181a;
   --bg-pill: #1d1d1f;
   --bg-pill-selected: #f7f8f8;
-  /* text ladder measured from Linear Dark: four neutral steps (no blue cast).
-     --text-strong is the bright-secondary tier: labels that sit just under primary */
   --text-primary: #ffffff;
   --text-strong: #e3e4e6;
   --text-secondary: #949496;
@@ -58,14 +42,12 @@
   --brand-hover: #6e79d6;
   --brand-dim: rgba(94, 106, 210, 0.18);
   --green: #4cb782;
-  --danger: #eb5757; /* errors and destructive actions */
+  --danger: #eb5757;
   --hairline: rgba(255, 255, 255, 0.06);
   --scrim: rgba(9, 9, 10, 0.55);
   --skel: rgba(255, 255, 255, 0.06);
   --skel-hi: rgba(255, 255, 255, 0.13);
   --inner-hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-  /* raised surfaces on --bg-main: a half-pixel light ring plus a soft drop,
-     so cards lift off the panel instead of being outlined on it */
   --card-ring: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 0.5px 1px 1px rgba(0, 0, 0, 0.3);
   --card-ring-hover: 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 0.5px 1px 1px rgba(0, 0, 0, 0.3);
   --shadow-overlay: 0 16px 32px -16px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.07);
@@ -82,10 +64,7 @@
   --prio-medium: #f2c94c;
   --prio-low: #8a8f98;
   --label-bg-alpha: 0.13;
-  /* visible hairline on --bg-main: group headers, spines, cut rules */
   --rule: rgba(255, 255, 255, 0.14);
-  /* paper is the primary action; on a light ground it inverts to ink so the
-     "one solid, unmistakable button per surface" idea survives the theme */
   --action-bg: var(--brand-paper);
   --action-bg-hover: #ffffff;
   --action-fg: var(--brand-ink);
@@ -95,7 +74,6 @@
 :root[data-theme='light'] {
   --bg-main: #ffffff;
   --bg-sidebar: #f3f3f4;
-  /* app tile: ink cut on light chrome */
   --logo-ground: var(--brand-ink);
   --logo-fg: var(--brand-paper);
   --logo-edge: rgba(255, 255, 255, 0.09);
@@ -142,7 +120,6 @@
   --action-key-fg: #9a9ea6;
 }
 
-/* ---------- base ---------- */
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 body {
@@ -163,7 +140,6 @@ body {
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 4px; }
 *::-webkit-scrollbar-track { background: transparent; }
-/* nav columns: the thumb only shows while the pointer is over them (it read as a stray grey bar) */
 .settings-nav::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb { background: transparent; }
 .settings-nav:hover::-webkit-scrollbar-thumb, .sidebar:hover::-webkit-scrollbar-thumb { background: var(--scrollbar); }
 button { font: inherit; letter-spacing: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
@@ -173,20 +149,14 @@ a { color: inherit; text-decoration: none; }
 b, strong { font-weight: 590; }
 svg { display: block; flex: none; }
 
-/* ---------- type scale (tracking is the part that matters) ----------
-   display 26/600/-3% · title 17/600/-2.5% · row 13/500/-1% · label 12/500/0 · meta 11/400/+1%.
-   Never positive tracking above 12px. */
 
-/* issue keys, counts, estimates, dates and key caps: UI font with tabular figures (as on Linear) */
 code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .bc-key, .cal-day, .kbd, [data-tabular] {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-/* the brand voice (sign-in, marketing): the same family at display weight */
 
-/* ---------- motion vocabulary (bl-*) ---------- */
 @keyframes bl-menu-in {
   from { opacity: 0; transform: translateY(var(--menu-dy, -4px)) scale(0.97); }
   to { opacity: 1; transform: none; }
@@ -235,11 +205,9 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   0% { background-position: -220px 0; }
   100% { background-position: 320px 0; }
 }
-/* done-state morph: circle fills from centre, then the check draws */
 .st-fill { transform-origin: 7.5px 7.5px; animation: bl-fill 260ms var(--ease) both; }
 .st-check { stroke-dasharray: 14; animation: bl-check 240ms var(--ease) 170ms both; }
 
-/* every interactive element eases its state changes instead of snapping (110ms) */
 .nav-item,.seg,.tab,.icon-btn,.btn,.pill,.prop-chip,.prop-line,.menu-item,.cal-day,.proj-chip,.rail-kv,.ws-switch,.gh-chevron,.reaction-chip,.cm-team,.due-chip,.empty-actions .btn {
   transition: background 110ms ease, color 110ms ease, border-color 110ms ease, box-shadow 110ms ease;
 }
@@ -262,15 +230,12 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   background: var(--bg-hover); border: 1px solid var(--border); border-radius: 4px;
 }
 
-/* ---------- app layout ---------- */
-/* Linear's frame: the nav sits on the app ground, the page is an inset panel beside it */
 .app { display: flex; height: 100%; background: var(--bg-sidebar); }
 .app:has(> .sidebar:not(.collapsed)) > .main {
   margin: 8px 8px 8px 0; border-radius: 12px; overflow: hidden;
   border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
-/* ---------- sidebar (metrics sampled from Linear's production nav) ---------- */
 .sidebar {
   width: 244px; flex: none; display: flex; flex-direction: column;
   background: var(--bg-sidebar); user-select: none;
@@ -281,7 +246,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .sidebar-main { flex: 1; overflow-y: auto; padding: 10px 10px 16px 12px; }
 .ws-row { display: flex; align-items: center; gap: 4px; margin-bottom: 12px; }
 .ws-row .ws-actions { display: flex; align-items: center; gap: 4px; }
-/* the collapse toggle only appears while the pointer is in the header row */
 .ws-row .ws-collapse { opacity: 0; transition: opacity 110ms ease; }
 .ws-row:hover .ws-collapse, .ws-row .ws-collapse:focus-visible { opacity: 1; }
 .ws-new {
@@ -329,8 +293,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .nav-item > svg { flex: none; color: var(--text-secondary); }
 .nav-item.active > svg { color: var(--text-primary); }
 .nav-item:hover { background: var(--bg-hover); }
-/* Active state is a register line UNDER the label, never a filled pill or an
-   inset rail. The line is the width of the label, not the row. */
 .nav-item.active { background: none; color: var(--text-primary); font-weight: 590; letter-spacing: -0.015em; }
 .nav-item .nav-label { flex: 1; min-width: 0; }
 .nav-item .nav-text-wrap { display: inline-block; position: relative; max-width: 100%; vertical-align: bottom; }
@@ -355,7 +317,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .nav-sub { display: flex; flex-direction: column; gap: 1px; padding-left: 18px; }
 .fav-emoji { flex: none; width: 15px; text-align: center; font-size: 13px; opacity: .75; }
 
-/* ---------- main column ---------- */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-main); }
 .page-host { flex: 1 1 0%; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .topbar {
@@ -374,8 +335,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .subnav {
   height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px;
 }
-/* List tabs: label + 2px register line, no filled pill. `.seg-fill` opts a true
-   segmented control (theme picker, layout toggle) back into the old chip. */
 .seg {
   position: relative;
   display: flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 7px 7px 0 0;
@@ -390,7 +349,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .seg:hover { background: var(--bg-hover); color: var(--text-primary); }
 .seg.selected { color: var(--text-primary); font-weight: 590; letter-spacing: -0.015em; }
 .seg.selected::after { background: var(--brand-register); }
-/* a sliding RegisterMark replaces the static line wherever one is rendered */
 .register-mark {
   position: absolute; left: 0; right: 0; bottom: 0;
   height: var(--register-w); background: var(--brand-register);
@@ -402,7 +360,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .seg.seg-fill.selected { background: var(--bg-active); }
 .content { flex: 1; overflow-y: auto; position: relative; }
 
-/* ---------- pills / chips ---------- */
 .pill {
   display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px;
   border-radius: 6px; font-size: 12px; color: var(--text-secondary); background: transparent;
@@ -424,9 +381,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 }
 .label-dot { width: 7px; height: 7px; border-radius: 999px; }
 
-/* ---------- issue list ---------- */
-/* The label and count CUT a rule that runs to the right edge. There is no band
-   and no extra surface colour; the group-header band token is gone entirely. */
 .group-header {
   display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px;
   background: var(--bg-main);
@@ -453,23 +407,16 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   cursor: default; position: relative;
 }
 .issue-row:hover { background: var(--bg-hover); }
-/* Bulk selection INVERTS to paper. It is easy to see and needs no new colour. */
 .issue-row.selected { background: var(--brand-paper); color: var(--brand-ink); }
 .issue-row.selected .row-title { color: var(--brand-ink); font-weight: 590; letter-spacing: -0.015em; }
 .issue-row.selected .issue-key, .issue-row.selected .row-date { color: var(--brand-graphite); }
 .issue-row.selected .label-pill { color: var(--brand-ink); }
 .issue-row.selected .due-chip { background: rgba(20, 21, 26, 0.07); color: var(--brand-graphite); }
-/* keyboard cursor + focus render as a 2px brand rail, not a full inset ring,
-   because the rail is much quieter during fast J/K travel */
 .issue-row.focused, .issue-row.cursor { box-shadow: inset 2px 0 0 var(--brand); }
-/* optimistic reflow: the row expands into its new group with one brand flash,
-   so the eye can follow where it moved */
 .issue-row.just-moved {
   overflow: hidden;
   animation: bl-enter 340ms var(--ease) both, bl-flash 900ms ease 220ms both;
 }
-/* a new issue animates the same way. The row is new, not moved, so it enters
-   over the same 340ms and gets the same single flash */
 .issue-row.leaving {
   overflow: hidden;
   pointer-events: none;
@@ -477,19 +424,14 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 }
 .board-card.just-moved { animation: bl-card-enter 340ms var(--ease) both, bl-flash 900ms ease 220ms both; }
 .board-card.leaving { pointer-events: none; animation: bl-card-leave 260ms var(--ease) both; }
-/* The checkbox holds its own slot at the row's start, hidden until needed, so
-   showing it never covers the priority or key and never shifts the row. */
 .issue-row .row-check {
   display: flex; flex: none; width: 14px; height: 14px; margin: 0; padding: 0;
   visibility: hidden; opacity: 0;
 }
-/* Linear behavior: once anything is selected, every row shows its checkbox */
 .issue-row.checks-on .row-check, .issue-row:hover .row-check, .issue-row.selected .row-check,
 .issue-row .row-check:focus-visible {
   visibility: visible; opacity: 1;
 }
-/* Drawn checkbox: hairline box that fills brand and draws its tick (the same
-   stroke-dash the done-state morph uses), rather than the platform's control. */
 .row-check {
   appearance: none; -webkit-appearance: none; cursor: pointer;
   align-items: center; justify-content: center;
@@ -510,11 +452,9 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .issue-key { width: 52px; flex: none; font-size: 12px; font-weight: 400; color: var(--text-dim); }
 .row-title-wrap { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; }
 .row-title-wrap .row-title { flex: 0 1 auto; }
-/* a sub-issue away from its parent names the parent, muted, after its own title */
 .row-parent { display: inline-flex; align-items: center; gap: 3px; flex: 0 1000 auto; min-width: 40px; color: var(--text-dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-parent svg { flex: none; }
 .issue-row.selected .row-parent { color: var(--brand-graphite); }
-/* a sub-issue under its parent's row steps in and hangs off a short elbow */
 .issue-row.child { padding-left: calc(16px + var(--depth, 1) * 22px); }
 .issue-row.child::before {
   content: ''; position: absolute; top: 0; height: 50%; width: 9px;
@@ -532,14 +472,12 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   font-size: 8.5px; font-weight: 590; color: #fff;
 }
 .avatar.placeholder { color: var(--text-dim); }
-/* agent identity is a neutral tinted square with a brand-tinted glyph, not a colour-coded disc */
 .avatar.agent {
   background: var(--bg-pill); color: var(--text-secondary);
   box-shadow: inset 0 0 0 1px var(--border);
 }
 .avatar.agent svg { stroke-width: 1.5; }
 
-/* ---------- buttons ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: 30px; padding: 0 12px; border-radius: 8px; font-weight: 590;
@@ -549,23 +487,16 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .btn:disabled { opacity: 0.4; cursor: default; }
 .btn:disabled:hover { background: var(--bg-pill); }
 .btn.primary:disabled:hover { background: var(--action-bg); }
-/* Paper marks the primary action, one per surface. Indigo is not a button
-   colour; it stays a signal. */
 .btn.primary {
   background: var(--action-bg); border-color: transparent; color: var(--action-fg);
   font-weight: 590; letter-spacing: -0.01em; border-radius: 7px;
 }
 .btn.primary:hover { background: var(--action-bg-hover); }
-/* Secondary: transparent with a hairline. */
 .btn.secondary { background: transparent; border-color: var(--border-strong); color: var(--text-secondary); border-radius: 7px; }
 .btn.secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
 .btn .btn-kbd { margin-left: 2px; opacity: 0.7; }
-/* a chord as separate caps (⌘ ↵), same as tooltips and the palette footer.
-   One cap holding two glyphs is hard to read */
 .btn .btn-keys { display: inline-flex; gap: 3px; margin-left: 4px; }
 .btn .btn-keys .kbd { min-width: 18px; height: 18px; padding: 0 3px; font-size: 11.5px; font-family: -apple-system, system-ui, sans-serif; }
-/* keyboard hint on the paper button: graphite on paper. The ground already
-   gives enough contrast, so the chip has no fill */
 .btn.primary .kbd {
   color: var(--action-key-fg);
   background: transparent;
@@ -573,9 +504,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   opacity: 1;
 }
 
-/* ---------- menus ---------- */
-/* Menus portal to document.body, so their z-index must beat .overlay (100):
-   menus opened from inside the create modal have to paint above it. */
 .menu-backdrop { position: fixed; inset: 0; z-index: 119; }
 .menu {
   position: fixed; z-index: 120; min-width: 200px; max-height: calc(100vh - 24px); overflow-y: auto;
@@ -583,17 +511,13 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   box-shadow: var(--shadow-menu);
   animation: bl-menu-in 130ms var(--ease) both;
 }
-/* Close: a quick fade + settle toward the anchor. The owner unmounts at 100ms. */
 .menu.closing { pointer-events: none; animation: bl-menu-out 100ms ease-in both; }
-/* A barely-there stagger (10ms, capped at 6) keeps the cascade without slowing a
-   keyboard user: the whole menu is readable by ~110ms. */
 .menu .menu-item { animation: bl-fade-up 120ms var(--ease) both; }
 .menu .menu-item:nth-child(2) { animation-delay: 10ms; }
 .menu .menu-item:nth-child(3) { animation-delay: 20ms; }
 .menu .menu-item:nth-child(4) { animation-delay: 30ms; }
 .menu .menu-item:nth-child(5) { animation-delay: 40ms; }
 .menu .menu-item:nth-child(n+6) { animation-delay: 50ms; }
-/* one highlight, driven by pointer and arrow keys alike; it snaps, never fades */
 .menu .menu-item { transition: none; }
 .menu .menu-item:hover:not(.highlighted),
 .modal-palette .menu-item:hover:not(.highlighted) { background: transparent; }
@@ -624,13 +548,10 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   background: var(--bg-input); border: 1px solid var(--border);
 }
 
-/* ---------- overlays ---------- */
 .overlay {
   position: fixed; inset: 0; z-index: 100; background: var(--scrim);
   backdrop-filter: blur(3px);
   display: flex; justify-content: center;
-  /* content-height modals (.modal-create height:auto) must not be stretched
-     by the flex default; both overlays are top-anchored via margin-top */
   align-items: flex-start;
 }
 .modal {
@@ -639,31 +560,24 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 }
 .modal-create { width: 760px; height: auto; margin-top: 9vh; transition: width 220ms var(--ease), height 220ms var(--ease); }
 .modal-create.expanded { width: min(1080px, calc(100vw - 80px)); height: min(820px, 82vh); }
-/* the palette is as tall as its results (capped), not a fixed box */
 .modal-palette { width: 640px; height: auto; max-height: min(480px, 72vh); margin-top: 14vh; }
 
-/* create issue modal */
 .cm-root { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .cm-header { display: flex; align-items: center; gap: 6px; padding: 14px 16px 0; color: var(--text-secondary); font-size: 13px; }
 .cm-title { padding: 12px 18px 0; }
-/* the title is the most prominent text in the modal and sits well clear of the description */
 .cm-title input { width: 100%; font-size: 19px; font-weight: 590; letter-spacing: -0.022em; line-height: 26px; }
 .cm-title input::placeholder { color: var(--text-dim); }
-/* description is content-height (JS auto-grow) so the modal stays compact like
-   Linear's; expanded mode stretches it to fill instead */
 .cm-desc { padding: 6px 18px 8px; flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 .cm-desc textarea { width: 100%; min-height: 76px; max-height: 40vh; resize: none; font-size: 13.5px; line-height: 21px; color: var(--text-primary); }
 .cm-desc textarea::placeholder { color: var(--text-dim); }
 .modal-create.expanded .cm-desc { flex: 1 1 0%; }
 .modal-create.expanded .cm-desc textarea { height: 100%; max-height: none; }
 .cm-pills { display: flex; align-items: center; gap: 6px; padding: 8px 18px 14px; flex-wrap: wrap; }
-/* borderless filled chips (Linear create-modal style), scoped here so other views keep .boxed */
 .cm-pills .prop-chip {
   height: 28px; padding: 0 10px; border-radius: 7px;
   background: var(--bg-pill); border: 1px solid transparent;
 }
 .cm-pills .prop-chip:hover { background: var(--bg-active); color: var(--text-primary); }
-/* chosen values look like content; empty chips look like prompts */
 .cm-pills .prop-chip.set { color: var(--text-primary); }
 .cm-pills .prop-chip { max-width: 220px; }
 .cm-pills .prop-chip > svg, .cm-pills .prop-chip > .avatar, .cm-pills .prop-chip > .proj-icon { flex: none; }
@@ -679,7 +593,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .cm-more[aria-checked='true'] { color: var(--text-primary); }
 .cm-footer { display: flex; align-items: center; padding: 10px 14px 10px 12px; border-top: 1px solid var(--hairline); }
 .cm-footer .btn.primary { height: 32px; padding: 0 14px; }
-/* suggested label: a dashed ghost at the end of the chip row */
 .cm-pills .prop-chip.cm-suggest-chip {
   background: transparent; border: 1px dashed var(--border-strong); color: var(--text-secondary);
   animation: bl-fade-up 180ms var(--ease) both;
@@ -704,8 +617,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .cm-link { font-size: 12px; color: var(--text-secondary); padding: 3px 6px; border-radius: 5px; transition: background 110ms ease, color 110ms ease; }
 .cm-link:hover { color: var(--text-primary); background: var(--bg-hover); }
 
-/* new-project modal (Linear create-project layout: icon chip above a big
-   borderless name, pills, then a tall description area) */
 .np-modal { width: 640px; }
 .cy-modal { width: 460px; }
 .np-head { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px 0; }
@@ -718,7 +629,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .np-desc { padding: 2px 16px 0; }
 .np-desc textarea { width: 100%; min-height: 150px; max-height: 34vh; resize: none; line-height: 1.55; }
 
-/* toggle */
 .toggle { width: 28px; height: 16px; border-radius: 999px; background: var(--bg-active); position: relative; transition: background 120ms; flex: none; }
 .toggle::after {
   content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
@@ -727,14 +637,12 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .toggle.on { background: var(--brand); }
 .toggle.on::after { transform: translateX(12px); }
 
-/* palette */
 .pal-scope { display: flex; align-items: center; gap: 6px; padding: 12px 16px 0; flex-wrap: wrap; }
 .pal-scope-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-hover); border-radius: 6px; padding: 2px 4px 2px 8px; color: var(--text-secondary); font-size: 12px; max-width: 280px; }
 .pal-scope-chip .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal-scope-chip .chip-x { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; color: var(--text-dim); flex: none; }
 .pal-scope-chip .chip-x:hover { color: var(--text-primary); background: var(--bg-active); }
 
-/* invite dialog: one field of people chips (the palette's scope chip, with an avatar) over a type-ahead menu */
 .invite-field { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; height: auto; min-height: 30px; margin-top: 6px; padding: 3px 4px; cursor: text; }
 .invite-field input { flex: 1; min-width: 120px; height: 22px; padding: 0 4px; }
 .invite-field input::placeholder { color: var(--text-dim); }
@@ -756,7 +664,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .pal-key .pal-hl { color: var(--text-primary); font-weight: 510; }
 .pal-empty { padding: 18px 12px; color: var(--text-dim); font-size: 12.5px; }
 
-/* ---------- issue page ---------- */
 .issue-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .issue-body { flex: 1; display: flex; min-height: 0; container-type: inline-size; }
 .issue-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
@@ -767,7 +674,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   width: 100%; padding: 0 0 10px;
 }
 .issue-toolbar { display: flex; align-items: center; gap: 6px; }
-/* hand-off controls: round, hairline-bordered buttons; the prompt + caret pair shares one pill */
 .tb-btn {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 999px; color: var(--text-secondary);
@@ -783,7 +689,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .tb-split:hover { border-color: var(--border-strong); }
 .tb-split.open .tb-caret { background: var(--bg-hover); color: var(--text-primary); }
 
-/* flyout menus (MenuSub) render outside their parent menu, so hover drives their highlight */
 .menu.submenu .menu-item:hover { background: var(--bg-hover); }
 .menu-item.sub-open { background: var(--bg-hover); }
 
@@ -791,7 +696,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .settings-block .field-row:first-child { padding-top: 0; }
 .settings-block .field-row:last-child { padding-bottom: 0; border-bottom: 0; }
 .settings-h2 { font-size: 14px; font-weight: 590; margin: 22px 0 4px; letter-spacing: -0.01em; }
-/* ---------- sub-issues on the issue page ---------- */
 .parent-line { display: flex; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 13px; color: var(--text-secondary); min-width: 0; }
 .parent-line-label { flex: none; }
 .parent-line-link { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 6px; margin-left: -6px; border-radius: 6px; color: var(--text-primary); }
@@ -820,7 +724,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .est-num { font-size: 12px; font-weight: 590; width: 16px; text-align: center; }
 
 .rail-kv-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* locations */
 .prop-line.warn { color: var(--prio-urgent); }
 .prop-line.warn svg { color: var(--prio-urgent); }
 .mi-loc { font-family: var(--font-ui); font-size: 11.5px; color: var(--text-dim); max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -873,7 +776,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .comment-box textarea { width: 100%; min-height: 44px; resize: none; }
 .rel-time { color: var(--text-dim); font-size: 12px; }
 
-/* markdown */
 .md { font-size: 14px; line-height: 24px; color: var(--text-primary); }
 .md p { margin: 0 0 10px; }
 .md h1, .md h2, .md h3 { margin: 18px 0 8px; font-weight: 590; letter-spacing: -0.014em; }
@@ -891,13 +793,9 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .md hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 .md a { color: var(--brand); }
 
-/* ---------- board ----------
-   Fixed-width lanes on the canvas, no divider rules: the lane surface itself is
-   the column (and the drop zone). Cards are flat, with a hairline and no resting shadow;
-   lift and shadow are kept for the one card being dragged. */
 .board {
   --lane-w: 304px;
-  --lane-bg: color-mix(in srgb, var(--text-primary) 1.2%, var(--bg-main)); /* near the panel, as in Linear, so cards (--bg-overlay + ring) lift off it */
+  --lane-bg: color-mix(in srgb, var(--text-primary) 1.2%, var(--bg-main));
   display: flex; gap: 10px; height: 100%; padding: 2px 16px 14px;
   overflow-x: auto; overflow-y: hidden;
 }
@@ -909,7 +807,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   box-shadow: inset 0 0 0 1px transparent;
   transition: box-shadow 140ms ease, background 140ms ease;
 }
-/* the live drop target: the lane takes a brand hairline and a faint tint */
 .board-col.drop-active {
   background: color-mix(in srgb, var(--brand) 5%, var(--lane-bg));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 45%, transparent);
@@ -923,7 +820,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   color: var(--text-dim); font-weight: 400; font-size: 11px;
   font-family: var(--font-mono); font-variant-numeric: tabular-nums;
 }
-/* "+" always shows, so making an issue in a column never depends on finding a hover target; "…" waits for the header */
 .board-col-header .col-actions { margin-left: auto; display: flex; gap: 2px; }
 .board-col-header .col-actions .icon-btn { color: var(--text-dim); }
 .board-col-header .col-actions .icon-btn:hover { color: var(--text-primary); }
@@ -935,7 +831,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   scrollbar-width: thin;
 }
 
-/* Hidden columns: a quiet panel at the end of the board; each row counts its issues and takes drops */
 .board-hidden { flex: none; width: 248px; display: flex; flex-direction: column; gap: 6px; padding: 4px 0 0 8px; margin-left: auto; }
 .bh-head {
   display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px; border-radius: 7px;
@@ -954,7 +849,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .bh-row.drop-active { background: color-mix(in srgb, var(--brand) 6%, var(--lane-bg)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 45%, transparent); }
 .bh-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* empty lane: says so, and offers the one useful action */
 .lane-empty {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 22px 0 18px; border: 1px dashed var(--border); border-radius: 8px;
@@ -967,7 +861,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   transition: background 110ms ease, color 110ms ease, opacity 120ms ease;
 }
 .lane-add:hover { background: var(--bg-hover); color: var(--text-primary); }
-/* the trailing add row only appears while the pointer is in the lane */
 .lane-add.trailing { justify-content: flex-start; width: 100%; height: 30px; padding: 0 8px; opacity: 0; }
 .board-col:hover .lane-add.trailing, .lane-add.trailing:focus-visible { opacity: 1; }
 
@@ -1014,8 +907,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .board-card .bc-proj { font-size: 11px; flex: none; }
 .board-card .bc-chip.overdue { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
 .board-card .bc-created { font-size: 12px; color: var(--text-dim); }
-/* editable properties: each chip, the status icon and the avatar open their picker in place.
-   On hover they take the row-hover tint, like Linear's card chips. */
 .board-card .bc-menus { display: contents; }
 .board-card .bc-status { display: inline-flex; flex: none; margin-top: 2px; }
 .board-card .bc-status.editable { margin: -1px -3px 0; padding: 3px; border-radius: 5px; }
@@ -1029,19 +920,14 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .board-card .bc-avatar.unassigned { opacity: 0; }
 .board-card:hover .bc-avatar.unassigned, .board-card.cursor .bc-avatar.unassigned { opacity: 1; }
 
-/* finished work is dimmed, so it stays readable but draws less attention */
 .board-card.is-done .bc-title, .board-card.is-canceled .bc-title { color: var(--text-secondary); }
 .board-card.is-canceled .bc-title { text-decoration: line-through; text-decoration-color: var(--text-dim); }
 .board-card.is-done .bc-avatar, .board-card.is-canceled .bc-avatar { opacity: 0.6; }
 
-/* while a card is dragged the sortable strategy closes its source slot and opens
-   one at the drop index, and that slot is drawn as a dashed outline */
 .board-card.source-hidden {
   background: transparent; border: 1px dashed var(--border-strong);
 }
 .board-card.source-hidden > * { visibility: hidden; }
-/* picked up: the card lifts off the board (scale + a slight tilt), then settles
-   back flat as the drop animation moves it into its slot */
 .board-card.overlay-card {
   cursor: grabbing; border-color: var(--border-strong);
   box-shadow: 0 16px 36px -8px rgba(9, 9, 10, 0.32), 0 2px 6px rgba(9, 9, 10, 0.12);
@@ -1057,10 +943,8 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
   to { transform: rotate(1.4deg) scale(1.025); }
 }
 
-/* ---------- projects ---------- */
 .proj-head { color: var(--text-dim); font-size: 12px; font-weight: 510; height: 34px; border-bottom: 1px solid var(--border); }
 .health-dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
-/* views index: same table language as projects */
 .view-grid {
   display: grid; align-items: center; column-gap: 16px; padding: 0 12px;
   grid-template-columns: minmax(200px, 320px) minmax(0, 1fr) 56px 24px;
@@ -1098,7 +982,6 @@ code, kbd, .mono, .issue-key, .row-date, .rel-time,
 .tab.selected { color: var(--text-primary); font-weight: 590; letter-spacing: -0.015em; }
 .tab.selected::after { background: var(--brand-register); }
 
-/* ---------- project page overview ---------- */
 .proj-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px;
   border-radius: 8px; font-size: 12.5px; color: var(--text-primary); text-align: left;
@@ -1120,10 +1003,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 }
 .rail-kv-value.dim { color: var(--text-dim); }
 
-/* ---------- print / export card ----------
-   In print the page shows the tile's paper cut, the serif wordmark,
-   the key in mono, and one ink rule under the header. Everything interactive
-   is hidden. */
 .print-head { display: none; }
 @media print {
   :root { color-scheme: light; }
@@ -1137,9 +1016,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
   .print-rule { height: 1.6px; background: #14151a; margin-top: 9px; }
 }
 
-/* ---------- boot ----------
-   Tile + a 2px paper rule beneath it, 1.4s alternate. Square ends; the rule is
-   the only thing that moves. */
 .boot { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; }
 .boot-rule { width: 96px; height: 2px; background: var(--border-strong); }
 .boot-rule span { display: block; height: 2px; background: var(--brand-paper); animation: bl-deplete 1.4s linear infinite alternate; }
@@ -1147,7 +1023,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
   .boot-rule span { animation: none; width: 100%; }
 }
 
-/* ---------- toasts ---------- */
 .toasts { position: fixed; right: 16px; bottom: 16px; z-index: 200; display: flex; flex-direction: column; gap: 8px; width: 340px; }
 .toast {
   background: var(--bg-menu); border-radius: 10px; box-shadow: var(--shadow-menu);
@@ -1156,12 +1031,9 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .toast .toast-title { font-weight: 590; display: flex; align-items: center; gap: 6px; }
 .toast .toast-line { color: var(--text-secondary); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
 .toast a, .toast .toast-link { color: var(--brand); font-weight: 510; margin-top: 2px; display: inline-block; }
-/* The depleting line IS the register line: full width -> 0 over the store's
-   5200ms undo window, square ends, on the toast's bottom edge. */
 .toast { position: relative; overflow: hidden; }
 .toast-line-track { position: absolute; left: 0; right: 0; bottom: 0; height: var(--register-w); }
 .toast-line-fill { height: 100%; background: var(--brand-register); animation: bl-deplete 5200ms linear both; }
-/* stack of three: the older two recede and drop their line */
 .toast.stacked { opacity: 0.72; }
 .toast.stacked .toast-line-track { display: none; }
 .toast:hover .toast-line-fill { animation-play-state: paused; }
@@ -1169,26 +1041,18 @@ button.rail-kv:hover { background: var(--bg-hover); }
   .toast-line-fill { animation: none; width: 100%; }
 }
 
-/* ---------- inbox ----------
-   Split view: a list of two-line rows beside a live preview of the selected issue. A row is the
-   mark on the left (who, with a small corner mark for the kind; a tile when no person acted, its
-   tone saying whether it waits on you), the key and title, and one sentence of what happened.
-   No tags on the row. Selection is the shared list cursor (J/K), drawn as the register rail. */
 .inbox { display: flex; flex: 1; min-height: 0; }
 .inbox-list { width: 420px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--hairline); }
 .inbox-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; position: relative; }
 .inbox-preview .issue-scroll { padding: 24px 32px 80px 36px; }
-/* a narrow preview gives the text room: the properties rail folds away */
 @media (max-width: 1320px) { .inbox-preview .props-rail { display: none; } }
 @media (max-width: 1100px) { .inbox-list { width: 360px; } }
 
-/* view tabs: All / Needs you / Agents (the app's pill tabs, as on My issues) */
 .inbox-tabs { height: 44px; gap: 2px; padding: 0 12px; }
 .inbox-tabs .seg { gap: 6px; }
 .inbox-tabs .seg-n { font-size: 11px; font-weight: 510; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .inbox-ask-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--prio-urgent); }
 
-/* group headers (day, Priority, Focus) read as a label on a rule */
 .inbox-group {
   position: sticky; top: 0; z-index: 1; background: var(--bg-main);
   height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 22px;
@@ -1204,7 +1068,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .inbox-row:hover { background: var(--bg-hover); }
 .inbox-row.selected { background: var(--bg-active); box-shadow: inset 2px 0 0 var(--brand-register); }
 .inbox-row.static { cursor: default; }
-/* unread: the register dot in the left gutter, no wash */
 .inbox-row::before {
   content: ''; position: absolute; left: 10px; top: 17px;
   width: 6px; height: 6px; border-radius: 999px; background: transparent;
@@ -1217,7 +1080,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .inbox-pair > :first-child { position: absolute; left: 0; top: 0; }
 .inbox-pair > :last-child { position: absolute; right: -2px; bottom: -2px; box-shadow: 0 0 0 2px var(--bg-main); border-radius: 50%; }
 .inbox-row.selected .inbox-pair > :last-child { box-shadow: 0 0 0 2px var(--bg-active); }
-/* the kind, as a small mark on the avatar's corner */
 .inbox-badge {
   position: absolute; right: -4px; bottom: -3px; width: 14px; height: 14px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
@@ -1252,7 +1114,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .inbox-row:not(.unread) .inbox-what b { color: var(--text-secondary); }
 .inbox-excerpt { color: var(--text-secondary); }
 .inbox-row .hover-only { position: absolute; right: 10px; top: 50%; translate: 0 -50%; background: var(--bg-menu); }
-/* hover: the time steps aside for U, H and ⌫ */
 .inbox-qa {
   position: absolute; right: 10px; top: 8px; display: none; align-items: center; gap: 1px; padding: 1px;
   border-radius: 7px; background: var(--bg-menu); box-shadow: var(--shadow-menu);
@@ -1262,7 +1123,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .inbox-row:has(.inbox-qa):hover .rel-time { visibility: hidden; }
 @media (hover: none) { .inbox-qa { display: none !important; } .inbox-row:hover .rel-time { visibility: visible; } }
 
-/* the list's keys, always in view */
 .inbox-keys {
   flex: none; display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 16px;
   border-top: 1px solid var(--hairline); color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; overflow: hidden;
@@ -1270,7 +1130,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .inbox-keys > span { display: inline-flex; align-items: center; gap: 4px; }
 .inbox-keys .kbd { margin-right: 1px; }
 
-/* a nearly empty inbox: what will land here, on the line */
 .inbox-lands { display: flex; flex-direction: column; gap: 6px; padding: 28px 24px 24px; }
 .inbox-lands-line { position: relative; height: 1.5px; background: var(--rule); margin-bottom: 14px; }
 .inbox-lands-line span { position: absolute; left: 0; top: -6px; width: 13px; height: 13px; margin-left: -1px; border-radius: 50%; background: var(--bg-main); }
@@ -1282,7 +1141,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .inbox-land-on { margin-left: auto; font-size: 11.5px; color: var(--text-secondary); }
 .inbox-lands .btn { margin-top: 10px; }
 
-/* the preview: the notification that brought you here, above the issue, on the line */
 .inbox-why { position: relative; display: flex; gap: 11px; align-items: flex-start; padding: 2px 0 18px; margin-bottom: 22px; }
 .inbox-why::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--rule); }
 .inbox-why::before { content: ''; position: absolute; left: 0; bottom: -0.5px; width: 40px; height: var(--register-w); background: var(--brand-register); z-index: 1; }
@@ -1300,7 +1158,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 }
 .inbox-why-keys { flex: none; display: flex; gap: 2px; margin-top: -2px; }
 
-/* ---------- settings ---------- */
 .settings-layout { display: flex; height: 100%; }
 .settings-nav { width: 240px; flex: none; background: var(--bg-sidebar); padding: 12px 8px; overflow-y: auto; border-right: 1px solid var(--hairline); }
 .settings-nav .back { display: flex; align-items: center; gap: 8px; padding: 6px 8px; color: var(--text-secondary); border-radius: 6px; width: 100%; }
@@ -1311,7 +1168,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .settings-card { max-width: 640px; }
 .field-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); gap: 24px; }
 .field-row:last-child { border-bottom: none; }
-/* a form that needs the full width sits under its label instead of beside it */
 .field-row.stack { flex-direction: column; align-items: stretch; gap: 10px; }
 .label-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .label-form .text-input { height: 30px; }
@@ -1321,17 +1177,13 @@ button.rail-kv:hover { background: var(--bg-hover); }
   background: var(--bg-input); border: 1px solid var(--border);
   font-size: 11.5px; color: var(--text-secondary);
 }
-/* ConfirmButton armed: the consequence, in danger red */
 .btn.armed, .menu-item.armed { color: var(--danger); }
 .btn.armed { background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
-/* a confirmed destructive action ("Replace workspace", "Delete all"): same red as an armed ConfirmButton */
 .icon-btn.armed { width: auto !important; padding: 0 7px; opacity: 1 !important; color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); font-size: 11.5px; font-weight: 510; white-space: nowrap; }
 .btn.danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
 .btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 18%, transparent); }
 .field-label { font-weight: 510; }
 .field-help { color: var(--text-secondary); font-size: 12px; margin-top: 2px; }
-/* Focused input: the bottom hairline thickens 1px -> 2px and turns indigo.
-   The line replaces the focus ring. */
 .text-input {
   height: 30px; padding: 0 10px; border-radius: 6px 6px 0 0; background: var(--bg-input);
   border: 1px solid var(--border); min-width: 200px;
@@ -1356,9 +1208,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
   box-shadow: inset 0 -1px 0 0 var(--brand-register), var(--inner-hi);
 }
 
-/* empty states fade up with staggered icon tiles */
 .empty-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; animation: bl-fade-up 320ms var(--ease) both; }
-/* Empty states look like Linear's: a plain title in the UI font under the mark. */
 .empty-title {
   font-family: var(--font-ui); font-size: 14px; line-height: 1.3; font-weight: 510;
   letter-spacing: -0.005em; margin-bottom: 6px; color: var(--text-primary);
@@ -1367,16 +1217,12 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .empty-desc { color: var(--text-secondary); max-width: 340px; margin-bottom: 16px; animation: bl-fade-up 340ms var(--ease) 165ms both; }
 .empty-actions { display: flex; gap: 8px; animation: bl-fade-up 340ms var(--ease) 210ms both; }
 
-/* loading shimmer: bars at real row height so the list never jumps when data arrives */
 
-/* ---------- v2 additions: cursor, selection, filters, bulk, calendar ---------- */
 .hover-only { opacity: 0; transition: opacity 120ms ease; pointer-events: none; }
 .group:hover .hover-only, .issue-row:hover .hover-only,
 .inbox-row:hover .hover-only, .prop-row:hover .hover-only { opacity: 1; pointer-events: auto; }
 
-/* the J/K cursor is a quiet 2px brand rail (see .issue-row.cursor above) */
 
-/* nested sub-issue rows */
 .issue-row.nested { padding-left: 44px; }
 
 .group-subheader {
@@ -1390,19 +1236,16 @@ button.rail-kv:hover { background: var(--bg-hover); }
   font-family: var(--font-mono); font-size: 10.5px; font-variant-numeric: tabular-nums;
 }
 
-/* filter bar */
 .filterbar {
   display: flex; align-items: center; gap: 6px; padding: 0 16px 8px; flex: none; flex-wrap: wrap;
 }
 
-/* row meta chips */
 .due-chip {
   display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px;
   border-radius: 5px; font-size: 11.5px; color: var(--text-secondary); background: var(--bg-pill);
 }
 .due-chip.overdue { color: var(--danger); }
 
-/* selection pill (Linear-style), which updates live in the command palette's bulk section */
 .bulk-bar {
   position: fixed; bottom: 20px; left: 0; right: 0; margin: 0 auto; width: fit-content; z-index: 80;
   display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 18px;
@@ -1423,7 +1266,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .bulk-actions-btn:hover { background: var(--bg-hover); }
 .bulk-actions-btn .kbd { font-size: 11px; }
 
-/* calendar popover */
 .cal-grid { display: grid; grid-template-columns: repeat(7, 28px); gap: 1px; padding: 2px 8px 8px; justify-content: center; }
 .cal-dow { font-size: 10.5px; color: var(--text-dim); text-align: center; padding: 2px 0; }
 .cal-day {
@@ -1434,7 +1276,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .cal-day.today { color: var(--brand); font-weight: 590; }
 .cal-day.selected { background: var(--brand); color: #fff; }
 
-/* reactions */
 .reaction-chip {
   display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px;
   border-radius: 6px; font-size: 12px; background: var(--bg-pill); border: 1px solid transparent;
@@ -1443,26 +1284,17 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .reaction-chip:hover { border-color: var(--border-strong); }
 .reaction-chip.mine { background: var(--brand-dim); border-color: var(--brand); color: var(--text-primary); }
 
-/* progress tracks (sub-issue summary, cycles) use a 900ms ease so progress shows as movement */
-/* Butt terminals: 3px square bars, no pill radius. */
 
-/* prop chip toggle state */
 .prop-chip.on { color: var(--text-primary); background: var(--brand-dim); border-color: var(--brand); }
 .proj-icon.sel { outline: 2px solid var(--brand); }
 
-/* create-modal team switcher */
 .cm-team { border-radius: 4px; padding: 2px 4px; color: var(--text-primary); }
 .cm-team:hover { background: var(--bg-hover); }
 .cm-team.static:hover { background: none; }
 
-/* hover-reveal helpers on settings rows */
 .prop-row.group { border-radius: 6px; padding: 0 4px; margin: 0 -4px; }
 .prop-row.group:hover { background: var(--bg-hover); }
 
-/* ---------- brand surfaces: sign-in, first run, marketing ----------
-   Ink ground, serif lockup, paper button. These are the only places the
-   product uses the brand voice, and the only places --brand-ink appears
-   as a page ground (it is NOT a replacement for --bg-main). */
 .on-ink { background: var(--brand-ink); color: var(--brand-paper); }
 .on-ink .card { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.10); box-shadow: none; }
 .on-ink .text-input {
@@ -1485,14 +1317,9 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .on-ink .brand-sub { color: #8a8f98; font-size: 13px; line-height: 1.55; }
 .on-ink .brand-sub b { color: var(--brand-paper); font-weight: 510; }
 
-/* the signed-out screens (SignIn.tsx): setup, sign in, join, reset.
-   "On the line": the wordmark sits on a rule that runs the width of the window, and the
-   register node rides that rule as the form fills in (Shell's `progress`), runs to the end
-   while the request is out, and shakes red when it's refused. */
 .auth-page {
   height: 100%; overflow-y: auto; overflow-x: hidden;
   background-color: var(--brand-ink);
-  /* ruled paper: one hairline every 32px, drifting up */
   background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 31px, rgba(243, 241, 236, 0.035) 31px, rgba(243, 241, 236, 0.035) 32px);
   background-attachment: local;
   animation: auth-drift 6s linear infinite;
@@ -1502,7 +1329,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .auth-top, .auth-bottom { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; padding: 22px 40px; font-size: 13px; color: #8a8f98; }
 .auth-brand { display: flex; align-items: center; gap: 10px; color: var(--brand-paper); font-size: 14px; font-weight: 590; letter-spacing: -0.02em; }
 .auth-bottom { margin-top: auto; padding: 18px 40px; border-top: 1px solid rgba(255, 255, 255, 0.07); font-size: 12px; }
-/* top-anchored at a fixed offset: centered, an error line growing the form pushed the whole page up */
 .auth-stage { padding: clamp(24px, 9vh, 96px) 0 64px; }
 .auth-wrap { width: 100%; max-width: 1200px; margin: 0 auto; box-sizing: border-box; padding: 0 40px; }
 
@@ -1510,13 +1336,10 @@ button.rail-kv:hover { background: var(--bg-hover); }
   margin: 0; overflow: hidden; padding-bottom: 0.12em; color: var(--brand-paper);
   font-family: var(--font-display); font-size: clamp(64px, 12vw, 176px); font-weight: 620; letter-spacing: -0.055em; line-height: 0.78;
 }
-/* --auth-since is negative once the page has been up a while, so a remounted Shell
-   picks the entrance up where it was instead of replaying it */
 .auth-word > span { display: inline-block; animation: auth-letter 900ms var(--ease) both; animation-delay: calc(var(--d) + var(--auth-since, 0ms)); }
 
 .auth-line {
   position: relative; height: 2px; --auth-tone: var(--brand-register);
-  /* where the node rests: the wordmark's left edge (.auth-wrap's padding inside its 1200px column) */
   --x0: max(40px, calc((100% - 1200px) / 2 + 40px));
   --at: calc(var(--x0) + (100% - var(--x0)) * var(--p, 0));
 }
@@ -1529,7 +1352,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .auth-line.busy .auth-node-ground::before { content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%; background: var(--auth-tone); animation: auth-ping 1.1s var(--ease) infinite; }
 .auth-line.error .auth-node-ground { animation: auth-shake 420ms var(--ease); }
 
-/* what Baseline is for, running along under the line (copy, never workspace data: nobody is signed in) */
 .auth-ticker { overflow: hidden; padding-top: 14px; -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent); }
 .auth-ticker-track { display: flex; width: max-content; animation: auth-tick 60s linear infinite; }
 .auth-ticker:hover .auth-ticker-track { animation-play-state: paused; }
@@ -1551,7 +1373,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .auth-field { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .auth-label { font-size: 12px; font-weight: 510; letter-spacing: 0.02em; color: #949496; }
 .auth-hint { font-size: 12px; color: #8a8f98; }
-/* the field is its baseline: no box, a hairline that turns register on focus */
 .on-ink .auth-field .text-input {
   height: 44px; width: 100%; min-width: 0; padding: 0; border: 0; border-radius: 0;
   border-bottom: 1px solid rgba(243, 241, 236, 0.2); background: transparent; color: #ffffff;
@@ -1604,7 +1425,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
   .auth-line-fill, .auth-node { transition: none; }
 }
 
-/* ---------- tooltips ---------- */
 .tooltip {
   position: fixed; z-index: 200; pointer-events: none;
   display: inline-flex; align-items: center; gap: 6px;
@@ -1620,16 +1440,12 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .tooltip .kbd + .kbd { margin-left: -3px; }
 .tooltip-then { color: var(--text-dim); font-size: 11px; }
 
-/* ---------- keyboard focus ----------
-   Mouse clicks never draw a ring; Tab does, so keyboard focus is always visible. */
 :where(button, a, [role="button"], [tabindex], summary, input[type="checkbox"]):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--brand) 75%, transparent);
   outline-offset: 1px;
 }
 .menu-item:focus-visible, .issue-row:focus-visible { outline: none; }
 
-/* ---------- press feedback ----------
-   A 1-4% dip on press. It is enough to register the click but too small to be seen as motion. */
 .btn,.icon-btn,.seg,.pill,.prop-chip,.bulk-actions-btn,.reaction-chip,.cm-team,.ws-switch,.nav-item,.tab {
   transition-property: background, color, border-color, box-shadow, transform;
 }
@@ -1642,17 +1458,12 @@ button.rail-kv:hover { background: var(--bg-hover); }
    press point; neither snapshot runs the default crossfade */
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 
-/* ---------- page error (App PageBoundary) ---------- */
 .page-error { margin: 18vh auto 0; max-width: 420px; padding: 0 24px; text-align: center; }
 .page-error-title { font-family: var(--font-display); font-size: 22px; font-weight: 590; letter-spacing: -0.022em; color: var(--text-primary); }
 .page-error-msg { margin-top: 8px; font-family: var(--font-code); font-size: 11.5px; color: var(--text-dim); word-break: break-word; }
 .page-error-actions { margin-top: 18px; display: flex; gap: 8px; justify-content: center; }
 .view-name .row-title { flex: 0 1 auto; }
 
-/* ---------- cycles ----------
-   The running cycle fills the page: a hero with time left, a segmented bar (done /
-   in progress / rest) with a "today" tick, and its issues. Upcoming and past
-   cycles are single rows that open in place. */
 .cy-dates { color: var(--text-secondary); font-size: 12px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .cy-fill { flex: 1; }
 .cy-bar { display: flex; height: 4px; background: var(--border-strong); overflow: hidden; flex: none; }
@@ -1660,10 +1471,7 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .cy-done { background: var(--brand-register); }
 .cy-started { background: var(--status-started); opacity: 0.85; }
 
-/* project rail: progress card */
 
-/* task-list checkboxes in rendered markdown (and the TipTap editor) draw like
-   the row checkbox: a hairline box that fills brand with a white tick */
 .md input[type="checkbox"], .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
   appearance: none; -webkit-appearance: none; flex: none;
   width: 14px; height: 14px; margin: 0 8px 0 0; vertical-align: -2px;
@@ -1679,15 +1487,9 @@ button.rail-kv:hover { background: var(--bg-hover); }
   transform: scale(0); transition: transform 160ms var(--ease);
 }
 .md input[type="checkbox"]:checked::after, .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked::after { transform: scale(1); }
-/* a finished task is dimmed and struck through */
 .md li.task-list-item:has(> input:checked) { color: var(--text-secondary); text-decoration: line-through; text-decoration-color: var(--text-dim); }
 
-/* =====================================================================
-   Linear parity pass: property menus, filter pills, display options,
-   rich editor, threads, attachments, triage, peek
-   ===================================================================== */
 
-/* ---------- property menus ---------- */
 .menu-filter { position: relative; display: flex; align-items: center; gap: 4px; margin: 0 0 4px; padding: 2px 4px 6px; border-bottom: 1px solid var(--hairline); }
 .menu-filter input { flex: 1; height: 30px; border: 0; background: transparent; padding: 0 6px; font-size: 13px; }
 .menu-filter input:focus { box-shadow: none; border: 0; background: transparent; }
@@ -1710,7 +1512,6 @@ button.rail-kv:hover { background: var(--bg-hover); }
 .est-glyph { font-size: 11.5px; font-weight: 590; min-width: 16px; text-align: center; font-family: var(--font-mono); color: var(--text-secondary); }
 .mi-hint-icon { font-size: 12px; }
 
-/* ---------- filter pills (field · operator · values · ×) ---------- */
 .filterbar:empty { display: none; }
 .fpill {
   display: inline-flex; align-items: stretch; height: 26px; border-radius: 7px;
@@ -1736,7 +1537,6 @@ button.fp-part:hover { background: var(--bg-hover); color: var(--text-primary); 
 .hidden-by-filters b { color: var(--text-primary); font-weight: 590; }
 .hidden-by-filters .btn { height: 24px; font-size: 12px; display: inline-flex; gap: 5px; align-items: center; }
 
-/* ---------- list rows & groups ---------- */
 .gh-points { display: inline-flex; align-items: center; gap: 3px; color: var(--text-dim); font-family: var(--font-mono); font-size: 10.5px; font-weight: 400; }
 .row-blocked { display: inline-flex; color: var(--danger); flex: none; }
 .label-pill.more { color: var(--text-dim); background: var(--bg-pill); }
@@ -1744,7 +1544,6 @@ button.fp-part:hover { background: var(--bg-hover); color: var(--text-primary); 
 .row-creator { display: inline-flex; opacity: 0.85; }
 .row-title-wrap .sub-progress { margin-left: 2px; }
 
-/* ---------- display options popover ---------- */
 .dopts { padding: 6px 6px 4px; display: flex; flex-direction: column; gap: 2px; }
 .dopts-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
 .dopts-lay {
@@ -1781,12 +1580,10 @@ button.fp-part:hover { background: var(--bg-hover); color: var(--text-primary); 
 .switch.on { background: var(--brand); }
 .switch.on span { transform: translateX(12px); }
 
-/* ---------- selection pill actions ---------- */
 .bulk-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
 .bulk-act { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; color: var(--text-secondary); }
 .bulk-act:hover { background: var(--bg-hover); color: var(--text-primary); }
 
-/* ---------- rich text editor ---------- */
 .rte { outline: none; font-size: 14px; line-height: 24px; color: var(--text-primary); min-height: 24px; word-break: break-word; }
 .rte p { margin: 0 0 6px; }
 .rte > *:last-child { margin-bottom: 0; }
@@ -1815,7 +1612,6 @@ button.fp-part:hover { background: var(--bg-hover); color: var(--text-primary); 
 .md a.issue-ref:hover { text-decoration: underline; }
 .suggest-pop { position: fixed; z-index: 300; max-height: 300px; overflow-y: auto; }
 
-/* ---------- issue page ---------- */
 .issue-nav { display: inline-flex; align-items: center; gap: 2px; margin-right: 6px; }
 .issue-nav-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary); margin-right: 6px; font-variant-numeric: tabular-nums; }
 .issue-nav .icon-btn:disabled { opacity: 0.35; cursor: default; }
@@ -1851,7 +1647,7 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .subscribers { display: inline-flex; }
 .activity-item { padding: 6px 0 6px 2px; font-size: 12.5px; }
 .activity-item .rel-time { margin-left: 2px; }
-.thread:not(:has(.cmt)) { display: none; } /* its only comment is waiting out a delete's Undo */
+.thread:not(:has(.cmt)) { display: none; }
 .thread { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-overlay); margin: 10px 0; padding: 4px 0; box-shadow: var(--inner-hi); }
 .thread.is-resolved { opacity: 0.75; }
 .cmt { padding: 10px 14px 8px; position: relative; }
@@ -1859,7 +1655,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .cmt-head { display: flex; align-items: center; gap: 8px; }
 .cmt.cmt-linked { background: color-mix(in srgb, var(--brand) 10%, transparent); border-radius: 8px; transition: background 600ms var(--ease); }
 .cmt-author { font-weight: 590; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-/* "Agent via Parth": the person an agent wrote for, after its name */
 .via { color: var(--text-secondary); font-weight: 400; }
 .cmt-actions { display: inline-flex; gap: 1px; opacity: 0; transition: opacity 110ms ease; }
 .cmt:hover .cmt-actions, .cmt:focus-within .cmt-actions { opacity: 1; }
@@ -1892,7 +1687,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .rail-labels .label-pill { cursor: pointer; }
 .rail-labels .prop-line { margin-left: -8px; }
 
-/* ---------- triage ---------- */
 .triage-banner {
   display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin: 0 0 14px;
   border-radius: 10px; border: 1px solid color-mix(in srgb, #fc7840 35%, transparent);
@@ -1901,7 +1695,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .triage-banner > svg { color: #fc7840; flex: none; }
 .triage-banner b { color: var(--text-primary); font-weight: 590; }
 
-/* ---------- peek ---------- */
 .peek-scrim { position: fixed; inset: 0; z-index: 90; background: transparent; }
 .peek-panel {
   position: fixed; top: 8px; right: 8px; bottom: 8px; width: min(920px, 62vw); z-index: 91;
@@ -1912,7 +1705,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .peek-panel .props-rail { width: 260px; }
 .peek-panel .issue-scroll { padding: 12px 28px 40px; }
 
-/* ---------- board: one header row, then lanes of cells (a single lane without rows) ---------- */
 .board-grid { display: flex; flex-direction: column; min-width: 0; height: 100%; flex: none; }
 .board-heads { display: flex; gap: 10px; flex: none; position: sticky; top: 0; z-index: 2; }
 .board-heads .board-col-header { width: var(--lane-w); background: var(--lane-bg); border-radius: 12px 12px 0 0; }
@@ -1939,7 +1731,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .board-card.cursor { box-shadow: var(--card-ring-hover); }
 .board .lane-empty { padding: 14px 0; }
 
-/* my issues › activity */
 .my-activity { padding: 0 16px 40px; }
 .ma-row { display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 12px; border-radius: 6px; text-align: left; }
 .ma-row:hover { background: var(--bg-hover); }
@@ -1947,34 +1738,27 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .ma-verb { color: var(--text-secondary); font-size: 12.5px; white-space: nowrap; }
 .icon-btn.on { color: var(--brand); }
 
-/* ---------- sidebar team row ---------- */
 .nav-team-row { position: relative; display: flex; align-items: center; }
 .nav-team-row .nav-team { flex: 1; min-width: 0; }
 .nav-team-more { position: absolute; right: 4px; width: 22px; height: 22px; opacity: 0; color: var(--text-dim); }
 .nav-team-row:hover .nav-team-more, .nav-team-more:focus-visible { opacity: 1; }
 .nav-team-more:hover { color: var(--text-primary); }
 
-/* ---------- static lists (archive, trash) ---------- */
 .static-list { padding: 4px 0 40px; }
-/* a free-width meta (the fixed-width .row-date is sized for "5d ago") */
 .row-count { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
 .static-head { padding: 6px 22px 8px; font-size: 12px; color: var(--text-dim); }
 .static-row { cursor: pointer; }
-/* the hover actions take the date's place instead of squeezing in beside it */
 .static-row .row-actions { display: none; gap: 6px; margin-left: 6px; }
 .static-row:hover .row-actions, .static-row:focus-within .row-actions { display: inline-flex; }
 .static-row:hover .row-date:has(+ .row-actions:not(:empty)), .static-row:focus-within .row-date:has(+ .row-actions:not(:empty)) { display: none; }
 
-/* ---------- triage ---------- */
 .triage-preview { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .triage-preview .issue-page { flex: 1; min-height: 0; }
 .triage-actions { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--hairline); flex: none; }
 .triage-actions .kbd { margin-left: 4px; }
 .triage-pos { font-size: 12px; color: var(--text-dim); font-family: var(--font-mono); }
 
-/* ---------- search ---------- */
 
-/* ---------- cycle page ---------- */
 .cycle-head { gap: 10px; }
 .cycle-badge { font-size: 11px; font-weight: 590; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--border-strong); color: var(--text-secondary); }
 .cycle-badge.current { color: var(--status-started); border-color: color-mix(in srgb, var(--status-started) 45%, transparent); }
@@ -2017,7 +1801,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .seg-pair { display: inline-flex; gap: 2px; }
 .seg-pair .seg { height: 24px; font-size: 12px; }
 
-/* ================= projects ================= */
 .seg-count { margin-left: 6px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); }
 .health-dot.empty { background: transparent; border: 1.4px dashed var(--text-dim); width: 9px; height: 9px; }
 .plist { padding: 0 16px 40px; }
@@ -2051,7 +1834,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .np-modal .np-name { padding: 6px 16px 0; }
 .np-modal .np-desc .rte { min-height: 120px; max-height: 32vh; overflow-y: auto; }
 
-/* timeline */
 .timeline { display: flex; height: 100%; min-height: 0; border-top: 1px solid var(--hairline); }
 .tl-left { width: 260px; flex: none; border-right: 1px solid var(--hairline); overflow: hidden; }
 .tl-left-head { height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 16px; font-size: 12px; color: var(--text-dim); border-bottom: 1px solid var(--hairline); }
@@ -2080,7 +1862,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .tl-handle.left { left: 0; } .tl-handle.right { right: 0; }
 .tl-handle:hover { background: color-mix(in srgb, var(--bar, var(--brand)) 40%, transparent); }
 
-/* project page */
 .proj-body { flex: 1; display: flex; min-height: 0; }
 .proj-body > .content { flex: 1; min-width: 0; }
 .proj-overview { max-width: 760px; margin: 0 auto; padding: 28px 40px 80px; }
@@ -2091,7 +1872,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .proj-hero-summary::placeholder { color: var(--text-dim); }
 .proj-props-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 14px; }
 .ppr-label { width: 84px; flex: none; font-size: 12.5px; color: var(--text-dim); }
-/* a labelled row wraps under its first chip, not under the label */
 .proj-props-row:has(> .ppr-label) { position: relative; padding-left: 88px; }
 .proj-props-row > .ppr-label { position: absolute; left: 0; top: 0; height: 26px; display: flex; align-items: center; }
 .prop-chip.ghost { background: transparent; border-color: transparent; }
@@ -2116,7 +1896,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .health-pick.on { border-color: var(--border-strong); background: var(--bg-active); color: var(--text-primary); }
 .update-card .rte { min-height: 60px; }
 .proj-section-label { font-size: 13px; font-weight: 590; color: var(--text-strong); margin: 28px 0 8px; }
-/* an empty description keeps a click target; a written one is only as tall as its text */
 .proj-desc .rte:has(> .is-editor-empty) { min-height: 60px; }
 .milestones { margin-top: 10px; }
 .ms-item { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 8px; border-radius: 7px; }
@@ -2137,7 +1916,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .pd-stats b { font-size: 15px; color: var(--text-primary); font-weight: 590; }
 .pd-stats .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
 .proj-details .bd-tabs, .proj-details .bd-row { padding: 0 8px; }
-/* shortcuts */
 .shortcuts-modal { width: 760px; max-width: calc(100vw - 32px); display: flex; flex-direction: column; max-height: 78vh; margin-top: 9vh; }
 .sc-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px 12px; border-bottom: 1px solid var(--hairline); }
 .sc-title { font-size: 15px; font-weight: 590; flex: 1; }
@@ -2158,7 +1936,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .rr-title { flex: 1; min-width: 0; font-weight: 510; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rr-next { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .inbox-group .count { margin-left: 6px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); font-weight: 400; }
-/* advanced filter */
 .adv-backdrop { position: fixed; inset: 0; z-index: 114; }
 .adv-panel { position: fixed; z-index: 115; min-width: 360px; max-width: 560px; padding: 10px; border-radius: 10px; background: var(--bg-menu); box-shadow: var(--shadow-menu); animation: bl-menu-in 130ms var(--ease) both; }
 .adv-group { display: flex; flex-direction: column; gap: 6px; }
@@ -2172,7 +1949,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .adv-group.nested .adv-actions { padding-left: 0; }
 .fp-adv-n { margin-left: 6px; color: var(--text-dim); }
 .grp-glyph { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
-/* cycles timeline (Linear's cycles page) */
 .cy-timeline { padding: 8px 24px 60px 8px; }
 .cyt-item { display: grid; grid-template-columns: 56px 24px 1fr; }
 .cyt-date { text-align: right; font-size: 11px; color: var(--text-dim); padding-top: 14px; line-height: 1.2; }
@@ -2209,13 +1985,11 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .nav-subsub { margin-left: 28px; border-left: 1px solid var(--border); padding-left: 4px; }
 .nav-subsub .nav-item { height: 26px; font-size: 12.5px; }
 
-/* ---------- sidebar section action ("+" on Your teams) ---------- */
 .nav-section-row { display: flex; align-items: center; margin-top: 14px; }
 .nav-section-row .nav-section { margin-top: 0; }
 .nav-section-add { width: 22px; height: 22px; margin-left: auto; margin-right: 4px; opacity: 0; color: var(--text-secondary); }
 .nav-section-row:hover .nav-section-add, .nav-section-add:focus-visible { opacity: 1; }
 
-/* ---------- documents & resources ---------- */
 .res-chip { max-width: 260px; }
 .res-chip.doc { cursor: pointer; color: var(--text-primary); }
 .res-chip:hover { background: var(--bg-hover); }
@@ -2228,7 +2002,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .doc-meta { display: flex; align-items: center; gap: 6px; margin: 8px 0 22px; color: var(--text-secondary); font-size: 12.5px; }
 .doc-body .ProseMirror { min-height: 50vh; }
 
-/* ---------- team home ---------- */
 .team-home { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 40px; max-width: 1080px; margin: 0 auto; padding: 40px 32px 80px; }
 .team-home-main { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 .team-home-main > .proj-section-label { margin: 14px 0 -6px; }
@@ -2238,12 +2011,10 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .go-link { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; border-radius: 6px; color: var(--text-secondary); font-size: 13px; text-align: left; }
 .go-link:hover { background: var(--bg-hover); color: var(--text-primary); }
 @media (max-width: 860px) { .team-home { grid-template-columns: 1fr; } .team-home-rail { border-left: 0; padding-left: 0; } }
-/* lists keep their markers in the editor and rendered Markdown (the base reset strips them) */
 .rte ul:not([data-type='taskList']), .md ul:not(.contains-task-list) { list-style: disc; }
 .rte ol, .md ol { list-style: decimal; }
 .rte ul ul:not([data-type='taskList']), .md ul ul:not(.contains-task-list) { list-style: circle; }
 
-/* ---------- project labels, bell ---------- */
 .plabel-chips { display: inline-flex; gap: 4px; margin-left: 6px; min-width: 0; overflow: hidden; }
 .plabel-chip { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; }
 .bell-schedule { display: flex; align-items: center; gap: 10px; padding: 6px 10px 8px; }
@@ -2252,7 +2023,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .bell-sub { font-size: 12px; color: var(--text-secondary); }
 .menu-empty { padding: 8px 10px; font-size: 12px; color: var(--text-dim); }
 
-/* ---------- settings lists (project labels, statuses, documents) ---------- */
 .settings-card.wide { max-width: 860px; }
 .set-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .set-head h1 { margin: 0; }
@@ -2272,7 +2042,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .set-name:hover { background: var(--bg-active, var(--bg-hover)); }
 .set-name-input { max-width: 260px; }
 
-/* ---------- workspace tables (teams, members) ---------- */
 .wtable { padding: 0 16px 40px; }
 .wt-head, .wt-row { display: grid; align-items: center; gap: 12px; padding: 0 12px; }
 .wt-head { height: 34px; font-size: 12px; color: var(--text-secondary); border-bottom: 1px solid var(--hairline); }
@@ -2287,7 +2056,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .wt-teams-cell { display: flex; gap: 4px; flex-wrap: wrap; }
 .wt-head .num, .wt-row .num { text-align: right; }
 .plabel-chip.admin { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 40%, transparent); }
-/* Teams directory: the Membership chip is the join / leave toggle */
 .team-join { background: transparent; cursor: pointer; font: inherit; font-size: 11.5px; }
 .team-join:hover { border-color: var(--brand); color: var(--text-primary); }
 .team-join.joined:hover { border-color: var(--danger); }
@@ -2307,12 +2075,10 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .update-due { margin: -2px 0 10px; font-size: 12px; color: var(--text-dim); }
 .update-due.overdue { color: #f2994a; }
 
-/* ---------- initiatives ---------- */
 .ini-prog { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
 .ini-page { max-width: 860px; margin: 0 auto; padding: 40px 32px 100px; display: flex; flex-direction: column; gap: 12px; }
 .prop-chip.static { cursor: default; }
 
-/* ---------- SLAs ---------- */
 .sla-badge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 5px; font-size: 11.5px; font-weight: 510; white-space: nowrap; }
 .sla-badge.ok { color: var(--text-secondary); border: 1px solid var(--border); }
 .sla-badge.risk { color: #f2994a; background: color-mix(in srgb, #f2994a 14%, transparent); }
@@ -2323,7 +2089,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .sla-hours { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
 .sla-hours input { width: 70px; height: 28px; }
 
-/* ---------- loops ---------- */
 .loop-editor { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin-bottom: 12px; }
 .loop-line { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
 .loop-line .text-input { height: 28px; }
@@ -2331,7 +2096,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .loop-run { padding: 0 8px 6px 34px; font-size: 12px; color: var(--text-secondary); }
 .loop-run.fail { color: var(--danger); }
 
-/* ---------- pull requests ---------- */
 .pr-icon { display: inline-flex; flex: none; }
 .pr-section { display: flex; flex-direction: column; gap: 2px; margin: 10px 0; }
 .pr-row { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
@@ -2340,7 +2104,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .pr-title:hover { text-decoration: underline; }
 .pr-meta, .pr-sha { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .pr-review { font-size: 11.5px; padding: 0 6px; border-radius: 5px; border: 1px solid var(--border); }
-/* badges and meta never wrap; in a narrow pane (inbox preview) the repo drops so the title keeps room */
 .pr-row .pr-review, .pr-row .pr-meta, .pr-row .pr-kind { white-space: nowrap; flex: none; }
 .pr-row .pr-title { min-width: 96px; }
 .pr-section { container-type: inline-size; }
@@ -2352,7 +2115,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .pr-row .hover-only { opacity: 0; } .pr-row:hover .hover-only { opacity: 1; }
 .pr-auto { margin-top: 18px; }
 
-/* ---------- Linear parity: cycles timeline ---------- */
 .cycle-badge { border: 0 !important; border-radius: 4px; padding: 2px 6px; background: var(--bg-active, var(--bg-hover)); color: var(--text-secondary) !important; font-weight: 510; font-size: 12px; }
 .cyt-metric b { color: var(--text-primary); font-weight: 590; }
 .cyt-metric { gap: 5px; }
@@ -2362,8 +2124,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .bu-legend .lg-label { flex: 1; margin-left: 8px; text-align: left; }
 .bu-legend.vertical > span { justify-content: flex-start; gap: 6px; }
 
-/* ---------- Linear parity: pill tabs ---------- */
-/* Linear's view tabs are pills: a hairline outline when idle, a filled chip when selected */
 .subnav .seg, .seg {
   height: 26px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--border);
   background: transparent; color: var(--text-secondary); font-weight: 510; letter-spacing: 0;
@@ -2376,7 +2136,6 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .seg-add { width: 26px; height: 26px; color: var(--text-secondary); }
 .seg-pair .seg { border-radius: 6px; }
 
-/* ---------- Linear parity: page chrome ---------- */
 .breadcrumb { font-weight: 510; }
 .breadcrumb .crumb { font-weight: 510; }
 .topbar-more { width: 24px; height: 24px; margin-left: 2px; flex: none; }
@@ -2387,24 +2146,19 @@ textarea.issue-title::placeholder { color: var(--text-dim); }
 .activity-item .rel-time { font-family: inherit; font-size: inherit; }
 .cbox-send { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); }
 
-/* ---------- Linear parity: figures, list chrome ---------- */
 body { font-variant-numeric: tabular-nums; }
 code, pre, kbd { font-family: var(--font-code); }
 .pl-title { font-weight: 510; }
 .topbar-right .btn.secondary { border-color: transparent; background: transparent; box-shadow: none; color: var(--text-secondary); }
 .topbar-right .btn.secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
 .subnav > .icon-btn { width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 8px; }
-/* Linear marks the current page in the sidebar with a filled row, not an underline */
 .nav-item.active { background: var(--bg-active, var(--bg-hover)); color: var(--text-primary); }
 .nav-item .register-mark { display: none; }
 .nav-item.active { font-weight: 510; letter-spacing: 0; }
 
-/* ---------- Linear parity: list group headers & keys ---------- */
-/* Linear's group header is a filled band across the list, label left, actions right */
 .group-header { height: 36px; margin: 2px 8px; padding: 0 10px; border-radius: 6px; background: var(--bg-group, color-mix(in srgb, var(--text-primary) 4%, var(--bg-main))); font-weight: 510; letter-spacing: 0; }
 .group-header .gh-rule { background: transparent; }
 .issue-key { width: auto; min-width: var(--key-w, 52px); white-space: nowrap; color: var(--text-secondary); }
-/* as a list narrows (small window, inbox, peek) the title keeps its width and some chips are hidden */
 .issue-list { container: issue-list / inline-size; }
 @container issue-list (max-width: 1000px) {
   .issue-row .proj-chip .chip-text { display: none; }
@@ -2417,7 +2171,6 @@ code, pre, kbd { font-family: var(--font-code); }
   .issue-row .row-date, .issue-row .row-parent { display: none; }
 }
 
-/* ---------- Linear parity: settings ---------- */
 .settings-search { display: flex; align-items: center; gap: 6px; height: 28px; margin: 8px 6px 4px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-main); color: var(--text-dim); }
 .settings-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font-size: 12.5px; }
 .settings-icon { display: inline-flex; width: 16px; color: var(--text-secondary); flex: none; }
@@ -2425,7 +2178,6 @@ code, pre, kbd { font-family: var(--font-code); }
 .settings-content { padding: 48px 48px 80px; }
 .settings-card { margin: 0 auto; }
 .settings-content h1 { font-size: 22px; margin-bottom: 24px; }
-/* rows sit in a bordered card, as in Linear */
 .settings-card > .field-row { background: var(--bg-elevated, var(--bg-main)); border: 1px solid var(--border); border-top: 0; padding: 12px 16px; }
 .settings-card > .field-row:not(.field-row + .field-row) { border-top: 1px solid var(--border); border-radius: 10px 10px 0 0; margin-top: 4px; }
 .settings-card > .field-row:not(:has(+ .field-row)) { border-radius: 0 0 10px 10px; border-bottom: 1px solid var(--border); }
@@ -2439,7 +2191,6 @@ html[data-font-size="small"] #root { zoom: 0.92; }
 html[data-font-size="large"] #root { zoom: 1.08; }
 html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role="button"], html.pointer-cursors .issue-row, html.pointer-cursors .menu-item { cursor: pointer; }
 
-/* ---------- API keys (Settings › Account & API keys) ---------- */
 .settings-crumb { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 13px; margin: -8px 0 20px; text-decoration: none; }
 .settings-crumb:hover { color: var(--text-primary); }
 .api-key-form, .api-key-reveal { display: flex; flex-direction: column; padding: 16px; gap: 4px; }
@@ -2456,7 +2207,6 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 .inline-edit:focus { box-shadow: 0 1px 0 var(--brand); }
 [data-api-keys] .set-row, [data-issued-keys] .set-row { min-height: 48px; padding: 6px 12px; }
 
-/* ---------- create modal, matched to Linear (light: no scrim; pill chips; rounded card) ---------- */
 .overlay:has(> .modal-create:not(.np-modal):not(.cy-modal):not(.ini-modal)) { background: transparent; backdrop-filter: none; }
 .modal-create { width: 750px; margin-top: 13vh; border-radius: 21px; border: 0.5px solid var(--border); box-shadow: 0 9px 48px rgba(0,0,0,.08), 0 6px 24px rgba(0,0,0,.1), 0 1px 1px rgba(0,0,0,.04); }
 .cm-header { padding: 12px 12px 0 12px; }
@@ -2474,7 +2224,6 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 .cm-footer { border-top: 0; padding: 4px 12px 12px; }
 .cm-footer .btn.primary.cm-create { height: 28px; padding: 0 12px; border-radius: 9999px; font-size: 12px; font-weight: 510; }
 
-/* ---------- command palette, matched to Linear ---------- */
 .overlay:has(> .modal-palette) { background: transparent; backdrop-filter: none; }
 .modal-palette { width: 720px; max-height: min(450px, 72vh); margin-top: 13vh; border-radius: 12px; border: 0.5px solid var(--border); box-shadow: 0 9px 48px rgba(0,0,0,.08), 0 6px 24px rgba(0,0,0,.1), 0 1px 1px rgba(0,0,0,.04); }
 .modal-palette .pal-input-row { padding: 0 12px 0 18px; height: 52px; min-height: 52px; flex: none; border-bottom: 0; }
@@ -2490,7 +2239,6 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 .breadcrumb .crumb-menu { background: none; border: 0; padding: 2px 6px 2px 4px; margin-left: -4px; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 510; }
 .breadcrumb .crumb-menu:hover { background: var(--bg-hover); }
 .pal-input-row .pal-scope-icon { color: var(--text-secondary); display: flex; }
-/* display options, matched to Linear: pill toggles, filled/outlined property chips */
 .dopts-row { color: var(--text-primary); }
 .dopts-row .dopts-dir { width: 24px; height: 24px; margin-left: auto; margin-right: -4px; color: var(--text-secondary); }
 .dopts-row .dopts-dir.on { color: var(--text-primary); }
@@ -2511,7 +2259,6 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 .team-hub-head { display: flex; align-items: baseline; justify-content: space-between; }
 .team-hub-link { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; color: var(--text-primary); font-size: 13px; }
 .team-desc { width: 100%; min-height: 72px; padding: 10px 12px; resize: vertical; border-radius: 8px; font: inherit; font-size: 13px; }
-/* search, matched to Linear: the query is the header; tabs; one row per result */
 .search-top { gap: 10px; color: var(--text-secondary); }
 .search-top input { flex: 1; min-width: 0; font-size: 13px; color: var(--text-primary); background: none; border: 0; outline: none; height: 100%; }
 .seg-count { margin-left: 5px; color: var(--text-dim); font-size: 11px; }
@@ -2525,7 +2272,6 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 .sr-right { color: var(--text-secondary); font-size: 12.5px; flex: none; }
 .sr-team { display: inline-flex; align-items: center; gap: 6px; }
 .sr-at { width: 48px; white-space: nowrap; text-align: right; color: var(--text-secondary); font-size: 12px; flex: none; }
-/* keyboard shortcuts: Linear's right-hand drawer (⌘/) */
 .overlay:has(> .shortcuts-modal) { background: transparent; backdrop-filter: none; justify-content: flex-end; }
 .shortcuts-modal { width: 360px; max-width: calc(100vw - 24px); height: calc(100vh - 24px); max-height: none; margin: 12px; border-radius: 12px; border: 0.5px solid var(--border); }
 .shortcuts-modal .sc-head { border-bottom: 0; padding: 18px 16px 10px 20px; }
@@ -2544,7 +2290,6 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 .pcard-count { color: var(--text-secondary); font-size: 12px; margin-right: 4px; }
 .board-col-header .bch-add { width: 22px; height: 22px; color: var(--text-secondary); opacity: 0; }
 .board-col:hover .bch-add, .board-col-header .bch-add:focus-visible { opacity: 1; }
-/* timeline, matched to Linear: caps months over day numbers, a brand "today" pill, controls top-right */
 .timeline { position: relative; }
 .tl-left-head { border-bottom: 1px solid var(--hairline); }
 .tl-name { gap: 8px; }
@@ -2567,12 +2312,10 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 .hc-props { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: 12px; color: var(--text-primary); }
 .hc-props span { display: inline-flex; align-items: center; gap: 5px; }
 
-/* ================= Linear parity: illustrations, empty states, pill tabs, initiatives ================= */
 :root, :root[data-theme='dark'] { --illo-ink: #8f9299; --illo-shade: #46484e; --illo-fill: var(--bg-main); }
 :root[data-theme='light'] { --illo-ink: #55575d; --illo-shade: #b7b9bd; --illo-fill: var(--bg-main); }
 .illo { display: block; flex: none; overflow: visible; }
 
-/* empty states look like Linear's: one left-aligned block (art, title, copy, pill buttons) in the middle of the page */
 .empty-state { align-items: center; text-align: left; gap: 0; padding: 0 16px; }
 .empty-state > * { width: min(360px, 100%); }
 .empty-state > .illo { width: auto; align-self: auto; margin: 0 auto 26px calc((100% - min(360px, 100%)) / 2); animation: bl-fade-up 340ms var(--ease) both; }
@@ -2581,7 +2324,6 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 .empty-state .empty-actions { justify-content: flex-start; flex-wrap: wrap; }
 .empty-actions .btn { height: 30px; padding: 0 14px; border-radius: 999px; font-weight: 510; }
 
-/* Linear's list tabs: rounded pills, the current one filled */
 .subnav.pill-tabs { gap: 6px; }
 .pill-tab {
   display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 999px;
@@ -2595,8 +2337,7 @@ html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role=
 .pill-count { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; font-weight: 510; }
 .btn .pill-count { margin-left: 2px; }
 
-/* ---------- initiatives list ---------- */
-.ini-table { padding: 0 0 48px; overflow-x: auto; } /* too many columns for the window: scroll sideways, never clip */
+.ini-table { padding: 0 0 48px; overflow-x: auto; }
 .ini-head, .ini-row { display: grid; grid-template-columns: var(--ini-grid); column-gap: 14px; align-items: center; padding: 0 20px 0 12px; }
 .ini-head { height: 34px; font-size: 12px; font-weight: 510; color: var(--text-secondary); border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
 .ini-row { position: relative; min-height: 44px; cursor: pointer; font-size: 13px; }
@@ -2641,7 +2382,6 @@ button.ini-health:hover { background: var(--bg-active); }
 .upd-pop-body { font-size: 13.5px; line-height: 1.55; max-height: 280px; overflow-y: auto; }
 .upd-pop-foot { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--hairline); font-size: 11.5px; color: var(--text-dim); }
 
-/* icon picker */
 .ini-picker { padding: 6px; }
 .ini-picker-tabs, .ini-res-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
 .ini-res-tabs { padding: 4px 4px 0; flex-wrap: wrap; }
@@ -2655,10 +2395,8 @@ button.ini-health:hover { background: var(--bg-active); }
 .ini-icon-pick.on { background: var(--brand-dim); }
 .ini-icon-pick.emoji { font-size: 17px; }
 
-/* create modal */
 .ini-modal { width: min(750px, calc(100vw - 32px)); }
 
-/* ---------- initiative page ---------- */
 .ini-page { max-width: 780px; margin: 0 auto; padding: 28px 40px 96px; }
 .ini-page.wide { max-width: 1040px; }
 .ini-hero-icon { display: flex; width: fit-content; margin: 0 0 14px; border-radius: 10px; }
@@ -2723,9 +2461,6 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
   .ini-proj > :nth-child(n+3):not(:last-child) { display: none; }
 }
 
-/* ---------- first run: the team gate, and "Getting started" on the team's issues ----------
-   One accent (the brand indigo), hairlines and the app's own status glyphs. Motion shows the product
-   working (an issue moving by itself, a PR moving its issue) and stops under reduced motion. */
 :root, :root[data-theme='dark'] {
   --ob-brand-text: #a3abf2;
   --ob-stage: #0f0f10;
@@ -2745,15 +2480,12 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
   --ob-mail-dim: #52525b;
 }
 
-/* the team gate: a quiet card on the page, nothing drifting behind it */
 .gate { position: relative; height: 100%; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg-main); color: var(--text-primary); }
 .gate-error, .ob-error { color: var(--danger); font-size: 12.5px; }
 
-/* height and opacity in and out */
 .reveal { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 300ms var(--ease), opacity 220ms ease; }
 .reveal.shown { grid-template-rows: 1fr; opacity: 1; }
 
-/* a short burst around something that just finished */
 .burst { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
 .burst i { position: absolute; left: -2px; top: -2px; width: 4px; height: 4px; border-radius: 50%; background: var(--brand); animation: ob-burst 620ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
 .burst i:nth-child(3n + 1) { background: var(--green); }
@@ -2763,7 +2495,6 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
   to { opacity: 0; transform: rotate(var(--a)) translateY(calc(var(--d) * -1)) scale(0.4); }
 }
 
-/* ----- the group ----- */
 .ob { flex: none; border-bottom: 1px solid var(--border); max-height: 76vh; overflow-y: auto; }
 .ob code { font-family: var(--font-code); font-size: 11.5px; color: var(--text-secondary); }
 .ob-key { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; flex: none; }
@@ -2785,7 +2516,6 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
 .ob-finale { display: flex; align-items: center; gap: 16px; }
 .ob-finale-check { display: inline-flex; color: var(--brand); }
 
-/* a cross-fade loop: four (q1–q4) or three (p1–p3) states stacked in one box */
 .ob-cycle, .ob-cycle3 { position: relative; display: inline-flex; }
 .ob-cycle > span, .ob-cycle3 > span { position: absolute; inset: 0; display: flex; align-items: center; }
 .ob-glyph { width: 14px; height: 14px; flex: none; }
@@ -2826,7 +2556,6 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
 .ob-status.next { animation: ob-ring 1.8s ease-out infinite; }
 @keyframes ob-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 45%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
 
-/* ----- the open step ----- */
 .ob-detail { flex: 1 1 360px; max-width: 460px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 18px 24px 12px; border-left: 1px solid var(--border); background: color-mix(in srgb, var(--bg-overlay) 50%, var(--bg-main)); }
 .ob-detail-in { display: flex; flex-direction: column; gap: 14px; animation: bl-fade-up 380ms var(--ease) both; }
 .ob-detail-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
@@ -2898,7 +2627,6 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
 .ob-inline { display: flex; gap: 8px; }
 .ob-inline .text-input { flex: 1; min-width: 0; height: 30px; }
 
-/* the help menu's progress: one dot per step */
 .ob-dots { display: inline-flex; gap: 2px; }
 .ob-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--border-strong); }
 .ob-dots i.on { background: var(--brand); }
@@ -2906,7 +2634,6 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
 @container (max-width: 760px) { .ob-detail { max-width: none; border-left: 0; border-top: 1px solid var(--border); } }
 @media (max-width: 760px) { .ob-detail { max-width: none; border-left: 0; border-top: 1px solid var(--border); } .ob-row .ob-est { display: none; } }
 
-/* ----- GitHub, connected from setup ----- */
 .ghs-modal { width: min(760px, calc(100vw - 32px)); margin-top: 7vh; max-height: 86vh; }
 .ghs { display: flex; flex-direction: column; min-height: 0; max-height: 86vh; }
 .ghs-head { display: flex; align-items: flex-start; gap: 14px; padding: 22px 24px 0; }
@@ -2959,7 +2686,6 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
 .ghs-more > .btn { justify-self: start; }
 .ghs-foot { display: flex; align-items: center; gap: 8px; padding: 12px 24px 16px; border-top: 1px solid var(--border); }
 
-/* ----- invite people ----- */
 .inv-modal { width: min(900px, calc(100vw - 32px)); margin-top: 8vh; max-height: 86vh; overflow-y: auto; }
 .inv-cols { display: flex; flex-wrap: wrap; }
 .inv-main { flex: 999 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 22px 26px 18px; }
@@ -3009,7 +2735,6 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
 .inv-text-btn { all: unset; cursor: pointer; margin-top: 8px; font-size: 12px; color: var(--text-secondary); }
 .inv-text-btn:hover { color: var(--text-primary); }
 
-/* Reduced motion: no loops; each example rests on its last, finished state */
 @media (prefers-reduced-motion: reduce) {
   .ob *, .ghs *, .inv *, .burst { animation: none !important; transition: none !important; }
   .burst { display: none; }
@@ -3019,7 +2744,6 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
   .ob-seq { opacity: 1; }
 }
 
-/* ---------- GitHub: read-only notice, webhooks, issue import ---------- */
 .gh-readonly { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-overlay); font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
 .gh-readonly > svg { color: #4cb782; margin-top: 2px; }
 .gh-readonly b { color: var(--text-primary); }
@@ -3050,13 +2774,11 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
 .gh-advanced[open] > summary { margin-bottom: 10px; }
 .gh-follow { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
 
-/* settings a member can read but not change (hosted): disabled, and only links in them respond to clicks */
 fieldset.admin-locked { border: 0; margin: 0; padding: 0; min-width: 0; pointer-events: none; opacity: .6; }
 fieldset.admin-locked a { pointer-events: auto; }
 .admin-note { margin-bottom: 12px; }
 .settings-content > .admin-note { max-width: 640px; margin: 0 auto 16px; }
 
-/* profile page header */
 .profile-head { display: flex; align-items: center; gap: 14px; padding: 18px 24px 6px; }
 .profile-id { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .profile-name { font-size: 17px; font-weight: 590; letter-spacing: -0.015em; }
@@ -3064,26 +2786,20 @@ fieldset.admin-locked a { pointer-events: auto; }
 .profile-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12.5px; color: var(--text-secondary); }
 .profile-team { display: inline-flex; align-items: center; gap: 5px; color: var(--text-primary); }
 
-/* a narrow window (about 900px with the sidebar open): the 320px rail and wide gutters left the
-   issue itself ~230px, cutting sub-issue titles to a few letters. Give the column the room. */
 @container (max-width: 860px) {
   .props-rail { width: 236px; padding-right: 12px; }
   .issue-scroll { padding-left: 24px; padding-right: 20px; }
 }
 
-/* the sub-issue composer uses the create modal's pill chips (it had its own boxed grey ones) */
 .subc-chips.cm-pills { padding: 0; }
 
-/* display properties: on and off read apart at a glance (they differed by a faint fill only) */
 .dprop:not(.on) { color: var(--text-dim); border-style: dashed; }
 .dprop.on { color: var(--text-primary); font-weight: 510; box-shadow: inset 0 0 0 1px var(--border-strong); }
 
-/* search: why a row matched, and an instant "No results" (the fade-in made it look like a second of nothing) */
 .sr-snippet { margin-left: 10px; color: var(--text-dim); font-size: 12px; }
 .sr-snippet b { color: var(--text-secondary); }
 .empty-state.no-anim, .empty-state.no-anim > * { animation: none; }
 
-/* a posted update's text, with its edit/delete "…" in the corner on hover */
 .posted-update { position: relative; }
 .posted-update:not(.editing) { padding-right: 28px; }
 .posted-update-more { position: absolute; top: -2px; right: -4px; opacity: 0; }
@@ -3091,11 +2807,9 @@ fieldset.admin-locked a { pointer-events: auto; }
 .posted-update.editing .cbox-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; justify-content: flex-end; }
 .posted-update.editing .cbox-hint { margin-right: auto; }
 
-/* ---------- a text button that reads as a link (Members) ---------- */
 .link-btn { color: var(--text-secondary); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 2px; }
 .link-btn:hover { color: var(--text-primary); }
 
-/* ---------- My work (MyWork.tsx) ---------- */
 .mw { padding-bottom: 40px; }
 .mw-section { margin-bottom: 10px; }
 .mw-section > .ma-row { margin: 0 4px; width: calc(100% - 8px); }
@@ -3104,29 +2818,22 @@ fieldset.admin-locked a { pointer-events: auto; }
 .mw-ask .icon-btn { opacity: 0; }
 .mw-ask:hover .icon-btn, .mw-ask:focus-within .icon-btn { opacity: 1; }
 .mw-toggle { width: 100%; border: 0; background: transparent; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 6px; }
-/* "Ask Parth" (ui.tsx AskLine): who decides, and a one-click request into their inbox */
 .ask-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ask-line > span { flex: 1 1 240px; }
 .ask-btn { flex: none; }
 .issue-under-desc .under-desc-btn { color: var(--text-dim); gap: 5px; }
 .issue-under-desc .under-desc-btn:hover { color: var(--text-primary); }
-/* the agent's journey under its final summary (core/work.ts renderFinal) */
 .md details > summary { cursor: pointer; color: var(--text-dim); font-size: 12px; }
 
-/* ---------- delight pass: small moments that were earned, and things that answer back ----------
-   Same vocabulary as above (bl-*, --ease, the register indigo); nothing here plays on load. */
 
-/* a count that changed ticks into place, so the eye catches it */
 .nav-item .nav-count, .mw-count { display: inline-block; font-variant-numeric: tabular-nums; animation: bl-tick 220ms var(--ease) both; }
 
-/* the sub-issue ring that just closed pops once */
 .sub-progress { position: relative; }
 .sub-progress.just-closed svg { animation: bl-ring-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .sub-progress.just-closed { color: var(--status-completed); transition: color 600ms var(--ease) 500ms; }
 .sub-progress .burst { left: 6px; }
 @keyframes bl-ring-pop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
 
-/* My work: one quiet line that knows the hour, and the week at a glance */
 .mw-hello { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 22px 16px 14px; animation: bl-fade-up 360ms var(--ease) both; }
 .mw-hello-title { margin: 0; font-size: 20px; font-weight: var(--fw-semibold); letter-spacing: -0.02em; color: var(--text-primary); line-height: 1.25; }
 .mw-hello-sub { margin-top: 3px; font-size: 13px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
@@ -3140,40 +2847,29 @@ fieldset.admin-locked a { pointer-events: auto; }
 .mw-bars i.today.zero { opacity: 0.6; }
 @keyframes bl-grow { from { transform: scaleY(0); } }
 
-/* an answered ask slides away at once; the server catches up behind it */
 .mw-ask.leaving { overflow: hidden; pointer-events: none; animation: bl-leave 240ms var(--ease) both; }
 .mw-closed-row { animation: bl-fade-up 260ms var(--ease) both; }
 .mw-clear { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); animation: bl-fade-up 320ms var(--ease) both; }
 .mw-clear-check { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: var(--green); color: #fff; animation: bl-pop-in 560ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 
-/* copy buttons answer in place: the glyph turns into a green check, then back */
 .tb-ok, .tb-ic { display: inline-flex; }
 .tb-ok { color: var(--green); animation: bl-pop-in 380ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 @keyframes bl-pop-in { from { opacity: 0; transform: scale(0.6) rotate(-90deg); } }
 
-/* a reaction you just added pops; one that was already there on load sits still */
 .reaction-chip .rc-emoji { display: inline-block; }
 .reaction-chip.pop .rc-emoji { animation: bl-emoji-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 @keyframes bl-emoji-pop { 0% { transform: scale(0.4) rotate(-12deg); } 60% { transform: scale(1.3) rotate(6deg); } 100% { transform: none; } }
 
-/* the keyboard tip toast: key caps inline with the sentence */
 .tip-keys { display: inline-flex; align-items: center; gap: 3px; margin: 0 2px; vertical-align: 1px; }
 .tip-then { font-size: 11px; color: var(--text-dim); margin: 0 2px; }
 
-/* the mark measures: hovering the workspace switch slides its node along the rule and back */
 .ws-switch:hover .lg-node { animation: bl-measure 900ms var(--ease) both; }
 @keyframes bl-measure { 0% { transform: none; } 40% { transform: translateX(6px); } 70% { transform: translateX(-1.5px); } 100% { transform: none; } }
 
-/* a comment you just posted rises into the thread and washes brand for a beat */
 .cmt.landed { animation: bl-fade-up 320ms var(--ease) both, bl-flash 1200ms ease-out 200ms both; border-radius: 8px; }
-/* under the greeting, My work's empty state flows below it instead of covering the page */
 .mw .empty-state { position: relative; inset: auto; }
 
-/* ---------- empty states on the line (EmptyState.tsx) ----------
-   The module's title, copy, buttons and illustration sit under a rule that runs the width of the
-   pane; a faded word names the module or state above it; the register dot's place says the kind. */
 .empty-state.es { container-type: inline-size; padding: 0; --es-col: min(440px, calc(100% - 32px)); --es-x: calc((100% - var(--es-col)) / 2); }
-/* beats the older `.empty-state > *` 360px column: the word and body share one column, the line runs the pane */
 .empty-state.es > .es-word, .empty-state.es > .es-body { width: var(--es-col); margin-left: auto; margin-right: auto; }
 .empty-state.es > .es-line { width: auto; }
 .empty-state.es.es-pane > .es-line { width: var(--es-col); margin: 0 auto; }
@@ -3191,9 +2887,7 @@ fieldset.admin-locked a { pointer-events: auto; }
 .es-first .es-dot::after, .es-done .es-dot::after { background: var(--brand-register); }
 .es-off .es-dot::after { background: transparent; border: 1.5px solid var(--text-secondary); }
 .es-filtered .es-line::before { background: repeating-linear-gradient(to right, var(--rule) 0, var(--rule) 6px, transparent 6px, transparent 11px); }
-/* broken: the rule stops short of the column and picks up again past it */
 .es-missing .es-line::before { background: linear-gradient(to right, var(--rule) 0, var(--rule) calc(var(--es-x) + 120px), transparent calc(var(--es-x) + 120px), transparent calc(var(--es-x) + 168px), var(--rule) calc(var(--es-x) + 168px)); }
-/* caught up: the dot runs from the column's start to its end, filling the line behind it */
 .es-done .es-line { --es-at: calc(100% - var(--es-x)); }
 .es-done .es-fill { width: var(--es-at); animation: es-fill 1.3s var(--ease) 300ms both; }
 .es-done .es-dot { animation: es-run 1.3s var(--ease) 300ms both; }
@@ -3205,7 +2899,6 @@ fieldset.admin-locked a { pointer-events: auto; }
 .empty-state.es .empty-title, .empty-state.es .empty-desc, .empty-state.es .empty-actions { animation: none; }
 .empty-state.es .empty-desc { margin-bottom: 0; }
 .empty-state.es .empty-actions { margin-top: 18px; }
-/* a pane, or any container too narrow for the word: title over a hairline, the line keeps to the column */
 .es-pane .es-line { width: var(--es-col); margin: 0 auto; --es-x: 0px; }
 .es-pane.es-done .es-line { --es-at: 100%; }
 @container (max-width: 520px) {
@@ -3222,18 +2915,13 @@ fieldset.admin-locked a { pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) {
   .es-word, .es-line::before, .es-fill, .es-dot, .es-body { animation: none !important; }
 }
-/* My work: the caught-up state flows under the greeting */
 .mw-empty.es { min-height: 0; padding: 48px 0 24px; }
 .empty-state.es .empty-actions:empty { display: none; }
-/* page size: the state sits on the page's own gutter, under the heading and tabs, the way the
-   canvas draws it (Language · 03): word, dot and body share the left edge, and the word is set
-   to the page, not to a tile. Panes and narrow containers keep the centred column above. */
 .empty-state.es.es-page { --es-gutter: 16px; --es-col: min(560px, calc(100% - 2 * var(--es-gutter))); --es-x: var(--es-gutter); }
 .empty-state.es.es-page:not(.mw-empty) { padding-bottom: 6vh; }
 .empty-state.es.es-page > .es-word, .empty-state.es.es-page > .es-body { align-self: flex-start; margin-left: var(--es-gutter); margin-right: 0; }
 .empty-state.es.es-page > .es-word {
   width: auto; max-width: calc(100% - 2 * var(--es-gutter));
-  /* the glyph's side bearing grows with the size; pull it back so the stem sits on the dot */
   margin-left: calc(var(--es-gutter) - 0.045em);
   font-size: clamp(56px, 9.5cqi, 132px); padding-bottom: 0.08em;
 }
@@ -3241,25 +2929,19 @@ fieldset.admin-locked a { pointer-events: auto; }
 .empty-state.es.es-page .empty-title { font-size: 17px; margin-bottom: 10px; }
 .empty-state.es.es-page .empty-desc { font-size: 14px; line-height: 1.5; max-width: 52ch; }
 .empty-state.es.es-page .empty-actions { margin-top: 20px; }
-/* the word is the title: hide the repeated title visually while the word shows (narrow
-   containers drop the word, so the title comes back there) */
 @container (min-width: 521px) {
   .es-word-is-title .empty-title { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 }
 
-/* ---------- the hand-off into the app (arrival.ts) ----------
-   The brand screen leaves: word, ticker and form fade, the node runs to the end of the line. */
 .auth-leaving .auth-word > span, .auth-leaving .auth-ticker, .auth-leaving .auth-ticks, .auth-leaving .auth-body, .auth-leaving .auth-top, .auth-leaving .auth-bottom {
   opacity: 0; transform: translateY(10px); transition: opacity 280ms var(--ease), transform 480ms var(--ease);
 }
 .auth-leaving .auth-word > span { transform: translateY(0.3em); }
-/* then the app mounts under an ink sheet whose line climbs to the top bar's hairline and the sheet clears */
 .arrival { position: fixed; inset: 0; z-index: 200; pointer-events: none; background: var(--brand-ink); animation: arrival-clear 520ms var(--ease) 320ms both; }
 .arrival-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--brand-register); animation: arrival-climb 640ms var(--ease) both; }
 @keyframes arrival-climb { from { top: 42vh; opacity: 1; } 70% { opacity: 1; } to { top: 54px; height: 1px; opacity: 0; } }
 @keyframes arrival-clear { to { background: transparent; } }
 
-/* the team screen: the key is the word, typed letters rise at once, its first issue keys mark the line */
 .auth-word > span.typed { animation: auth-letter 420ms var(--ease) both; animation-delay: 0ms; }
 .auth-ticks { display: flex; padding-top: 0; }
 .auth-ticks > span { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; font-family: var(--font-code); font-size: 12px; color: #8a8f98; white-space: nowrap; animation: bl-fade-up 500ms var(--ease) both; animation-delay: calc(600ms + var(--d) + var(--auth-since, 0ms)); }
@@ -3270,7 +2952,6 @@ fieldset.admin-locked a { pointer-events: auto; }
 .auth-form .gate-name { flex: 3 1 240px; }
 @media (prefers-reduced-motion: reduce) { .auth-ticks > span, .auth-word > span.typed, .arrival, .arrival-line { animation: none; } }
 
-/* top-level pages: the title sits on the top bar's hairline with a register under it */
 .topbar.topbar-heading { height: 54px; align-items: flex-end; }
 .topbar-heading .breadcrumb { align-self: stretch; align-items: flex-end; }
 .topbar-heading .breadcrumb .crumb {
@@ -3285,7 +2966,6 @@ fieldset.admin-locked a { pointer-events: auto; }
 .topbar-heading .topbar-right, .topbar-heading > .icon-btn, .topbar-heading .topbar-more { align-self: center; margin-top: 8px; }
 @media (prefers-reduced-motion: reduce) { .topbar-heading .breadcrumb .crumb::after { animation: none; } }
 
-/* progress on the line: the bar thins to a rule and a register dot rides where done ends */
 .cy-bar.on-line { position: relative; height: 2px; overflow: visible; background: var(--rule); }
 .ob-segs.on-line { position: relative; gap: 0; }
 .ob-segs.on-line i { width: 30px; height: 2px; border-radius: 0; background: var(--rule); box-shadow: inset -2px 0 0 var(--bg-main); }
@@ -3294,8 +2974,6 @@ fieldset.admin-locked a { pointer-events: auto; }
 .line-node::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: var(--brand-register); }
 @media (prefers-reduced-motion: reduce) { .line-node { transition: none; } }
 
-/* ---------- the way in after the first team (Onboarding.tsx) ---------- */
-/* the bridge: the line carries the setup steps as stops; the node sits on the picked one */
 .auth-line.col { --at: calc(var(--x0) + (min(100%, 1200px) - 80px) * var(--p, 0)); }
 .bridge-stops { display: flex; }
 .bridge-stop {
@@ -3313,7 +2991,6 @@ fieldset.admin-locked a { pointer-events: auto; }
 .bridge-pick-why { font-size: 13.5px; line-height: 1.55; color: #949496; }
 @media (max-width: 640px) { .bridge-stops { flex-direction: column; gap: 14px; padding-top: 14px; } .auth-line.col { --at: var(--x0); } }
 
-/* the tour: one area lit, the rest held back, a card on the line */
 .tour { position: fixed; inset: 0; z-index: 250; }
 .tour-catch { position: absolute; inset: 0; }
 .tour-spot {
@@ -3342,7 +3019,6 @@ fieldset.admin-locked a { pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .tour-spot, .tour-card, .tour-fill, .tour-node, .tour-body, .bridge-stop { transition: none; animation: none; } }
 .nav-personal { display: flex; flex-direction: column; gap: inherit; }
 
-/* inbox previews without an issue (Inbox.tsx ProjectNotice): title, what happened, one action */
 .proj-notice { gap: 14px; padding: 32px 40px; }
 .proj-notice .pn-title { font-size: 20px; font-weight: 620; letter-spacing: -0.025em; line-height: 26px; }
 .proj-notice .pn-body { font-size: 13.5px; line-height: 21px; }
@@ -3355,7 +3031,6 @@ fieldset.admin-locked a { pointer-events: auto; }
 .inbox-row.snoozed { opacity: 1; }
 .inbox-row.snoozed .inbox-body, .inbox-row.snoozed .inbox-lead { opacity: 0.62; }
 
-/* activity values (a person, a priority, a status, a label…) read as the thing: icon, then name */
 .activity-item .act-tok { display: inline-flex; align-items: baseline; gap: 4px; }
 .activity-item .act-tok > :not(b) { align-self: center; flex: none; }
 .activity-item .act-tok b { color: var(--text-primary); }

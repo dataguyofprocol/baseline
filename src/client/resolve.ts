@@ -1,6 +1,3 @@
-// Names to ids over a snapshot: the words a person or an agent types (team keys, state and user
-// names, "me", "none", "current") and the error text when one doesn't match. Pure; shared by the
-// CLI and the MCP server, so both accept the same words.
 import type { Label, Location, Priority, Project, Snapshot, Team, User, WorkflowState } from '../core/types.js';
 import { normalizeDir } from '../core/util.js';
 
@@ -32,7 +29,6 @@ export function resolveState(snap: Pick<Snapshot, 'states'>, teamId: string, nam
   return st;
 }
 
-/** "me": the snapshot's current user (a key's owner, remotely); "none": undefined */
 export function resolveUser(snap: Pick<Snapshot, 'users' | 'currentUser'>, name: string): User | undefined {
   if (name.toLowerCase() === 'none') return undefined;
   if (name.toLowerCase() === 'me') return snap.currentUser;
@@ -58,7 +54,6 @@ export function resolveLabel(snap: Pick<Snapshot, 'labels'>, teamId: string, nam
   return l;
 }
 
-/** a cycle by number ("22"), name, "current", "next" or "none" */
 export function resolveCycle(snap: Pick<Snapshot, 'cycles'>, teamId: string, ref: string): string | null {
   if (ref.toLowerCase() === 'none') return null;
   const now = new Date().toISOString();
@@ -79,8 +74,6 @@ export function milestoneIdFor(snap: Pick<Snapshot, 'milestones'>, projectId: st
   return m.id;
 }
 
-/** --as <user>, else BASELINE_AS (name or user id): whom a write is attributed to. Resolution only;
- *  whether the server honors it is the server's call. */
 export function actorId(snap: Pick<Snapshot, 'users'>, flag: string | undefined, env: string | undefined): string | undefined {
   const name = flag ?? env;
   if (!name) return undefined;
@@ -91,10 +84,8 @@ export function actorId(snap: Pick<Snapshot, 'users'>, flag: string | undefined,
   return u!.id;
 }
 
-/** a path-looking reference ("~/code/x", "./x", "/x") names a directory to register, not an existing location */
 export const isPathRef = (ref: string) => /^[~/.]/.test(ref);
 
-/** an existing location by id, exact name, or path */
 export function resolveLocation(snap: Pick<Snapshot, 'locations'>, ref: string): Location {
   const path = normalizeDir(ref);
   const loc = snap.locations.find(l => l.id === ref) ?? snap.locations.find(l => l.name.toLowerCase() === ref.trim().toLowerCase()) ?? snap.locations.find(l => l.path === path);

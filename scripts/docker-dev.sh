@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# Rebuild the compose server from this checkout and start it on a fresh, seeded workspace. Every
-# run deletes the compose data volume: this is for dev testing, so no data is kept or backed up.
-#
-#   npm run docker:dev
-#   BASELINE_DEV_PASSWORD=something-else npm run docker:dev
-#
-# The owner signs in with BASELINE_OWNER_EMAIL from .env (default parth@local) and
-# BASELINE_DEV_PASSWORD (default baseline-dev). The server listens on BASELINE_PUBLISH from .env.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

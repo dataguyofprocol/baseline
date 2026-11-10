@@ -7,9 +7,6 @@ import { ApiKeys } from './apikeys.js';
 import { GitHubWebhooks, migrateWebhooks } from './webhooks.js';
 import { migrateWork, Work, WORK_TABLES } from './work.js';
 
-/* Areas added after the core tracker: initiatives, SLAs, loops and the git
-   integration. Each lives in its own module with its own tables, and plugs into the store
-   through issueHooks / tickHooks, so the core store stays small and merges stay mechanical. */
 
 export interface Extensions {
   planning: Planning;
@@ -17,16 +14,12 @@ export interface Extensions {
   git: GitSync;
   apiKeys: ApiKeys;
   webhooks: GitHubWebhooks;
-  /** agent work: threads, ops and drafts (work.ts) */
   work: Work;
-  /** extra snapshot fields */
   snapshot(): ReturnType<Planning['snapshot']> & ReturnType<Automation['snapshot']> & ReturnType<GitSync['snapshot']>;
-  /** tables wipe() clears (children first) */
   tables: string[];
   importData(data: Record<string, unknown>, insert: (table: string, cols: string[], row: Record<string, unknown>) => void): void;
 }
 
-/** initiatives made before sequential ids (or imported from an older backup) get theirs in creation order */
 function numberInitiatives(db: DatabaseSync): void {
   const unnumbered = db.prepare('SELECT id FROM initiatives WHERE number IS NULL ORDER BY created_at, position').all() as Array<{ id: string }>;
   if (!unnumbered.length) return;
@@ -110,7 +103,6 @@ function migrateExtensions(db: DatabaseSync): void {
   }
   numberInitiatives(db);
   if (!columns('initiative_updates').includes('reactions')) db.exec("ALTER TABLE initiative_updates ADD COLUMN reactions TEXT NOT NULL DEFAULT '{}'");
-  // documents can live on an initiative too (its Resources)
   if (!columns('documents').includes('initiative_id')) db.exec('ALTER TABLE documents ADD COLUMN initiative_id TEXT');
 }
 
@@ -127,7 +119,6 @@ export function createExtensions(store: Store, db: DatabaseSync): Extensions {
   return {
     planning, automation, git, apiKeys, webhooks, work,
     snapshot: () => ({ ...planning.snapshot(), ...automation.snapshot(), ...git.snapshot() }),
-    // api_keys are not exported or imported (only their hashes exist), nor is agent work
     tables: [...WORK_TABLES, 'github_issue_imports', 'github_deliveries', 'api_keys', 'user_github_tokens', 'issue_commits', 'commits', 'issue_prs', 'pull_requests', 'loop_runs', 'loops', 'sla_rules', 'initiative_links', 'initiative_updates', 'initiative_projects', 'initiatives', 'initiative_labels'],
     importData(data, insert) {
       const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : []);

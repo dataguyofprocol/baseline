@@ -1,5 +1,3 @@
-// Today: what needs you, what is in flight and what to start next, across every team you're on. Pure:
-// computed from TuiData, so the screen, the reducer's auto-advance and the tests read the same rows.
 import { inboxRows, needsYou, visibleNotifications } from '../core/inbox.js';
 import { mentionedIds } from '../core/mentions.js';
 import type { Issue, Notification, NotificationType, PullRequest } from '../core/types.js';
@@ -7,30 +5,20 @@ import type { WorkThread } from '../core/work-types.js';
 import { rankNextIssues, type NextWhy } from '../ops/index.js';
 import type { TuiData } from './data.js';
 
-/** review: an agent finished for you; blocked: it stopped on a question; mention, pr (a review asked of you),
- *  ask (a reply, reminder, SLA or access request); triage: a team you lead has issues waiting */
 export type NeedKind = 'review' | 'blocked' | 'mention' | 'pr' | 'ask' | 'triage';
 
 export interface NeedRow {
-  /** the issue id; `triage:<teamId>`, or `n:<notificationId>` for an ask about no issue */
   id: string;
   kind: NeedKind;
   issue: Issue | null;
   teamId: string | null;
-  /** every unread notification the row stands for: acting on the row marks them all read */
   notificationIds: string[];
-  /** the short word after the title: review, blocked, Ada, PR review… */
   reason: string;
-  /** when it started waiting on you (the newest notification) */
   at: string;
-  /** the agent's work behind a review or blocked row */
   thread: WorkThread | null;
-  /** for a mention: the comment that mentions you, when there is one to reply to */
   commentId: string | null;
   actorId: string | null;
-  /** the subject when there is no issue */
   text: string;
-  /** triage rows: how many wait */
   count: number;
 }
 
@@ -48,8 +36,6 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const stateType = (data: TuiData, i: Issue) => data.stateById.get(i.stateId)?.type;
 const firstName = (data: TuiData, id: string | null) => (id ? data.userById.get(id)?.name.split(/\s+/)[0] : undefined) ?? 'Someone';
 
-/** the latest agent thread on an issue that is for me (or about my issue); `threads`: the issue's threads when the
- *  caller has fresher ones than Today's (the open issue page loads its own) */
 export function myThread(data: TuiData, issueId: string, threads?: readonly WorkThread[]): WorkThread | null {
   const me = data.currentUser.id;
   const all = threads ?? data.threads.get(issueId) ?? [];
@@ -58,7 +44,6 @@ export function myThread(data: TuiData, issueId: string, threads?: readonly Work
   return [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
 }
 
-/** what the agent's latest work asks of you: blocked on a question, finished for review, or nothing */
 export function threadAsk(t: WorkThread | null): 'review' | 'blocked' | null {
   if (!t) return null;
   if (t.state.status === 'active') return t.progress.blocked ? 'blocked' : null;
@@ -66,9 +51,6 @@ export function threadAsk(t: WorkThread | null): 'review' | 'blocked' | null {
   return 'review';
 }
 
-/** What the agent's work on an issue asks of you now: an answer while it is blocked, a review while its finished
- *  work waits In Review (or, on a team without that state, while the issue is still started). Nothing once the
- *  issue is closed or was sent back. The issue page, its keys and Needs you all read this one rule. */
 export function agentAsk(data: TuiData, issue: Issue, threads?: readonly WorkThread[]): { ask: 'review' | 'blocked'; thread: WorkThread } | null {
   const thread = myThread(data, issue.id, threads);
   const ask = threadAsk(thread);
@@ -86,7 +68,6 @@ const KIND_OF: Partial<Record<NotificationType, NeedKind>> = {
 };
 const RANK: NeedKind[] = ['blocked', 'review', 'mention', 'pr', 'ask'];
 
-/** the newest comment on an issue that mentions me */
 export function mentionComment(data: TuiData, issueId: string): string | null {
   const me = data.currentUser.id;
   const list = data.comments.filter(c => c.issueId === issueId && c.userId !== me && mentionedIds(c.body, data.users).includes(me))
@@ -107,7 +88,6 @@ function reasonFor(kind: NeedKind, n: Notification, data: TuiData): string {
   }
 }
 
-/** the teams I lead (a team with no leads is led by the admins) and how many of their issues wait in Triage */
 function triageRows(data: TuiData): NeedRow[] {
   const me = data.currentUser;
   return data.teams.filter(t => t.triageEnabled && (t.leadIds.includes(me.id) || (!t.leadIds.length && me.admin))).flatMap(t => {
@@ -119,21 +99,17 @@ function triageRows(data: TuiData): NeedRow[] {
   });
 }
 
-/** Needs you: one row per issue, newest first, from the notifications that ask something of you (the web's
- *  My work rule), then a row per team you lead with Triage waiting */
 export function needRows(data: TuiData, now: number): NeedRow[] {
   const asks = visibleNotifications(data.notifications, new Date(now).toISOString()).filter(n => !n.readAt && needsYou(n));
   const rows: NeedRow[] = [];
   for (const r of inboxRows(asks)) {
     const issue = r.lead.issueId ? data.issueById.get(r.lead.issueId) ?? null : null;
-    // a notification about an issue that is gone (archived, deleted) waits on nothing
     if (r.lead.issueId && !issue) continue;
     const merged = asks.filter(n => r.ids.includes(n.id));
     const agent = issue ? agentAsk(data, issue) : null;
     const thread = agent?.thread ?? null;
     const fromThread = agent?.ask ?? null;
     const fromNotes = merged.map(n => KIND_OF[n.type] ?? 'ask').sort((a, b) => RANK.indexOf(a) - RANK.indexOf(b))[0] ?? 'ask';
-    // the agent's latest state wins over an older notification about it (blocked, then answered and finished)
     const kind: NeedKind = fromThread && (fromNotes === 'review' || fromNotes === 'blocked') ? fromThread : fromNotes;
     const lead = merged.find(n => KIND_OF[n.type] === kind) ?? r.lead;
     rows.push({
@@ -146,27 +122,21 @@ export function needRows(data: TuiData, now: number): NeedRow[] {
   return [...rows, ...triageRows(data)];
 }
 
-/** the Needs you rows the issue page can open: the ones about an issue */
 export const issueNeeds = (data: TuiData, now: number) => todayModel(data, now).needs.filter((r): r is NeedRow & { issue: Issue } => !!r.issue);
 
-/** a tmux pane this TUI started an agent in, and when */
 export interface Pane { id: string; at: string }
 
-/** an agent started in a pane that hasn't said anything to Baseline since: it is starting. Once its thread
- *  moves (or ends), the thread is what counts */
 export function paneStarting(data: TuiData, issueId: string, pane: Pane | undefined): boolean {
   if (!pane) return false;
   const t = myThread(data, issueId);
   return !t || t.updatedAt < pane.at;
 }
 
-/** the open agent thread on an issue (the agent is working on it now) */
 export function activeThread(data: TuiData, issueId: string): WorkThread | null {
   const t = myThread(data, issueId);
   return t && t.state.status === 'active' ? t : null;
 }
 
-/** In flight: my started issues, without the ones already in Needs you; agent work first, then by recency */
 export function flightRows(data: TuiData, needs: readonly NeedRow[]): FlightRow[] {
   const me = data.currentUser.id;
   const asked = new Set(needs.map(n => n.issue?.id).filter(Boolean));
@@ -176,7 +146,6 @@ export function flightRows(data: TuiData, needs: readonly NeedRow[]): FlightRow[
   }).sort((a, b) => Number(!!b.thread) - Number(!!a.thread) || b.at.localeCompare(a.at));
 }
 
-/** "due Thu" within the week, "due today", "overdue"; null further out */
 export function dueSoon(due: string | null, now: number): string | null {
   if (!due) return null;
   const [y, m, d] = due.slice(0, 10).split('-').map(Number);
@@ -189,7 +158,6 @@ export function dueSoon(due: string | null, now: number): string | null {
   return days < 7 ? `due ${DAYS[day.getDay()]}` : null;
 }
 
-/** why an issue is up next, in a few words: a due date, an issue waiting on it, the cycle, else next_issue's own reason */
 export function nextReason(i: Issue, why: NextWhy, data: TuiData, now: number): string {
   const due = dueSoon(i.dueDate, now);
   if (due) return due;
@@ -203,7 +171,6 @@ export function nextReason(i: Issue, why: NextWhy, data: TuiData, now: number): 
   return why === 'Todo, yours' ? 'Todo' : 'unassigned';
 }
 
-/** Up next: next_issue's ranking (the same function the op runs), without what is already started or needs you */
 export function nextRows(data: TuiData, needs: readonly NeedRow[], now: number, limit = NEXT_LIMIT): NextRow[] {
   const asked = new Set(needs.map(n => n.issue?.id).filter(Boolean));
   const ranked = rankNextIssues(data, { limit: 50, now: new Date(now).toISOString() }).issues;
@@ -211,7 +178,6 @@ export function nextRows(data: TuiData, needs: readonly NeedRow[], now: number, 
     .map(x => ({ id: x.issue.id, issue: x.issue, why: x.why, reason: nextReason(x.issue, x.why, data, now) }));
 }
 
-/** Done this week: what I closed in the last seven days, newest first */
 export function doneRows(data: TuiData, now: number): DoneRow[] {
   const me = data.currentUser.id;
   return data.issues.filter(i => i.assigneeId === me && ['completed', 'canceled'].includes(stateType(data, i) ?? ''))
@@ -222,7 +188,6 @@ export function doneRows(data: TuiData, now: number): DoneRow[] {
 
 const cache = new WeakMap<TuiData, { minute: number; model: TodayModel }>();
 
-/** the model for this data, worked out once a minute per fetch (the tabs, the cursor and the screen all ask) */
 export function todayModel(data: TuiData, now: number): TodayModel {
   const minute = Math.floor(now / 60_000);
   const hit = cache.get(data);
@@ -240,7 +205,6 @@ export type TodayRow =
   | { kind: 'doneHeader'; id: string; count: number; expanded: boolean }
   | { kind: 'done'; id: string; row: DoneRow };
 
-/** every row the cursor can rest on, top to bottom; ids are issue ids, so the cursor follows an issue across a refetch */
 export function todayRows(m: TodayModel, doneOpen: boolean): TodayRow[] {
   return [
     ...m.needs.map(row => ({ kind: 'need' as const, id: row.id, row })),
@@ -251,7 +215,6 @@ export function todayRows(m: TodayModel, doneOpen: boolean): TodayRow[] {
   ];
 }
 
-/** the PR linked to an issue: an open one first, else the newest */
 export function prOf(data: TuiData, issueId: string): PullRequest | null {
   const ids = new Set(data.issuePrs.filter(l => l.issueId === issueId && !l.dismissed).map(l => l.prId));
   const prs = data.pullRequests.filter(p => ids.has(p.id)).sort((a, b) => Number(b.state === 'open') - Number(a.state === 'open') || b.updatedAt.localeCompare(a.updatedAt));
@@ -260,5 +223,4 @@ export function prOf(data: TuiData, issueId: string): PullRequest | null {
 
 export const commitCount = (data: TuiData, issueId: string) => data.issueCommits.filter(c => c.issueId === issueId).length;
 
-/** pending follow-up drafts an agent noted while working on this issue */
 export const followupsOf = (data: TuiData, issueId: string) => data.drafts.filter(d => d.kind === 'followup' && d.status === 'pending' && d.fromIssueId === issueId);

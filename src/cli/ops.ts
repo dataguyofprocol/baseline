@@ -1,5 +1,3 @@
-// `baseline agent <verb>`, generated from OPERATIONS: pi (no MCP) gets exactly the tools Claude Code
-// and Codex get, with the same descriptions, validation, errors and JSON.
 import { Command } from 'commander';
 import { OPERATIONS } from '../ops/index.js';
 import { cliVerb, fieldsOf, OP_ALIASES, OpError, placeholderOf, runOp, type AnyOperation, type Field, type OpContext } from '../ops/operation.js';
@@ -7,7 +5,6 @@ import { cliVerb, fieldsOf, OP_ALIASES, OpError, placeholderOf, runOp, type AnyO
 export interface OpFlags { db?: string; as?: string; json?: boolean }
 
 let stdin: Promise<string> | undefined;
-/** a text value of "-" is read from stdin (a long summary through Bash without quoting trouble) */
 const readStdin = () => stdin ??= (async () => {
   const chunks: Buffer[] = [];
   for await (const c of process.stdin) chunks.push(c as Buffer);
@@ -59,10 +56,8 @@ function command(op: AnyOperation, context: (flags: OpFlags) => Promise<OpContex
   return cmd;
 }
 
-/** one command per operation under `parent` (the CLI's `agent` command) */
 export function mountOperations(parent: Command, context: (flags: OpFlags) => Promise<OpContext>): void {
   for (const op of OPERATIONS) parent.addCommand(command(op, context));
-  // retired verbs keep working for older CLAUDE.md / AGENTS.md blocks, unlisted
   for (const [old, now] of Object.entries(OP_ALIASES)) {
     parent.addCommand(command(OPERATIONS.find(o => o.name === now)!, context, old.replace(/_/g, '-')), { hidden: true });
   }

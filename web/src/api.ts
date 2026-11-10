@@ -1,7 +1,6 @@
 import { markCreated } from './motion.js';
 import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, GitStatus, GithubTokenInfo, GithubSummary, GithubAuthor, TrackedRepo, Invite, InviteResult, WorkspaceSecurity, SignInMethod, TeamJoinLink } from '../../src/core/types.js';
 
-/** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
@@ -14,7 +13,6 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   });
   if (res.status === 401) window.dispatchEvent(new Event('baseline:signed-out'));
   if (!res.ok) {
-    // the server's own sentence when it sent one ("The workspace needs at least one admin")
     const said = await res.json().then((j: { error?: unknown }) => typeof j.error === 'string' ? j.error : null).catch(() => null);
     throw new ApiError(said ?? `${method} ${path} → ${res.status}`, res.status);
   }
@@ -25,7 +23,6 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 export const api = {
   bootstrap: () => req<Snapshot>('GET', '/api/bootstrap'),
   logout: () => req<{ ok: true }>('POST', '/api/auth/logout'),
-  // people (hosted workspaces)
   listInvites: () => req<{ invites: Invite[] }>('GET', '/api/invites'),
   createInvites: (b: { userIds: string[]; emails: string[]; admin: boolean; teamIds: string[] }) => req<{ results: InviteResult[] }>('POST', '/api/invites', b),
   resendInvite: (id: string) => req<{ invite: Invite; emailed?: InviteResult['emailed']; error?: string }>('POST', `/api/invites/${id}/resend`, {}),
@@ -36,25 +33,21 @@ export const api = {
   addTeamMembers: (id: string, userIds: string[]) => req<{ added: string[] }>('POST', `/api/teams/${id}/members`, { userIds }),
   removeTeamMember: (id: string, userId: string) => req<{ ok: true }>('DELETE', `/api/teams/${id}/members/${userId}`),
   setTeamLead: (id: string, userId: string, lead: boolean) => req<{ team: Team }>('PUT', `/api/teams/${id}/leads/${userId}`, { lead }),
-  /** "Ask <name>": a row in that admin's or lead's inbox */
   askAccess: (b: { to: string; what: string; path: string }) => req<{ ok: true }>('POST', '/api/access-requests', b),
   updateSecurity: (b: Partial<WorkspaceSecurity>) => req<{ security: WorkspaceSecurity }>('PATCH', '/api/security', b),
-  /** what an invite link (or, with `join`, a team's join link) points at, before signing in (no session needed) */
   inviteInfo: async (code: string, kind: 'invite' | 'join' = 'invite') => {
     const res = await fetch(`/auth/${kind}/${encodeURIComponent(code)}`);
     return res.json().catch(() => ({ state: 'unknown' })) as Promise<{ state: 'valid' | 'expired' | 'accepted' | 'revoked' | 'unknown'; workspace?: string; inviter?: string | null; email?: string; teams?: string[] }>;
   },
-  /** a team's shareable join link (null: none open) */
   teamJoinLink: (teamId: string) => req<{ joinLink: TeamJoinLink | null }>('GET', `/api/teams/${teamId}/join-link`),
   createTeamJoinLink: (teamId: string) => req<{ joinLink: TeamJoinLink }>('POST', `/api/teams/${teamId}/join-link`, {}),
   revokeTeamJoinLink: (teamId: string) => req<{ ok: true }>('DELETE', `/api/teams/${teamId}/join-link`),
-  /** an admin's one-use link that sets a member's password (shared by hand; no email needed) */
   passwordResetLink: (userId: string) => req<{ link: string; expiresAt: string }>('POST', `/api/members/${userId}/reset-link`, {}),
   changePassword: (b: { current: string; next: string }) => req<{ ok: true }>('POST', '/api/me/password', b),
   me: () => req<{ hasPassword: boolean | null }>('GET', '/api/me'),
   createIssue: async (b: Partial<Issue> & { teamId: string; title: string }) => {
     const r = await req<{ issue: Issue }>('POST', '/api/issues', b);
-    markCreated(r.issue.id);   // the row plays its enter + flash when it lands
+    markCreated(r.issue.id);
     return r;
   },
   updateIssue: (id: string, patch: Record<string, unknown>) => req<{ issue: Issue }>('PATCH', `/api/issues/${id}`, patch),
@@ -65,7 +58,6 @@ export const api = {
   moveIssue: (id: string, beforeId: string | null, afterId: string | null) => req<{ ok: true }>('POST', `/api/issues/${id}/move`, { beforeId, afterId }),
   startIssue: (id: string) => req<{ moved: boolean; assigned: boolean; stateName?: string }>('POST', `/api/issues/${id}/start`, {}),
   getHandoff: (id: string) => req<{ handoff: Handoff }>('GET', `/api/issues/${id}/handoff`),
-  /** errors come back as values, and the caller reacts to `code` (e.g. no-directory opens the picker) */
   openClaude: async (id: string, b: { locationId?: string; directory?: string }) => {
     const res = await fetch(`/api/issues/${id}/open-claude`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
     return res.json().catch(() => ({ error: `Server error (${res.status})`, code: 'server' })) as Promise<{ key: string; directory: string; location: { id: string; name: string }; pinned: boolean; error?: undefined } | { error: string; code: string }>;
@@ -108,7 +100,6 @@ export const api = {
   deletedIssues: (teamId?: string) => req<{ issues: Issue[] }>('GET', `/api/issues/deleted${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ''}`),
   purgeIssue: (id: string) => req<{ ok: true }>('DELETE', `/api/issues/${id}/purge`),
   addLink: (issueId: string, url: string, title?: string) => req<{ attachment: Attachment }>('POST', `/api/issues/${issueId}/attachments`, { url, title }),
-  /** a picture for an editor (owner = "issue:<id>", "doc:<id>", "project:<id>", "initiative:<id>", "team:<id>") */
   uploadImage: async (owner: string, file: File) => {
     const res = await fetch(`/api/files?owner=${encodeURIComponent(owner)}&name=${encodeURIComponent(file.name || 'pasted-image.png')}`, {
       method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
@@ -130,7 +121,6 @@ export const api = {
   addProjectUpdate: (id: string, body: string, health?: string) => req<{ ok: true }>('POST', `/api/projects/${id}/updates`, { body, health }),
   editProjectUpdate: (updateId: string, body: string) => req<{ ok: true }>('PATCH', `/api/project-updates/${updateId}`, { body }),
   deleteProjectUpdate: (updateId: string) => req<{ ok: true }>('DELETE', `/api/project-updates/${updateId}`),
-  /** the signed-in person's own draft (an agent wrote it): published as an update by them, with their edits */
   publishUpdateDraft: (id: string, edits: { body: string; health: string }) => req<{ published: unknown }>('POST', `/api/projects/${id}/update-draft/publish`, edits),
   discardUpdateDraft: (id: string) => req<{ ok: boolean }>('DELETE', `/api/projects/${id}/update-draft`),
   createMilestone: (b: Record<string, unknown>) => req<{ milestone: Milestone }>('POST', '/api/milestones', b),
@@ -162,7 +152,6 @@ export const api = {
   saveGithubToken: (token: string) => req<{ token: GithubTokenInfo }>('PUT', '/api/github/token', { token }),
   removeGithubToken: () => req<{ ok: true }>('DELETE', '/api/github/token'),
   availableGithubRepos: () => req<{ repos: string[] }>('GET', '/api/github/repos/available'),
-  // your own GitHub connection (hosted): your read-only token, and the repos you add with it
   saveMyGithubToken: (token: string) => req<{ token: GithubTokenInfo }>('PUT', '/api/me/github/token', { token }),
   removeMyGithubToken: () => req<{ ok: true }>('DELETE', '/api/me/github/token'),
   myAvailableGithubRepos: () => req<{ repos: string[] }>('GET', '/api/me/github/repos/available'),
@@ -224,8 +213,6 @@ export const api = {
   reseed: () => req<{ ok: true }>('POST', '/api/seed', {}),
 };
 
-/** The signed-out side of a hosted server (/auth/*, no session needed). Plain fetches: a refused
- *  password is an answer to show, not a lost session. */
 export const authApi = {
   config: async (): Promise<{ methods: SignInMethod[]; setup: boolean; mail: boolean }> => {
     const res = await fetch('/auth/config');
