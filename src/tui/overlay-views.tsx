@@ -277,7 +277,7 @@ export const helpRows = (rows: number) => Math.max(3, rows - 6);
 
 /** the first-launch card; ? shows it again with every key below it, scrolled with ↑↓ */
 function HelpView({ data, cols, rows, o, onHelpMax, tabs, target }: Props & { o: Extract<Overlay, { kind: 'help' }> }) {
-  const width = Math.min(cols - 2, o.intro ? 72 : 104);
+  const width = Math.min(cols - 2, o.intro ? 84 : 104);
   const inner = width - 4;
   const card = introLines(data, tabs, target, inner);
   const all = o.intro ? card : [...card.slice(0, -1), [{ text: '─'.repeat(inner), color: theme.border }], [], ...helpLines(inner)];

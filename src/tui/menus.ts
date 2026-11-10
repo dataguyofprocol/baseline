@@ -157,13 +157,13 @@ export function introLines(data: TuiData, tabs: number, target: string, width: n
   const endW = 11;
   return [
     [{ text: 'Baseline, in your terminal', bold: true }],
-    [{ text: `Today is what needs you, ${first}, what's in flight and what to start next, across your teams.`, color: theme.muted }],
+    [{ text: `${first}, Today is what needs you, what's in flight and what's next.`, color: theme.muted }],
     [],
     row(tabs > 1 ? `1-${Math.min(9, tabs)}` : '1', 'a place: 1 is Today, then your teams'),
     row('enter', 'go into the thing under the cursor, or take its next step'),
     row('esc', 'back one level; Today is never more than two presses away'),
     row('space', 'every action here, each with its letter'),
-    row('/', 'everything without a tab: any issue, projects, notifications, standup'),
+    row('/', 'everything without a tab: issues, projects, notifications, standup'),
     [],
     [{ text: 'After a decision you land on the next thing that needs you.' }],
     [{ text: 'Every change shows ' }, { text: 'u', color: theme.key, bold: true }, { text: ' undo, so trying things is safe. ' }, { text: '?', color: theme.key, bold: true }, { text: ' shows every key.' }],
