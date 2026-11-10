@@ -3433,3 +3433,9 @@ fieldset.admin-locked a { pointer-events: auto; }
 .pn-facts dd { margin: 0; color: var(--text-strong); }
 .inbox-row.snoozed { opacity: 1; }
 .inbox-row.snoozed .inbox-body, .inbox-row.snoozed .inbox-lead { opacity: 0.62; }
+
+/* activity values (a person, a priority, a status, a label…) read as the thing: icon, then name */
+.activity-item .act-tok { display: inline-flex; align-items: baseline; gap: 4px; }
+.activity-item .act-tok > :not(b) { align-self: center; flex: none; }
+.activity-item .act-tok b { color: var(--text-primary); }
+.activity-item .act-tok .label-dot { width: 8px; height: 8px; }

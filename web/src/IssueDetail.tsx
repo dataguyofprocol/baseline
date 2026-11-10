@@ -31,7 +31,7 @@ import {
   IconBell, IconBellOff, IconTeam, IconClock, IconTriage, IconCheck, IconEmoji, IconMore, IconDoc,
   IconArrowUp,
 } from './icons.js';
-import type { Issue, Comment } from '../../src/core/types.js';
+import type { Issue, Comment, Priority } from '../../src/core/types.js';
 import { EmptyState } from './EmptyState.js';
 
 /* shared activity text builder */
@@ -39,8 +39,25 @@ function useActivityText() {
   const snap = useApp(s => s.snap)!;
   return (a: { type: string; data: Record<string, unknown>; userId: string; viaUserId: string | null; createdAt: string }) => {
     const who = <><b>{nameOf(snap.users.find(u => u.id === a.userId))}</b><Via userId={a.viaUserId} /></>;
-    const st = (id: unknown) => snap.states.find(s => s.id === id)?.name ?? '?';
-    const prio = (p: unknown) => ['No priority', 'Urgent', 'High', 'Medium', 'Low'][Number(p)] ?? '?';
+    // a value in a row reads as the thing it names: its icon, then its name
+    const tok = (icon: React.ReactNode, text: React.ReactNode) => <span className="act-tok">{icon}<b>{text}</b></span>;
+    const st = (id: unknown) => {
+      const s = snap.states.find(x => x.id === id);
+      return s ? tok(<StateIcon type={s.type} color={s.color} size={12} />, s.name) : tok(null, '?');
+    };
+    const prio = (p: unknown) => {
+      const n = Number(p) as Priority;
+      const label = ['No priority', 'Urgent', 'High', 'Medium', 'Low'][n];
+      return label ? tok(<PriorityIcon priority={n} size={12} />, label) : tok(null, '?');
+    };
+    const person = (id: unknown) => {
+      const u = snap.users.find(x => x.id === id);
+      return tok(<Avatar user={u} size={14} />, u ? nameOf(u) : 'someone removed');
+    };
+    const label = (id: unknown) => {
+      const l = snap.labels.find(x => x.id === id);
+      return tok(<span className="label-dot" style={{ background: l?.color ?? 'var(--text-dim)' }} />, l?.name ?? '?');
+    };
     const issueRef = (id: unknown) => {
       const i = snap.issues.find(x => x.id === id);
       if (!i) return 'a deleted issue';
@@ -53,28 +70,28 @@ function useActivityText() {
       case 'created': return <>{who} created the issue {when}</>;
       case 'renamed': return <>{who} changed the title to <b>{String(a.data.to ?? '')}</b> {when}</>;
       case 'described': return <>{who} updated the description {when}</>;
-      case 'stateChanged': return <>{who} changed status from <b>{st(a.data.from)}</b> to <b>{st(a.data.to)}</b> {when}</>;
-      case 'triageAccepted': return <>{who} accepted the issue from triage into <b>{st(a.data.to)}</b> {when}</>;
+      case 'stateChanged': return <>{who} changed status from {st(a.data.from)} to {st(a.data.to)} {when}</>;
+      case 'triageAccepted': return <>{who} accepted the issue from triage into {st(a.data.to)} {when}</>;
       case 'triageDeclined': return <>{who} declined the issue {when}</>;
-      case 'priorityChanged': return <>{who} set priority to <b>{prio(a.data.to)}</b> {when}</>;
-      case 'assigned': return <>{who} assigned the issue to <b>{a.data.to === a.userId ? 'themselves' : snap.users.find(u => u.id === a.data.to)?.name ?? '?'}</b> {when}</>;
+      case 'priorityChanged': return <>{who} set priority to {prio(a.data.to)} {when}</>;
+      case 'assigned': return <>{who} assigned the issue to {a.data.to === a.userId ? 'themselves' : person(a.data.to)} {when}</>;
       case 'unassigned': return <>{who} removed the assignee {when}</>;
-      case 'labeled': return <>{who} added label <b>{snap.labels.find(l => l.id === a.data.labelId)?.name ?? '?'}</b> {when}</>;
-      case 'unlabeled': return <>{who} removed label <b>{snap.labels.find(l => l.id === a.data.labelId)?.name ?? '?'}</b> {when}</>;
+      case 'labeled': return <>{who} added label {label(a.data.labelId)} {when}</>;
+      case 'unlabeled': return <>{who} removed label {label(a.data.labelId)} {when}</>;
       case 'projected': return a.data.to
-        ? <>{who} added the issue to project <b>{snap.projects.find(p => p.id === a.data.to)?.name ?? '?'}</b> {when}</>
+        ? <>{who} added the issue to project {tok(<IconBox size={12} />, snap.projects.find(p => p.id === a.data.to)?.name ?? '?')} {when}</>
         : <>{who} removed the issue from its project {when}</>;
       case 'milestoneChanged': return a.data.to
-        ? <>{who} moved the issue to milestone <b>{snap.milestones.find(m => m.id === a.data.to)?.name ?? '?'}</b> {when}</>
+        ? <>{who} moved the issue to milestone {tok(<IconMilestone size={12} />, snap.milestones.find(m => m.id === a.data.to)?.name ?? '?')} {when}</>
         : <>{who} removed the milestone {when}</>;
       case 'parented': return a.data.to
         ? <>{who} made this a sub-issue of <b>{issueRef(a.data.to)}</b> {when}</>
         : <>{who} removed the parent issue <b>{issueRef(a.data.from)}</b> {when}</>;
       case 'cycleChanged': return a.data.to
-        ? <>{who} moved the issue to <b>{(() => { const c = snap.cycles.find(x => x.id === a.data.to); return c ? c.name || `Cycle ${c.number}` : 'a cycle'; })()}</b> {when}</>
+        ? <>{who} moved the issue to {tok(<IconCycle size={12} />, (() => { const c = snap.cycles.find(x => x.id === a.data.to); return c ? c.name || `Cycle ${c.number}` : 'a cycle'; })())} {when}</>
         : <>{who} removed the issue from its cycle {when}</>;
       case 'dueChanged': return a.data.to
-        ? <>{who} set the due date to <b>{shortDate(String(a.data.to).slice(0, 10) + 'T12:00')}</b> {when}</>
+        ? <>{who} set the due date to {tok(<IconCalendar size={12} />, shortDate(String(a.data.to).slice(0, 10) + 'T12:00'))} {when}</>
         : <>{who} removed the due date {when}</>;
       case 'estimateChanged': return a.data.to != null
         ? <>{who} set the estimate to <b>{String(a.data.to)} point{Number(a.data.to) !== 1 ? 's' : ''}</b> {when}</>
