@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Lockup } from './Logo.js';
+import { Logo } from './Logo.js';
 import { api, authApi } from './api.js';
 import { PASSWORD_MIN, type SignInMethod } from '../../src/core/types.js';
 
@@ -63,20 +63,92 @@ export function SignIn() {
 interface Ctx { methods: SignInMethod[]; mail: boolean; done: () => void; google: (invite?: string | null, kind?: 'invite' | 'join') => void }
 
 /* ---------- the brand frame every signed-out screen shares ---------- */
-function Shell(props: { headline: string; sub: React.ReactNode; children?: React.ReactNode }) {
+
+/** when the first signed-out frame mounted: a later Shell (loading → form, sign in → forgot)
+ *  continues the entrance from there instead of replaying it */
+let shellStart: number | null = null;
+
+/** What Baseline is for, running under the line. Product copy, never workspace data: nobody is signed in yet. */
+const TICKER: Array<[string, string, string]> = [
+  ['Issues', 'triaged from the keyboard', 'var(--status-started)'],
+  ['Cycles', 'with a burn-up chart', 'var(--brand-register)'],
+  ['Agents', 'pick up issues from the CLI', 'var(--prio-urgent)'],
+  ['Inbox', 'for what needs you', 'var(--green)'],
+  ['Projects', 'and initiatives above them', 'var(--status-todo)'],
+  ['Docs', 'next to the work', 'var(--status-backlog)'],
+];
+
+interface ShellProps {
+  headline: string;
+  sub: React.ReactNode;
+  children?: React.ReactNode;
+  /** how much of the form is filled in, 0–1: the node rides the line that far */
+  progress?: number;
+  /** the request is out (the node runs to the end) or was refused (the line goes red and the node shakes) */
+  state?: 'busy' | 'error' | null;
+  /** a short line under the headline saying what comes next */
+  step?: string;
+  /** top right of the page */
+  aside?: React.ReactNode;
+  /** the strip along the bottom */
+  foot?: React.ReactNode;
+}
+
+function Shell(props: ShellProps) {
+  const [since] = useState(() => {
+    if (shellStart === null) shellStart = performance.now();
+    return Math.round(shellStart - performance.now());
+  });
+  // the node starts under the wordmark's first letter; filled in, it's two thirds of the way to the
+  // window's edge; sent, it runs the whole way (CSS turns --p into a position: .auth-line)
+  const p = props.state === 'busy' ? 1 : 0.66 * Math.min(1, Math.max(0, props.progress ?? 0));
   return (
-    <div className="on-ink auth-page">
-      <div className="auth-col">
-        <div className="auth-head">
-          <Lockup size={34} />
-          {props.headline && <h1 className="brand-headline">{props.headline}</h1>}
-          {props.sub && <div className="brand-sub">{props.sub}</div>}
+    <div className="on-ink auth-page" style={{ '--auth-since': `${since}ms` } as React.CSSProperties}>
+      <div className="auth-frame">
+        <header className="auth-top">
+          <span className="auth-brand"><Logo size={22} tone="paper" />Baseline</span>
+          {props.aside && <span>{props.aside}</span>}
+        </header>
+        <div className="auth-stage">
+          <div className="auth-wrap">
+            <div className="auth-word" role="img" aria-label="Baseline">
+              {'Baseline'.split('').map((ch, i) => <span key={i} aria-hidden="true" style={{ '--d': `${300 + i * 45}ms` } as React.CSSProperties}>{ch}</span>)}
+            </div>
+          </div>
+          <div className={`auth-line${props.state ? ' ' + props.state : ''}`} style={{ '--p': p } as React.CSSProperties} aria-hidden="true">
+            <div className="auth-line-rule" />
+            <div className="auth-line-fill" />
+            {/* keyed on the state so each refusal replays the shake */}
+            <div className="auth-node"><span key={props.state ?? 'idle'} className="auth-node-ground"><span className="auth-node-dot" /></span></div>
+          </div>
+          <div className="auth-ticker" aria-hidden="true">
+            <div className="auth-ticker-track">
+              {[...TICKER, ...TICKER].map(([word, rest, color], i) => (
+                <span key={i} className="auth-ticker-item"><i style={{ background: color }} /><b>{word}</b>{rest}</span>
+              ))}
+            </div>
+          </div>
+          {(props.headline || props.children) && (
+            <div className="auth-wrap auth-body">
+              <div className="auth-intro">
+                {props.headline && <h1 className="brand-headline">{props.headline}</h1>}
+                {props.sub && <div className="brand-sub">{props.sub}</div>}
+                {props.step && <div className="auth-step" aria-live="polite">{props.step}</div>}
+              </div>
+              {props.children && <div className="auth-card">{props.children}</div>}
+            </div>
+          )}
         </div>
-        {props.children && <div className="card auth-card">{props.children}</div>}
+        {props.foot && <footer className="auth-bottom">{props.foot}</footer>}
       </div>
     </div>
   );
 }
+
+/** the share of these that are filled in */
+const filled = (...values: string[]) => values.filter(v => v.trim()).length / values.length;
+/** the line's state from a form's request */
+const lineState = (busy: boolean, error: string | null | undefined) => busy ? 'busy' : error ? 'error' : null;
 
 function Field(props: { label: string; hint?: string; value: string; onChange: (v: string) => void; type?: string; autoComplete?: string; autoFocus?: boolean; placeholder?: string; mono?: boolean; name?: string }) {
   // a password field can be shown, so a new password can be checked before it's set
@@ -117,10 +189,27 @@ const passwordHint = `At least ${PASSWORD_MIN} characters.`;
 
 function GoogleButton({ onClick, label = 'Continue with Google' }: { onClick: () => void; label?: string }) {
   return (
-    <>
-      <div className="auth-or"><span>or</span></div>
-      <button type="button" className="btn auth-secondary" onClick={onClick}>{label}</button>
-    </>
+    <button type="button" className="btn auth-secondary" onClick={onClick}>
+      <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
+        <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
+        <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+        <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+        <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
+      </svg>
+      {label}
+    </button>
+  );
+}
+
+/** the paper button: an arrow at rest, a blinking dot while the request is out */
+function Submit({ busy, disabled, children }: { busy: boolean; disabled: boolean; children: React.ReactNode }) {
+  return (
+    <button className="btn primary auth-submit auth-go" disabled={disabled}>
+      <span>{children}</span>
+      {busy
+        ? <span className="auth-busy-dot" aria-hidden="true" />
+        : <svg className="auth-arrow" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+    </button>
   );
 }
 
@@ -133,7 +222,7 @@ function Setup({ ctx }: { ctx: Ctx }) {
   const [workspaceName, setWorkspaceName] = useState('');
   const { busy, error, submit } = useSubmit('/auth/setup', ctx.done);
   return (
-    <Shell headline="Set up Baseline" sub={<>Create the owner account for this server. The setup token is in the server log from when Baseline started, or run <code>baseline setup-token</code> beside the database.</>}>
+    <Shell headline="Set up Baseline" progress={filled(token, workspaceName, name, email, password)} state={lineState(busy, error)} sub={<>Create the owner account for this server. The setup token is in the server log from when Baseline started, or run <code>baseline setup-token</code> beside the database.</>}>
       <form className="auth-form" onSubmit={e => { e.preventDefault(); void submit({ token, name, email, password, workspaceName }); }}>
         <Alert>{error}</Alert>
         <Field label="Setup token" name="token" value={token} onChange={setToken} autoFocus mono autoComplete="off" placeholder="XXXXX-XXXXX-XXXXX-XXXXX" />
@@ -141,7 +230,7 @@ function Setup({ ctx }: { ctx: Ctx }) {
         <Field label="Your name" name="name" value={name} onChange={setName} autoComplete="name" />
         <Field label="Email" name="email" type="email" value={email} onChange={setEmail} autoComplete="email" />
         <Field label="Password" name="password" type="password" value={password} onChange={setPassword} autoComplete="new-password" hint={passwordHint} />
-        <button className="btn primary auth-submit" disabled={busy || !token.trim() || !name.trim() || !email.trim() || !password}>{busy ? 'Creating…' : 'Create owner account'}</button>
+        <Submit busy={busy} disabled={busy || !token.trim() || !name.trim() || !email.trim() || !password}>{busy ? 'Creating…' : 'Create owner account'}</Submit>
       </form>
     </Shell>
   );
@@ -177,14 +266,20 @@ function PasswordSignIn({ ctx, problem, onForgot, invite, kind = 'invite', onJoi
   const [password, setPassword] = useState('');
   const { busy, error, submit } = useSubmit('/auth/password', ctx.done);
   const hasGoogle = ctx.methods.includes('google');
+  const step = busy ? 'Checking your details…' : !email.trim() ? 'Start with your email' : !password ? 'Now your password' : 'Ready when you are';
   return (
-    <Shell headline="Sign in" sub={hasGoogle ? 'With your email and password, or the Google account your workspace knows you by.' : 'With the email and password for your account here.'}>
+    <Shell headline="Sign in to your workspace" sub={hasGoogle ? 'Use your email and password, or the Google account your workspace knows you by.' : 'Use the email and password for your account here.'}
+      progress={filled(email, password)} state={lineState(busy, error ?? problem)} step={step}
+      aside={onJoin ? undefined : 'No account yet? Ask an admin for an invite.'}
+      foot={<><span>Tab moves between fields · Enter signs in</span>{!onJoin && <span>Invited? Open the link from your invite to join.</span>}</>}>
       <form className="auth-form" onSubmit={e => { e.preventDefault(); void submit({ email, password }); }}>
         <Alert>{error ?? problem}</Alert>
         <Field label="Email" name="email" type="email" value={email} onChange={setEmail} autoComplete="username" autoFocus />
         <Field label="Password" name="password" type="password" value={password} onChange={setPassword} autoComplete="current-password" />
-        <button className="btn primary auth-submit" disabled={busy || !email.trim() || !password}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        {hasGoogle && <GoogleButton onClick={() => ctx.google(invite, kind)} />}
+        <div className="auth-actions">
+          <Submit busy={busy} disabled={busy || !email.trim() || !password}>{busy ? 'Signing in…' : 'Sign in'}</Submit>
+          {hasGoogle && <GoogleButton onClick={() => ctx.google(invite, kind)} />}
+        </div>
       </form>
       <div className="auth-foot">
         {ctx.mail
@@ -208,6 +303,7 @@ function Join({ ctx, code, kind, info, error: googleError, onSignIn }: { ctx: Ct
   const teams = listOf(info.teams);
   return (
     <Shell headline={teams ? `Join ${teams} on ${info.workspace}` : `Join ${info.workspace}`}
+      progress={filled(email, name, password)} state={lineState(busy, error)}
       sub={<>{info.inviter ?? 'A teammate'} invited {fixed ? <b>{fixed}</b> : 'you'}{teams ? <> to {teams}</> : null}. Choose a password{hasGoogle ? `, or continue with ${fixed ? 'that address’s' : 'your'} Google account` : ''}.</>}>
       <form className="auth-form" onSubmit={e => { e.preventDefault(); void submit({ email, name, password }); }}>
         <Alert>{error ?? googleError}</Alert>
@@ -216,8 +312,10 @@ function Join({ ctx, code, kind, info, error: googleError, onSignIn }: { ctx: Ct
           : <Field label="Work email" name="email" type="email" value={email} onChange={setEmail} autoComplete="username" autoFocus />}
         <Field label="Your name" name="name" value={name} onChange={setName} autoComplete="name" autoFocus={!!fixed} />
         <Field label="Password" name="password" type="password" value={password} onChange={setPassword} autoComplete="new-password" hint={passwordHint} />
-        <button className="btn primary auth-submit" disabled={busy || !email.trim() || !name.trim() || !password}>{busy ? 'Joining…' : `Join ${info.workspace}`}</button>
-        {hasGoogle && <GoogleButton onClick={() => ctx.google(code, kind)} />}
+        <div className="auth-actions">
+          <Submit busy={busy} disabled={busy || !email.trim() || !name.trim() || !password}>{busy ? 'Joining…' : `Join ${info.workspace}`}</Submit>
+          {hasGoogle && <GoogleButton onClick={() => ctx.google(code, kind)} />}
+        </div>
       </form>
       <div className="auth-foot"><button type="button" className="auth-link" onClick={onSignIn}>Already have an account? Sign in</button></div>
     </Shell>
@@ -240,24 +338,28 @@ export function SignedInInvite({ me, teams, onDone, onSignOut, onJoinTeam }: {
   const you = <>You’re signed in as <b>{me.name}</b> ({me.email}).</>;
   const continueBtn = <button type="button" className="btn auth-secondary" onClick={onDone}>Continue as {me.name}</button>;
   const problem = inviteProblem(info, kind);
-  if (problem) return <Shell headline="This link can’t be used" sub={<>{problem} {you}</>}>{continueBtn}</Shell>;
+  if (problem) return <Shell headline="This link can’t be used" sub={<>{problem} {you}</>}><div className="auth-actions">{continueBtn}</div></Shell>;
   if (kind === 'join') {
     // already in the workspace: the link's team is one click away
     const team = teams.find(t => t.name === info.teams?.[0]);
     return (
       <Shell headline={`Join ${info.teams?.[0] ?? 'this team'}`} sub={<>{you} {team?.joined ? `You’re already on ${team.name}.` : 'You’re already in this workspace, so you can join the team now.'}</>}>
-        {team && !team.joined && <button type="button" className="btn primary auth-submit" onClick={() => void onJoinTeam(team.id)}>Join {team.name}</button>}
-        {continueBtn}
+        <div className="auth-actions">
+          {team && !team.joined && <button type="button" className="btn primary auth-submit" onClick={() => void onJoinTeam(team.id)}>Join {team.name}</button>}
+          {continueBtn}
+        </div>
       </Shell>
     );
   }
   if (info.email?.toLowerCase() === me.email.toLowerCase()) {
-    return <Shell headline="You’re already in" sub={<>{you} This invite is for you, and you already have an account.</>}>{continueBtn}</Shell>;
+    return <Shell headline="You’re already in" sub={<>{you} This invite is for you, and you already have an account.</>}><div className="auth-actions">{continueBtn}</div></Shell>;
   }
   return (
     <Shell headline="This invite is for someone else" sub={<>It was sent to <b>{info.email}</b>. {you} Sign out to accept it as {info.email}.</>}>
-      <button type="button" className="btn primary auth-submit" onClick={onSignOut}>Sign out and accept</button>
-      {continueBtn}
+      <div className="auth-actions">
+        <button type="button" className="btn primary auth-submit" onClick={onSignOut}>Sign out and accept</button>
+        {continueBtn}
+      </div>
     </Shell>
   );
 }
@@ -272,11 +374,11 @@ function Forgot({ onBack }: { onBack: () => void }) {
     </Shell>
   );
   return (
-    <Shell headline="Reset your password" sub="We’ll email you a link to choose a new one.">
+    <Shell headline="Reset your password" sub="We’ll email you a link to choose a new one." progress={filled(email)} state={lineState(busy, error)}>
       <form className="auth-form" onSubmit={e => { e.preventDefault(); void submit({ email }); }}>
         <Alert>{error}</Alert>
         <Field label="Email" name="email" type="email" value={email} onChange={setEmail} autoComplete="username" autoFocus />
-        <button className="btn primary auth-submit" disabled={busy || !email.trim()}>{busy ? 'Sending…' : 'Send reset link'}</button>
+        <Submit busy={busy} disabled={busy || !email.trim()}>{busy ? 'Sending…' : 'Send reset link'}</Submit>
       </form>
       <div className="auth-foot"><button type="button" className="auth-link" onClick={onBack}>Back to sign in</button></div>
     </Shell>
@@ -297,12 +399,12 @@ function ResetPassword({ token, ctx }: { token: string; ctx: Ctx }) {
     </Shell>
   );
   return (
-    <Shell headline="Choose a new password" sub={<>For <b>{info.name}</b> ({info.email}). Every other device signed in as you is signed out.</>}>
+    <Shell headline="Choose a new password" progress={filled(password)} state={lineState(busy, error)} sub={<>For <b>{info.name}</b> ({info.email}). Every other device signed in as you is signed out.</>}>
       <form className="auth-form" onSubmit={e => { e.preventDefault(); void submit({ password }); }}>
         <Alert>{error}</Alert>
         <input type="email" name="email" value={info.email} autoComplete="username" readOnly hidden />
         <Field label="New password" name="password" type="password" value={password} onChange={setPassword} autoComplete="new-password" autoFocus hint={passwordHint} />
-        <button className="btn primary auth-submit" disabled={busy || !password}>{busy ? 'Saving…' : 'Set password and sign in'}</button>
+        <Submit busy={busy} disabled={busy || !password}>{busy ? 'Saving…' : 'Set password and sign in'}</Submit>
       </form>
     </Shell>
   );
