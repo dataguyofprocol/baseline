@@ -173,24 +173,40 @@ export function restoreFrom(f: SessionFile, exists: { issue: (id: string) => boo
 
 // ---------- tmux panes ----------
 
-const panesPath = (target: string, dir: string) => join(dir, `panes-${createHash('sha1').update(target).digest('hex').slice(0, 10)}.json`);
+export interface PaneRecord { id: string; at: string }
 
-/** issue → the tmux pane this TUI started its agent in, for this target */
-export function readPanes(target: string, dir = stateDir()): Record<string, string> {
+/** pane ids (%3) are numbered per tmux server, so the file is per target and per server ($TMUX: socket,pid,session) */
+const panesPath = (target: string, server: string, dir: string) => join(dir, `panes-${createHash('sha1').update(`${target}\0${server}`).digest('hex').slice(0, 10)}.json`);
+export const tmuxServer = (env: NodeJS.ProcessEnv = process.env) => (env.TMUX ? env.TMUX.split(',').slice(0, 2).join(',') : null);
+
+/** issue → the tmux pane this TUI started its agent in, for this target on this tmux server; `alive` drops the
+ *  ones that are gone. Outside tmux there are none */
+export function readPanes(target: string, opts: { server?: string | null; alive?: (paneId: string) => boolean; dir?: string } = {}): Record<string, PaneRecord> {
+  const server = opts.server === undefined ? tmuxServer() : opts.server;
+  if (!server) return {};
   try {
-    const raw = JSON.parse(readFileSync(panesPath(target, dir), 'utf8')) as Record<string, unknown>;
-    return Object.fromEntries(Object.entries(raw).filter((e): e is [string, string] => typeof e[1] === 'string'));
+    const raw = JSON.parse(readFileSync(panesPath(target, server, opts.dir ?? stateDir()), 'utf8')) as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(raw).filter((e): e is [string, PaneRecord] => {
+      const v = e[1] as PaneRecord | null;
+      return !!v && typeof v.id === 'string' && typeof v.at === 'string' && (!opts.alive || opts.alive(v.id));
+    }));
   } catch {
     return {};
   }
 }
 
-export function rememberPane(target: string, issueId: string, paneId: string, dir = stateDir()): void {
+/** remembers (or, with null, forgets) the pane an issue's agent runs in */
+export function rememberPane(target: string, issueId: string, pane: PaneRecord | null, opts: { server?: string | null; dir?: string } = {}): void {
+  const server = opts.server === undefined ? tmuxServer() : opts.server;
+  if (!server) return;
+  const dir = opts.dir ?? stateDir();
   try {
     mkdirSync(dir, { recursive: true });
-    const path = panesPath(target, dir);
+    const path = panesPath(target, server, dir);
+    const next: Record<string, PaneRecord> = { ...readPanes(target, { server, dir }) };
+    if (pane) next[issueId] = pane; else delete next[issueId];
     const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify({ ...readPanes(target, dir), [issueId]: paneId }, null, 2)}\n`);
+    writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
     renameSync(tmp, path);
   } catch {
     // a read-only home only loses the way back to the pane

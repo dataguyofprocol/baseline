@@ -4,7 +4,7 @@ import type { FieldId } from './detail.js';
 import type { MenuId } from './menus.js';
 import type { WorkThread } from '../core/work-types.js';
 import { patchIssue, type TuiData } from './data.js';
-import { DONE_GROUP, issueNeeds, type NeedRow } from './today.js';
+import { DONE_GROUP, issueNeeds, type NeedRow, type Pane } from './today.js';
 import {
   defaultExpanded, isListRoute, isSelectable, listGroups, listRowsFor, rowIdFor, selectableIds,
   type GroupBy, type ListRow, type ListView, type Preset,
@@ -86,8 +86,8 @@ export interface TuiState {
   undo: UndoEntry[];
   /** the field that just changed, marked ✓ saved for a moment */
   saved: { issueId: string; field: FieldId; id: number } | null;
-  /** issue → the tmux pane this TUI started its agent in */
-  panes: Record<string, string>;
+  /** issue → the tmux pane this TUI started its agent in (on this tmux server) */
+  panes: Record<string, Pane>;
 }
 
 export const routeKey = (r: Route): string => {
@@ -102,7 +102,7 @@ export const routeKey = (r: Route): string => {
 export const TODAY: Route = { kind: 'today' };
 export const isTopLevel = (r: Route) => r.kind === 'today' || r.kind === 'team';
 
-export function initialState(route: Route = TODAY, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null; intro?: boolean; panes?: Record<string, string> } = {}): TuiState {
+export function initialState(route: Route = TODAY, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null; intro?: boolean; panes?: Record<string, Pane> } = {}): TuiState {
   return {
     data: null, route, stack, overlay: start.intro ? { kind: 'help', scroll: 0, intro: true } : { kind: 'none' }, cursor: {}, expanded: {}, groupBy: start.groupBy ?? 'status', preset: start.preset ?? 'all', restoreCursor: start.cursorKey ?? null,
     toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {}, handoffs: {}, undo: [], saved: null, panes: start.panes ?? {},
@@ -163,7 +163,8 @@ export type Action =
   | { type: 'advance'; index: number; at: number }
   | { type: 'openNeed'; issueId: string; at: number }
   | { type: 'setSheet'; sheet: Sheet }
-  | { type: 'pane'; issueId: string; paneId: string }
+  /** a pane an agent was started in; null forgets it (it is gone) */
+  | { type: 'pane'; issueId: string; pane: Pane | null }
   | { type: 'toast'; toast: Toast }
   | { type: 'clearToast'; id: number };
 
@@ -335,7 +336,11 @@ export function reducer(s: TuiState, a: Action): TuiState {
       return row ? openNeed(s, row, [...s.stack, s.route]) : s;
     }
     case 'setSheet': return { ...s, overlay: { kind: 'sheet', sheet: a.sheet } };
-    case 'pane': return { ...s, panes: { ...s.panes, [a.issueId]: a.paneId } };
+    case 'pane': {
+      const panes = { ...s.panes };
+      if (a.pane) panes[a.issueId] = a.pane; else delete panes[a.issueId];
+      return { ...s, panes };
+    }
     case 'toast': return { ...s, toast: a.toast };
     case 'clearToast': return s.toast?.id === a.id ? { ...s, toast: null } : s;
   }

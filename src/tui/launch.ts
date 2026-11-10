@@ -71,10 +71,15 @@ export function runInPane(cmd: readonly string[], opts: { cwd: string; target: T
   return r.status === 0 ? { ok: true, message: 'started', ...(/^%\d+$/.test(paneId) ? { paneId } : {}) } : { ok: false, message: `tmux split-window failed: ${(r.stderr || '').trim() || `exit ${r.status}`}` };
 }
 
+/** whether a tmux pane is still open on this server */
+export function paneAlive(paneId: string): boolean {
+  const r = spawnSync('tmux', ['display-message', '-p', '-t', paneId, '#{pane_id}'], { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' });
+  return r.status === 0 && r.stdout.trim() === paneId;
+}
+
 /** brings a tmux pane this TUI started to the front (its window, then the pane); false when it is gone */
 export function focusPane(paneId: string): boolean {
-  const alive = spawnSync('tmux', ['display-message', '-p', '-t', paneId, '#{pane_id}'], { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' });
-  if (alive.status !== 0 || alive.stdout.trim() !== paneId) return false;
+  if (!paneAlive(paneId)) return false;
   spawnSync('tmux', ['select-window', '-t', paneId], { stdio: 'ignore' });
   return spawnSync('tmux', ['select-pane', '-t', paneId], { stdio: 'ignore' }).status === 0;
 }

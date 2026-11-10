@@ -2,7 +2,7 @@
 // all read it, so a binding exists in exactly one place.
 import type { Key } from 'ink';
 import { isListRoute } from './model.js';
-import { myThread, threadAsk } from './today.js';
+import { agentAsk } from './today.js';
 import type { TuiState } from './state.js';
 
 export type Context =
@@ -167,7 +167,7 @@ export function keyName(input: string, key: Key): string {
 
 /** the contexts active right now, most specific first; the first binding found in that order wins.
  *  `review`, `blocked`: the issue page of an issue an agent finished or got stuck on, whose footer is the decision keys */
-export function contextsFor(s: Pick<TuiState, 'status' | 'data' | 'overlay' | 'route'>, now = Date.now()): Context[] {
+export function contextsFor(s: Pick<TuiState, 'status' | 'data' | 'overlay' | 'route'> & Partial<Pick<TuiState, 'threads'>>): Context[] {
   if (!s.data) return ['boot'];
   const o = s.overlay;
   switch (o.kind) {
@@ -189,10 +189,9 @@ export function contextsFor(s: Pick<TuiState, 'status' | 'data' | 'overlay' | 'r
     case 'none': break;
   }
   const r = s.route;
-  if (r.kind === 'issue' && !closedIssue(s.data, r.issueId)) {
-    const ask = threadAsk(myThread(s.data, r.issueId));
-    if (ask) return [ask === 'blocked' ? 'blocked' : 'review', 'detail', 'global'];
-  }
+  const issue = r.kind === 'issue' ? s.data.issueById.get(r.issueId) : undefined;
+  const agent = issue ? agentAsk(s.data, issue, s.threads?.[issue.id]) : null;
+  if (agent) return [agent.ask, 'detail', 'global'];
   return [baseContext(r), 'global'];
 }
 

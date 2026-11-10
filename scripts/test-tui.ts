@@ -24,7 +24,7 @@ import { findSections } from '../src/tui/commands.js';
 import { findItems, wordMatch } from '../src/tui/find.js';
 import { prepareStart } from '../src/tui/index.js';
 import { paneLines } from '../src/tui/detail.js';
-import { sessionPath, sessionWriter, targetId, workspaceDir, type SessionFile } from '../src/tui/session.js';
+import { readPanes, rememberPane, sessionPath, sessionWriter, targetId, workspaceDir, type SessionFile } from '../src/tui/session.js';
 import {
   CLOSED_TYPES, DEFAULT_VIEW, defaultExpanded, displayWidth, GROUP_BYS, notificationRows, listRowsFor, listGroups, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
   markdownLines, selectableIds, sortIssues, statusGroupOf, truncate, wrap,
@@ -32,7 +32,7 @@ import {
 import { cycleDraft, newDraft, pickerOptions } from '../src/tui/overlays.js';
 import { nextIssue } from '../src/ops/index.js';
 import { runOp } from '../src/ops/operation.js';
-import { DONE_GROUP, followupsOf, issueNeeds, prOf, todayModel, todayRows } from '../src/tui/today.js';
+import { agentAsk, DONE_GROUP, followupsOf, issueNeeds, paneStarting, prOf, todayModel, todayRows } from '../src/tui/today.js';
 import { seedMorning } from './tui-fixture.js';
 import { cursorRow, initialState, listViewOf, reducer, routeKey, type Action, type TuiState } from '../src/tui/state.js';
 import { editField, emptyField, fieldOf } from '../src/tui/textfield.js';
@@ -151,6 +151,25 @@ const mdata = await fetchData(mbl);
   const rows = todayRows(m, true);
   check('Today\'s row ids never repeat, so the cursor can follow an issue', new Set(rows.map(r => r.id)).size === rows.length);
   check('the PR and the follow-up drafts are in the TUI\'s data', prOf(mdata, morning.review)?.number === 41 && followupsOf(mdata, morning.review).length === 2);
+}
+
+{
+  const dir = join(work, 'panes');
+  rememberPane('db:/x', 'i1', { id: '%3', at: '2026-01-01T00:00:00Z' }, { server: '/tmp/tmux-1/default,111', dir });
+  check('a remembered pane belongs to its tmux server: another server (whose %3 is some other pane) sees none, and outside tmux there are none',
+    readPanes('db:/x', { server: '/tmp/tmux-1/default,111', dir }).i1?.id === '%3' && !readPanes('db:/x', { server: '/tmp/tmux-1/default,222', dir }).i1 && !Object.keys(readPanes('db:/x', { server: null, dir })).length);
+  check('a pane that is gone is dropped when the TUI starts', !readPanes('db:/x', { server: '/tmp/tmux-1/default,111', dir, alive: () => false }).i1);
+  rememberPane('db:/x', 'i1', null, { server: '/tmp/tmux-1/default,111', dir });
+  check('…and forgetting one removes it', !readPanes('db:/x', { server: '/tmp/tmux-1/default,111', dir }).i1);
+  const t = mdata.threads.get(morning.working)!.slice(-1)[0]!;
+  check('an agent in a pane reads as starting only until its thread moves', paneStarting(mdata, morning.working, { id: '%1', at: new Date(Date.parse(t.updatedAt) + 1000).toISOString() }) &&
+    !paneStarting(mdata, morning.working, { id: '%1', at: new Date(Date.parse(t.updatedAt) - 1000).toISOString() }));
+  const review = mdata.issueById.get(morning.review)!;
+  const progress = mdata.states.find(x => x.teamId === review.teamId && x.name === 'In Progress')!;
+  check('finished work asks for a review only while it waits In Review: sent back, it asks nothing', agentAsk(mdata, review)?.ask === 'review' && agentAsk(mdata, { ...review, stateId: progress.id }) === null);
+  const st = run(initialState(), { type: 'loaded', data: mdata, at: now }, { type: 'navigate', route: { kind: 'issue', issueId: morning.blocked } });
+  check('the page\'s keys follow the threads the page shows (loaded for it), not only Today\'s', contextsFor(st)[0] === 'blocked' &&
+    contextsFor(run(st, { type: 'threads', issueId: morning.blocked, threads: [] }))[0] === 'detail');
 }
 
 // ---------- the reducer's side of the morning: opening what needs you, deciding, moving on ----------
@@ -872,6 +891,67 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
   await waitFor('team', f => /2 Core/.test(f) && /In Progress\s+\d/.test(f));
   stdin.press('\x1b');
   check('esc from a team list is Today', await waitFor('today from team', f => /Needs you/.test(f)));
+  app.unmount();
+}
+
+{
+  // send finished work back with a note, then undo it
+  const path = join(work, 'sendback.db');
+  { const db = openDb(path); seedWorkspace(db); db.close(); }
+  const m = await seedMorning(path);
+  const sbl = await connect({ db: path });
+  const stdout = new FakeStdout();
+  stdout.rows = 40;
+  const stdin = new FakeStdin();
+  const waitFor = async (what: string, ok: (frame: string) => boolean, ms = 6000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { if (ok(stdout.last)) return true; await new Promise(r => setTimeout(r, 25)); }
+    check(`(timed out waiting for ${what})`, false, stdout.last);
+    return false;
+  };
+  const app = render(createElement(App, { bl: await connect({ db: path }), pollMs: 60_000, animate: false, tmux: false }), {
+    stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream, debug: true, exitOnCtrlC: false, patchConsole: false,
+  });
+  const d0 = await fetchData(sbl);
+  const key = d0.keyOf(d0.issueById.get(m.review)!);
+  const idx = issueNeeds(d0, Date.now()).findIndex(r => r.issue.id === m.review);
+  await waitFor('Today', f => f.includes('Needs you'));
+  stdin.press('j'.repeat(idx));
+  await waitFor('review row', f => /│ enter review/.test(f));
+  stdin.press('d');
+  await waitFor('done from Today', f => f.includes(`${key} Done`) && f.includes('u undo'));
+  let live = await fetchData(sbl);
+  check('d on a Today row moves it to Done and takes it off Needs you, staying on Today', live.stateById.get(live.issueById.get(m.review)!.stateId)?.type === 'completed' && !issueNeeds(live, Date.now()).some(r => r.issue.id === m.review) && /Needs you/.test(stdout.last));
+  stdin.press('u');
+  await waitFor('undone', f => f.includes(`Undone: ${key}`));
+  live = await fetchData(sbl);
+  check('u puts it back In Review', live.stateById.get(live.issueById.get(m.review)!.stateId)?.name === 'In Review');
+
+  // open it from the team list (not Needs you any more): b sends it back, the page stays
+  stdin.press('/');
+  await waitFor('find', f => f.includes('try typing'));
+  stdin.press(key);
+  await waitFor('key', f => f.includes(`› ${key}`));
+  stdin.press('\r');
+  await waitFor('review page', f => f.includes('What the agent did'));
+  stdin.press('b');
+  await waitFor('send back sheet', f => f.includes(`Send back ${key}`) && f.includes('moves to In Progress'));
+  stdin.press('Exact key matches first, please.');
+  await waitFor('typed', f => f.includes('Exact key matches first'));
+  stdin.press('\r');
+  await waitFor('sent back', f => f.includes(`${key} sent back to In Progress, with your note`) && f.includes('u undo'));
+  live = await fetchData(sbl);
+  check('b, a note, enter: the note is a comment and the issue is In Progress, with u undo', live.comments.some(c => c.issueId === m.review && c.body === 'Exact key matches first, please.') &&
+    live.stateById.get(live.issueById.get(m.review)!.stateId)?.name === 'In Progress');
+  check('…and the page no longer asks for a review (no agent section, no decision footer)', await waitFor('plain page', f => !f.includes('What the agent did') && /esc back/.test(f.split('\n').slice(-1)[0]!)));
+  stdin.press('u');
+  await waitFor('undone again', f => f.includes(`Undone: ${key}`));
+  live = await fetchData(sbl);
+  check('u after a send-back puts it back In Review (the note stays)', live.stateById.get(live.issueById.get(m.review)!.stateId)?.name === 'In Review');
+  check('…and the review section is back', await waitFor('review again', f => f.includes('What the agent did')));
+  stdin.press('r');
+  await waitFor('read', f => f.includes('is waiting on you') || f.includes('marked read'));
+  check('r on something that no longer needs you says so', stdout.last.includes(`Nothing about ${key} is waiting on you`));
   app.unmount();
 }
 

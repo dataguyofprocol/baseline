@@ -17,7 +17,7 @@ import { findItems, findResults, type FindItem } from './find.js';
 import { cycleDraft, filteredOptions, newDraft, NONE } from './overlays.js';
 import { cursorRow, doneOpen, listViewOf, RERUN_CHOICES, routeKey, START_CHOICES, type Action, type PickerField, type Sheet, type TuiState, type UndoEntry } from './state.js';
 import { emptyField, fieldOf } from './textfield.js';
-import { DONE_GROUP, followupsOf, issueNeeds, myThread, prOf, threadAsk, todayModel, todayRows, type NeedRow, type TodayRow } from './today.js';
+import { agentAsk, DONE_GROUP, type Pane, followupsOf, issueNeeds, prOf, todayModel, todayRows, type NeedRow, type TodayRow } from './today.js';
 
 /** `pageSize`: the rows a list or the issue page shows; `overlayPage`: the rows the open picker, / or help shows */
 /** `detailStart`: where the issue page sits before it is scrolled (a mention opens at its comment) */
@@ -41,8 +41,8 @@ export interface Ctx {
   now: () => number;
   /** the git repo an issue starts in (its branch is checked out there); tests pass one that touches no repo */
   repo?: (cwd: string) => LocalRepo;
-  /** told the tmux pane an agent was started in, to remember it across sessions */
-  onPane?: (issueId: string, paneId: string) => void;
+  /** told the tmux pane an agent was started in (null: it is gone), to remember it across sessions */
+  onPane?: (issueId: string, pane: Pane | null) => void;
   /** whether a new tmux pane is possible (default: $TMUX is set) */
   tmux?: boolean;
 }
@@ -177,8 +177,9 @@ async function startAgent(ctx: Ctx, i: Issue, where: 'here' | 'pane', note?: str
     if (!inTmux(ctx)) return { ok: false, message: 'a new pane needs tmux. Run baseline inside tmux, or run the agent here.' };
     const r = runInPane(cmd, { cwd: at.cwd, target: ctx.bl.target, issueKey: key });
     if (r.ok && r.paneId) {
-      ctx.dispatch({ type: 'pane', issueId: i.id, paneId: r.paneId });
-      ctx.onPane?.(i.id, r.paneId);
+      const pane = { id: r.paneId, at: new Date(ctx.now()).toISOString() };
+      ctx.dispatch({ type: 'pane', issueId: i.id, pane });
+      ctx.onPane?.(i.id, pane);
     }
     return r.ok ? { ok: true, message: `${basename(cmd[0]!)} started in a tmux pane beside this one` } : r;
   }
@@ -323,7 +324,7 @@ function openNote(ctx: Ctx, purpose: 'comment' | 'reply' | 'sendBack' | 'answer'
 
 /** b: send finished work back with a note, or (an agent blocked on a question) answer it and run it again */
 function sendBack(ctx: Ctx, issue: Issue): void {
-  const ask = threadAsk(myThread(ctx.state.data!, issue.id));
+  const ask = agentAsk(ctx.state.data!, issue, ctx.state.threads[issue.id])?.ask;
   openNote(ctx, ask === 'blocked' ? 'answer' : 'sendBack', issue);
 }
 
@@ -668,7 +669,9 @@ function openToday(ctx: Ctx, row: TodayRow): unknown {
     }
     case 'flight': {
       const pane = s.panes[row.id];
-      if (pane && focusPane(pane)) return toast(d, 'ok', `${data.keyOf(row.row.issue)}: switched to its tmux pane`);
+      if (pane && inTmux(ctx) && focusPane(pane.id)) return toast(d, 'ok', `${data.keyOf(row.row.issue)}: switched to its tmux pane`);
+      // the pane is gone (closed, or another tmux server): forget it and open the issue
+      if (pane) { d({ type: 'pane', issueId: row.id, pane: null }); ctx.onPane?.(row.id, null); }
       return d({ type: 'navigate', route: { kind: 'issue', issueId: row.id } });
     }
     case 'next': return openStart(ctx, row.row.issue);

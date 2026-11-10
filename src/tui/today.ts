@@ -48,10 +48,11 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const stateType = (data: TuiData, i: Issue) => data.stateById.get(i.stateId)?.type;
 const firstName = (data: TuiData, id: string | null) => (id ? data.userById.get(id)?.name.split(/\s+/)[0] : undefined) ?? 'Someone';
 
-/** the latest agent thread on an issue that is for me (or about my issue) */
-export function myThread(data: TuiData, issueId: string): WorkThread | null {
+/** the latest agent thread on an issue that is for me (or about my issue); `threads`: the issue's threads when the
+ *  caller has fresher ones than Today's (the open issue page loads its own) */
+export function myThread(data: TuiData, issueId: string, threads?: readonly WorkThread[]): WorkThread | null {
   const me = data.currentUser.id;
-  const all = data.threads.get(issueId) ?? [];
+  const all = threads ?? data.threads.get(issueId) ?? [];
   const mine = all.filter(t => t.personId === me && t.agentId !== me);
   const list = mine.length ? mine : all.filter(t => t.agentId !== t.personId);
   return [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
@@ -64,6 +65,21 @@ export function threadAsk(t: WorkThread | null): 'review' | 'blocked' | null {
   if (t.state.outcome === 'stopped') return 'blocked';
   return 'review';
 }
+
+/** What the agent's work on an issue asks of you now: an answer while it is blocked, a review while its finished
+ *  work waits In Review (or, on a team without that state, while the issue is still started). Nothing once the
+ *  issue is closed or was sent back. The issue page, its keys and Needs you all read this one rule. */
+export function agentAsk(data: TuiData, issue: Issue, threads?: readonly WorkThread[]): { ask: 'review' | 'blocked'; thread: WorkThread } | null {
+  const thread = myThread(data, issue.id, threads);
+  const ask = threadAsk(thread);
+  if (!thread || !ask) return null;
+  const st = data.stateById.get(issue.stateId);
+  if (!st || st.type === 'completed' || st.type === 'canceled') return null;
+  if (ask === 'blocked') return { ask, thread };
+  const teamHasReview = data.states.some(x => x.teamId === issue.teamId && isReview(x));
+  return isReview(st) || (!teamHasReview && st.type === 'started') ? { ask, thread } : null;
+}
+const isReview = (st: { type: string; name: string }) => st.type === 'started' && st.name.trim().toLowerCase() === 'in review';
 
 const KIND_OF: Partial<Record<NotificationType, NeedKind>> = {
   agentBlocked: 'blocked', agentFinished: 'review', issueMentioned: 'mention', prActivity: 'pr',
@@ -113,8 +129,9 @@ export function needRows(data: TuiData, now: number): NeedRow[] {
     // a notification about an issue that is gone (archived, deleted) waits on nothing
     if (r.lead.issueId && !issue) continue;
     const merged = asks.filter(n => r.ids.includes(n.id));
-    const thread = issue ? myThread(data, issue.id) : null;
-    const fromThread = threadAsk(thread);
+    const agent = issue ? agentAsk(data, issue) : null;
+    const thread = agent?.thread ?? null;
+    const fromThread = agent?.ask ?? null;
     const fromNotes = merged.map(n => KIND_OF[n.type] ?? 'ask').sort((a, b) => RANK.indexOf(a) - RANK.indexOf(b))[0] ?? 'ask';
     // the agent's latest state wins over an older notification about it (blocked, then answered and finished)
     const kind: NeedKind = fromThread && (fromNotes === 'review' || fromNotes === 'blocked') ? fromThread : fromNotes;
@@ -131,6 +148,17 @@ export function needRows(data: TuiData, now: number): NeedRow[] {
 
 /** the Needs you rows the issue page can open: the ones about an issue */
 export const issueNeeds = (data: TuiData, now: number) => todayModel(data, now).needs.filter((r): r is NeedRow & { issue: Issue } => !!r.issue);
+
+/** a tmux pane this TUI started an agent in, and when */
+export interface Pane { id: string; at: string }
+
+/** an agent started in a pane that hasn't said anything to Baseline since: it is starting. Once its thread
+ *  moves (or ends), the thread is what counts */
+export function paneStarting(data: TuiData, issueId: string, pane: Pane | undefined): boolean {
+  if (!pane) return false;
+  const t = myThread(data, issueId);
+  return !t || t.updatedAt < pane.at;
+}
 
 /** the open agent thread on an issue (the agent is working on it now) */
 export function activeThread(data: TuiData, issueId: string): WorkThread | null {

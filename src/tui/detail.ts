@@ -6,7 +6,7 @@ import { activityText, displayWidth, dueLabel, highlight, markdownLines, padEnd,
 import { filteredOptions } from './overlays.js';
 import type { Overlay } from './state.js';
 import { keySeg, priorityMark, STATE_ICON, theme } from './theme.js';
-import { commitCount, followupsOf, myThread, prOf, threadAsk, type FlightRow, type NeedRow, type NextRow } from './today.js';
+import { agentAsk, commitCount, followupsOf, prOf, threadAsk, type FlightRow, type NeedRow, type NextRow } from './today.js';
 
 const none: Seg = { text: '—', color: theme.muted };
 
@@ -224,11 +224,10 @@ export function detailLayout(issue: Issue, data: TuiData, threads: readonly Work
   const w = Math.max(20, width);
   const anchors: Record<string, number> = {};
   const lines: Line[] = [...headLines(issue, data, w, ui, 99)];
-  const state = data.stateById.get(issue.stateId)?.type;
-  const closed = state === 'completed' || state === 'canceled';
-  const mine = myThread({ ...data, threads: new Map([[issue.id, [...threads]]]) }, issue.id);
-  const ask = closed ? null : threadAsk(mine);
-  if (mine && ask) lines.push(...agentSection(issue, data, mine, ask, w, now));
+  const agent = agentAsk(data, issue, threads);
+  const ask = agent?.ask ?? null;
+  const mine = agent?.thread ?? null;
+  if (agent) lines.push(...agentSection(issue, data, agent.thread, agent.ask, w, now));
   lines.push([], ...fieldBlock(issue, data, now, ui, moreRows(issue, data)));
   lines.push([], ask ? reviewKeys(ask, followupsOf(data, issue.id).length) : [keySeg('m'), { text: ' comment   ' }, keySeg('e'), { text: ' edit   ' }, ...AGENT_LINE, { text: '   ' }, keySeg('o'), { text: ' browser' }]);
 
@@ -327,7 +326,7 @@ function agentPaneRows(issue: Issue, data: TuiData, t: WorkThread, w: number, no
 
 /** what the pane beside Today shows for the row under the cursor: the agent's work and the keys that decide it for
  *  a review or a blocked agent, the comment for a mention, an agent at work for In flight; else the issue as on a list */
-export function todayPaneLines(row: { kind: 'need'; row: NeedRow } | { kind: 'flight'; row: FlightRow; pane: boolean } | { kind: 'next'; row: NextRow }, data: TuiData, width: number, height: number, now: number, ui: IssueUi = {}): Line[] {
+export function todayPaneLines(row: { kind: 'need'; row: NeedRow } | { kind: 'flight'; row: FlightRow; pane: boolean; starting?: boolean } | { kind: 'next'; row: NextRow }, data: TuiData, width: number, height: number, now: number, ui: IssueUi = {}): Line[] {
   const w = Math.max(12, width);
   const issue = row.row.issue;
   if (!issue) {
@@ -348,7 +347,7 @@ export function todayPaneLines(row: { kind: 'need'; row: NeedRow } | { kind: 'fl
     return [...paneHead(issue, data, w), ...agentPaneRows(issue, data, row.row.thread, w, now), [], row.pane ? keysLine(['enter', 'go to its tmux pane'], ['m', 'comment']) : keysLine(['enter', 'open'], ['m', 'comment'])].slice(0, height);
   }
   const note: Line[] = row.kind === 'next' ? [[{ text: 'Up next', color: theme.muted }, { text: ` · ${row.row.reason}` }, { text: '   enter starts it', color: theme.muted }], []]
-    : row.kind === 'flight' && row.pane ? [[{ text: 'Agent starting in a tmux pane', color: theme.ok }, { text: '  enter goes to it', color: theme.muted }], []]
+    : row.kind === 'flight' && row.starting ? [[{ text: 'Agent starting in a tmux pane', color: theme.ok }, { text: '  enter goes to it', color: theme.muted }], []]
     : row.kind === 'need' ? [[{ text: row.row.reason, color: theme.accent }, { text: ` · ${relTime(row.row.at, now)}`, color: theme.muted }], []] : [];
   return [...note, ...paneLines(issue, data, w, height - note.length, now, ui)];
 }

@@ -3,6 +3,7 @@ import { render } from 'ink';
 import { format } from 'node:util';
 import { connect, resolve, type Baseline } from '../client/index.js';
 import { App, type AppProps } from './App.js';
+import { paneAlive } from './launch.js';
 import { readPanes, readSession, rememberPane, restoreFrom, sessionPath, sessionWriter, takeFirstLaunch, targetId, workspaceDir } from './session.js';
 
 export interface TuiOptions { db?: string; as?: string; issue?: string; fresh?: boolean }
@@ -37,8 +38,9 @@ export async function runTui(opts: TuiOptions): Promise<void> {
   const saved = { log: console.log, info: console.info, warn: console.warn, error: console.error };
   for (const k of Object.keys(saved) as Array<keyof typeof saved>) console[k] = (...args: unknown[]) => { held.push(format(...args)); };
 
-  const panes = readPanes(target);
-  const app = render(<App bl={bl} actorId={actorId} {...start} panes={panes} onPane={(issueId, paneId) => rememberPane(target, issueId, paneId)} onContext={writer.update} />, {
+  // the panes this TUI started agents in, on this tmux server, still open
+  const panes = readPanes(target, { alive: paneAlive });
+  const app = render(<App bl={bl} actorId={actorId} {...start} panes={panes} onPane={(issueId, pane) => rememberPane(target, issueId, pane)} onContext={writer.update} />, {
     alternateScreen: true,
     exitOnCtrlC: false,
     patchConsole: false,

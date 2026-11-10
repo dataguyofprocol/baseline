@@ -11,7 +11,7 @@ import {
   projectProgress, relTime, TAB_GAP, tabText, truncate, type Line, type ListRow, type Seg, type Tab,
 } from './model.js';
 import { doneOpen, listViewOf, routeKey, type TuiState } from './state.js';
-import { prOf, todayModel, todayRows, type NeedKind, type TodayModel } from './today.js';
+import { paneStarting, prOf, todayModel, todayRows, type NeedKind, type Pane, type TodayModel } from './today.js';
 import { keySeg, priorityMark, SPINNER, STATE_ICON, theme } from './theme.js';
 import { LineView } from './ui.js';
 
@@ -167,13 +167,14 @@ const age = (iso: string, now: number) => relTime(iso, now).replace('just now', 
 
 /** Today as lines: Needs you, In flight (an agent's row has a second line: what it did and has left), Up next, and the
  *  folded Done this week. `rowLine[i]` is the line of the i-th row the cursor can rest on */
-export function todayLines(m: TodayModel, data: TuiData, o: { width: number; now: number; frame: number; cursor: number; doneOpen: boolean; panes: Readonly<Record<string, string>> }): { lines: Line[]; rowLine: number[] } {
+export function todayLines(m: TodayModel, data: TuiData, o: { width: number; now: number; frame: number; cursor: number; doneOpen: boolean; panes: Readonly<Record<string, Pane>> }): { lines: Line[]; rowLine: number[] } {
+  const starting = (id: string) => paneStarting(data, id, o.panes[id]);
   const { width, now } = o;
   const rows = todayRows(m, o.doneOpen);
   const lines: Line[] = [];
   const rowLine: number[] = [];
   const keyW = Math.max(6, ...rows.flatMap(r => (r.kind === 'doneHeader' || (r.kind === 'need' && !r.row.issue) ? [] : [data.keyOf(r.row.issue!).length])));
-  const reasons = [...m.needs.map(r => r.reason), ...m.flight.map(r => (r.thread || o.panes[r.id] ? 'agent' : 'you')), ...m.next.map(r => r.reason)];
+  const reasons = [...m.needs.map(r => r.reason), ...m.flight.map(r => (r.thread || starting(r.id) ? 'agent' : 'you')), ...m.next.map(r => r.reason)];
   const reasonW = Math.min(width < 60 ? 9 : 12, Math.max(5, ...reasons.map(r => displayWidth(r))));
   const titleW = Math.max(8, width - 2 - 2 - (keyW + 2) - 2 - reasonW - 2 - 4);
   let n = 0;
@@ -198,14 +199,14 @@ export function todayLines(m: TodayModel, data: TuiData, o: { width: number; now
   head('In flight', m.flight.length);
   if (!m.flight.length) quiet('Nothing started. Up next has what to pick.');
   for (const r of m.flight) {
-    const agent = !!r.thread || !!o.panes[r.id];
+    const agent = !!r.thread || starting(r.id);
     const st = data.stateById.get(r.issue.stateId);
     row(agent ? { text: SPINNER[o.frame % SPINNER.length]!, color: theme.ok } : { text: STATE_ICON.started, color: st?.color ?? theme.warn },
       data.keyOf(r.issue), r.issue.title, { text: agent ? 'agent' : 'you', color: theme.muted }, r.at);
     if (agent) {
       const p = r.thread?.progress;
       const text = p && (p.did || p.left || p.blocked) ? [p.did && `did ${p.did}`, p.left && `left ${p.left}`, p.blocked && `blocked ${p.blocked}`].filter(Boolean).join(' · ')
-        : o.panes[r.id] ? 'starting · in a tmux pane' : 'starting';
+        : starting(r.id) ? 'starting · in a tmux pane' : 'starting';
       lines.push([{ text: ' '.repeat(2 + 2 + keyW + 2 - 4) }, { text: '    ' }, { text: truncate(text.replace(/\s+/g, ' '), titleW + reasonW), color: theme.muted }]);
     }
   }
@@ -234,7 +235,7 @@ export function todayLines(m: TodayModel, data: TuiData, o: { width: number; now
 /** Today. `animate`: the In flight spinner turns (tests switch it off, so frames stay still) */
 export function TodayScreen({ s, data, width, height, now, dim, animate = true }: { s: TuiState; data: TuiData; width: number; height: number; now: number; dim?: boolean; animate?: boolean }) {
   const m = todayModel(data, now);
-  const spinning = animate && m.flight.some(r => r.thread || s.panes[r.id]);
+  const spinning = animate && m.flight.some(r => r.thread || paneStarting(data, r.id, s.panes[r.id]));
   const frame = useTicker(120, spinning);
   const count = todayRows(m, doneOpen(s)).length;
   const cursor = Math.min(s.cursor.today ?? 0, Math.max(0, count - 1));

@@ -14,7 +14,7 @@ import { filteredOptions, PICKER_TITLE } from './overlays.js';
 import type { SessionContext } from './session.js';
 import { helpRows, OverlayView } from './overlay-views.js';
 import { DetailPane, DetailScreen, Footer, hintSegs, ListScreen, scrollLabel, tabBarLine, TodayScreen, ToastLine } from './screens.js';
-import { issueNeeds } from './today.js';
+import { issueNeeds, paneStarting, type Pane } from './today.js';
 import type { LocalRepo } from '../ops/operation.js';
 import { initialState, reducer, routeKey, type Action, type Route, type TuiState } from './state.js';
 import { editField, type TextField } from './textfield.js';
@@ -37,9 +37,9 @@ export interface AppProps {
   clipboard?: (text: string) => boolean;
   /** ms between background refetches; agents write to the same database from other processes */
   pollMs?: number;
-  /** tmux panes this TUI started agents in (issue → pane id), and where a new one is remembered */
-  panes?: Record<string, string>;
-  onPane?: (issueId: string, paneId: string) => void;
+  /** tmux panes this TUI started agents in (issue → pane), and where a new one is remembered (null: forgotten) */
+  panes?: Record<string, Pane>;
+  onPane?: (issueId: string, pane: Pane | null) => void;
   /** the git repo an issue starts in; tests pass one that touches no repo */
   repo?: (cwd: string) => LocalRepo;
   /** whether new tmux panes are possible (default: $TMUX is set) */
@@ -279,7 +279,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
     : <ListScreen s={state} data={data} width={listW} height={bodyH} now={now} dim={dim} />;
   // a picker or a title being edited opens in the pane's field rows, so the pane shows the plain issue then
   const paneLinesFor = !inlineOn && !titleOn && tRow && tRow.kind !== 'doneHeader' && tRow.kind !== 'done'
-    ? todayPaneLines(tRow.kind === 'flight' ? { kind: 'flight', row: tRow.row, pane: !!state.panes[tRow.id] } : tRow, data, paneW - 3, bodyH, now, paneUi)
+    ? todayPaneLines(tRow.kind === 'flight' ? { kind: 'flight', row: tRow.row, pane: !!state.panes[tRow.id], starting: paneStarting(data, tRow.id, state.panes[tRow.id]) } : tRow, data, paneW - 3, bodyH, now, paneUi)
     : undefined;
   const screen = hasPane
     ? (

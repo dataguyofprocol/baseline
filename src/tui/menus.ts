@@ -7,7 +7,7 @@ import { BINDINGS, directBinding, keyLabel, type CommandId, type Task } from './
 import { agentCommand, shellPreview } from './launch.js';
 import { tildePath, type Line, type Seg } from './model.js';
 import { theme } from './theme.js';
-import { followupsOf, issueNeeds, myThread, threadAsk } from './today.js';
+import { agentAsk, followupsOf, issueNeeds } from './today.js';
 
 export type MenuId = 'actions' | 'edit' | 'agent' | 'copy';
 
@@ -62,7 +62,7 @@ export const MENUS: Record<MenuId, Menu> = {
       direct('comment', 0),
       direct('editMenu', 0),
       { ...direct('done', 1), value: c => dim(c.data.states.find(st => st.teamId === c.issue.teamId && st.type === 'completed')?.name ?? 'Done') },
-      { ...direct('sendBack', 1), label: c => (threadAsk(myThread(c.data, c.issue.id)) === 'blocked' ? 'Answer and rerun the agent' : 'Send back') },
+      { ...direct('sendBack', 1), label: c => (agentAsk(c.data, c.issue)?.ask === 'blocked' ? 'Answer and rerun the agent' : 'Send back') },
       { ...direct('followups', 1), enabled: c => (followupsOf(c.data, c.issue.id).length ? true : `The agent noted no follow-ups on ${c.data.keyOf(c.issue)}`), value: c => dim(`${followupsOf(c.data, c.issue.id).length} drafts`) },
       { ...direct('markRead', 1), enabled: c => (issueNeeds(c.data, c.now).some(r => r.issue.id === c.issue.id) ? true : 'Nothing about it is waiting on you') },
       direct('agentMenu', 2),
