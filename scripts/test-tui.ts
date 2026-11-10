@@ -30,6 +30,10 @@ import {
   markdownLines, selectableIds, sortIssues, truncate, wrap,
 } from '../src/tui/model.js';
 import { cycleDraft, newDraft, pickerOptions } from '../src/tui/overlays.js';
+import { nextIssue } from '../src/ops/index.js';
+import { runOp } from '../src/ops/operation.js';
+import { DONE_GROUP, followupsOf, prOf, todayModel, todayRows } from '../src/tui/today.js';
+import { seedMorning } from './tui-fixture.js';
 import { cursorRow, initialState, listViewOf, reducer, routeKey, type Action, type TuiState } from '../src/tui/state.js';
 import { editField, emptyField, fieldOf } from '../src/tui/textfield.js';
 
@@ -111,6 +115,39 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('markdown: bullets and task items get glyphs', md.some(l => l[0]?.text.startsWith('• ')) && md.some(l => l[0]?.text.includes('☑')));
   check('markdown: tables align their columns', md.some(l => l.map(s => s.text).join('') === 'a │ bb') && md.some(l => l.map(s => s.text).join('') === '1 │ 2 '));
   check('markdown: fenced code is dim', md.some(l => l[0]?.dim && l[0].text.includes('const x = 1;')));
+}
+
+// ---------- Today, on a workspace where the morning has happened ----------
+const morningPath = join(work, 'morning.db');
+{ const db = openDb(morningPath); seedWorkspace(db); db.close(); }
+const morning = await seedMorning(morningPath);
+const mbl = await connect({ db: morningPath });
+const mdata = await fetchData(mbl);
+{
+  const m = todayModel(mdata, now);
+  const key = (id: string) => mdata.keyOf(mdata.issueById.get(id)!);
+  const needIds = m.needs.map(r => r.id);
+  check('Needs you is one row per issue, even with several notifications about one', new Set(needIds).size === needIds.length && (m.needs.find(r => r.id === morning.review)?.notificationIds.length ?? 0) >= 2,
+    m.needs.map(r => `${r.id}:${r.notificationIds.length}`).join(' '));
+  const kinds = Object.fromEntries(m.needs.map(r => [r.id, r.kind]));
+  check('an agent that finished reads as review, a blocked one as blocked, a mention as mention', kinds[morning.review] === 'review' && kinds[morning.blocked] === 'blocked' && kinds[morning.mention] === 'mention', JSON.stringify(kinds));
+  check('a review row carries the agent\'s finished work', m.needs.find(r => r.id === morning.review)?.thread?.state.status === 'finished');
+  check('a mention row knows the comment that mentions you', m.needs.find(r => r.id === morning.mention)?.commentId === morning.mentionCommentId);
+  check('triage on a team you lead is one row in Needs you', m.needs.some(r => r.kind === 'triage' && r.count > 0));
+  const flightIds = m.flight.map(r => r.id);
+  check('In flight leaves out what needs you (CORE-1 is started but asked about)', !flightIds.some(id => needIds.includes(id)) && !flightIds.includes(morning.mention));
+  const w = m.flight.find(r => r.id === morning.working);
+  check('In flight shows an agent at work with what it did and has left', !!w?.thread && w.thread.progress.did === 'list --json' && w.thread.progress.left === 'search flags');
+  check('In flight shows my own started work without an agent as mine', m.flight.some(r => !r.thread));
+  const op = await runOp(nextIssue, { bl: mbl, actor: { kind: 'person' }, session: null, surface: 'cli' }, { limit: 10 });
+  const started = new Set(mdata.issues.filter(i => mdata.stateById.get(i.stateId)?.type === 'started').map(i => mdata.keyOf(i)));
+  const expected = op.issues.map(i => i.key).filter(k => !started.has(k) && !needIds.some(id => mdata.issueById.get(id) && key(id) === k)).slice(0, 3);
+  check('Up next is next_issue\'s own order, without what is started or needs you', m.next.map(r => key(r.id)).join() === expected.join(), `${m.next.map(r => key(r.id)).join()} vs ${expected.join()}`);
+  check('every Up next row says why it is there', m.next.every(r => r.reason.length > 0));
+  check('Done this week holds what I closed in the last seven days, folded', m.done.length > 0 && todayRows(m, false).some(r => r.id === DONE_GROUP) && !todayRows(m, false).some(r => r.kind === 'done'));
+  const rows = todayRows(m, true);
+  check('Today\'s row ids never repeat, so the cursor can follow an issue', new Set(rows.map(r => r.id)).size === rows.length);
+  check('the PR and the follow-up drafts are in the TUI\'s data', prOf(mdata, morning.review)?.number === 41 && followupsOf(mdata, morning.review).length === 2);
 }
 
 {
