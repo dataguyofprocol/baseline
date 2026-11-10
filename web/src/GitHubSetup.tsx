@@ -78,21 +78,17 @@ export function GitHubSetup({ onClose }: { onClose: () => void }) {
             <div className="ghs-card">
               {status ? <GitHubAccess status={status} hosted={hosted} onChange={load} bare /> : <div className="field-help">Checking GitHub access…</div>}
               {status?.token && <div className="ghs-ok">Connected as <b>@{status.token.login}</b>{status.token.expiresAt ? ` · expires ${new Date(status.token.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</div>}
-              <button className="ghs-guide-toggle" aria-expanded={guide} onClick={() => setGuide(g => !g)}>{guide ? 'Hide the step-by-step' : 'Show me step by step'}</button>
+              <button className="ghs-guide-toggle" aria-expanded={guide} onClick={() => setGuide(g => !g)}>{guide ? 'Hide the steps' : 'Show me the steps'}</button>
               {guide && (
                 <div className="ghs-guide">
                   <ol>
-                    <li>Open GitHub's form: Settings › Developer settings › Fine-grained tokens › Generate new token.</li>
-                    <li>Name it <code>Baseline</code> and pick an expiry. 90 days is a good default.</li>
-                    <li>Resource owner: your organization, not your personal account.</li>
-                    <li>Repository access: <b>Only select repositories</b>, and pick the ones your team ships from.</li>
-                    <li>Repository permissions: set Metadata, Contents, Pull requests, Issues and Checks to <b>Read-only</b>.</li>
-                    <li>Generate it, copy it and paste it above. GitHub shows it only once.</li>
+                    <li>Open GitHub's form: Settings › Developer settings › Fine-grained tokens › Generate new token. The <a href={DOCS_TOKEN} target="_blank" rel="noreferrer">docs walk through it ↗</a>.</li>
+                    <li>Name it <code>Baseline</code> and set expiry to 90 days.</li>
+                    <li>Set Resource owner to your organization. Tokens under your personal account can't select the team's repos. If your org must approve tokens, <a href={DOCS_ORG_POLICY} target="_blank" rel="noreferrer">an owner signs off first ↗</a>.</li>
+                    <li>Under Repository access, choose <b>Only select repositories</b>, then pick the ones your team ships from.</li>
+                    <li>Under Repository permissions, set Metadata, Contents, Pull requests, Issues and Checks to <b>Read-only</b>.</li>
+                    <li>Generate it, copy it and paste it in the field above. GitHub shows it once, then never again.</li>
                   </ol>
-                  <div className="ghs-links">
-                    <a href={DOCS_TOKEN} target="_blank" rel="noreferrer">GitHub docs: creating a fine-grained token ↗</a>
-                    <a href={DOCS_ORG_POLICY} target="_blank" rel="noreferrer">If your organization must approve tokens ↗</a>
-                  </div>
                 </div>
               )}
             </div>
