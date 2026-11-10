@@ -192,7 +192,7 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
     lookup(contextsFor(pickerState), 'j') === undefined && lookup(contextsFor(pickerState), 'q') === undefined);
   check('letters typed into a search box are text, not commands', lookup(['finder'], 's') === undefined && lookup(['finder'], 'q') === undefined);
   check('space toggles in the labels picker only', lookup(['multipicker', 'picker'], 'space')?.command === 'pickerToggle' && lookup(['picker'], 'space') === undefined);
-  check('ctrl-c quits from anywhere, even inside an overlay', ['boot', 'finder', 'picker', 'compose', 'help', 'confirm'].every(c => lookup([c as Context], 'ctrl+c')?.command === 'quit'));
+  check('ctrl-c quits from anywhere, even inside an overlay', ['boot', 'finder', 'picker', 'compose', 'help', 'menu'].every(c => lookup([c as Context], 'ctrl+c')?.command === 'quit'));
   check('a compose title field is a text context', contextsFor(run(st, { type: 'openOverlay', overlay: { kind: 'compose', target: 'issue', field: 'title', input: emptyField, draft: newDraft(st, data) } })).join() === 'compose-issue,compose');
 }
 
@@ -251,7 +251,7 @@ class FakeStdin extends EventEmitter {
   check('My work renders every open issue assigned to me', openKeys.every(k => frame.includes(k)), openKeys.filter(k => !frame.includes(k)).join(', '));
   check('group headers render with counts', /In Progress\s+\d+/.test(frame) && /Todo\s+\d+/.test(frame));
   check('the tab bar numbers My work, Inbox, each team and Projects', new RegExp(`1 My work \\d+\\s+2 Inbox.*3 ${data.teams[0].name}\\s+4 ${data.teams[1].name}\\s+5 Projects`).test(frame), frame.split('\n')[0]);
-  check('the footer is one line of keys from the keymap', /↑↓ move\s+enter open\s+1-5 tabs\s+\/ find\s+\? help/.test(frame), frame.split('\n').slice(-2).join('\n'));
+  check('the footer is one line of keys from the keymap', /↑↓ move\s+enter open\s+1-5 tabs\s+\/ find\s+space all actions\s+\? help/.test(frame), frame.split('\n').slice(-2).join('\n'));
   check('a detail pane beside the list shows the issue under the cursor with a key on each field', /│ s Status/.test(frame) && /│ a Assignee/.test(frame) && /│ w Work on it with an agent\s+c copy/.test(frame));
 
   const target = data.issueById.get(selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[0])!;
@@ -285,14 +285,14 @@ class FakeStdin extends EventEmitter {
 
   stdin.press('\x1b');
   await waitFor('back to the list', f => f.includes('My work') && !f.includes('Description'));
-  stdin.press('c');
+  stdin.press('n');
   await waitFor('new issue form', f => f.includes('New issue'));
   stdin.press('Filed from the TUI test');
   await waitFor('typed title', f => f.includes('Filed from the TUI test'));
   stdin.press('\r');
   await waitFor('created toast', f => f.includes('Created') && f.includes('Filed from the TUI test'));
   const created = (await fresh.listIssues({ query: 'Filed from the TUI test' }))[0];
-  check('c → enter creates the issue, assigned to me from My work', !!created && created.assigneeId === data.currentUser.id);
+  check('n → enter creates the issue, assigned to me from My work', !!created && created.assigneeId === data.currentUser.id);
 
   const second = selectableIds({ kind: 'my' }, await fetchData(fresh), DEFAULT_VIEW, now)[1];
   const secondTitle = (await fresh.getIssue(second))!.title;
@@ -314,10 +314,10 @@ class FakeStdin extends EventEmitter {
   const relisted = await fetchData(fresh);
   const ids = selectableIds({ kind: 'my' }, relisted, DEFAULT_VIEW, now);
   const nextRow = relisted.issueById.get(ids[ids.indexOf(pick.id) + 1])!;
-  stdin.press('y');
+  stdin.press('ck');
   await waitFor('copy toast', f => f.includes(`Copied ${live.keyOf(nextRow)}`));
   const osc = `\x1b]52;c;${Buffer.from(live.keyOf(nextRow)).toString('base64')}\x07`;
-  check('y copies the issue ID through OSC 52 and the native helper, and says Copied', stdout.frames.some(f => f.includes(osc)) && copied.includes(live.keyOf(nextRow)));
+  check('c k copies the issue ID through OSC 52 and the native helper, and says Copied', stdout.frames.some(f => f.includes(osc)) && copied.includes(live.keyOf(nextRow)));
 
   stdin.press('q');
   const exited = await Promise.race([app.waitUntilExit().then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);

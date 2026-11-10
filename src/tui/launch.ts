@@ -52,6 +52,21 @@ export function runInTerminal(cmd: readonly string[], opts: { cwd: string; env: 
   return { ok: r.status === 0, message: r.signal ? `${cmd[0]} stopped (${r.signal})` : `${cmd[0]} exited${r.status ? ` with code ${r.status}` : ''}` };
 }
 
+/** the tmux command that runs `cmd` in a split beside this pane, with the same environment changes agentEnv makes */
+export function paneCommand(cmd: readonly string[], opts: { cwd: string; target: Target; issueKey: string }): string[] {
+  const env = ['-e', `BASELINE_ISSUE=${opts.issueKey}`];
+  // an empty value reads as unset, so the split can't inherit a URL that would point the agent elsewhere
+  if (opts.target.kind === 'local' && opts.target.source === 'flag') env.push('-e', `BASELINE_DB=${opts.target.dbPath}`, '-e', 'BASELINE_URL=', '-e', 'BASELINE_TOKEN=');
+  return ['tmux', 'split-window', '-h', '-c', opts.cwd, ...env, ...cmd];
+}
+
+export function runInPane(cmd: readonly string[], opts: { cwd: string; target: Target; issueKey: string }): RunResult {
+  const argv = paneCommand(cmd, opts);
+  const r = spawnSync(argv[0], argv.slice(1), { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+  if (r.error) return { ok: false, message: `Couldn't run tmux: ${r.error.message}` };
+  return r.status === 0 ? { ok: true, message: 'started' } : { ok: false, message: `tmux split-window failed: ${(r.stderr || '').trim() || `exit ${r.status}`}` };
+}
+
 /** opens `text` in $VISUAL / $EDITOR and returns what was saved, or null when the editor failed */
 export function editInEditor(text: string, name: string): { text: string | null; error: string | null } {
   const editor = (process.env.VISUAL || process.env.EDITOR || 'vi').trim().split(/\s+/);

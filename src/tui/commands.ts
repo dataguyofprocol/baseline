@@ -5,10 +5,11 @@ import { BaselineError, ResolveError, type Baseline } from '../client/index.js';
 import { PRIORITY_LABELS, type Handoff, type Issue, type Priority } from '../core/types.js';
 import { openBrowser, osc52 } from '../cli/system.js';
 import type { CommandId } from './keys.js';
-import { agentCommand, agentCwd, agentEnv, editInEditor, runInTerminal } from './launch.js';
+import { agentCommand, agentCwd, agentEnv, editInEditor, runInPane, runInTerminal } from './launch.js';
+import { MENUS, SUBMENU, type MenuCtx, type MenuId } from './menus.js';
 import { inboxItems, isListRoute, listRowsFor, projectRows, selectableIds, type InboxItem, type Tab } from './model.js';
 import { cycleDraft, filteredOptions, newDraft, NONE, searchResults } from './overlays.js';
-import { listViewOf, routeKey, type Action, type PickerField, type TuiState } from './state.js';
+import { cursorRow, listViewOf, routeKey, type Action, type PickerField, type TuiState } from './state.js';
 import { emptyField, fieldOf } from './textfield.js';
 
 export interface Layout { pageSize: number; detailMax: number; helpMax: number; tabs: Tab[] }
@@ -80,10 +81,14 @@ async function write<T>(ctx: Ctx, opts: { issueId?: string; patch?: Partial<Issu
   return result;
 }
 
-async function handoff(ctx: Ctx, issue: Issue): Promise<Handoff | undefined> {
+/** the issue's prompt, branch and link: the cached copy, else fetched (and cached for the menus to show) */
+export async function handoff(ctx: Pick<Ctx, 'bl' | 'dispatch' | 'state'>, issue: Issue, quiet = false): Promise<Handoff | undefined> {
+  const cached = ctx.state.handoffs[issue.id];
+  if (cached) return cached;
   try {
     const h = await ctx.bl.handoffFor(issue.id);
-    if (!h) toast(ctx.dispatch, 'error', `No handoff for ${ctx.state.data!.keyOf(issue)}`);
+    if (h) ctx.dispatch({ type: 'handoff', issueId: issue.id, handoff: h });
+    else if (!quiet) toast(ctx.dispatch, 'error', `No handoff for ${ctx.state.data!.keyOf(issue)}`);
     return h;
   } catch (e) {
     toast(ctx.dispatch, 'error', errorText(e));
@@ -95,6 +100,62 @@ async function handoff(ctx: Ctx, issue: Issue): Promise<Handoff | undefined> {
 function copy(ctx: Ctx, text: string, what: string): void {
   ctx.terminal(osc52(text));
   toast(ctx.dispatch, 'ok', ctx.clipboard(text) ? `Copied ${what}` : `Copied ${what} (through the terminal; no pbcopy, wl-copy or xclip here)`);
+}
+
+/** where an agent for this issue runs: its location when that is on this disk, else here */
+export function agentWhere(issue: Issue, data: NonNullable<TuiState['data']>) {
+  const location = issue.locationId ? data.locations.find(l => l.id === issue.locationId) : undefined;
+  return agentCwd(location?.path);
+}
+
+export function menuCtxFor(s: TuiState, issueId: string, now: number): MenuCtx | undefined {
+  const issue = s.data?.issueById.get(issueId);
+  if (!s.data || !issue) return undefined;
+  return { issue, data: s.data, handoff: s.handoffs[issueId], env: process.env, where: agentWhere(issue, s.data), now };
+}
+
+function openMenu(ctx: Ctx, menu: MenuId): void {
+  const s = ctx.state;
+  if (s.overlay.kind === 'menu') return ctx.dispatch({ type: 'menuPush', menu });
+  const issue = targetIssue(s, ctx.now());
+  if (!issue) return toast(ctx.dispatch, 'info', 'Select an issue first');
+  ctx.dispatch({ type: 'openOverlay', overlay: { kind: 'menu', path: [menu], issueId: issue.id, cursor: 0 } });
+}
+
+/** a menu row, by its letter or (key null) the row under the cursor: a submenu steps in, anything else closes the menu and runs */
+function runMenuRow(ctx: Ctx, key: string | null): Promise<unknown> | void {
+  const s = ctx.state, o = s.overlay;
+  if (o.kind !== 'menu') return;
+  const menu = MENUS[o.path[o.path.length - 1]];
+  const row = key === null ? menu.rows[o.cursor] : menu.rows.find(r => r.key === key);
+  const mc = menuCtxFor(s, o.issueId, ctx.now());
+  if (!row || !mc) return;
+  const ok = row.enabled?.(mc) ?? true;
+  if (ok !== true) return toast(ctx.dispatch, 'info', ok);
+  const sub = SUBMENU[row.command];
+  if (sub) return ctx.dispatch({ type: 'menuPush', menu: sub });
+  ctx.dispatch({ type: 'closeOverlay' });
+  return runCommand(row.command, { ...ctx, state: { ...s, overlay: { kind: 'none' } } }, row.key);
+}
+
+async function startAgent(ctx: Ctx, i: Issue, where: 'here' | 'pane'): Promise<unknown> {
+  const data = ctx.state.data!;
+  const h = await handoff(ctx, i);
+  if (!h) return;
+  const key = data.keyOf(i);
+  const cmd = agentCommand(h.prompt);
+  const at = agentWhere(i, data);
+  if (where === 'pane') {
+    if (!process.env.TMUX) return toast(ctx.dispatch, 'info', 'A new pane needs tmux. Run baseline inside tmux, or press w h to run the agent here.');
+    const r = runInPane(cmd, { cwd: at.cwd, target: ctx.bl.target, issueKey: key });
+    return toast(ctx.dispatch, r.ok ? 'ok' : 'error', r.ok ? `${key}: ${cmd[0]} started in a new pane` : r.message);
+  }
+  let result = { ok: false, message: '' };
+  await ctx.suspend(() => {
+    result = runInTerminal(cmd, { cwd: at.cwd, env: agentEnv(ctx.bl.target, key), banner: `baseline › ${key}: ${cmd[0]} in ${at.cwd} (exit it to return to the TUI)` });
+  });
+  toast(ctx.dispatch, result.ok ? 'ok' : 'error', `${key}: ${result.message}`);
+  return ctx.refresh();
 }
 
 function openPicker(ctx: Ctx, field: PickerField): void {
@@ -163,18 +224,7 @@ async function accept(ctx: Ctx): Promise<unknown> {
       if (text === issue.title) return;
       return write(ctx, { issueId: issue.id, patch: { title: text }, run: () => ctx.bl.updateIssue(issue.id, { title: text }, ctx.actorId), ok: () => `${key} renamed` });
     }
-    case 'confirm': {
-      ctx.dispatch({ type: 'closeOverlay' });
-      const issue = data.issueById.get(o.issueId);
-      if (!issue) return;
-      const key = data.keyOf(issue);
-      let result = { ok: false, message: '' };
-      await ctx.suspend(() => {
-        result = runInTerminal(o.command, { cwd: o.cwd, env: agentEnv(ctx.bl.target, key), banner: `baseline › ${key}: ${o.command[0]} in ${o.cwd} (exit it to return to the TUI)` });
-      });
-      toast(ctx.dispatch, result.ok ? 'ok' : 'error', `${key}: ${result.message}`);
-      return ctx.refresh();
-    }
+    case 'menu': return runMenuRow(ctx, null);
     default: return;
   }
 }
@@ -184,6 +234,7 @@ function overlayCount(ctx: Ctx): number {
   switch (o.kind) {
     case 'picker': return filteredOptions(o, data).length;
     case 'search': return searchResults(o.input.value, data).length;
+    case 'menu': return MENUS[o.path[o.path.length - 1]].rows.length;
     default: return 0;
   }
 }
@@ -221,6 +272,14 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     }
     case 'down': return move(ctx, 1);
     case 'up': return move(ctx, -1);
+    case 'actions': {
+      const row = cursorRow(s);
+      if (row?.kind === 'group') return d({ type: 'toggleGroup', groupId: row.group.id });
+      return openMenu(ctx, 'actions');
+    }
+    case 'editMenu': case 'agentMenu': case 'copyMenu': return openMenu(ctx, SUBMENU[cmd]!);
+    case 'menuKey': return runMenuRow(ctx, key);
+    case 'overlayBack': return d({ type: 'menuBack' });
 
     case 'open': {
       const id = cursorIds(s, now)[s.cursor[routeKey(s.route)] ?? 0];
@@ -250,11 +309,6 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'setAssignee': return openPicker(ctx, 'assignee');
     case 'setLabels': return openPicker(ctx, 'labels');
     case 'setProject': return openPicker(ctx, 'project');
-    case 'assignMe': return needIssue(i => {
-      const me = data.currentUser;
-      if (i.assigneeId === me.id) return toast(d, 'info', `${data.keyOf(i)} is already yours`);
-      return write(ctx, { issueId: i.id, patch: { assigneeId: me.id }, run: () => ctx.bl.updateIssue(i.id, { assigneeId: me.id }, ctx.actorId), ok: () => `${data.keyOf(i)} → ${me.name}` });
-    });
     case 'comment': return needIssue(i => d({ type: 'openOverlay', overlay: { kind: 'compose', target: 'comment', issueId: i.id, input: emptyField } }));
     case 'editTitle': return needIssue(i => d({ type: 'openOverlay', overlay: { kind: 'compose', target: 'title', issueId: i.id, input: fieldOf(i.title) } }));
     case 'editDescription': return needIssue(async i => {
@@ -276,31 +330,8 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
       openBrowser(h.url);
       toast(d, 'ok', `Opened ${h.key} in the browser${ctx.bl.target.kind === 'local' ? ' (needs `baseline serve` running)' : ''}`);
     });
-    case 'startAgent': return needIssue(async i => {
-      const h = await handoff(ctx, i);
-      if (!h) return;
-      const location = i.locationId ? data.locations.find(l => l.id === i.locationId) : undefined;
-      const where = agentCwd(location?.path);
-      d({ type: 'openOverlay', overlay: { kind: 'confirm', action: 'agent', issueId: i.id, command: agentCommand(h.prompt), cwd: where.cwd, note: where.note } });
-    });
-
-    case 'markRead': {
-      if (s.route.kind !== 'inbox') return;
-      const id = cursorIds(s, now)[s.cursor[routeKey(s.route)] ?? 0];
-      const item = inboxItems(data, now).find(i => i.id === id);
-      return item ? markRead(ctx, [item.id], item.unread) : undefined;
-    }
-    case 'markAllRead': {
-      const n = inboxItems(data, now).filter(i => i.unread).length;
-      if (!n) return toast(d, 'info', 'Nothing unread');
-      const end = ctx.beginWrite();
-      d({ type: 'markRead', ids: 'all', read: true });
-      try {
-        await ctx.bl.markAllNotificationsRead();
-        toast(d, 'ok', `Marked ${n} notification${n === 1 ? '' : 's'} read`);
-      } catch (e) { toast(d, 'error', errorText(e)); } finally { end(); }
-      return ctx.refresh();
-    }
+    case 'agentHere': return needIssue(i => startAgent(ctx, i, 'here'));
+    case 'agentPane': return needIssue(i => startAgent(ctx, i, 'pane'));
 
     case 'overlayDown': case 'overlayUp': {
       const delta = cmd === 'overlayDown' ? 1 : -1;

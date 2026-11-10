@@ -1,14 +1,15 @@
-// The centered boxes: pickers, search, compose forms, help and the agent confirm.
-import { Box } from 'ink';
+// The boxes over the screen: the space menu, a picker with no field on screen, search, compose forms and help.
+import { Box, Text } from 'ink';
+import { menuCtxFor } from './commands.js';
+import { MENUS, rowLabel, SUBMENU } from './menus.js';
 import type { TuiData } from './data.js';
 import { helpSections, hintsFor, type Context } from './keys.js';
-import { shellPreview } from './launch.js';
-import { displayWidth, highlight, padEnd, tildePath, truncate, type Line, type Seg } from './model.js';
+import { displayWidth, highlight, padEnd, truncate, type Line, type Seg } from './model.js';
 import { pickerLines } from './detail.js';
 import { draftChoices, draftValue, PICKER_TITLE, searchResults } from './overlays.js';
 import { useWindow } from './screens.js';
 import { DRAFT_FIELDS, type Overlay, type TuiState } from './state.js';
-import { STATE_ICON, theme } from './theme.js';
+import { keySeg, STATE_ICON, theme } from './theme.js';
 import { fieldBlock, fieldSegs, LineView, Modal } from './ui.js';
 
 const BAR: Seg = { text: '▍', color: theme.accent };
@@ -63,7 +64,7 @@ export function OverlayView(p: Props) {
     case 'search': return <SearchView {...p} o={o} />;
     case 'compose': return <ComposeView {...p} o={o} />;
     case 'help': return <HelpView {...p} o={o} />;
-    case 'confirm': return <ConfirmView {...p} o={o} />;
+    case 'menu': return <MenuView {...p} o={o} />;
   }
 }
 
@@ -148,16 +149,40 @@ function HelpView({ contexts, cols, rows, o, onHelpMax }: Props & { o: Extract<O
   return <Modal title="Keyboard shortcuts" rows={lines} width={width} left={left} top={Math.min(top, 1)} footer={[...hintLine(contexts), ...more]} />;
 }
 
-function ConfirmView({ data, contexts, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'confirm' }> }) {
-  const issue = data.issueById.get(o.issueId);
-  const { width, left, top } = place(cols, rows, 84, 10);
+/** the space menu over the list: the issue on top, a row per letter with the field's value beside it, sections ruled off */
+function MenuView({ s, cols, rows, now, o }: Props & { o: Extract<Overlay, { kind: 'menu' }> }) {
+  const mc = menuCtxFor(s, o.issueId, now);
+  if (!mc) return null;
+  const menu = MENUS[o.path[o.path.length - 1]];
+  const width = Math.min(cols - 2, menu.extra ? 84 : 64);
   const inner = width - 4;
-  const lines: Line[] = [
-    [{ text: 'Runs here, in this terminal. The TUI comes back when it exits.', color: theme.muted }],
-    [],
-    [{ text: '$ ', color: theme.accent }, { text: shellPreview(o.command, inner - 2), bold: true }],
-    [{ text: '  in ', color: theme.muted }, { text: tildePath(o.cwd) }],
-    ...(o.note ? [[], [{ text: o.note, color: theme.warn }]] as Line[] : []),
-  ];
-  return <Modal title="Start an agent" subtitle={issue ? data.keyOf(issue) : undefined} rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
+  const labelW = Math.max(...menu.rows.map(r => displayWidth(rowLabel(r, mc)))) + 4;
+  const rule: Line = [{ text: '─'.repeat(inner), color: theme.border }];
+  const body: Array<{ line: Line; sel?: boolean }> = [{ line: [{ text: truncate(menu.title(mc), inner), bold: true }] }, { line: rule }];
+  menu.rows.forEach((r, i) => {
+    if (i && r.section !== menu.rows[i - 1].section) body.push({ line: rule });
+    const ok = r.enabled?.(mc) ?? true;
+    const sub = !!SUBMENU[r.command];
+    const label = rowLabel(r, mc);
+    const left: Line = [ok === true ? keySeg(r.key) : { text: r.key, color: theme.muted }, { text: '  ' },
+      { text: padEnd(label, labelW), ...(ok === true ? (sub ? { bold: true } : {}) : { color: theme.muted }) }, ...(r.value?.(mc) ?? [])];
+    body.push({ line: sub ? rightAlign(left, [{ text: '›', color: theme.muted }], inner) : left, sel: i === o.cursor });
+  });
+  if (menu.extra) body.push({ line: rule }, ...menu.extra(mc, inner).map(line => ({ line })));
+  body.push({ line: rule }, { line: [{ text: `press a letter  ·  ↑↓ and enter  ·  ${o.path.length > 1 ? 'backspace goes back  ·  ' : ''}esc closes`, color: theme.muted }] });
+  const left = Math.max(0, Math.floor((cols - width) / 2));
+  const top = Math.max(0, Math.min(3, rows - body.length - 4));
+  return (
+    <Box position="absolute" left={left} top={top} flexDirection="column" width={width}>
+      <Text color={theme.border}>╭{'─'.repeat(width - 2)}╮</Text>
+      {body.map((b, i) => (
+        <Text key={i}>
+          <Text color={theme.border}>│ </Text>
+          <LineView line={b.line} width={inner} bg={b.sel ? theme.selBg : undefined} />
+          <Text color={theme.border}> │</Text>
+        </Text>
+      ))}
+      <Text color={theme.border}>╰{'─'.repeat(width - 2)}╯</Text>
+    </Box>
+  );
 }

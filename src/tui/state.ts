@@ -1,5 +1,6 @@
 // The whole app state and the one reducer that changes it.
-import type { Issue, Priority } from '../core/types.js';
+import type { Handoff, Issue, Priority } from '../core/types.js';
+import type { MenuId } from './menus.js';
 import type { WorkThread } from '../core/work-types.js';
 import { patchIssue, type TuiData } from './data.js';
 import {
@@ -30,7 +31,8 @@ export type Overlay =
   | { kind: 'picker'; field: PickerField; issueId: string; query: TextField; cursor: number; selected: string[] }
   | { kind: 'compose'; target: 'issue'; field: DraftField; input: TextField; draft: IssueDraft }
   | { kind: 'compose'; target: 'comment' | 'title'; issueId: string; input: TextField }
-  | { kind: 'confirm'; action: 'agent'; issueId: string; command: string[]; cwd: string; note: string | null };
+  /** the space menu; `path` is the submenus stepped into, `cursor` the row ↑↓ is on */
+  | { kind: 'menu'; path: MenuId[]; issueId: string; cursor: number };
 
 export interface Toast { id: number; tone: 'ok' | 'error' | 'info'; text: string }
 
@@ -53,6 +55,8 @@ export interface TuiState {
   syncedAt: number | null;
   syncing: boolean;
   threads: Record<string, WorkThread[]>;
+  /** per issue: its prompt, branch and link, fetched when a menu or / needs them */
+  handoffs: Record<string, Handoff>;
 }
 
 export const routeKey = (r: Route): string => {
@@ -69,7 +73,7 @@ export const isTopLevel = (r: Route) => r.kind === 'my' || r.kind === 'team' || 
 export function initialState(route: Route = { kind: 'my' }, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null } = {}): TuiState {
   return {
     data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, groupBy: start.groupBy ?? 'status', preset: start.preset ?? 'all', restoreCursor: start.cursorKey ?? null,
-    toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {},
+    toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {}, handoffs: {},
   };
 }
 
@@ -90,6 +94,9 @@ export type Action =
   | { type: 'editInput'; input: TextField }
   | { type: 'overlayMove'; delta: number; count: number }
   | { type: 'pickerToggle'; id: string }
+  | { type: 'menuPush'; menu: MenuId }
+  | { type: 'menuBack' }
+  | { type: 'handoff'; issueId: string; handoff: Handoff }
   | { type: 'composeField'; delta: number }
   | { type: 'composeDraft'; draft: Partial<IssueDraft> }
   | { type: 'helpScroll'; delta: number; max: number }
@@ -204,7 +211,7 @@ export function reducer(s: TuiState, a: Action): TuiState {
     }
     case 'overlayMove': {
       const o = s.overlay;
-      if (o.kind !== 'search' && o.kind !== 'picker') return s;
+      if (o.kind !== 'search' && o.kind !== 'picker' && o.kind !== 'menu') return s;
       const n = Math.max(1, a.count);
       return { ...s, overlay: { ...o, cursor: ((o.cursor + a.delta) % n + n) % n } };
     }
@@ -236,6 +243,13 @@ export function reducer(s: TuiState, a: Action): TuiState {
       const notifications = s.data.notifications.map(n => (a.ids === 'all' || a.ids.includes(n.id) ? { ...n, readAt: a.read ? n.readAt ?? at : null } : n));
       return { ...s, data: { ...s.data, notifications } };
     }
+    case 'menuPush': return s.overlay.kind === 'menu' ? { ...s, overlay: { ...s.overlay, path: [...s.overlay.path, a.menu], cursor: 0 } } : s;
+    case 'menuBack': {
+      const o = s.overlay;
+      if (o.kind !== 'menu') return s;
+      return o.path.length > 1 ? { ...s, overlay: { ...o, path: o.path.slice(0, -1), cursor: 0 } } : { ...s, overlay: { kind: 'none' } };
+    }
+    case 'handoff': return { ...s, handoffs: { ...s.handoffs, [a.issueId]: a.handoff } };
     case 'threads': return { ...s, threads: { ...s.threads, [a.issueId]: a.threads } };
     case 'toast': return { ...s, toast: a.toast };
     case 'clearToast': return s.toast?.id === a.id ? { ...s, toast: null } : s;

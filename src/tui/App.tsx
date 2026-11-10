@@ -3,7 +3,8 @@ import { Box, Text, useApp, useInput, useStdout, useWindowSize, type Key } from 
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import type { Baseline } from '../client/index.js';
 import { copyToClipboard } from '../cli/system.js';
-import { currentInboxItem, errorText, runCommand, targetIssue, toast, type Ctx, type Layout } from './commands.js';
+import { currentInboxItem, errorText, handoff, runCommand, targetIssue, toast, type Ctx, type Layout } from './commands.js';
+import { menuTrail, MENUS } from './menus.js';
 import { fetchData, type TuiData } from './data.js';
 import { detailLines, pickerLines, type IssueUi } from './detail.js';
 import { contextsFor, hintsFor, keyName, lookup, takesText, type CommandId, type Context } from './keys.js';
@@ -16,7 +17,7 @@ import { DetailPane, DetailScreen, Footer, hintSegs, inboxNote, InboxScreen, Lis
 import { initialState, reducer, routeKey, type Action, type Route, type TuiState } from './state.js';
 import { editField, type TextField } from './textfield.js';
 import { SPINNER, theme } from './theme.js';
-import { LineView } from './ui.js';
+import { fieldBlock, LineView } from './ui.js';
 
 /** from this width the list gets a detail pane beside it */
 const WIDE_COLS = 100;
@@ -130,6 +131,13 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   }, [refresh, pollMs]);
 
   const openIssue = state.route.kind === 'issue' ? state.route.issueId : null;
+
+  // the agent and copy menus show the branch and the command before you pick, so fetch the handoff as they open
+  const wantsHandoff = state.overlay.kind === 'menu' && state.overlay.path.some(m => m === 'agent' || m === 'copy') ? state.overlay.issueId : null;
+  useEffect(() => {
+    const issue = wantsHandoff ? stateRef.current.data?.issueById.get(wantsHandoff) : undefined;
+    if (issue) void handoff({ bl, dispatch, state: stateRef.current }, issue, true);
+  }, [wantsHandoff, bl]);
   useEffect(() => { if (openIssue) void loadThreads(openIssue); }, [openIssue, loadThreads]);
 
   useEffect(() => {
@@ -160,11 +168,15 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const o = state.overlay;
   const cursorIssue = data ? targetIssue(state, Date.now()) : undefined;
   // a picker opens under its field wherever that field is on screen: the detail pane, or the issue page
-  const inlineOn = o.kind === 'picker' && ((hasPane && cursorIssue?.id === o.issueId) || openIssue === o.issueId) ? o : null;
-  const pageUi = useMemo((): IssueUi => {
-    if (!data || !openIssue) return {};
-    return { picker: inlineOn ? { field: inlineOn.field, lines: indent(pickerLines(inlineOn, data, contentW - 2, 9)) } : null };
-  }, [data, openIssue, inlineOn, contentW]);
+  const onScreen = (id: string) => (hasPane && cursorIssue?.id === id) || openIssue === id;
+  const inlineOn = o.kind === 'picker' && onScreen(o.issueId) ? o : null;
+  // so does a title being edited: it is edited where it is shown
+  const titleOn = o.kind === 'compose' && o.target === 'title' && onScreen(o.issueId) ? o : null;
+  const issueUi = (width: number): IssueUi => ({
+    picker: inlineOn && data ? { field: inlineOn.field, lines: indent(pickerLines(inlineOn, data, width - 2, 9)) } : null,
+    title: titleOn ? fieldBlock(titleOn.input, width, 'Issue title', 3).map(l => l.map(x => ({ ...x, bold: true }))) : null,
+  });
+  const pageUi = useMemo((): IssueUi => (data && openIssue ? issueUi(contentW) : {}), [data, openIssue, inlineOn, titleOn, contentW]);
   const detail = useMemo(() => {
     if (!data || !openIssue) return null;
     const issue = data.issueById.get(openIssue);
@@ -202,6 +214,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
     };
     const binding = lookup(ctxs, name);
     if (binding) return run(binding.command, name);
+    if (s.overlay.kind === 'menu') return run('menuKey', name);
     const field = takesText(s) ? currentField(s) : null;
     const next = field ? editField(field, name, input) : null;
     if (next) dispatch({ type: 'editInput', input: next });
@@ -226,7 +239,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
 
   const now = Date.now();
   const dim = o.kind !== 'none';
-  const paneUi: IssueUi = { picker: inlineOn && !openIssue ? { field: inlineOn.field, lines: indent(pickerLines(inlineOn, data, paneW - 5, 9)) } : null };
+  const paneUi: IssueUi = openIssue ? {} : issueUi(paneW - 3);
   const inboxItem = r.kind === 'inbox' ? currentInboxItem(state, now) : undefined;
   const list = r.kind === 'inbox' ? <InboxScreen s={state} data={data} width={listW} height={bodyH} now={now} dim={dim} />
     : r.kind === 'projects' ? <ProjectsScreen s={state} data={data} width={contentW} height={bodyH} dim={dim} />
@@ -251,7 +264,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
       </Box>
       <ToastLine toast={state.toast} width={columns} />
       <Footer s={state} left={footerLeft(state, data, contexts, tabs.length)} width={columns} target={targetLabel(bl)} />
-      {inlineOn ? null : <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} />}
+      {inlineOn || titleOn ? null : <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} />}
     </Box>
   );
 }
@@ -267,8 +280,7 @@ function overlayTitle(s: TuiState, data: TuiData | null): string {
     case 'search': return 'Find';
     case 'compose': return o.target === 'issue' ? 'New issue' : o.target === 'comment' ? `Comment on ${key(o.issueId)}` : `Rename ${key(o.issueId)}`;
     case 'help': return 'Keys';
-    case 'confirm': return `Agent on ${key(o.issueId)}`;
-    case 'none': return '';
+    case 'menu': case 'none': return '';
   }
 }
 
@@ -276,6 +288,11 @@ function overlayTitle(s: TuiState, data: TuiData | null): string {
  *  the tabs or options there are */
 function footerLeft(s: TuiState, data: TuiData | null, contexts: Context[], tabCount: number): Seg[] {
   const o = s.overlay;
+  if (o.kind === 'menu') {
+    // which-key: the letters this menu answers to, after the keys that led here
+    const keys = MENUS[o.path[o.path.length - 1]].rows.map(r => r.key).join(' ');
+    return [{ text: `${menuTrail(o.path).join(' › ')} › `, bold: true }, { text: '_', color: theme.accent, bold: true }, { text: `   waiting for the next key: ${keys}`, color: theme.muted }];
+  }
   const options = o.kind === 'picker' && data ? filteredOptions(o, data).length : 0;
   const hints = hintsFor(contexts).map(h => {
     if (h.key !== '1-9') return h;
