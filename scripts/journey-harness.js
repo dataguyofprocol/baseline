@@ -373,9 +373,9 @@
     });
     await t.run('5.9 Archive and Trash pages', async () => {
       const core = (await t.snap()).teams.find(x => x.key === 'CORE'); const { issue } = await t.post('/api/issues', { teamId: core.id, title: 'Harness trash me' }); await fetch(`/api/issues/${issue.id}`, { method: 'DELETE' }); await t.sync();
-      await t.nav('/trash', 900); const listed = t.text().includes('Harness trash me'); const btns = t.qa('button').filter(t.vis).map(b => (b.title || b.textContent).trim()).join(' ');
+      await t.nav('/trash', 900); const listed = t.text().includes('Harness trash me'); const btns = t.qa('button').map(b => (b.title || b.textContent).trim()).join(' '); // row actions show on hover, so count them in the DOM
       await t.nav('/team/CORE/archive', 900); const arch = t.text().includes('Archive');
-      if (!listed || !/Restore/.test(btns) || !/Empty trash/.test(btns) || !arch) t.fail(`listed ${listed} btns ${btns.slice(0, 80)}`); return 'trash: Restore, Delete forever, Empty trash; archive page';
+      if (!listed || !/Restore/.test(btns) || !/Empty trash/.test(btns) || !arch) t.fail(`listed ${listed} restore ${/Restore/.test(btns)} empty ${/Empty trash/.test(btns)} archive ${arch}`); return 'trash: Restore, Delete forever, Empty trash; archive page';
     });
     await t.run('5.10 Advanced filter: AND / OR groups', async () => {
       await t.nav('/team/CORE/all', 900); await t.press('f', {}, 500); await t.click(t.menuItem('Advanced filter'), 700);
