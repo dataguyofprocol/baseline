@@ -135,7 +135,9 @@ function remapCursors(before: TuiState, after: TuiState, now: number): Record<st
   if (!after.data) return cursor;
   for (const r of [after.route, ...after.stack]) {
     const k = routeKey(r);
-    if (r.kind === 'issue' || cursor[k] === undefined) continue;
+    if (r.kind === 'issue') continue;
+    // a list nobody has moved in yet has its cursor on the first row, and that row is followed too
+    if (cursor[k] === undefined) { if (r !== after.route) continue; cursor[k] = 0; }
     const prev = before.data ? selectableIds(r, before.data, listViewOf(before, r), now)[cursor[k]] : undefined;
     const rows = isListRoute(r) ? listRowsFor(r, after.data, listViewOf(after, r)) : null;
     const ids = rows ? rows.filter(isSelectable).map(x => x.id) : selectableIds(r, after.data, listViewOf(after, r), now);

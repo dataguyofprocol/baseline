@@ -262,13 +262,13 @@ function useTicker(ms: number, active = true): number {
   return n;
 }
 
-function syncLabel(s: TuiState, frame: number): Seg[] {
-  if (s.syncing && !s.syncedAt) return [{ text: `${SPINNER[frame % SPINNER.length]} loading`, color: theme.muted }];
-  if (s.syncing) return [{ text: `${SPINNER[frame % SPINNER.length]} syncing`, color: theme.muted }];
+/** compact: the dot alone, so a narrow footer keeps its keys */
+function syncLabel(s: TuiState, frame: number, compact: boolean): Seg[] {
+  if (s.syncing) return [{ text: compact ? SPINNER[frame % SPINNER.length] : `${SPINNER[frame % SPINNER.length]} ${s.syncedAt ? 'syncing' : 'loading'}`, color: theme.muted }];
   if (!s.syncedAt) return [];
   const secs = Math.max(0, Math.round((Date.now() - s.syncedAt) / 1000));
   const stale = secs > 15;
-  return [{ text: '● ', color: stale ? theme.warn : theme.ok }, { text: secs < 2 ? 'synced' : `synced ${secs < 60 ? `${secs}s` : `${Math.round(secs / 60)}m`} ago`, color: theme.muted }];
+  return [{ text: compact ? '●' : '● ', color: stale ? theme.warn : theme.ok }, ...(compact ? [] : [{ text: secs < 2 ? 'synced' : `synced ${secs < 60 ? `${secs}s` : `${Math.round(secs / 60)}m`} ago`, color: theme.muted }])];
 }
 
 /** key chips with their labels: "↑↓ move  enter open" */
@@ -280,7 +280,8 @@ export function hintSegs(hints: Array<{ key: string; label: string }>): Seg[] {
 export function Footer({ s, left, width, target }: { s: TuiState; left: Seg[]; width: number; target: string }) {
   const frame = useTicker(s.syncing ? 80 : 1000);
   // an open overlay's footer is only its own keys
-  const right: Seg[] = s.overlay.kind !== 'none' ? [] : [...syncLabel(s, frame), { text: `  ${target}`, color: theme.muted }];
+  const compact = width < 100;
+  const right: Seg[] = s.overlay.kind !== 'none' ? [] : [...syncLabel(s, frame, compact), ...(compact ? [] : [{ text: `  ${target}`, color: theme.muted }])];
   const rightW = right.reduce((n, x) => n + displayWidth(x.text), 0) + 1;
   const segs: Seg[] = [{ text: ' ' }];
   let used = 1;
