@@ -23,7 +23,7 @@ export function blankWorkspace(db: DatabaseSync, opts: { workspaceName?: string;
   const me = store.createUser(opts.userName ?? localUserName(), '', true);
   setMeta(db, 'currentUser', me.id);
   store.agentUserId();
-  store.setPreferences({ gettingStarted: { onboarding: 'pending', step: 0, since: null, usedPalette: false } });
+  store.setPreferences({ gettingStarted: { onboarding: 'pending', flow: 'create', since: new Date().toISOString() } });
 }
 
 /** The sample workspace. `into` adds it to the workspace as it stands instead of wiping first.

@@ -762,20 +762,18 @@ export interface Preferences {
   push: { browser: boolean; types: Record<NotifyCategory, boolean> };
   /** Customize sidebar: badge style, and when each item shows (hidden ones move to More) */
   sidebar: { badgeStyle: 'count' | 'dot' | 'none'; items: Record<string, SidebarVisibility> };
-  /** the first-run flow and the help menu's Getting started checklist */
+  /** first-run setup: the panel on the team's issues view, reopened from the help menu */
   gettingStarted: GettingStarted;
 }
 /** a preferences change: nested groups merge, so a patch names only what it changes */
 export type PreferencesPatch = Partial<Omit<Preferences, 'gettingStarted'>> & { gettingStarted?: Partial<GettingStarted> };
 export interface GettingStarted {
-  /** 'pending' keeps the first-run flow up (from `step`) until it ends on the first issue */
+  /** 'pending' shows the setup panel on the team's issues view */
   onboarding: 'pending' | 'done';
-  step: number;
-  /** when the flow ended: issues and projects made after it count toward the checklist */
+  /** 'create' set up a new workspace; 'join' is someone arriving in one that already has teams */
+  flow: 'create' | 'join';
+  /** when setup began: only issues made after it count as your first */
   since: string | null;
-  usedPalette: boolean;
-  /** the checklist was closed from the help menu */
-  dismissed?: boolean;
 }
 export type SidebarVisibility = 'show' | 'badged' | 'hide';
 /** the kinds Linear's notification settings speak in */
@@ -816,7 +814,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   homeView: 'inbox', firstDayOfWeek: 1,
   notify: { assigned: true, statusChanged: true, comments: true, mentions: true },
   sidebar: { badgeStyle: 'count', items: {} },
-  gettingStarted: { onboarding: 'done', step: 0, since: null, usedPalette: false },
+  gettingStarted: { onboarding: 'done', flow: 'create', since: null },
   displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false, startOnBranchCopy: true, startOnHandoff: true, updatesSummary: 'weekly',
   push: { browser: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
 };
@@ -876,6 +874,10 @@ export interface Snapshot {
   /** project updates an agent drafted for the requesting person, never anyone else's. Only
    *  GET /api/bootstrap fills it: the store's own snapshot doesn't know who is asking. */
   updateDrafts?: ProjectUpdateDraft[];
+  /** the requesting person's own API keys, without tokens. Filled by GET /api/bootstrap only */
+  myApiKeys?: ApiKey[];
+  /** how many invites the requesting person has sent. Filled by GET /api/bootstrap only */
+  invitesSent?: number;
 }
 
 export type SnapshotSection = keyof Snapshot;
@@ -889,7 +891,7 @@ const SNAPSHOT_SECTIONS: Record<SnapshotSection, true> = {
   initiatives: true, initiativeUpdates: true, initiativeLabels: true, initiativeLinks: true, slaRules: true,
   loops: true, loopRuns: true, pullRequests: true, issuePrs: true, commits: true, issueCommits: true,
   teamSubscriptions: true, teamWorkflows: true, recurring: true, locations: true, projectUpdates: true, milestones: true,
-  cycles: true, views: true, favorites: true, notifications: true, activity: true, currentUser: true, updateDrafts: true,
+  cycles: true, views: true, favorites: true, notifications: true, activity: true, currentUser: true, updateDrafts: true, myApiKeys: true, invitesSent: true,
 };
 export const isSnapshotSection = (s: string): s is SnapshotSection => Object.hasOwn(SNAPSHOT_SECTIONS, s);
 

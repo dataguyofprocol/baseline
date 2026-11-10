@@ -25,7 +25,8 @@ import { TeamsPage, MembersPage, DraftsPage } from './Workspace.js';
 import { InitiativesPage, InitiativePage } from './Initiatives.js';
 import { ProjectsPage, NewProjectPage, ProjectPage } from './Projects.js';
 import { IssuePage } from './IssueDetail.js';
-import { Onboarding } from './Onboarding.js';
+import { TeamGate } from './TeamGate.js';
+import { setupHome } from './SetupPanel.js';
 import { SignIn } from './SignIn.js';
 import { Logo } from './Logo.js';
 import { reducedMotion } from './motion.js';
@@ -339,6 +340,7 @@ function InboxRedirect() {
   const navigate = useNavigate();
   useEffect(() => {
     const s = useApp.getState().snap;
+    if (s?.workspace.preferences.gettingStarted.onboarding === 'pending') { navigate(setupHome(s), { replace: true }); return; }
     const home = s?.workspace.preferences.homeView ?? 'inbox';
     const team = localStorage.getItem('baseline:issuesTeam') ?? s?.teams[0]?.key;
     navigate(home === 'my-issues' ? '/my-issues' : home === 'team' && team ? `/team/${team}/all` : '/inbox', { replace: true });
@@ -364,8 +366,8 @@ export function App() {
   const signedOut = useApp(s => s.signedOut);
   const bootstrap = useApp(s => s.bootstrap);
   const resolvedTheme = useApp(s => s.resolvedTheme);
-  // a new workspace (or one with no teams left) runs the first-run flow before any route
-  const onboarding = useApp(s => !!s.snap && (!s.snap.teams.length || s.snap.workspace.preferences.gettingStarted.onboarding === 'pending'));
+  // every issue needs a team, so a workspace with none (new, or all deleted) names one before any route
+  const noTeams = useApp(s => !!s.snap && !s.snap.teams.length);
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
@@ -391,8 +393,8 @@ export function App() {
     );
   }
 
-  if (onboarding) {
-    return <Onboarding />;
+  if (noTeams) {
+    return <TeamGate />;
   }
 
   return (

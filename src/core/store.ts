@@ -11,7 +11,7 @@ import type {
   WorkflowState, WorkflowStateType, UpdateCadence, ProjectStatusDef, ProjectSubscription, ProjectLabel,
   WorkspaceFeatures,
 } from './types.js';
-import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES, DEFAULT_SECURITY, type WorkspaceSecurity } from './types.js';
+import { toTerminalApp, DEFAULT_PREFERENCES, DEFAULT_FEATURES, DEFAULT_SECURITY, type GettingStarted, type WorkspaceSecurity } from './types.js';
 import { createExtensions, type Extensions } from './extensions.js';
 
 interface TeamRow { id: string; key: string; name: string; icon: string; color: string; description: string; position: number; triage_enabled: number; auto_cycles: number; cycle_duration: number; cycle_cooldown: number; cycle_upcoming: number; cycle_rollover: number; estimate_scale: string; estimate_zero?: number; estimate_extended?: number; estimate_count_unestimated?: number }
@@ -25,6 +25,18 @@ interface IssueRow { id: string; team_id: string; number: number; title: string;
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
+
+/** Stored first-run state over the defaults, keeping only today's keys: rows from the old step
+ *  wizard carry keys it no longer has, and some lack `flow`. */
+function gettingStartedFrom(raw: unknown): GettingStarted {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<keyof GettingStarted, unknown>>;
+  const d = DEFAULT_PREFERENCES.gettingStarted;
+  return {
+    onboarding: r.onboarding === 'pending' || r.onboarding === 'done' ? r.onboarding : d.onboarding,
+    flow: r.flow === 'join' || r.flow === 'create' ? r.flow : d.flow,
+    since: typeof r.since === 'string' ? r.since : d.since,
+  };
+}
 
 export { normalizeDir };
 
@@ -1068,13 +1080,13 @@ export class Store {
       const raw = JSON.parse(row?.json ?? '{}') as Partial<Preferences>;
       // push.browser was stored as push.desktop before the rename
       const { desktop, ...rawPush } = (raw.push ?? {}) as Partial<Preferences['push']> & { desktop?: boolean };
-      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, push: { ...DEFAULT_PREFERENCES.push, ...(desktop === undefined ? {} : { browser: desktop }), ...rawPush, types: { ...DEFAULT_PREFERENCES.push.types, ...(raw.push?.types ?? {}) } }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } }, gettingStarted: { ...DEFAULT_PREFERENCES.gettingStarted, ...(raw.gettingStarted ?? {}) } };
+      return { ...DEFAULT_PREFERENCES, ...raw, notify: { ...DEFAULT_PREFERENCES.notify, ...(raw.notify ?? {}) }, push: { ...DEFAULT_PREFERENCES.push, ...(desktop === undefined ? {} : { browser: desktop }), ...rawPush, types: { ...DEFAULT_PREFERENCES.push.types, ...(raw.push?.types ?? {}) } }, sidebar: { ...DEFAULT_PREFERENCES.sidebar, ...(raw.sidebar ?? {}), items: { ...(raw.sidebar?.items ?? {}) } }, gettingStarted: gettingStartedFrom(raw.gettingStarted) };
     } catch { return DEFAULT_PREFERENCES; }
   }
   setPreferences(patch: PreferencesPatch, userId = this.actor()): void {
     if (!userId) return;
     const cur = this.getPreferences(userId);
-    const next = { ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, push: { ...cur.push, ...(patch.push ?? {}), types: { ...cur.push.types, ...(patch.push?.types ?? {}) } }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } }, gettingStarted: { ...cur.gettingStarted, ...(patch.gettingStarted ?? {}) } };
+    const next = { ...cur, ...patch, notify: { ...cur.notify, ...(patch.notify ?? {}) }, push: { ...cur.push, ...(patch.push ?? {}), types: { ...cur.push.types, ...(patch.push?.types ?? {}) } }, sidebar: { ...cur.sidebar, ...(patch.sidebar ?? {}), items: { ...cur.sidebar.items, ...(patch.sidebar?.items ?? {}) } }, gettingStarted: gettingStartedFrom({ ...cur.gettingStarted, ...(patch.gettingStarted ?? {}) }) };
     this.db.prepare('INSERT INTO user_preferences (user_id, json) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET json = excluded.json').run(userId, JSON.stringify(next));
   }
 

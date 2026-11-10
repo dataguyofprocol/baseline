@@ -206,6 +206,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (!hosted) snap.workspace.homeDir = homedir();
     if (LAN_OPEN) snap.workspace.lanHost = LISTEN_HOST;
     snap.updateDrafts = work.draftsFor(actor(c));
+    snap.myApiKeys = apiKeys.list(actor(c));
+    snap.invitesSent = accounts.invitesSentBy(actor(c));
     if (!requested) return c.json(snap);
     // scope before picking: a team-limited key's response scoping drops comments and activity by
     // their issue, which it can only do while the issues are in the same response

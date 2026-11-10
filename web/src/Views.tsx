@@ -6,6 +6,7 @@ import { TopBar } from './AppShell.js';
 import { Menu, MenuItem, MenuSep, useMenu, RegisterMark, NotFound, exclusive } from './ui.js';
 import { GroupedList, FilterBar, DisplayOptionsMenu, useViewPrefs, DEFAULT_VIEW_OPTIONS, activeFilterCount, applyFilters, applyDisplay, countConditions, type ViewOptions } from './IssueViews.js';
 import { Board } from './Board.js';
+import { SetupPanel, useSetupPanel } from './SetupPanel.js';
 import { ProjectsPage, countProjectView, describeProjectView } from './Projects.js';
 import { StateIcon, teamDisplayIcon, Avatar } from './pickers.js';
 import { IconFilter, IconDisplay, IconStar, IconMore, IconTrash, IconEdit, IconViews, IconBell, IconCheck } from './icons.js';
@@ -143,6 +144,7 @@ export function TeamPage() {
   const team = snap.teams.find(t => t.key.toLowerCase() === teamKey.toLowerCase());
   const viewKey = `baseline:view:${teamKey}:${filter}`;
   const [opts, patch, reset] = useViewPrefs<ViewOptions>(viewKey, { ...TEAM_DEFAULT_OPTS });
+  const setup = useSetupPanel();
 
   const issues = useMemo(() => {
     if (!team) return [];
@@ -169,8 +171,10 @@ export function TeamPage() {
         filter={filter as 'all' | 'active' | 'backlog'}
         trailing={<ListToolbar opts={opts} onDisplay={displayBtn.open} />}
       />
+      {setup.shown && <SetupPanel teamId={team.id} expanded={setup.expanded} setExpanded={setup.setExpanded} />}
       <IssueListBody
         issues={issues} opts={opts} patch={patch} reset={reset} teamId={team.id}
+        emptyHideCreate={setup.shown && setup.expanded}
         displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close}
         onFocusStatus={stateId => patch({ filters: toggleStateFilter(opts.filters, [stateId]) })}
       />
@@ -272,6 +276,9 @@ export function MyIssuesPage() {
   const me = snap.currentUser;
   const [opts, patch, reset] = useViewPrefs<ViewOptions>(`baseline:view:my-issues:${tab}`, { ...TEAM_DEFAULT_OPTS, showTriage: true });
   const displayBtn = useMenu();
+  const setup = useSetupPanel();
+  // without a team of your own there is no team issues view to hold the setup panel
+  const setupHere = setup.shown && !snap.teams.some(t => t.memberIds.includes(me.id));
 
   const issues = useMemo(() => {
     if (tab === 'assigned') return snap.issues.filter(i => i.assigneeId === me.id);
@@ -299,6 +306,7 @@ export function MyIssuesPage() {
         <span style={{ flex: 1 }} />
         {tab !== 'activity' && <ListToolbar opts={opts} onDisplay={displayBtn.open} />}
       </div>
+      {setupHere && <SetupPanel teamId={null} expanded={setup.expanded} setExpanded={setup.setExpanded} />}
       {tab === 'activity' ? <MyActivity /> : (
         <IssueListBody issues={issues} opts={opts} patch={patch} reset={reset} multiTeam
           displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close}

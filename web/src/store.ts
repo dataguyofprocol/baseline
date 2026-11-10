@@ -136,7 +136,6 @@ export const useApp = create<AppState>((set, get) => ({
   },
   setPalette: (open, scope = null) => {
     set({ paletteOpen: open, paletteScope: open ? scope : null });
-    if (open && get().snap?.workspace.preferences.gettingStarted.usedPalette === false) setGettingStarted({ usedPalette: true });
   },
   setSidebarCollapsed: (collapsed) => {
     localStorage.setItem('baseline:sidebarCollapsed', collapsed ? '1' : '0');
@@ -283,7 +282,7 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** first-run progress and the Getting started checklist: applied here at once, saved in the background */
+/** first-run setup state: applied here at once, saved in the background */
 export function setGettingStarted(patch: Partial<GettingStarted>): Promise<unknown> {
   const s = useApp.getState().snap;
   if (s) {

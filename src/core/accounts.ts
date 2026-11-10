@@ -189,6 +189,7 @@ export class Accounts {
     const email = normalizeEmail(o.email);
     const existing = this.memberByEmail(email);
     const userId = existing?.id ?? this.store.createUser(o.name, email, true).id;
+    this.startOnboarding(userId);
     this.db.prepare("UPDATE users SET admin = 1, status = 'active', name = ?, password_hash = ? WHERE id = ?").run(o.name, o.passwordHash, userId);
     if (o.workspaceName) this.store.setWorkspaceName(o.workspaceName);
     this.claimOwnUser(userId);
@@ -205,6 +206,7 @@ export class Accounts {
     if (inv.email !== email) return { error: 'invite-mismatch' };
     if (this.memberByEmail(email)) return { error: 'already-member' };
     const created = this.store.createUser(o.name || email, email, !!inv.admin);
+    this.startOnboarding(created.id);
     this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(o.passwordHash, created.id);
     this.store.setUserTeams(created.id, JSON.parse(inv.team_ids) as string[]);
     this.db.prepare('UPDATE invites SET accepted_at = ?, accepted_user_id = ? WHERE email = ? AND accepted_at IS NULL AND revoked_at IS NULL')
@@ -241,8 +243,16 @@ export class Accounts {
     return valid.userId;
   }
 
+  /** A new account starts with the setup panel open: as the person setting up the workspace while
+   *  it has no teams, otherwise as someone joining it. */
+  private startOnboarding(userId: string): void {
+    const flow = this.db.prepare('SELECT 1 FROM teams LIMIT 1').get() ? 'join' : 'create';
+    this.store.setPreferences({ gettingStarted: { onboarding: 'pending', flow, since: new Date().toISOString() } }, userId);
+  }
+
   private join(g: GoogleIdentity, admin: boolean, teamIds: string[]): { id: string; status: string } {
     const created = this.store.createUser(g.name || normalizeEmail(g.email), normalizeEmail(g.email), admin);
+    this.startOnboarding(created.id);
     this.db.prepare('UPDATE users SET google_sub = ? WHERE id = ?').run(g.sub, created.id);
     this.store.setUserTeams(created.id, teamIds);
     return { id: created.id, status: 'active' };
@@ -272,6 +282,10 @@ export class Accounts {
   /** open invites (not accepted or revoked), newest first, including expired ones so they can be renewed */
   openInvites(): InviteRow[] {
     return this.db.prepare('SELECT * FROM invites WHERE accepted_at IS NULL AND revoked_at IS NULL ORDER BY created_at DESC').all() as unknown as InviteRow[];
+  }
+  /** invites this person sent that weren't revoked, accepted ones included */
+  invitesSentBy(userId: string): number {
+    return Number((this.db.prepare('SELECT COUNT(*) AS n FROM invites WHERE invited_by = ? AND revoked_at IS NULL').get(userId) as { n: number }).n);
   }
   getInvite(inviteId: string): InviteRow | undefined {
     return this.db.prepare('SELECT * FROM invites WHERE id = ?').get(inviteId) as InviteRow | undefined;
