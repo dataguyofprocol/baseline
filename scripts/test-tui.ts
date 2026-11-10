@@ -3,6 +3,7 @@
 // Runs against a throwaway local database under $TMPDIR and never touches ~/.baseline.
 //
 //   npm run test:tui
+import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -271,6 +272,15 @@ class FakeStdin extends EventEmitter {
   stdin.press('q');
   const exited = await Promise.race([app.waitUntilExit().then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);
   check('q on a top-level screen exits', exited === true);
+}
+
+const root = join(import.meta.dirname, '..');
+const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
+  spawnSync(join(root, 'node_modules/.bin/tsx'), [join(root, 'src/cli/index.ts'), ...args], { cwd: work, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TSX_TSCONFIG_PATH: join(root, 'tsconfig.node.json'), ...env } });
+
+{
+  const r = cli([], { BASELINE_DB: dbPath });
+  check('bare `baseline` without a terminal prints help instead of opening the TUI', `${r.stdout}${r.stderr}`.includes('Usage: baseline') && !`${r.stdout}${r.stderr}`.includes('needs an interactive terminal'), r.stderr.slice(0, 200));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

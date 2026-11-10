@@ -23,7 +23,7 @@ const { priorityNum, resolveTeam, resolveState, resolveUser, resolveProject, res
 const { relationRows, invertRelation } = views;
 
 const program = new Command();
-program.name('baseline').description('Local issue & project tracker with a Linear-quality UI').version('0.1.0');
+program.name('baseline').description('Local issue & project tracker with a Linear-quality UI. Run `baseline` alone in a terminal to open the terminal UI.').version('0.1.0');
 
 // ---------- helpers ----------
 function fail(msg: string): never {
@@ -1428,7 +1428,7 @@ withDb(location.command('remove <name>')).description('Unregister a location (pr
 });
 
 // ---------- terminal UI ----------
-withAs(withDb(program.command('tui [issue]'))).description('Open the workspace in a full-screen terminal UI (optionally straight to an issue key)')
+withAs(withDb(program.command('tui [issue]'))).description('Open the workspace in a full-screen terminal UI, optionally straight to an issue key (bare `baseline` in a terminal does the same)')
   .action(async (issueKey: string | undefined, opts: { db?: string; as?: string }) => {
     if (!process.stdout.isTTY || !process.stdin.isTTY) fail('`baseline tui` needs an interactive terminal, and stdout or stdin isn\'t one. In scripts, use `baseline issue list` and the other commands.');
     // loaded here so no other command pays for React and Ink
@@ -1444,7 +1444,9 @@ mountWorkflowCommands(program);
 const commandPath = (c: Command): string => c.parent?.parent ? `${commandPath(c.parent)} ${c.name()}` : c.name();
 program.hook('preAction', (_root, action) => setLegacyCommand(commandPath(action), action.opts().as as string | undefined));
 
-program.parseAsync(process.argv).catch((e: unknown) => {
+// bare `baseline` in a terminal is the TUI; piped or scripted, it keeps printing help
+const bare = process.argv.length === 2 && !!process.stdin.isTTY && !!process.stdout.isTTY;
+program.parseAsync(bare ? [...process.argv, 'tui'] : process.argv).catch((e: unknown) => {
   if (e instanceof BaselineError || e instanceof TargetError || e instanceof ResolveError) fail(e.message);
   throw e;
 });
