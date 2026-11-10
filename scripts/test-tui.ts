@@ -1,5 +1,5 @@
-// The terminal UI: its pure view-model, its reducer and keymap, and one end-to-end run of the real
-// App rendered by Ink against a scratch database, read back through a fresh client.
+// The terminal UI: its pure view-model, reducer, keymap, menus and / results, and end-to-end runs of the
+// real App rendered by Ink against a scratch database, every write read back through a fresh client.
 // Runs against a throwaway local database under $TMPDIR and never touches ~/.baseline.
 //
 //   npm run test:tui
@@ -18,12 +18,14 @@ import type { Issue, WorkflowStateType } from '../src/core/types.js';
 import { App } from '../src/tui/App.js';
 import { buildData, fetchData, type TuiData } from '../src/tui/data.js';
 import { BINDINGS, contextsFor, lookup, type Context } from '../src/tui/keys.js';
-import { helpSections } from '../src/tui/menus.js';
-import { agentCommand, agentEnv, shellPreview } from '../src/tui/launch.js';
+import { helpSections, MENUS, menuTrail, rowLabel } from '../src/tui/menus.js';
+import { agentCommand, agentEnv, paneCommand, shellPreview } from '../src/tui/launch.js';
+import { findSections } from '../src/tui/commands.js';
+import { findItems, wordMatch } from '../src/tui/find.js';
 import { prepareStart } from '../src/tui/index.js';
 import { sessionPath, sessionWriter, targetId, workspaceDir, type SessionFile } from '../src/tui/session.js';
 import {
-  CLOSED_TYPES, DEFAULT_VIEW, defaultExpanded, displayWidth, GROUP_BYS, listRowsFor, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
+  CLOSED_TYPES, DEFAULT_VIEW, defaultExpanded, displayWidth, GROUP_BYS, inboxItems, listRowsFor, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
   markdownLines, selectableIds, sortIssues, truncate, wrap,
 } from '../src/tui/model.js';
 import { cycleDraft, newDraft, pickerOptions } from '../src/tui/overlays.js';
@@ -198,6 +200,46 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
 }
 
 {
+  const st = run(initialState(), { type: 'loaded', data, at: now });
+  const target = data.issueById.get(selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[0])!;
+  const key = data.keyOf(target);
+  check('words must each start a word: "done" finds Done, "one" does not', wordMatch('done', 'Move CORE-4 to Done') !== null && wordMatch('one', 'Move CORE-4 to Done') === null);
+  const items = (q: string) => findItems(findSections(st, q, now));
+  check('/ "done" offers Move <issue> to Done, with its key s', items('done')[0]?.label === `Move ${key} to Done` && items('done')[0]?.key === 's', items('done').map(i => i.label).join(' | '));
+  const ada = data.users.find(u => u.name.startsWith('Ada'))!;
+  check('/ "assign ada" offers Assign <issue> to Ada', items('assign ada')[0]?.label === `Assign ${key} to ${ada.name}`, items('assign ada').map(i => i.label).join(' | '));
+  check('/ "agent" offers the agent actions, Start … here first, keyed w h', items('agent')[0]?.key === 'w h' && items('agent').some(i => i.key === 'w p'), items('agent').map(i => `${i.key} ${i.label}`).join(' | '));
+  check('/ "new Foo" offers to create Foo in a team, and nothing else to do', items('new Foo')[0]?.label.startsWith('Create “Foo” in ') && 'create' in items('new Foo')[0].run);
+  check('/ "group by priority" offers the grouping that has no key now', items('group by priority').some(i => 'view' in i.run && i.run.view.groupBy === 'priority'));
+  check('/ with an issue key goes to that issue, not to actions', items(data.keyOf(data.issues[3]))[0]?.issue?.id === data.issues[3].id);
+  const sections = findSections(st, 'done', now);
+  check('/ puts "Do with <issue>" above "Issues"', sections[0].title === `Do with ${key}` && sections[sections.length - 1].title === 'Issues');
+
+  const todo = data.states.find(x => x.teamId === target.teamId && x.type === 'unstarted' && x.id !== target.stateId)!;
+  check('the cursor follows its issue into another group, even before it has moved', cursorRow(run(st, { type: 'patchIssue', issueId: target.id, patch: { stateId: todo.id } }))?.id === target.id);
+  check('the space menu has the list\'s own letters: s a p l m e w c o n', MENUS.actions.rows.map(r => r.key).join(' ') === 's a p l m e w c o n');
+  check('…and each of them works on the list without space', MENUS.actions.rows.every(r => lookup(['list', 'global'], r.key)?.command === r.command));
+  check('the agent menu: h here, n new pane, p prompt, b branch', MENUS.agent.rows.map(r => `${r.key}:${r.command}`).join() === 'h:agentHere,n:agentPane,p:copyPrompt,b:copyBranch');
+  const mc = { issue: target, data, handoff: undefined, env: {}, where: { cwd: '/x', note: null }, now };
+  const pane = MENUS.agent.rows.find(r => r.key === 'n')!;
+  check('a new pane needs tmux: off without $TMUX, with a reason', pane.enabled!(mc) !== true && pane.enabled!({ ...mc, env: { TMUX: '/tmp/tmux' } }) === true);
+  check('$BASELINE_AGENT keeps the label generic', rowLabel(MENUS.agent.rows[0], mc) === 'Start Claude Code here' && rowLabel(MENUS.agent.rows[0], { ...mc, env: { BASELINE_AGENT: 'codex' } }) === 'Start the agent here');
+  check('the menu trail names the keys that led there', menuTrail(['actions', 'agent']).join(' ') === 'space w' && menuTrail(['copy']).join(' ') === 'c');
+  const menu = run(st, { type: 'openOverlay', overlay: { kind: 'menu', path: ['actions'], issueId: target.id, cursor: 0 } }, { type: 'menuPush', menu: 'agent' });
+  check('backspace steps out of a submenu, then closes the menu', menu.overlay.kind === 'menu' && run(menu, { type: 'menuBack' }).overlay.kind === 'menu' && run(menu, { type: 'menuBack' }, { type: 'menuBack' }).overlay.kind === 'none');
+  check('paneCommand splits tmux beside this pane in the issue\'s directory', paneCommand(['claude', 'go'], { cwd: '/w', target: { kind: 'local', dbPath: '/d.db', source: 'flag' }, issueKey: 'CORE-1' }).join(' ') ===
+    'tmux split-window -h -c /w -e BASELINE_ISSUE=CORE-1 -e BASELINE_DB=/d.db -e BASELINE_URL= -e BASELINE_TOKEN= claude go');
+
+  const entry = (n: number) => ({ issueId: `i${n}`, key: `K-${n}`, field: 'state' as const, before: {}, after: {}, label: '' });
+  const stacked = Array.from({ length: 25 }, (_, n) => n).reduce((x, n) => run(x, { type: 'pushUndo', entry: entry(n) }), st);
+  check('the undo stack keeps the newest 20', stacked.undo.length === 20 && stacked.undo[19].issueId === 'i24' && stacked.undo[0].issueId === 'i5');
+  check('popping undo drops the newest', run(stacked, { type: 'popUndo' }).undo[18].issueId === 'i23');
+  const help = helpSections().map(sec => sec.group);
+  check('help is grouped by task', help.join() === 'Move around,Change an issue,Agents and copying,Find and views');
+  check('help lists each submenu\'s letters under its key', helpSections().some(sec => sec.rows.some(r => r.key === 'w h')));
+}
+
+{
   check('BASELINE_AGENT may carry flags; the prompt is the last argument', agentCommand('do it', { BASELINE_AGENT: 'claude --model opus' }).join('|') === 'claude|--model|opus|do it');
   check('the agent defaults to claude', agentCommand('p', {})[0] === 'claude');
   const env = agentEnv({ kind: 'local', dbPath: '/tmp/x.db', source: 'flag' }, 'CORE-1', { BASELINE_URL: 'https://x', BASELINE_TOKEN: 't' });
@@ -238,54 +280,117 @@ class FakeStdin extends EventEmitter {
     check(`(timed out waiting for ${what})`, false, stdout.last);
     return false;
   };
+  const settle = (ms = 250) => new Promise(r => setTimeout(r, ms));
 
   const copied: string[] = [];
   const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, clipboard: (t: string) => { copied.push(t); return true; } }), {
     stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream,
     debug: true, exitOnCtrlC: false, patchConsole: false,
   });
+  const fresh = await connect({ db: dbPath });
 
   const mine = issuesForRoute({ kind: 'my' }, data);
   const openKeys = mine.filter(i => !CLOSED_TYPES.has(typeOf(i))).map(i => data.keyOf(i));
-  await waitFor('My work', f => f.includes('My work') && f.includes(openKeys[0]));
+  await waitFor('My work', f => f.includes('1 My work') && f.includes(openKeys[0]));
   const frame = stdout.last;
   check('My work renders every open issue assigned to me', openKeys.every(k => frame.includes(k)), openKeys.filter(k => !frame.includes(k)).join(', '));
   check('group headers render with counts', /In Progress\s+\d+/.test(frame) && /Todo\s+\d+/.test(frame));
   check('the tab bar numbers My work, Inbox, each team and Projects', new RegExp(`1 My work \\d+\\s+2 Inbox.*3 ${data.teams[0].name}\\s+4 ${data.teams[1].name}\\s+5 Projects`).test(frame), frame.split('\n')[0]);
-  check('the footer is one line of keys from the keymap', /↑↓ move\s+enter open\s+1-5 tabs\s+\/ find\s+space all actions\s+\? help/.test(frame), frame.split('\n').slice(-2).join('\n'));
-  check('a detail pane beside the list shows the issue under the cursor with a key on each field', /│ s Status/.test(frame) && /│ a Assignee/.test(frame) && /│ w Work on it with an agent\s+c copy/.test(frame));
+  check('the footer is one line: ↑↓ move, enter open, 1-5 tabs, / find, space all actions, ? help', /↑↓ move\s+enter open\s+1-5 tabs\s+\/ find\s+space all actions\s+\? help/.test(frame), frame.split('\n').slice(-2).join('\n'));
+  check('the detail pane shows the issue under the cursor with a key on each field', /│ s Status/.test(frame) && /│ a Assignee/.test(frame) && /│ p Priority/.test(frame) && /│ l Labels/.test(frame) && /│ w Work on it with an agent\s+c copy/.test(frame));
+
+  const inbox = inboxItems(data, now);
+  stdin.press('2');
+  await waitFor('Inbox', f => f.includes(inbox[0].subject.slice(0, 20)) && f.includes(`${inbox[0].who} ${inbox[0].verb}`));
+  check('2 goes to the Inbox, and the pane shows the selected notification and its issue', stdout.last.includes(inbox[0].subject.slice(0, 20)) && /│ s Status/.test(stdout.last));
+  stdin.press('1');
+  await waitFor('My work again', f => f.includes(openKeys[0]) && /◐ In Progress/.test(f));
 
   const target = data.issueById.get(selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[0])!;
-  const next = data.states.filter(s => s.teamId === target.teamId && s.id !== target.stateId).sort((a, b) => a.position - b.position).find(s => s.type === 'completed')!;
+  const key = data.keyOf(target);
+  const states = pickerOptions('state', target, data);
+  const third = states[2];
+  check('(the third status differs from the current one)', !third.current);
   stdin.press('s');
-  await waitFor('status picker', f => f.includes(`Status for ${data.keyOf(target)}`) && /│ s Status .*▾/.test(f));
-  stdin.press(next.name);
-  await waitFor('filtered picker', f => f.includes(`› ${next.name}`));
-  stdin.press('\r');
-  await waitFor('state toast', f => f.includes(`${data.keyOf(target)} moved to ${next.name}`));
-  const fresh = await connect({ db: dbPath });
-  check('s → choosing a state changes it, as a fresh client reads it', (await fresh.getIssue(target.id))?.stateId === next.id);
+  await waitFor('status picker on its field', f => f.includes(`Status for ${key}`) && /│ s Status .*▾/.test(f) && f.includes(`3  `));
+  check('s opens the status dropdown under the field, numbered, with only its keys in the footer', /│\s+│ 3\s+\S+ /.test(stdout.last) && /Status for \S+\s+↑↓ choose\s+1-\d pick\s+enter apply\s+esc cancel/.test(stdout.last) && !stdout.last.includes('? help'));
+  stdin.press('3');
+  await waitFor('status toast with undo', f => f.includes(`${key} moved to ${third.label}`) && f.includes('u undo'));
+  check('s then 3 sets the third status, as a fresh client reads it', (await fresh.getIssue(target.id))?.stateId === third.id);
+  check('the changed field says ✓ saved', await waitFor('saved marker', f => /│ s Status .*✓ saved/.test(f)));
+
+  stdin.press('u');
+  await waitFor('undo toast', f => f.includes(`Undone: ${key}`));
+  check('u reverts it, as a fresh client reads it', (await fresh.getIssue(target.id))?.stateId === target.stateId);
+
+  stdin.press('s');
+  await waitFor('status picker again', f => f.includes(`Status for ${key}`));
+  stdin.press('3');
+  await waitFor('second change', f => f.includes(`${key} moved to ${third.label}`));
+  const other = states.find(o => o.id !== third.id && o.id !== target.stateId && !/done|cancel/i.test(o.label))!;
+  await fresh.updateIssue(target.id, { stateId: other.id });
+  stdin.press('u');
+  await waitFor('undo refused', f => f.includes(`Not undone: ${key} changed since`));
+  check('u after someone else changed the field refuses and leaves their change', (await fresh.getIssue(target.id))?.stateId === other.id);
+  await settle(100);
+  stdin.press('u');
+  await waitFor('still refused', f => f.includes('Not undone'));
+  check('…and keeps the stack (u again still names that change, not "Nothing to undo")', stdout.last.includes('Not undone') && !stdout.last.includes('Nothing to undo'));
+  stdin.press('\x12');
+  await waitFor('refreshed', f => new RegExp(`│ s Status\\s+\\S+ ${other.label}`).test(f));
+
+  stdin.press(' ');
+  await waitFor('space menu', f => f.includes('space › _') && f.includes('waiting for the next key: s a p l m e w c o n'));
+  check('space opens the action menu: the issue on top and a letter per row', stdout.last.includes(`${key}  ${target.title}`) && /│ s  Status\s/.test(stdout.last) && /│ w  Work on it with an agent/.test(stdout.last));
+  stdin.press('s');
+  await waitFor('status picker from the menu', f => f.includes(`Status for ${key}`));
+  check('space then s opens the status picker', stdout.last.includes(`Status for ${key}`) && !stdout.last.includes('space › _'));
+  stdin.press('\x1b');
+  await waitFor('picker closed', f => !f.includes('Status for'));
+  stdin.press(' ');
+  await waitFor('space menu again', f => f.includes('space › _'));
+  stdin.press('w');
+  await waitFor('agent menu', f => f.includes('space › w › _') && f.includes('will run'));
+  check('space w shows the agent menu with the command it will run and where', /│ h  Start Claude Code here/.test(stdout.last) && /will run\s+\$ claude/.test(stdout.last) && /│ in\s+\S/.test(stdout.last));
+  stdin.press('\x1b');
+  await waitFor('menu closed', f => !f.includes('space › w'));
 
   stdin.press('/');
-  await waitFor('find', f => f.includes('Find') && f.includes('Recently updated'));
-  const other = mine.find(i => i.id !== target.id)!;
-  stdin.press(data.keyOf(other));
-  await waitFor('find results', f => f.includes(`› ${data.keyOf(other)}`) && f.includes('Issues'));
+  await waitFor('find', f => f.includes('Recently updated') && f.includes('try typing'));
+  stdin.press('done');
+  await waitFor('find done', f => f.includes(`Move ${key} to Done`) && f.includes(`Do with ${key}`));
+  check('/ done offers Move <issue> to Done under "Do with", with its key', /▌ Move \S+ to Done\s+s\s*$/m.test(stdout.last));
   stdin.press('\r');
-  await waitFor('issue page', f => f.includes('Description') && f.includes(other.title));
-  check('/ → typing a key → enter opens that issue', stdout.last.includes(data.keyOf(other)));
+  await waitFor('moved to Done', f => f.includes(`${key} moved to Done`));
+  check('…and enter applies it, as a fresh client reads it', data.stateById.get((await fresh.getIssue(target.id))!.stateId)?.type === 'completed');
+
+  stdin.press('/');
+  await waitFor('find again', f => f.includes('try typing'));
+  stdin.press('new Foo from find');
+  await waitFor('create offer', f => f.includes('Create “Foo from find” in'));
+  stdin.press('\r');
+  await waitFor('created from find', f => f.includes('Created') && f.includes('Foo from find'));
+  check('/ new Foo creates the issue', (await fresh.listIssues({ query: 'Foo from find' })).length === 1);
+
+  const opened = mine.find(i => i.id !== target.id && !CLOSED_TYPES.has(typeOf(i)))!;
+  stdin.press('/');
+  await waitFor('find for a key', f => f.includes('try typing'));
+  stdin.press(data.keyOf(opened));
+  await waitFor('key result', f => f.includes(`› ${data.keyOf(opened)}`) && f.includes('Issues'));
+  stdin.press('\r');
+  await waitFor('issue page', f => f.includes('── Description') && f.includes(opened.title));
+  check('/ → an issue key → enter opens its page, fields keyed', /^ s Status/m.test(stdout.last) && stdout.last.includes(data.keyOf(opened)));
 
   stdin.press('m');
-  await waitFor('comment box', f => f.includes('Comment'));
+  await waitFor('comment box', f => f.includes('Comment on'));
   stdin.press('Reviewed from the terminal');
   await waitFor('typed comment', f => f.includes('Reviewed from the terminal'));
   stdin.press('\r');
-  await waitFor('comment toast', f => f.includes(`Commented on ${data.keyOf(other)}`));
-  const snap = await fresh.snapshot(['comments']);
-  check('m → a comment is saved on the open issue', snap.comments.some(c => c.issueId === other.id && c.body === 'Reviewed from the terminal'));
+  await waitFor('comment toast', f => f.includes(`Commented on ${data.keyOf(opened)}`));
+  check('m → a comment is saved on the open issue, and offers no undo', (await fresh.snapshot(['comments'])).comments.some(c => c.issueId === opened.id && c.body === 'Reviewed from the terminal') && !stdout.last.includes('u undo'));
 
   stdin.press('\x1b');
-  await waitFor('back to the list', f => f.includes('My work') && !f.includes('Description'));
+  await waitFor('back to the list', f => f.includes('1 My work') && !f.includes('── Description'));
   stdin.press('n');
   await waitFor('new issue form', f => f.includes('New issue'));
   stdin.press('Filed from the TUI test');
@@ -295,34 +400,76 @@ class FakeStdin extends EventEmitter {
   const created = (await fresh.listIssues({ query: 'Filed from the TUI test' }))[0];
   check('n → enter creates the issue, assigned to me from My work', !!created && created.assigneeId === data.currentUser.id);
 
-  const second = selectableIds({ kind: 'my' }, await fetchData(fresh), DEFAULT_VIEW, now)[1];
-  const secondTitle = (await fresh.getIssue(second))!.title;
-  stdin.press('kkkkkkkkkkkkj\r');
-  await waitFor('burst opens the second issue', f => f.includes('Description') && f.includes(secondTitle));
+  const liveIds = selectableIds({ kind: 'my' }, await fetchData(fresh), DEFAULT_VIEW, now);
+  const secondTitle = (await fresh.getIssue(liveIds[1]))!.title;
+  stdin.press(`${'k'.repeat(20)}j\r`);
+  await waitFor('burst opens the second issue', f => f.includes('── Description') && f.includes(secondTitle));
   check('a burst of keys in one chunk (tmux send-keys) acts as separate presses', stdout.last.includes(secondTitle));
   stdin.press('\x1b');
-  await waitFor('back to the list again', f => f.includes('My work') && !f.includes('Description'));
+  await waitFor('list once more', f => !f.includes('── Description'));
 
   const live = await fetchData(fresh);
   const pick = live.issueById.get(selectableIds({ kind: 'my' }, live, DEFAULT_VIEW, now)[0])!;
-  stdin.press('kkkkkkkkkkkkkp');
+  stdin.press(`${'k'.repeat(20)}p`);
   await waitFor('priority picker', f => f.includes('Priority for'));
   stdin.press('4');
   await waitFor('priority toast', f => f.includes(`${live.keyOf(pick)} priority set to Low`));
   check('a digit in a picker picks that option (p 4 → Low)', (await fresh.getIssue(pick.id))?.priority === 4);
 
-  stdin.press('j');
-  const relisted = await fetchData(fresh);
-  const ids = selectableIds({ kind: 'my' }, relisted, DEFAULT_VIEW, now);
-  const nextRow = relisted.issueById.get(ids[ids.indexOf(pick.id) + 1])!;
   stdin.press('ck');
-  await waitFor('copy toast', f => f.includes(`Copied ${live.keyOf(nextRow)}`));
-  const osc = `\x1b]52;c;${Buffer.from(live.keyOf(nextRow)).toString('base64')}\x07`;
-  check('c k copies the issue ID through OSC 52 and the native helper, and says Copied', stdout.frames.some(f => f.includes(osc)) && copied.includes(live.keyOf(nextRow)));
+  await waitFor('copy toast', f => f.includes(`Copied ${live.keyOf(pick)}`));
+  const osc = `\x1b]52;c;${Buffer.from(live.keyOf(pick)).toString('base64')}\x07`;
+  check('c k copies the issue key through OSC 52 and the native helper', stdout.frames.some(f => f.includes(osc)) && copied.includes(live.keyOf(pick)));
+
+  await settle(3700);
+  const body = (f: string) => f.split('\n').slice(0, -2).join('\n');
+  const before = body(stdout.last);
+  for (const k of ['g', 'D', 'J', 'z', 'G']) stdin.press(k);
+  await settle(400);
+  check('removed keys (g, D, J, z, G) do nothing', body(stdout.last) === before && !stdout.last.includes('by priority'), body(stdout.last).split('\n').slice(0, 6).join('\n'));
+
+  stdin.press('?');
+  await waitFor('help card', f => f.includes('Baseline, in your terminal'));
+  stdin.press('jjjjjjjjjjjjjjjjjjjjjjjj');
+  await waitFor('every key', f => f.includes('Move around') && f.includes('Agents and copying'));
+  check('? shows the card, then every key grouped by task', stdout.last.includes('Change an issue') && stdout.last.includes('Find and views'));
+  stdin.press('\r');
+  await waitFor('help closed', f => !f.includes('Agents and copying'));
 
   stdin.press('q');
   const exited = await Promise.race([app.waitUntilExit().then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);
-  check('q on a top-level screen exits', exited === true);
+  check('q on a tab exits', exited === true);
+}
+
+{
+  const stdout = new FakeStdout();
+  stdout.columns = 80;
+  stdout.rows = 24;
+  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000 }), {
+    stdout: stdout as unknown as NodeJS.WriteStream, stdin: new FakeStdin() as unknown as NodeJS.ReadStream, debug: true, exitOnCtrlC: false, patchConsole: false,
+  });
+  const until = async (ok: () => boolean, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end && !ok()) await new Promise(r => setTimeout(r, 25)); return ok(); };
+  await until(() => stdout.last.includes('1 My work') && /◐ In Progress/.test(stdout.last));
+  check('below 100 columns there is no detail pane, the list takes the width', !stdout.last.includes('s Status') && !stdout.last.includes(' │ '), stdout.last);
+  app.unmount();
+}
+
+{
+  const prev = process.env.BASELINE_TUI_STATE_DIR;
+  process.env.BASELINE_TUI_STATE_DIR = join(work, 'first-launch');
+  const bl1 = await connect({ db: dbPath });
+  const first = await prepareStart(bl1, { fresh: true }, work);
+  check('the first ever start opens on the welcome card', first.start?.intro === true);
+  const stdout = new FakeStdout();
+  const app = render(createElement(App, { bl: bl1, pollMs: 60_000, ...first }), {
+    stdout: stdout as unknown as NodeJS.WriteStream, stdin: new FakeStdin() as unknown as NodeJS.ReadStream, debug: true, exitOnCtrlC: false, patchConsole: false,
+  });
+  const end = Date.now() + 4000;
+  while (Date.now() < end && !stdout.last.includes('Baseline, in your terminal')) await new Promise(r => setTimeout(r, 25));
+  check('…which shows the five keys and enter start', stdout.last.includes('Baseline, in your terminal') && stdout.last.includes('everything you can do with it') && /enter start/.test(stdout.last));
+  app.unmount();
+  check('the second start does not show it again', (await prepareStart(bl1, { fresh: true }, work)).start?.intro !== true);
+  if (prev === undefined) delete process.env.BASELINE_TUI_STATE_DIR; else process.env.BASELINE_TUI_STATE_DIR = prev;
 }
 
 const root = join(import.meta.dirname, '..');
