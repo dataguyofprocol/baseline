@@ -278,8 +278,9 @@ const VERBS: Record<NotificationType, string> = {
   initiativeUpdateReminder: 'update due', projectUpdateReminder: 'update due', updatesDigest: 'updates digest',
   slaBreached: 'SLA breached', prActivity: 'pull request', loopFailed: 'loop failed', teamActivity: 'team activity',
   teamMemberAdded: 'added you to a team', commentReacted: 'reacted', docChanged: 'changed a doc', systemUpdate: 'update',
+  agentFinished: 'agent finished', agentBlocked: 'agent blocked', accessRequested: 'requested access',
 };
-const BODY_HAS_ID: ReadonlySet<NotificationType> = new Set(['initiativeUpdateReminder', 'teamMemberAdded', 'docChanged']);
+const BODY_HAS_ID: ReadonlySet<NotificationType> = new Set(['initiativeUpdateReminder', 'teamMemberAdded', 'docChanged', 'accessRequested']);
 
 export interface InboxItem {
   id: string;
