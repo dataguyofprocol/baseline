@@ -365,6 +365,10 @@ function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: 
 
 
 /* ---------------- top bar ---------------- */
+/** the workspace's top-level pages: their title is set large on the top bar's hairline, with the
+ *  register under it (the same 2px mark the selected tab uses). Everything deeper keeps the crumb. */
+const HEADING_PAGES = new Set(['Inbox', 'My issues', 'Initiatives', 'Projects', 'Views']);
+
 export function TopBar(props: {
   crumbs: Array<{ label: string; icon?: React.ReactNode; to?: string; muted?: boolean; onClick?: (e: React.MouseEvent) => void }>;
   right?: React.ReactNode;
@@ -385,7 +389,7 @@ export function TopBar(props: {
   useEffect(() => { titleHold.current?.update(pageLabel); }, [pageLabel]);
 
   return (
-    <div className="topbar">
+    <div className={`topbar${props.crumbs.length === 1 && HEADING_PAGES.has(pageLabel) ? ' topbar-heading' : ''}`}>
       {sidebarCollapsed && (
         <button
           className="icon-btn topbar-sidebar-btn" title="Show sidebar (⌘B)"

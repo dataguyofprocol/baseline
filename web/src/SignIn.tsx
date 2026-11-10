@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Logo } from './Logo.js';
+import { markArrival, reducedMotion } from './arrival.js';
 import { api, authApi } from './api.js';
 import { PASSWORD_MIN, type SignInMethod } from '../../src/core/types.js';
 
@@ -43,11 +44,20 @@ export function SignIn() {
   useEffect(() => { void authApi.config().then(setConfig, () => setConfig({ methods: ['password'], setup: false, mail: false } as Config)); }, []);
   // where to land once signed in: back to the page that asked (the CLI's approval page sends ?next)
   const back = params.next ?? window.location.pathname + window.location.hash;
-  const done = () => {
+  const [leaving, setLeaving] = useState(false);
+  const go = () => {
     const to = new URL(back, window.location.href);
     // a hash-only change doesn't load the page, and the app has to start over signed in
     if (to.pathname === window.location.pathname && to.search === window.location.search) { window.location.hash = to.hash; window.location.reload(); }
     else window.location.replace(to.href);
+  };
+  // signed in: the word and form leave and the line hands over to the app's top bar, then the page
+  // reloads. A ?next page (the CLI's approval) isn't the app, so it goes straight there.
+  const done = () => {
+    if (params.next || reducedMotion()) return go();
+    setLeaving(true);
+    markArrival();
+    window.setTimeout(go, 560);
   };
   const google = (invite?: string | null, kind: 'invite' | 'join' = 'invite') => {
     window.location.href = `/auth/google?next=${encodeURIComponent(back)}${invite ? `&${kind}=${encodeURIComponent(invite)}` : ''}`;
@@ -55,10 +65,17 @@ export function SignIn() {
 
   if (!config) return <Shell headline="" sub="" />;
   const ctx: Ctx = { methods: config.methods, mail: config.mail, done, google };
-  if (params.reset) return <ResetPassword token={params.reset} ctx={ctx} />;
-  if (config.setup) return <Setup ctx={ctx} />;
-  return <SignInOrJoin ctx={ctx} invite={params.invite ?? params.join} kind={params.invite ? 'invite' : 'join'} error={params.error} />;
+  return (
+    <Leaving.Provider value={leaving}>
+      {params.reset ? <ResetPassword token={params.reset} ctx={ctx} />
+        : config.setup ? <Setup ctx={ctx} />
+        : <SignInOrJoin ctx={ctx} invite={params.invite ?? params.join} kind={params.invite ? 'invite' : 'join'} error={params.error} />}
+    </Leaving.Provider>
+  );
 }
+
+/** set once the request succeeded and the frame is playing its exit */
+const Leaving = createContext(false);
 
 interface Ctx { methods: SignInMethod[]; mail: boolean; done: () => void; google: (invite?: string | null, kind?: 'invite' | 'join') => void }
 
@@ -92,18 +109,29 @@ interface ShellProps {
   aside?: React.ReactNode;
   /** the strip along the bottom */
   foot?: React.ReactNode;
+  /** the giant word on the line (default: Baseline) */
+  word?: string;
+  /** the word is typed (a team key): letters added later rise at once instead of joining the entrance */
+  wordLive?: boolean;
+  /** marks along the line in place of the ticker (a team's first issue keys) */
+  ticks?: string[];
+  /** the frame's exit: word and form leave, the node runs to the end */
+  leaving?: boolean;
 }
 
-function Shell(props: ShellProps) {
+/** The brand frame: sign-in, first run and the first team all sit on this line. */
+export function LineFrame(props: ShellProps) {
   const [since] = useState(() => {
     if (shellStart === null) shellStart = performance.now();
     return Math.round(shellStart - performance.now());
   });
+  const word = props.word || 'Baseline';
+  const firstLetters = useRef(word.length);
   // the node starts under the wordmark's first letter; filled in, it's two thirds of the way to the
   // window's edge; sent, it runs the whole way (CSS turns --p into a position: .auth-line)
-  const p = props.state === 'busy' ? 1 : 0.66 * Math.min(1, Math.max(0, props.progress ?? 0));
+  const p = props.state === 'busy' || props.leaving ? 1 : 0.66 * Math.min(1, Math.max(0, props.progress ?? 0));
   return (
-    <div className="on-ink auth-page" style={{ '--auth-since': `${since}ms` } as React.CSSProperties}>
+    <div className={`on-ink auth-page${props.leaving ? ' auth-leaving' : ''}`} style={{ '--auth-since': `${since}ms` } as React.CSSProperties}>
       <div className="auth-frame">
         <header className="auth-top">
           <span className="auth-brand"><Logo size={22} tone="paper" />Baseline</span>
@@ -111,8 +139,10 @@ function Shell(props: ShellProps) {
         </header>
         <div className="auth-stage">
           <div className="auth-wrap">
-            <div className="auth-word" role="img" aria-label="Baseline">
-              {'Baseline'.split('').map((ch, i) => <span key={i} aria-hidden="true" style={{ '--d': `${300 + i * 45}ms` } as React.CSSProperties}>{ch}</span>)}
+            <div className="auth-word" role="img" aria-label={word}>
+              {word.split('').map((ch, i) => props.wordLive && i >= firstLetters.current
+                ? <span key={i} aria-hidden="true" className="typed">{ch}</span>
+                : <span key={i} aria-hidden="true" style={{ '--d': `${300 + i * 45}ms` } as React.CSSProperties}>{ch}</span>)}
             </div>
           </div>
           <div className={`auth-line${props.state ? ' ' + props.state : ''}`} style={{ '--p': p } as React.CSSProperties} aria-hidden="true">
@@ -121,13 +151,19 @@ function Shell(props: ShellProps) {
             {/* keyed on the state so each refusal replays the shake */}
             <div className="auth-node"><span key={props.state ?? 'idle'} className="auth-node-ground"><span className="auth-node-dot" /></span></div>
           </div>
-          <div className="auth-ticker" aria-hidden="true">
-            <div className="auth-ticker-track">
-              {[...TICKER, ...TICKER].map(([word, rest, color], i) => (
-                <span key={i} className="auth-ticker-item"><i style={{ background: color }} /><b>{word}</b>{rest}</span>
-              ))}
+          {props.ticks ? (
+            <div className="auth-wrap auth-ticks" aria-hidden="true">
+              {props.ticks.map((t, i) => <span key={i} style={{ '--d': `${i * 90}ms` } as React.CSSProperties}>{t}</span>)}
             </div>
-          </div>
+          ) : (
+            <div className="auth-ticker" aria-hidden="true">
+              <div className="auth-ticker-track">
+                {[...TICKER, ...TICKER].map(([w, rest, color], i) => (
+                  <span key={i} className="auth-ticker-item"><i style={{ background: color }} /><b>{w}</b>{rest}</span>
+                ))}
+              </div>
+            </div>
+          )}
           {(props.headline || props.children) && (
             <div className="auth-wrap auth-body">
               <div className="auth-intro">
@@ -145,10 +181,16 @@ function Shell(props: ShellProps) {
   );
 }
 
+/** the signed-out screens: the frame, leaving with the rest once signed in */
+function Shell(props: ShellProps) {
+  const leaving = useContext(Leaving);
+  return <LineFrame {...props} leaving={leaving} />;
+}
+
 /** the share of these that are filled in */
-const filled = (...values: string[]) => values.filter(v => v.trim()).length / values.length;
+export const filled = (...values: string[]) => values.filter(v => v.trim()).length / values.length;
 /** the line's state from a form's request */
-const lineState = (busy: boolean, error: string | null | undefined) => busy ? 'busy' : error ? 'error' : null;
+export const lineState = (busy: boolean, error: string | null | undefined) => busy ? 'busy' : error ? 'error' : null;
 
 function Field(props: { label: string; hint?: string; value: string; onChange: (v: string) => void; type?: string; autoComplete?: string; autoFocus?: boolean; placeholder?: string; mono?: boolean; name?: string }) {
   // a password field can be shown, so a new password can be checked before it's set

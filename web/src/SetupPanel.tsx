@@ -224,7 +224,10 @@ function Welcome({ items, teamId }: { items: Array<{ id: SetupItemId; minutes: n
       </div>
       <LiveExample issueKey={demoKey(snap, teamId)} github={github} />
       <div className="ob-progress">
-        <span className="ob-segs" aria-hidden="true">{items.map((it, i) => <i key={it.id} className={i < done ? 'on' : undefined} />)}</span>
+        <span className="ob-segs on-line" aria-hidden="true">
+          {items.map((it, i) => <i key={it.id} className={i < done ? 'on' : undefined} />)}
+          <span className="line-node" style={{ left: `${(done / Math.max(1, items.length)) * 100}%` }} />
+        </span>
         <span>{done === 0 ? `About ${minutesLeft(items)} minutes, start to finish` : `${done} of ${items.length} done · about ${minutesLeft(items)} min left`}</span>
       </div>
     </div>

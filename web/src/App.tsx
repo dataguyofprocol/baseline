@@ -28,6 +28,7 @@ import { InitiativesPage, InitiativePage } from './Initiatives.js';
 import { ProjectsPage, NewProjectPage, ProjectPage } from './Projects.js';
 import { IssuePage } from './IssueDetail.js';
 import { TeamGate } from './TeamGate.js';
+import { takeArrival, reducedMotion as prefersReducedMotion } from './arrival.js';
 import { setupHome } from './SetupPanel.js';
 import { SignIn, SignedInInvite } from './SignIn.js';
 import { api } from './api.js';
@@ -353,6 +354,15 @@ function InboxRedirect() {
   return null;
 }
 
+/** Right after sign-in or naming the first team: the brand screen's line climbs into the top bar and
+ *  thins to its hairline while the ink ground clears off the app (arrival.ts). Plays once. */
+function Arrival() {
+  const [on, setOn] = useState(() => takeArrival() && !prefersReducedMotion());
+  useEffect(() => { if (!on) return; const t = window.setTimeout(() => setOn(false), 900); return () => window.clearTimeout(t); }, [on]);
+  if (!on) return null;
+  return <div className="arrival" aria-hidden="true"><span className="arrival-line" /></div>;
+}
+
 /** an address that leads nowhere, as Linear words it */
 function NotFoundPage() {
   const navigate = useNavigate();
@@ -417,6 +427,7 @@ export function App() {
       <KeyboardManager />
       <RouteSettle />
       <div className="app">
+        <Arrival />
         <ShellSidebar />
         <div className="main">
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>

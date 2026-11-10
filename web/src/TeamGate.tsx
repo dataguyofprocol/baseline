@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useApp, refresh } from './store.js';
 import { api } from './api.js';
-import { Lockup } from './Logo.js';
+import { LineFrame, filled, lineState } from './SignIn.js';
+import { markArrival, takeArrival } from './arrival.js';
 
 const keyFromName = (name: string) => name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'TEAM';
 
-/** Every issue lives in a team, so a workspace with none asks for one before anything else. */
+/** Every issue lives in a team, so a workspace with none asks for one before anything else. The
+ *  team's key is the word on the line, and its first issue numbers are marked along it. */
 export function TeamGate() {
   const snap = useApp(s => s.snap)!;
   const hosted = snap.workspace.auth === 'hosted';
@@ -19,12 +21,16 @@ export function TeamGate() {
     const n = name.trim(), k = key.trim().toUpperCase();
     if (busy || !n || !k) return;
     setBusy(true); setError('');
+    // marked before the write: the server's live update mounts the app as soon as the team exists,
+    // and the app plays the arrival (the line climbing into its top bar) from this mark
+    markArrival();
     try {
       await api.createTeam({ key: k, name: n });
       // the router mounts after the refresh, so it starts on this address
       window.location.hash = `#/team/${k}/all`;
       await refresh();
     } catch (err) {
+      takeArrival();
       setError((err as Error).message);
       setBusy(false);
     }
@@ -36,31 +42,36 @@ export function TeamGate() {
     hosted && (snap.currentUser.admin || snap.workspace.security.whoCanInvite === 'members') && 'your team',
   ].filter((p): p is string => !!p);
   const nextLine = next.length < 2 ? next.join('') : `${next.slice(0, -1).join(', ')} and ${next[next.length - 1]}`;
-  const step = (i: number) => ({ ['--i' as string]: i });
+  const shown = key || 'KEY';
 
   return (
-    <div className="gate">
-      <form className="gate-card" onSubmit={e => { e.preventDefault(); void create(); }}>
-        <div className="gate-in" style={step(0)}><Lockup size={26} tone="var(--text-primary)" /></div>
-        <div className="gate-pitch gate-in" style={step(1)}>
-          {hosted ? 'A shared tracker for your team and its coding agents.' : 'A local-first tracker for you and your coding agents, on this machine.'}
-          <span className="gate-next">Next: connect {nextLine}.</span>
-        </div>
-        <label className="gate-title gate-in" style={step(2)} htmlFor="gate-name">Name your team</label>
-        <div className="gate-fields gate-in" style={step(3)}>
+    <LineFrame
+      word={shown} wordLive ticks={[1, 2, 3].map(n => `${shown}-${n}`)}
+      progress={filled(name, key)} state={lineState(busy, error)}
+      aside={hosted ? <>Signed in as {snap.currentUser.name}</> : undefined}
+      headline="Name your team"
+      sub={<>{hosted ? 'A shared tracker for your team and its coding agents.' : 'A local-first tracker for you and your coding agents, on this machine.'} Every issue lives in a team.</>}
+      step={`Next: connect ${nextLine}.`}
+      foot={<><span>Issues will be <b>{shown}-1</b>, <b>{shown}-2</b> and so on.</span><span>Enter creates the team</span></>}>
+      <form className="auth-form" onSubmit={e => { e.preventDefault(); void create(); }}>
+        {error && <div role="alert" className="auth-alert gate-error">{error}</div>}
+        <label className="auth-field gate-name">
+          <span className="auth-label">Team name</span>
           <input id="gate-name" className="text-input" autoFocus value={name} placeholder="e.g. Engineering"
             onChange={e => { setName(e.target.value); if (!keyTouched) setKey(keyFromName(e.target.value)); }} />
+        </label>
+        <label className="auth-field gate-key-field">
+          <span className="auth-label">Key</span>
           <input className="text-input mono gate-key" value={key} maxLength={7} aria-label="Team key"
             onChange={e => { setKeyTouched(true); setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); }} />
-        </div>
-        <div className="gate-foot gate-in" style={step(4)}>
-          <span className="gate-hint">Issues will be <b>{key || 'KEY'}-1</b>, <b>{key || 'KEY'}-2</b> and so on.</span>
-          <button className="btn primary sm" disabled={busy || !name.trim() || !key.trim()} type="submit">
-            {busy ? 'Creating…' : 'Create team'} <span className="kbd">↵</span>
-          </button>
-        </div>
-        {error && <div className="gate-error" role="alert">{error}</div>}
+        </label>
+        <button className="btn primary auth-submit auth-go" disabled={busy || !name.trim() || !key.trim()} type="submit">
+          <span>{busy ? `Creating ${shown}…` : 'Create team'}</span>
+          {busy
+            ? <span className="auth-busy-dot" aria-hidden="true" />
+            : <svg className="auth-arrow" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+        </button>
       </form>
-    </div>
+    </LineFrame>
   );
 }

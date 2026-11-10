@@ -3236,3 +3236,60 @@ fieldset.admin-locked a { pointer-events: auto; }
 /* My work: the caught-up state flows under the greeting */
 .mw-empty.es { min-height: 0; padding: 48px 0 24px; }
 .empty-state.es .empty-actions:empty { display: none; }
+
+/* ---------- the hand-off into the app (arrival.ts) ----------
+   The brand screen leaves: word, ticker and form fade, the node runs to the end of the line. */
+.auth-leaving .auth-word > span, .auth-leaving .auth-ticker, .auth-leaving .auth-ticks, .auth-leaving .auth-body, .auth-leaving .auth-top, .auth-leaving .auth-bottom {
+  opacity: 0; transform: translateY(10px); transition: opacity 280ms var(--ease), transform 480ms var(--ease);
+}
+.auth-leaving .auth-word > span { transform: translateY(0.3em); }
+/* then the app mounts under an ink sheet whose line climbs to the top bar's hairline and the sheet clears */
+.arrival { position: fixed; inset: 0; z-index: 200; pointer-events: none; background: var(--brand-ink); animation: arrival-clear 520ms var(--ease) 320ms both; }
+.arrival-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--brand-register); animation: arrival-climb 640ms var(--ease) both; }
+@keyframes arrival-climb { from { top: 42vh; opacity: 1; } 70% { opacity: 1; } to { top: 54px; height: 1px; opacity: 0; } }
+@keyframes arrival-clear { to { background: transparent; } }
+
+/* the team screen: the key is the word, typed letters rise at once, its first issue keys mark the line */
+.auth-word > span.typed { animation: auth-letter 420ms var(--ease) both; animation-delay: 0ms; }
+.auth-ticks { display: flex; padding-top: 0; }
+.auth-ticks > span { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; font-family: var(--font-code); font-size: 12px; color: #8a8f98; white-space: nowrap; animation: bl-fade-up 500ms var(--ease) both; animation-delay: calc(600ms + var(--d) + var(--auth-since, 0ms)); }
+.auth-ticks > span::before { content: ''; width: 1px; height: 10px; background: rgba(243, 241, 236, 0.5); }
+.auth-ticks > span:first-child { color: #e3e4e6; }
+.auth-bottom b { color: #e3e4e6; font-family: var(--font-code); font-weight: 500; }
+.auth-form .gate-key-field { flex: 1 1 120px; }
+.auth-form .gate-name { flex: 3 1 240px; }
+@media (prefers-reduced-motion: reduce) { .auth-ticks > span, .auth-word > span.typed, .arrival, .arrival-line { animation: none; } }
+
+/* top-level pages: the title sits on the top bar's hairline with a register under it */
+.topbar.topbar-heading { height: 54px; align-items: flex-end; }
+.topbar-heading .breadcrumb { align-self: stretch; align-items: flex-end; }
+.topbar-heading .breadcrumb .crumb {
+  position: relative; padding-bottom: 11px; overflow: visible;
+  font-family: var(--font-display); font-size: 20px; font-weight: 620; letter-spacing: -0.03em; line-height: 1;
+}
+.topbar-heading .breadcrumb > span:last-child { overflow: visible; }
+.topbar-heading .breadcrumb .crumb::after {
+  content: ''; position: absolute; left: 0; bottom: -1px; width: min(100%, 40px); height: var(--register-w);
+  background: var(--brand-register); transform-origin: left; animation: es-draw 700ms var(--ease) both;
+}
+.topbar-heading .topbar-right, .topbar-heading > .icon-btn, .topbar-heading .topbar-more { align-self: center; margin-top: 8px; }
+@media (prefers-reduced-motion: reduce) { .topbar-heading .breadcrumb .crumb::after { animation: none; } }
+
+/* progress on the line: the bar thins to a rule and a register dot rides where done ends */
+.cy-bar.on-line { position: relative; height: 2px; overflow: visible; background: var(--rule); }
+.ob-segs.on-line { position: relative; gap: 0; }
+.ob-segs.on-line i { width: 30px; height: 2px; border-radius: 0; background: var(--rule); box-shadow: inset -2px 0 0 var(--bg-main); }
+.ob-segs.on-line i:last-of-type { box-shadow: none; }
+.line-node { position: absolute; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; background: var(--bg-main); transition: left 900ms var(--ease); }
+.line-node::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: var(--brand-register); }
+@media (prefers-reduced-motion: reduce) { .line-node { transition: none; } }
+
+/* agent status on a short line (Inbox rows from agents): the dot's place reads without colour */
+.agent-line { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 20px; padding: 0 8px; border-radius: 6px; background: var(--bg-pill); color: var(--text-secondary); font-size: 11.5px; font-weight: 510; white-space: nowrap; }
+.agent-line i { position: relative; width: 22px; height: 1.5px; background: var(--rule); }
+.agent-line i::after { content: ''; position: absolute; top: -2.25px; width: 6px; height: 6px; border-radius: 50%; }
+.agent-line.done i { background: var(--brand-register); }
+.agent-line.done i::after { right: 0; background: var(--brand-register); }
+.agent-line.ask { background: color-mix(in srgb, var(--prio-urgent) 13%, transparent); color: var(--prio-urgent); }
+.agent-line.ask i { background: color-mix(in srgb, var(--prio-urgent) 35%, transparent); }
+.agent-line.ask i::after { left: 8px; background: var(--prio-urgent); }

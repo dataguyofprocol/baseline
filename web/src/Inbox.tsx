@@ -338,6 +338,10 @@ export function InboxPage() {
                   <div className="inbox-line1">
                     {st && <StateIcon type={st.type} color={st.color} size={12} />}
                     <span className="inbox-title">{issue ? issue.title : projTitle || n.body || 'Issue no longer exists'}</span>
+                    {(n.type === 'agentFinished' || n.type === 'agentBlocked') && (
+                      // where the dot stops says the state: at the end when done, part way and orange when it needs you
+                      <span className={`agent-line ${n.type === 'agentBlocked' ? 'ask' : 'done'}`}><i aria-hidden="true" />{n.type === 'agentBlocked' ? 'Needs an answer' : 'Done'}</span>
+                    )}
                     <span className="rel-time" title={snoozed ? undefined : dateTime(n.createdAt)}>{snoozed ? `Snoozed until ${fmt(new Date(n.snoozedUntil!))}` : relTime(n.type === 'issueReminder' && n.snoozedUntil ? n.snoozedUntil : n.createdAt)}</span>
                   </div>
                   <div className="inbox-line2">

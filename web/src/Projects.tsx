@@ -1397,9 +1397,11 @@ function ProjectDetails(props: { project: Project }) {
           <div><span className="sw started" />Started<b>{prog.started}</b></div>
           <div><span className="sw done" />Completed<b>{prog.done}</b></div>
         </div>
-        <span className="cy-bar" style={{ width: '100%', margin: '6px 0 10px' }}>
+        <span className="cy-bar on-line" style={{ width: '100%', margin: '10px 0 14px' }}>
           <span className="cy-done" style={{ width: prog.total ? `${(prog.done / prog.total) * 100}%` : 0 }} />
           <span className="cy-started" style={{ width: prog.total ? `${(prog.started / prog.total) * 100}%` : 0 }} />
+          {/* the register dot sits where done ends */}
+          <span className="line-node" style={{ left: prog.total ? `${(prog.done / prog.total) * 100}%` : 0 }} />
         </span>
         <div className="bd-tabs">{(['assignees', 'labels', 'cycles'] as const).map(t => <button key={t} className={`bd-tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}</div>
         {rows.map(([id, r]) => (
