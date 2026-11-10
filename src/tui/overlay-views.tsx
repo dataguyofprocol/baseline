@@ -1,9 +1,9 @@
 // What draws over the screen: the space menu, a picker with no field on screen, / find, compose forms and help.
 import { Box, Text } from 'ink';
 import { findCtx, findSections, menuCtxFor } from './commands.js';
-import { agentPreview, MENUS, rowLabel, SUBMENU } from './menus.js';
+import { agentPreview, helpSections, introLines, MENUS, rowLabel, SUBMENU } from './menus.js';
 import type { TuiData } from './data.js';
-import { helpSections, hintsFor, type Context } from './keys.js';
+import { hintsFor, type Context } from './keys.js';
 import { displayWidth, padEnd, truncate, type Line, type Seg } from './model.js';
 import { pickerLines } from './detail.js';
 import { draftChoices, draftValue, PICKER_TITLE } from './overlays.js';
@@ -31,14 +31,14 @@ function rightAlign(left: Seg[], right: Seg[], width: number): Line {
   return [...out, { text: ' '.repeat(Math.max(1, width - used - rw)) }, ...right];
 }
 
-/** two columns of key help when there is room, else one */
+/** every key, by task, in two columns when there is room */
 export function helpLines(width: number): Line[] {
   const sections = helpSections().map(sec => [
     [{ text: sec.group, bold: true, color: theme.accent }] as Line,
-    ...sec.rows.map((r): Line => [{ text: padEnd(r.key, 15), bold: true }, { text: r.label, color: theme.muted }]),
+    ...sec.rows.map((r): Line => [{ text: r.sub ? '  ' : '' }, { text: padEnd(r.key, r.sub ? 8 : 10), color: theme.key, bold: true }, { text: r.label, color: r.sub ? theme.muted : undefined }]),
     [] as Line,
   ]);
-  if (width < 76) return sections.flat();
+  if (width < 90) return sections.flat();
   const total = sections.reduce((n, s) => n + s.length, 0);
   const left: Line[] = [], right: Line[] = [];
   for (const sec of sections) (left.length < total / 2 ? left : right).push(...sec);
@@ -46,11 +46,18 @@ export function helpLines(width: number): Line[] {
   return Array.from({ length: Math.max(left.length, right.length) }, (_, i) => {
     const l = left[i] ?? [];
     const lw = l.reduce((n, s) => n + displayWidth(s.text), 0);
-    return [...l, { text: ' '.repeat(Math.max(2, colW - lw + 2)) }, ...(right[i] ?? [])];
+    return [...truncLine(l, colW), { text: ' '.repeat(Math.max(2, colW - Math.min(lw, colW) + 2)) }, ...(right[i] ?? [])];
   });
 }
 
-interface Props { s: TuiState; data: TuiData; contexts: Context[]; cols: number; rows: number; now: number; onHelpMax: (n: number) => void }
+function truncLine(l: Line, width: number): Line {
+  const out: Line = [];
+  let used = 0;
+  for (const x of l) { if (!x.text) continue; const t = truncate(x.text, width - used); if (!t) break; out.push({ ...x, text: t }); used += displayWidth(t); }
+  return out;
+}
+
+interface Props { s: TuiState; data: TuiData; contexts: Context[]; cols: number; rows: number; now: number; onHelpMax: (n: number) => void; tabs: number; target: string }
 
 export function OverlayView(p: Props) {
   const o = p.s.overlay;
@@ -154,17 +161,19 @@ function ComposeView({ data, contexts, cols, rows, o }: Props & { o: Extract<Ove
   return <Modal title={o.target === 'comment' ? 'Comment' : 'Rename'} subtitle={key} rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
 }
 
-function HelpView({ contexts, cols, rows, o, onHelpMax }: Props & { o: Extract<Overlay, { kind: 'help' }> }) {
-  const { width, left, top } = place(cols, rows, 100, rows - 2);
+/** the first-launch card; ? shows it again with every key below it, scrolled with ↑↓ */
+function HelpView({ data, cols, rows, o, onHelpMax, tabs, target }: Props & { o: Extract<Overlay, { kind: 'help' }> }) {
+  const width = Math.min(cols - 2, o.intro ? 72 : 104);
   const inner = width - 4;
-  const all = helpLines(inner);
+  const card = introLines(data, tabs, target, inner);
+  const all = o.intro ? card : [...card.slice(0, -1), [{ text: '─'.repeat(inner), color: theme.border }], [], ...helpLines(inner)];
   const room = Math.max(3, rows - 6);
   const max = Math.max(0, all.length - room);
   onHelpMax(max);
   const scroll = Math.min(o.scroll, max);
   const lines = all.slice(scroll, scroll + room);
-  const more = max ? [{ text: `   ${scroll < max ? 'j/k for more' : 'end'}`, color: theme.muted }] : [];
-  return <Modal title="Keyboard shortcuts" rows={lines} width={width} left={left} top={Math.min(top, 1)} footer={[...hintLine(contexts), ...more]} />;
+  const { left, top } = place(cols, rows, width, lines.length + 2);
+  return <Modal title={o.intro ? 'Welcome' : 'Keys'} subtitle={max ? (scroll < max ? '↑↓ for more' : 'end') : undefined} rows={lines} width={width} left={left} top={o.intro ? top : Math.min(top, 1)} />;
 }
 
 /** the space menu over the list: the issue on top, a row per letter with the field's value beside it, sections ruled off */

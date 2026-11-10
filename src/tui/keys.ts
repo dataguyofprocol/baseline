@@ -175,23 +175,3 @@ export function hintsFor(contexts: readonly Context[]): Array<{ key: string; lab
   }
   return out;
 }
-
-const HELP_ORDER: Task[] = ['Move around', 'Change an issue', 'Agents and copying', 'Find and views'];
-
-/** the ? overlay: every binding once, by section in table order; a key with one meaning in a section is one row */
-export function helpSections(): Array<{ group: string; rows: Array<{ key: string; label: string }> }> {
-  const sections = new Map<string, Array<{ key: string; label: string }>>();
-  const seen = new Set<string>();
-  for (const b of BINDINGS) {
-    if (b.partner || b.group === 'Overlay' || b.when.every(c => c === 'boot')) continue;
-    const key = keyLabel(b);
-    const id = `${b.group}|${key}|${b.command}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const rows = sections.get(b.group) ?? [];
-    rows.push({ key, label: b.label });
-    sections.set(b.group, rows);
-  }
-  const rank = (g: string) => (HELP_ORDER.indexOf(g as Task) + 1 || HELP_ORDER.length + 1);
-  return [...sections].sort((a, b) => rank(a[0]) - rank(b[0])).map(([group, rows]) => ({ group, rows }));
-}

@@ -9,7 +9,7 @@ import { fetchData, type TuiData } from './data.js';
 import { detailLines, pickerLines, type IssueUi } from './detail.js';
 import { contextsFor, hintsFor, keyName, lookup, takesText, type CommandId, type Context } from './keys.js';
 import { contextOf } from './context.js';
-import { displayWidth, isListRoute, tabIdFor, visibleTabs, type GroupBy, type Line, type Preset, type Seg } from './model.js';
+import { displayWidth, isListRoute, tabIdFor, tildePath, visibleTabs, type GroupBy, type Line, type Preset, type Seg } from './model.js';
 import { filteredOptions, PICKER_TITLE } from './overlays.js';
 import type { SessionContext } from './session.js';
 import { OverlayView } from './overlay-views.js';
@@ -27,8 +27,8 @@ export interface AppProps {
   actorId?: string;
   route?: Route;
   stack?: Route[];
-  /** list display and cursor to start with (a restored session) */
-  start?: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null };
+  /** list display and cursor to start with (a restored session), and whether to open on the first-launch card */
+  start?: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null; intro?: boolean };
   /** told what the screen shows whenever that changes, for `baseline context` */
   onContext?: (c: SessionContext) => void;
   /** the native clipboard (tests pass a fake so they leave the real one alone) */
@@ -274,7 +274,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
       </Box>
       <ToastLine toast={state.toast} width={columns} />
       <Footer s={state} left={footerLeft(state, data, contexts, tabs.length)} width={columns} target={targetLabel(bl)} />
-      {inlineOn || titleOn ? null : <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} />}
+      {inlineOn || titleOn ? null : <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} tabs={tabs.length} target={cardTarget(bl)} />}
     </Box>
   );
 }
@@ -289,7 +289,7 @@ function overlayTitle(s: TuiState, data: TuiData | null): string {
     case 'picker': return `${PICKER_TITLE[o.field]} for ${key(o.issueId)}`;
     case 'find': return 'Find';
     case 'compose': return o.target === 'issue' ? 'New issue' : o.target === 'comment' ? `Comment on ${key(o.issueId)}` : `Rename ${key(o.issueId)}`;
-    case 'help': return 'Keys';
+    case 'help': return o.intro ? '' : 'Keys';
     case 'menu': case 'none': return '';
   }
 }
@@ -303,6 +303,7 @@ function footerLeft(s: TuiState, data: TuiData | null, contexts: Context[], tabC
     const keys = MENUS[o.path[o.path.length - 1]].rows.map(r => r.key).join(' ');
     return [{ text: `${menuTrail(o.path).join(' › ')} › `, bold: true }, { text: '_', color: theme.accent, bold: true }, { text: `   waiting for the next key: ${keys}`, color: theme.muted }];
   }
+  if (o.kind === 'help' && o.intro) return hintSegs([{ key: 'enter', label: 'start' }]);
   const options = o.kind === 'picker' && data ? filteredOptions(o, data).length : 0;
   const hints = hintsFor(contexts).map(h => {
     if (h.key !== '1-9') return h;
@@ -311,6 +312,12 @@ function footerLeft(s: TuiState, data: TuiData | null, contexts: Context[], tabC
   });
   const title = overlayTitle(s, data);
   return [...(title ? [{ text: title, bold: true }, { text: '   ' }] : []), ...hintSegs(hints)];
+}
+
+/** where the data lives, the way the first-launch card says it */
+function cardTarget(bl: Baseline): string {
+  const t = bl.target;
+  return t.kind === 'local' ? `local · ${tildePath(t.dbPath)}` : `server · ${t.url.host}`;
 }
 
 function targetLabel(bl: Baseline): string {

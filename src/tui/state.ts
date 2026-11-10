@@ -26,7 +26,8 @@ export type DraftField = typeof DRAFT_FIELDS[number];
 
 export type Overlay =
   | { kind: 'none' }
-  | { kind: 'help'; scroll: number }
+  /** `intro` is the first-launch card alone; ? adds every key below it */
+  | { kind: 'help'; scroll: number; intro?: boolean }
   | { kind: 'find'; query: TextField; cursor: number }
   /** `selected` is the labels picker's set */
   | { kind: 'picker'; field: PickerField; issueId: string; query: TextField; cursor: number; selected: string[] }
@@ -80,9 +81,9 @@ export const routeKey = (r: Route): string => {
 
 export const isTopLevel = (r: Route) => r.kind === 'my' || r.kind === 'team' || r.kind === 'inbox' || r.kind === 'projects';
 
-export function initialState(route: Route = { kind: 'my' }, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null } = {}): TuiState {
+export function initialState(route: Route = { kind: 'my' }, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null; intro?: boolean } = {}): TuiState {
   return {
-    data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, groupBy: start.groupBy ?? 'status', preset: start.preset ?? 'all', restoreCursor: start.cursorKey ?? null,
+    data: null, route, stack, overlay: start.intro ? { kind: 'help', scroll: 0, intro: true } : { kind: 'none' }, cursor: {}, expanded: {}, groupBy: start.groupBy ?? 'status', preset: start.preset ?? 'all', restoreCursor: start.cursorKey ?? null,
     toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {}, handoffs: {}, undo: [], saved: null,
   };
 }

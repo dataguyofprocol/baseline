@@ -3,7 +3,7 @@
 // No Ink or React here: the CLI imports it.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import type { Target } from '../client/index.js';
@@ -105,6 +105,19 @@ export function sessionWriter(path: string, meta: Pick<SessionFile, 'cwd' | 'wor
       write();
     },
   };
+}
+
+/** true the first time the TUI starts for this user (state dir), and never again: the card shows once */
+export function takeFirstLaunch(dir = stateDir()): boolean {
+  const flag = join(dir, 'intro-seen');
+  if (existsSync(flag)) return false;
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(flag, `${new Date().toISOString()}\n`);
+  } catch {
+    // unwritable: show the card now, and again next time, rather than never
+  }
+  return true;
 }
 
 export function pidAlive(pid: number): boolean {
