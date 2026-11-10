@@ -97,16 +97,24 @@ export function mountAuth(app: Hono, cfg: HostedAuth, d: { accounts: Accounts; s
   // what the sign-in screen offers, before anyone is signed in
   app.get('/auth/config', (c) => c.json({ methods: signInMethods(cfg), setup: accounts.needsSetup(), mail: d.mailer.configured }));
 
-  // what an invite link shows before sign-in: whose workspace, who sent it, and to which address
-  // (masked, because the code is in an email but links get forwarded)
+  // what an invite link shows before sign-in: whose workspace, who sent it, to which address and which
+  // teams. The address is shown in full and prefilled: the link already grants the join, and
+  // retyping it was only a typo trap (accepting still checks it against the invite).
+  const teamNames = (ids: string[]) => ids.map(id => store.getTeam(id)?.name).filter((n): n is string => !!n);
+  const nameOf = (userId: string | null) => userId ? accounts.userBrief(userId)?.name ?? null : null;
   app.get('/auth/invite/:code', (c) => {
     if (!inviteLookupLimit.take(clientIp(c))) return c.json({ state: 'unknown', error: 'Too many requests. Try again in a few minutes.' }, 429);
     const inv = accounts.inviteByCode(c.req.param('code'));
     if (!inv) return c.json({ state: 'unknown' }, 404);
-    const inviter = inv.invited_by ? store.snapshot().users.find(u => u.id === inv.invited_by) : undefined;
-    const [local = '', domain = ''] = inv.email.split('@');
     const state = inv.accepted_at ? 'accepted' : inv.revoked_at ? 'revoked' : Date.parse(inv.expires_at) <= Date.now() ? 'expired' : 'valid';
-    return c.json({ state, workspace: store.workspaceMeta().name, inviter: inviter?.name ?? null, email: `${local.slice(0, 2)}•••@${domain}` });
+    return c.json({ state, workspace: store.workspaceMeta().name, inviter: nameOf(inv.invited_by), email: inv.email, teams: teamNames(JSON.parse(inv.team_ids) as string[]) });
+  });
+  // the same for a team's join link, which names a team but no address
+  app.get('/auth/join/:code', (c) => {
+    if (!inviteLookupLimit.take(clientIp(c))) return c.json({ state: 'unknown', error: 'Too many requests. Try again in a few minutes.' }, 429);
+    const link = accounts.joinLinkByCode(c.req.param('code'));
+    if (!link) return c.json({ state: 'unknown' }, 404);
+    return c.json({ state: 'valid', workspace: store.workspaceMeta().name, inviter: nameOf(link.created_by), teams: teamNames([link.team_id]) });
   });
 
   mountPasswordAuth(app, cfg, d, hooks);
@@ -140,8 +148,9 @@ function mountGoogle(app: Hono, cfg: HostedAuth, google: GoogleClient, d: { acco
     if (!signInLimit.take(clientIp(c))) return c.redirect(home('?auth_error=rate-limited'));
     const next = c.req.query('next') ?? '/';
     const invite = c.req.query('invite') ?? '';
+    const join = c.req.query('join') ?? '';
     const state = random(), verifier = random(), nonce = random();
-    setCookie(c, OAUTH_COOKIE, b64url(Buffer.from(JSON.stringify({ state, verifier, nonce, next, invite }))), {
+    setCookie(c, OAUTH_COOKIE, b64url(Buffer.from(JSON.stringify({ state, verifier, nonce, next, invite, join }))), {
       path: '/auth', httpOnly: true, secure, sameSite: 'Lax', maxAge: 600,
     });
     const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -156,7 +165,7 @@ function mountGoogle(app: Hono, cfg: HostedAuth, google: GoogleClient, d: { acco
   app.get('/auth/google/callback', async (c) => {
     const fail = (reason: string) => { deleteCookie(c, OAUTH_COOKIE, { path: '/auth' }); return c.redirect(home(`?auth_error=${reason}`)); };
     if (!signInLimit.take(clientIp(c))) return fail('rate-limited');
-    let saved: { state: string; verifier: string; nonce: string; next: string; invite?: string };
+    let saved: { state: string; verifier: string; nonce: string; next: string; invite?: string; join?: string };
     try { saved = JSON.parse(Buffer.from(getCookie(c, OAUTH_COOKIE) ?? '', 'base64url').toString()); } catch { return fail('expired'); }
     if (c.req.query('error')) return fail('cancelled');
     const code = c.req.query('code');
@@ -179,9 +188,9 @@ function mountGoogle(app: Hono, cfg: HostedAuth, google: GoogleClient, d: { acco
     if (!valid) return fail('google');
 
     const identity: GoogleIdentity = { sub: claims.sub!, email: claims.email!, name: claims.name ?? '', picture: claims.picture ?? '', hd: claims.hd };
-    const result = accounts.signInWithGoogle(identity, { ownerEmail: cfg.ownerEmail, inviteCode: saved.invite || undefined });
+    const result = accounts.signInWithGoogle(identity, { ownerEmail: cfg.ownerEmail, inviteCode: saved.invite || undefined, joinCode: saved.join || undefined });
     if ('error' in result) return fail(result.error);
-    if (result.joined === 'invite' && result.invitedBy) hooks.onInviteAccepted?.(result.userId, result.invitedBy);
+    if ((result.joined === 'invite' || result.joined === 'link') && result.invitedBy) hooks.onInviteAccepted?.(result.userId, result.invitedBy);
     sessions.start(c, result.userId);
     deleteCookie(c, OAUTH_COOKIE, { path: '/auth' });
     return c.redirect(new URL(safeNext(saved.next), cfg.publicUrl).toString());

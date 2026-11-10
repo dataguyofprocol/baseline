@@ -23,14 +23,14 @@ type Config = Awaited<ReturnType<typeof authApi.config>>;
 const sameSite = (next: string | null) =>
   next && next.startsWith('/') && !next.startsWith('//') && !next.includes('\\') && !/[\u0000-\u001f]/.test(next) ? next : null;
 
-interface Params { error: string | null; invite: string | null; reset: string | null; next: string | null }
+interface Params { error: string | null; invite: string | null; join: string | null; reset: string | null; next: string | null }
 
 /** read the sign-in params once, then drop them from the address bar so a reload is clean */
 function takeParams(): Params {
   const params = new URLSearchParams(window.location.search);
   const code = params.get('auth_error');
-  const p = { invite: params.get('invite'), reset: params.get('reset'), next: sameSite(params.get('next')) };
-  if (code || p.invite || p.reset || params.get('next')) window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+  const p = { invite: params.get('invite'), join: params.get('join'), reset: params.get('reset'), next: sameSite(params.get('next')) };
+  if (code || p.invite || p.join || p.reset || params.get('next')) window.history.replaceState(null, '', window.location.pathname + window.location.hash);
   return { error: code ? REASONS[code] ?? REASONS.google! : null, ...p };
 }
 
@@ -49,18 +49,18 @@ export function SignIn() {
     if (to.pathname === window.location.pathname && to.search === window.location.search) { window.location.hash = to.hash; window.location.reload(); }
     else window.location.replace(to.href);
   };
-  const google = (invite?: string | null) => {
-    window.location.href = `/auth/google?next=${encodeURIComponent(back)}${invite ? `&invite=${encodeURIComponent(invite)}` : ''}`;
+  const google = (invite?: string | null, kind: 'invite' | 'join' = 'invite') => {
+    window.location.href = `/auth/google?next=${encodeURIComponent(back)}${invite ? `&${kind}=${encodeURIComponent(invite)}` : ''}`;
   };
 
   if (!config) return <Shell headline="" sub="" />;
   const ctx: Ctx = { methods: config.methods, mail: config.mail, done, google };
   if (params.reset) return <ResetPassword token={params.reset} ctx={ctx} />;
   if (config.setup) return <Setup ctx={ctx} />;
-  return <SignInOrJoin ctx={ctx} invite={params.invite} error={params.error} />;
+  return <SignInOrJoin ctx={ctx} invite={params.invite ?? params.join} kind={params.invite ? 'invite' : 'join'} error={params.error} />;
 }
 
-interface Ctx { methods: SignInMethod[]; mail: boolean; done: () => void; google: (invite?: string | null) => void }
+interface Ctx { methods: SignInMethod[]; mail: boolean; done: () => void; google: (invite?: string | null, kind?: 'invite' | 'join') => void }
 
 /* ---------- the brand frame every signed-out screen shares ---------- */
 function Shell(props: { headline: string; sub: React.ReactNode; children?: React.ReactNode }) {
@@ -148,24 +148,31 @@ function Setup({ ctx }: { ctx: Ctx }) {
 }
 
 /* ---------- sign in, or join through an invite ---------- */
-function SignInOrJoin({ ctx, invite, error: initialError }: { ctx: Ctx; invite: string | null; error: string | null }) {
+function SignInOrJoin({ ctx, invite, kind, error: initialError }: { ctx: Ctx; invite: string | null; kind: 'invite' | 'join'; error: string | null }) {
   const [info, setInfo] = useState<InviteInfo | null>(null);
   const [mode, setMode] = useState<'join' | 'signin' | 'forgot'>(invite ? 'join' : 'signin');
-  useEffect(() => { if (invite) void api.inviteInfo(invite).then(setInfo); }, [invite]);
+  useEffect(() => { if (invite) void api.inviteInfo(invite, kind).then(setInfo); }, [invite, kind]);
   if (invite && !info) return <Shell headline="" sub="" />;
 
   const valid = info?.state === 'valid';
-  if (valid && mode === 'join') return <Join ctx={ctx} code={invite!} info={info!} error={initialError} onSignIn={() => setMode('signin')} />;
+  if (valid && mode === 'join') return <Join ctx={ctx} code={invite!} kind={kind} info={info!} error={initialError} onSignIn={() => setMode('signin')} />;
   if (mode === 'forgot') return <Forgot onBack={() => setMode('signin')} />;
-  const inviteProblem = info && !valid
-    ? info.state === 'accepted' ? 'This invite has already been used. Sign in to continue.'
-    : info.state === 'unknown' ? 'That invite link isn’t valid. Ask for a new one.'
-    : `This invite has ${info.state === 'revoked' ? 'been revoked' : 'expired'}. Ask ${info.inviter ?? 'whoever sent it'} for a new one.`
-    : null;
-  return <PasswordSignIn ctx={ctx} problem={initialError ?? inviteProblem} onForgot={() => setMode('forgot')} invite={valid ? invite : null} onJoin={valid ? () => setMode('join') : undefined} />;
+  return <PasswordSignIn ctx={ctx} problem={initialError ?? (info && inviteProblem(info, kind))} onForgot={() => setMode('forgot')} invite={valid ? invite : null} kind={kind} onJoin={valid ? () => setMode('join') : undefined} />;
 }
 
-function PasswordSignIn({ ctx, problem, onForgot, invite, onJoin }: { ctx: Ctx; problem: string | null; onForgot: () => void; invite: string | null; onJoin?: () => void }) {
+/** why an invite or join link can't be used (null: it can) */
+function inviteProblem(info: InviteInfo, kind: 'invite' | 'join'): string | null {
+  if (info.state === 'valid') return null;
+  if (kind === 'join') return 'That join link was turned off. Ask your team for a new one.';
+  return info.state === 'accepted' ? 'This invite has already been used. Sign in to continue.'
+    : info.state === 'unknown' ? 'That invite link isn’t valid. Ask for a new one.'
+    : `This invite has ${info.state === 'revoked' ? 'been revoked' : 'expired'}. Ask ${info.inviter ?? 'whoever sent it'} for a new one.`;
+}
+
+/** "Engineering", "Engineering and Design" */
+const listOf = (names: string[] = []) => names.length <= 1 ? names[0] ?? '' : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+
+function PasswordSignIn({ ctx, problem, onForgot, invite, kind = 'invite', onJoin }: { ctx: Ctx; problem: string | null; onForgot: () => void; invite: string | null; kind?: 'invite' | 'join'; onJoin?: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const { busy, error, submit } = useSubmit('/auth/password', ctx.done);
@@ -177,35 +184,80 @@ function PasswordSignIn({ ctx, problem, onForgot, invite, onJoin }: { ctx: Ctx; 
         <Field label="Email" name="email" type="email" value={email} onChange={setEmail} autoComplete="username" autoFocus />
         <Field label="Password" name="password" type="password" value={password} onChange={setPassword} autoComplete="current-password" />
         <button className="btn primary auth-submit" disabled={busy || !email.trim() || !password}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        {hasGoogle && <GoogleButton onClick={() => ctx.google(invite)} />}
+        {hasGoogle && <GoogleButton onClick={() => ctx.google(invite, kind)} />}
       </form>
       <div className="auth-foot">
         {ctx.mail
           ? <button type="button" className="auth-link" onClick={onForgot}>Forgot your password?</button>
           : <span>Forgot your password? Ask an admin for a reset link.</span>}
-        {onJoin && <button type="button" className="auth-link" onClick={onJoin}>Use your invite</button>}
+        {onJoin && <button type="button" className="auth-link" onClick={onJoin}>{kind === 'join' ? 'New here? Create your account' : 'Use your invite'}</button>}
       </div>
     </Shell>
   );
 }
 
-function Join({ ctx, code, info, error: googleError, onSignIn }: { ctx: Ctx; code: string; info: InviteInfo; error: string | null; onSignIn: () => void }) {
-  const [email, setEmail] = useState('');
+/** An invite names its address, so it's filled in (accepting still checks it). A team's join link names
+ *  no one, so the person types theirs. Either way the screen says who asked them and to which team. */
+function Join({ ctx, code, kind, info, error: googleError, onSignIn }: { ctx: Ctx; code: string; kind: 'invite' | 'join'; info: InviteInfo; error: string | null; onSignIn: () => void }) {
+  const fixed = kind === 'invite' && info.email ? info.email : null;
+  const [email, setEmail] = useState(fixed ?? '');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
-  const { busy, error, submit } = useSubmit(`/auth/invite/${encodeURIComponent(code)}/accept`, ctx.done);
+  const { busy, error, submit } = useSubmit(`/auth/${kind}/${encodeURIComponent(code)}/accept`, ctx.done);
   const hasGoogle = ctx.methods.includes('google');
+  const teams = listOf(info.teams);
   return (
-    <Shell headline={`Join ${info.workspace}`} sub={`${info.inviter ?? 'A teammate'} invited ${info.email}. Enter that address and choose a password${hasGoogle ? ', or continue with its Google account' : ''}.`}>
+    <Shell headline={teams ? `Join ${teams} on ${info.workspace}` : `Join ${info.workspace}`}
+      sub={<>{info.inviter ?? 'A teammate'} invited {fixed ? <b>{fixed}</b> : 'you'}{teams ? <> to {teams}</> : null}. Choose a password{hasGoogle ? `, or continue with ${fixed ? 'that address’s' : 'your'} Google account` : ''}.</>}>
       <form className="auth-form" onSubmit={e => { e.preventDefault(); void submit({ email, name, password }); }}>
         <Alert>{error ?? googleError}</Alert>
-        <Field label="Email" name="email" type="email" value={email} onChange={setEmail} autoComplete="username" autoFocus placeholder={info.email} />
-        <Field label="Your name" name="name" value={name} onChange={setName} autoComplete="name" />
+        {fixed
+          ? <label className="auth-field"><span className="auth-label">Email</span><input className="text-input" name="email" type="email" value={fixed} autoComplete="username" readOnly /></label>
+          : <Field label="Work email" name="email" type="email" value={email} onChange={setEmail} autoComplete="username" autoFocus />}
+        <Field label="Your name" name="name" value={name} onChange={setName} autoComplete="name" autoFocus={!!fixed} />
         <Field label="Password" name="password" type="password" value={password} onChange={setPassword} autoComplete="new-password" hint={passwordHint} />
         <button className="btn primary auth-submit" disabled={busy || !email.trim() || !name.trim() || !password}>{busy ? 'Joining…' : `Join ${info.workspace}`}</button>
-        {hasGoogle && <GoogleButton onClick={() => ctx.google(code)} />}
+        {hasGoogle && <GoogleButton onClick={() => ctx.google(code, kind)} />}
       </form>
       <div className="auth-foot"><button type="button" className="auth-link" onClick={onSignIn}>Already have an account? Sign in</button></div>
+    </Shell>
+  );
+}
+
+/** An invite or join link opened while already signed in. The app used to swallow the link and show
+ *  your own inbox; now it says whose link it is and what to do. */
+export function SignedInInvite({ me, teams, onDone, onSignOut, onJoinTeam }: {
+  me: { name: string; email: string }; teams: Array<{ id: string; name: string; joined: boolean }>;
+  onDone: () => void; onSignOut: () => void; onJoinTeam: (teamId: string) => Promise<void>;
+}) {
+  const [{ code, kind }] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get('invite') ? { code: p.get('invite')!, kind: 'invite' as const } : { code: p.get('join') ?? '', kind: 'join' as const };
+  });
+  const [info, setInfo] = useState<InviteInfo | null>(null);
+  useEffect(() => { void api.inviteInfo(code, kind).then(setInfo); }, [code, kind]);
+  if (!info) return <Shell headline="" sub="" />;
+  const you = <>You’re signed in as <b>{me.name}</b> ({me.email}).</>;
+  const continueBtn = <button type="button" className="btn auth-secondary" onClick={onDone}>Continue as {me.name}</button>;
+  const problem = inviteProblem(info, kind);
+  if (problem) return <Shell headline="This link can’t be used" sub={<>{problem} {you}</>}>{continueBtn}</Shell>;
+  if (kind === 'join') {
+    // already in the workspace: the link's team is one click away
+    const team = teams.find(t => t.name === info.teams?.[0]);
+    return (
+      <Shell headline={`Join ${info.teams?.[0] ?? 'this team'}`} sub={<>{you} {team?.joined ? `You’re already on ${team.name}.` : 'You’re already in this workspace, so you can join the team now.'}</>}>
+        {team && !team.joined && <button type="button" className="btn primary auth-submit" onClick={() => void onJoinTeam(team.id)}>Join {team.name}</button>}
+        {continueBtn}
+      </Shell>
+    );
+  }
+  if (info.email?.toLowerCase() === me.email.toLowerCase()) {
+    return <Shell headline="You’re already in" sub={<>{you} This invite is for you, and you already have an account.</>}>{continueBtn}</Shell>;
+  }
+  return (
+    <Shell headline="This invite is for someone else" sub={<>It was sent to <b>{info.email}</b>. {you} Sign out to accept it as {info.email}.</>}>
+      <button type="button" className="btn primary auth-submit" onClick={onSignOut}>Sign out and accept</button>
+      {continueBtn}
     </Shell>
   );
 }

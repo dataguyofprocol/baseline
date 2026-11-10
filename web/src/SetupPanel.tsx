@@ -52,7 +52,7 @@ function setupItems(s: Snapshot) {
   const ctx: SetupCtx = {
     hosted: s.workspace.auth === 'hosted',
     admin: s.currentUser.admin,
-    canInvite: s.currentUser.admin || s.workspace.security.whoCanInvite === 'members',
+    canInvite: s.workspace.canInvite ?? (s.currentUser.admin || s.workspace.security.whoCanInvite === 'members'),
   };
   return SETUP_ITEMS.filter(i => i.when(ctx)).map(i => ({ ...i, isDone: i.done(s) }));
 }

@@ -6,6 +6,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { getMeta, setMeta } from './db.js';
 import { id } from './util.js';
 import type { Store } from './store.js';
+import { SMALL_WORKSPACE } from './types.js';
 
 const SESSION_DAYS = 30;
 const DAY = 86400_000;
@@ -20,13 +21,15 @@ export type SignInError = 'not-invited' | 'suspended' | 'invite-mismatch' | 'inv
 export type PasswordSignInError = 'invalid' | 'suspended';
 export type InviteAcceptError = 'invite-expired' | 'invite-mismatch' | 'already-member';
 export type SignInResult =
-  | { userId: string; joined?: 'owner' | 'invite' | 'domain'; invitedBy?: string | null }
+  | { userId: string; joined?: 'owner' | 'invite' | 'domain' | 'link'; invitedBy?: string | null }
   | { error: SignInError };
 
 /** a rule the caller broke (shown to the person as is) */
 export class AccountError extends Error {
   constructor(readonly code: 'last-admin' | 'self' | 'not-found', message: string) { super(message); }
 }
+
+export interface JoinLinkRow { id: string; team_id: string; code: string; created_by: string | null; created_at: string; revoked_at: string | null }
 
 export interface InviteRow {
   id: string; email: string; admin: number; team_ids: string; invited_by: string | null; code: string;
@@ -35,6 +38,15 @@ export interface InviteRow {
 const INVITE_DAYS = 7;
 export const normalizeEmail = (e: string) => e.trim().toLowerCase();
 export { isEmail } from './types.js';
+
+/** why an address isn't usable, in words a person can act on (maya@local: no domain ending) */
+export function emailProblem(email: string): string {
+  const at = email.indexOf('@');
+  if (at < 1 || at === email.length - 1) return `${email} isn't an email address`;
+  if (!email.slice(at + 1).includes('.')) return `${email} has no domain ending (like ${email.slice(0, at)}@example.com)`;
+  return `${email} isn't a valid email address`;
+}
+
 
 export class Accounts {
   constructor(private db: DatabaseSync, private store: Store) {}
@@ -94,10 +106,11 @@ export class Accounts {
    *  2. a person with the same email who has never signed in (seeded or imported data), linked now;
    *  3. the workspace owner (BASELINE_OWNER_EMAIL), created as admin;
    *  4. someone with a pending invite for this email, created with the invite's role and teams;
-   *  5. an account managed by an approved Google Workspace domain, created as a member.
+   *  5. someone arriving through a team's join link, created as a member of that team;
+   *  6. an account managed by an approved Google Workspace domain, created as a member.
    *  Anyone else is turned away. Arriving through an invite link that was sent to a different
    *  address, or one that's no longer valid, says so instead of a bare "not invited". */
-  signInWithGoogle(g: GoogleIdentity, opts: { ownerEmail?: string; inviteCode?: string } = {}): SignInResult {
+  signInWithGoogle(g: GoogleIdentity, opts: { ownerEmail?: string; inviteCode?: string; joinCode?: string } = {}): SignInResult {
     const email = normalizeEmail(g.email);
     const isOwner = !!opts.ownerEmail && email === normalizeEmail(opts.ownerEmail);
     type Row = { id: string; status: string };
@@ -106,7 +119,7 @@ export class Accounts {
       user = this.db.prepare("SELECT id, status FROM users WHERE kind = 'human' AND google_sub IS NULL AND lower(email) = ? ORDER BY rowid LIMIT 1").get(email) as Row | undefined;
       if (user) this.db.prepare('UPDATE users SET google_sub = ? WHERE id = ?').run(g.sub, user.id);
     }
-    let joined: 'owner' | 'invite' | 'domain' | undefined;
+    let joined: 'owner' | 'invite' | 'domain' | 'link' | undefined;
     let invitedBy: string | null | undefined;
     if (!user && isOwner) {
       user = this.join(g, true, []);
@@ -128,6 +141,13 @@ export class Accounts {
         joined = 'invite';
         invitedBy = invite.invited_by;
       }
+    }
+    if (!user && opts.joinCode) {
+      const link = this.joinLinkByCode(opts.joinCode);
+      if (!link) return { error: 'invite-expired' };
+      user = this.join(g, false, [link.team_id]);
+      joined = 'link';
+      invitedBy = link.created_by;
     }
     if (!user && g.hd) {
       const sec = this.store.getSecurity();
@@ -307,6 +327,45 @@ export class Accounts {
     this.db.prepare('UPDATE invites SET revoked_at = ? WHERE id = ? AND accepted_at IS NULL').run(new Date().toISOString(), inviteId);
   }
 
+  // ---------- team join links ----------
+  // One open link per team, pasted where the team talks (8 people, one message instead of 8 DMs).
+  // Unlike an invite it names no address, so it is revocable rather than one-use.
+  /** the team's open link, if it has one */
+  joinLinkFor(teamId: string): JoinLinkRow | undefined {
+    return this.db.prepare('SELECT * FROM team_join_links WHERE team_id = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1').get(teamId) as JoinLinkRow | undefined;
+  }
+  /** an open link (its team still there), or undefined */
+  joinLinkByCode(code: string): JoinLinkRow | undefined {
+    return this.db.prepare('SELECT l.* FROM team_join_links l JOIN teams t ON t.id = l.team_id WHERE l.code = ? AND l.revoked_at IS NULL').get(code) as JoinLinkRow | undefined;
+  }
+  /** a new link for the team; the old one stops working */
+  createJoinLink(teamId: string, createdBy: string): JoinLinkRow {
+    this.revokeJoinLink(teamId);
+    const row: JoinLinkRow = { id: id('jl'), team_id: teamId, code: randomBytes(18).toString('base64url'), created_by: createdBy, created_at: new Date().toISOString(), revoked_at: null };
+    this.db.prepare('INSERT INTO team_join_links (id, team_id, code, created_by, created_at) VALUES (?, ?, ?, ?, ?)').run(row.id, row.team_id, row.code, row.created_by, row.created_at);
+    return row;
+  }
+  revokeJoinLink(teamId: string): void {
+    this.db.prepare('UPDATE team_join_links SET revoked_at = ? WHERE team_id = ? AND revoked_at IS NULL').run(new Date().toISOString(), teamId);
+  }
+  /** Joining through a team's link with a password: a new member on that team. An address that
+   *  already has an account signs in instead (the link can't take over an account). */
+  joinWithLink(code: string, o: { email: string; name: string; passwordHash: string }): { userId: string; invitedBy: string | null; teamId: string } | { error: 'invite-expired' | 'already-member' } {
+    const email = normalizeEmail(o.email);
+    const link = this.joinLinkByCode(code);
+    if (!link) return { error: 'invite-expired' };
+    if (this.memberByEmail(email)) return { error: 'already-member' };
+    const created = this.store.createUser(o.name || email, email, false);
+    this.startOnboarding(created.id);
+    this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(o.passwordHash, created.id);
+    this.store.setUserTeams(created.id, [link.team_id]);
+    // a pending invite to this address is spent too: they're in
+    this.db.prepare('UPDATE invites SET accepted_at = ?, accepted_user_id = ? WHERE email = ? AND accepted_at IS NULL AND revoked_at IS NULL')
+      .run(new Date().toISOString(), created.id, email);
+    this.claimOwnUser(created.id);
+    return { userId: created.id, invitedBy: link.created_by, teamId: link.team_id };
+  }
+
   // ---------- roles ----------
   /** a person (not an agent) who can sign in */
   isActivePerson(userId: string): boolean {
@@ -315,7 +374,10 @@ export class Accounts {
   canInvite(userId: string): boolean {
     const u = this.db.prepare("SELECT admin, status, kind FROM users WHERE id = ?").get(userId) as { admin: number; status: string; kind: string } | undefined;
     if (!u || u.status === 'suspended' || u.kind !== 'human') return false;
-    return !!u.admin || this.store.getSecurity().whoCanInvite === 'members';
+    const sec = this.store.getSecurity();
+    if (u.admin || sec.whoCanInvite === 'members') return true;
+    // a small team grows by word of mouth: anyone can bring in the next few people
+    return sec.smallTeamInvites && (this.db.prepare("SELECT COUNT(*) n FROM users WHERE kind = 'human' AND status = 'active'").get() as { n: number }).n < SMALL_WORKSPACE;
   }
   private activeAdmins(): number {
     return (this.db.prepare("SELECT COUNT(*) n FROM users WHERE admin = 1 AND status = 'active' AND kind = 'human'").get() as { n: number }).n;

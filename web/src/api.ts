@@ -1,5 +1,5 @@
 import { markCreated } from './motion.js';
-import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, GitStatus, GithubTokenInfo, TrackedRepo, Invite, InviteResult, WorkspaceSecurity, SignInMethod } from '../../src/core/types.js';
+import type { Snapshot, Issue, Comment, Project, SavedView, Team, User, Label, WorkflowState, Priority, Cycle, Milestone, Handoff, IssueTemplate, Location, TerminalApp, Attachment, StoredFile, PreferencesPatch, ProjectLabel, ProjectStatusDef, Initiative, SlaRule, Loop, LoopRun, PrAutomation, ApiKey, ApiKeyScope, WebhookConfig, WebhookDelivery, GitStatus, GithubTokenInfo, GithubSummary, GithubAuthor, TrackedRepo, Invite, InviteResult, WorkspaceSecurity, SignInMethod, TeamJoinLink } from '../../src/core/types.js';
 
 /** a failed API call; `status` 401 means the session is gone and the person must sign in again */
 export class ApiError extends Error {
@@ -35,12 +35,19 @@ export const api = {
   leaveTeam: (id: string) => req<{ ok: true }>('POST', `/api/teams/${id}/leave`, {}),
   addTeamMembers: (id: string, userIds: string[]) => req<{ added: string[] }>('POST', `/api/teams/${id}/members`, { userIds }),
   removeTeamMember: (id: string, userId: string) => req<{ ok: true }>('DELETE', `/api/teams/${id}/members/${userId}`),
+  setTeamLead: (id: string, userId: string, lead: boolean) => req<{ team: Team }>('PUT', `/api/teams/${id}/leads/${userId}`, { lead }),
+  /** "Ask <name>": a row in that admin's or lead's inbox */
+  askAccess: (b: { to: string; what: string; path: string }) => req<{ ok: true }>('POST', '/api/access-requests', b),
   updateSecurity: (b: Partial<WorkspaceSecurity>) => req<{ security: WorkspaceSecurity }>('PATCH', '/api/security', b),
-  /** what an invite link points at, before signing in (no session needed) */
-  inviteInfo: async (code: string) => {
-    const res = await fetch(`/auth/invite/${encodeURIComponent(code)}`);
-    return res.json().catch(() => ({ state: 'unknown' })) as Promise<{ state: 'valid' | 'expired' | 'accepted' | 'revoked' | 'unknown'; workspace?: string; inviter?: string | null; email?: string }>;
+  /** what an invite link (or, with `join`, a team's join link) points at, before signing in (no session needed) */
+  inviteInfo: async (code: string, kind: 'invite' | 'join' = 'invite') => {
+    const res = await fetch(`/auth/${kind}/${encodeURIComponent(code)}`);
+    return res.json().catch(() => ({ state: 'unknown' })) as Promise<{ state: 'valid' | 'expired' | 'accepted' | 'revoked' | 'unknown'; workspace?: string; inviter?: string | null; email?: string; teams?: string[] }>;
   },
+  /** a team's shareable join link (null: none open) */
+  teamJoinLink: (teamId: string) => req<{ joinLink: TeamJoinLink | null }>('GET', `/api/teams/${teamId}/join-link`),
+  createTeamJoinLink: (teamId: string) => req<{ joinLink: TeamJoinLink }>('POST', `/api/teams/${teamId}/join-link`, {}),
+  revokeTeamJoinLink: (teamId: string) => req<{ ok: true }>('DELETE', `/api/teams/${teamId}/join-link`),
   /** an admin's one-use link that sets a member's password (shared by hand; no email needed) */
   passwordResetLink: (userId: string) => req<{ link: string; expiresAt: string }>('POST', `/api/members/${userId}/reset-link`, {}),
   changePassword: (b: { current: string; next: string }) => req<{ ok: true }>('POST', '/api/me/password', b),
@@ -158,6 +165,10 @@ export const api = {
   removeGithubToken: () => req<{ ok: true }>('DELETE', '/api/github/token'),
   availableGithubRepos: () => req<{ repos: string[] }>('GET', '/api/github/repos/available'),
   setGithubRepos: (repos: string[]) => req<{ repos: TrackedRepo[] }>('PUT', '/api/github/repos', { repos }),
+  githubRepoTeams: () => req<{ repos: Array<{ repo: string; teamId: string | null; teamKey: string | null }> }>('GET', '/api/github/repo-teams'),
+  setGithubRepoTeam: (repo: string, teamId: string | null) => req<{ ok: true }>('PUT', '/api/github/repo-teams', { repo, teamId }),
+  githubSummary: () => req<GithubSummary>('GET', '/api/github/summary'),
+  githubAuthors: () => req<{ authors: GithubAuthor[] }>('GET', '/api/github/authors'),
   gitSync: () => req<{ prs: number; commits: number; error?: string }>('POST', '/api/git/sync'),
   gitAutomation: (teamId: string) => req<PrAutomation>('GET', `/api/git/automation/${teamId}`),
   setGitAutomation: (teamId: string, b: Partial<PrAutomation>) => req<{ ok: true }>('PUT', `/api/git/automation/${teamId}`, b),

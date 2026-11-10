@@ -19,36 +19,41 @@ import {
 } from './icons.js';
 import { notifyCategory, type Notification, type NotificationType, type NotifyCategory, type Snapshot } from '../../src/core/types.js';
 import { Illustration } from './illustrations.js';
+import { inboxRows } from '../../src/core/inbox.js';
+import { plainText } from '../../src/core/mentions.js';
 import { toggleSubscription } from './actions.js';
 
-/* Linear's inbox: notifications on the left (newest first, merged per issue and kind),
-   the issue on the right. U toggles read, ⌫ deletes, H snoozes, ⇧⌫ deletes everything
-   read. Snoozed notifications and reminders stay out of sight until their time. */
+/* Linear's inbox: notifications on the left (newest first, one row per issue), the issue on
+   the right. U toggles read, ⌫ deletes, H snoozes, ⇧⌫ deletes everything read. Snoozed
+   notifications and reminders stay out of sight until their time. */
 
-type Row = { lead: Notification; actors: string[]; ids: string[]; unread: boolean };
+type Row = { key: string; lead: Notification; actors: string[]; ids: string[]; unread: boolean; count: number };
 interface InboxPrefs { order: 'newest' | 'oldest'; showSnoozed: boolean; unreadFirst: boolean; types: NotificationType[]; from: string[]; priority: boolean; groupUnreads: 'none' | 'focus'; priorityCats?: NotifyCategory[] }
 const PREFS_KEY = 'baseline:inboxPrefs';
 /** what Priority inbox lifts to the top (Settings › Notifications › Priority notifications) */
-export const DEFAULT_PRIORITY_CATS: NotifyCategory[] = ['assignments', 'mentions', 'comments', 'reminders', 'updates'];
+export const DEFAULT_PRIORITY_CATS: NotifyCategory[] = ['agentWork', 'assignments', 'mentions', 'comments', 'reminders', 'updates'];
 /** the inbox's display settings live in this browser; Settings › Notifications edits the same ones */
 export function readInboxPrefs(): Partial<InboxPrefs> { try { return JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}'); } catch { return {}; } }
 export function writeInboxPrefs(p: Partial<InboxPrefs>) { try { localStorage.setItem(PREFS_KEY, JSON.stringify({ ...readInboxPrefs(), ...p })); } catch { /* ignore */ } }
 const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
+  agentFinished: 'Agent finished', agentBlocked: 'Agent blocked or stopped',
   issueAssignedToYou: 'Assignments', issueCommented: 'Comments', issueReplied: 'Replies', issueMentioned: 'Mentions', commentReacted: 'Reactions',
   issueStatusChanged: 'Status changes', issueReminder: 'Reminders', systemUpdate: 'System notices',
   projectUpdate: 'Project updates', projectIssueAdded: 'Project activity', projectUpdateReminder: 'Project update reminders', initiativeUpdateReminder: 'Initiative update reminders', updatesDigest: 'Updates summary',
   slaBreached: 'SLA breaches', prActivity: 'Pull requests', loopFailed: 'Loops', teamActivity: 'Team activity', teamMemberAdded: 'Added to a team',
+  accessRequested: 'Requests',
 };
 /* the filter menu's sections: 19 flat types with near-identical names were hard to scan */
 const TYPE_GROUPS: Array<[string, NotificationType[]]> = [
-  ['Issues', ['issueAssignedToYou', 'issueMentioned', 'issueCommented', 'issueReplied', 'commentReacted', 'issueStatusChanged', 'issueReminder', 'slaBreached', 'prActivity']],
+  ['Issues', ['agentFinished', 'agentBlocked', 'issueAssignedToYou', 'issueMentioned', 'issueCommented', 'issueReplied', 'commentReacted', 'issueStatusChanged', 'issueReminder', 'slaBreached', 'prActivity']],
   ['Projects and initiatives', ['projectUpdate', 'projectIssueAdded', 'updatesDigest', 'projectUpdateReminder', 'initiativeUpdateReminder']],
-  ['Workspace', ['teamMemberAdded', 'teamActivity', 'loopFailed', 'systemUpdate']],
+  ['Workspace', ['accessRequested', 'teamMemberAdded', 'teamActivity', 'loopFailed', 'systemUpdate']],
 ];
 /* one filter value covers several kinds */
 const TYPE_ALIASES: Partial<Record<NotificationType, NotificationType[]>> = { projectIssueAdded: ['projectIssueAdded', 'projectIssueClosed', 'projectChanged'] };
 
 const FOCUS_LABELS: Partial<Record<NotificationType, string>> = {
+  agentFinished: 'Agent work', agentBlocked: 'Agent work',
   issueAssignedToYou: 'Assigned to you', issueMentioned: 'Mentions', issueReplied: 'Replies', issueReminder: 'Reminders',
   issueStatusChanged: 'Status changes', issueCommented: 'Comments',
 };
@@ -91,27 +96,24 @@ export function InboxPage() {
   const snoozeMenu = useMenu();
   const [menuRow, setMenuRow] = useState<Row | null>(null);
   const now = new Date().toISOString();
+  // muting status changes is the per-person preference the server also honours for new ones
+  const notifyPrefs = snap.workspace.preferences.notify;
+  const statusMuted = notifyPrefs.statusChanged === false;
+  const setStatusMuted = async (muted: boolean) => { await api.updatePreferences({ notify: { ...notifyPrefs, statusChanged: !muted } }); await useApp.getState().bootstrap(); };
 
   const notifications = useMemo(() => snap.notifications.filter(n =>
-    (prefs.showSnoozed || !n.snoozedUntil || n.snoozedUntil <= now)
+    (!statusMuted || n.type !== 'issueStatusChanged')
+    && (prefs.showSnoozed || !n.snoozedUntil || n.snoozedUntil <= now)
     && (!prefs.types.length || prefs.types.some(t => (TYPE_ALIASES[t] ?? [t]).includes(n.type)))
     && (!prefs.from.length || prefs.from.includes(n.actorId ?? 'none'))
     && (n.type !== 'issueReminder' || !n.snoozedUntil || n.snoozedUntil <= now || prefs.showSnoozed),
-  ), [snap.notifications, prefs, now]);
+  ), [snap.notifications, prefs, now, statusMuted]);
 
-  /* Multiple actors on the same issue collapse into one row with a punched-gap stack.
-     Only same-issue, same-kind notifications merge; the merged row keeps the newest
-     timestamp and stays unread while any part is unread. */
+  /* Everything about one issue is one row (core/inbox.ts, as GET /api/notifications counts
+     them): it leads with the newest headline, stacks everyone who acted, and stays unread
+     while any part is unread. */
   const rows = useMemo(() => {
-    const out: Row[] = [];
-    for (const n of notifications) {
-      const hit = n.issueId ? out.find(r => r.lead.issueId === n.issueId && r.lead.type === n.type) : undefined;
-      if (hit) {
-        if (n.actorId && !hit.actors.includes(n.actorId)) hit.actors.push(n.actorId);
-        hit.ids.push(n.id);
-        hit.unread = hit.unread || !n.readAt;
-      } else out.push({ lead: n, actors: n.actorId ? [n.actorId] : [], ids: [n.id], unread: !n.readAt });
-    }
+    const out: Row[] = inboxRows(notifications).map(r => ({ key: r.key, lead: r.lead, actors: r.actorIds, ids: r.ids, unread: r.unread, count: r.count }));
     const at = (r: Row) => r.lead.snoozedUntil && r.lead.type === 'issueReminder' ? r.lead.snoozedUntil : r.lead.createdAt;
     out.sort((a, b) => (prefs.unreadFirst ? Number(b.unread) - Number(a.unread) : 0) || (prefs.order === 'newest' ? at(b).localeCompare(at(a)) : at(a).localeCompare(at(b))));
     return out;
@@ -122,7 +124,8 @@ export function InboxPage() {
      the sections so J/K walks them top to bottom. */
   const sectionOf = (r: Row): string | null => {
     if (prefs.groupUnreads === 'focus' && r.unread) return FOCUS_LABELS[r.lead.type] ?? 'Other updates';
-    if (prefs.priority) { const c = notifyCategory(r.lead.type, r.lead.body); return c && (prefs.priorityCats ?? DEFAULT_PRIORITY_CATS).includes(c) ? 'Priority' : 'Other'; }
+    // an agent's finished or blocked report is always priority: it's waiting on you
+    if (prefs.priority) { const c = notifyCategory(r.lead.type, r.lead.body); return c === 'agentWork' || (c && (prefs.priorityCats ?? DEFAULT_PRIORITY_CATS).includes(c)) ? 'Priority' : 'Other'; }
     if (prefs.groupUnreads === 'focus') return 'Read';
     return null;
   };
@@ -143,6 +146,8 @@ export function InboxPage() {
   const pathOf = (n: Notification): string | null => {
     if (n.type === 'docChanged') return `/docs/${n.body.split('|')[0]}`;
     if (n.type === 'teamMemberAdded') { const t = teamOf(n); return t.key ? `/team/${t.key}/overview` : null; }
+    // "Ask <name>": body is "<settings path>|<what>"
+    if (n.type === 'accessRequested') return n.body.split('|')[0] || '/settings';
     const ini = n.type === 'initiativeUpdateReminder' ? n.body.split('|')[0] : updateTarget(snap, n)?.initiative?.id;
     if (ini) return `/initiatives/${ini}`;
     const k = keyOf(n);
@@ -174,12 +179,28 @@ export function InboxPage() {
     useApp.getState().toast({ title: 'Snoozed', line: <>Back in your inbox {fmt(d)}</> });
   };
 
-  // viewing a notification marks it read after a short delay, so skimming past doesn't clear it
+  /* Viewing a row marks it read after a short delay, so skimming past doesn't clear it. Only a
+     row the person picked counts (a click, or moving the cursor with J/K/arrows): the row the
+     inbox selects by itself on open, or that slides under the cursor as rows arrive, stays
+     unread. `picked` is the row key (one per issue), so a new event on it doesn't count as read. */
+  const [picked, setPicked] = useState<string | null>(null);
+  // a cursor move counts as a pick only right after the person pressed a list key
+  const keyMove = useRef(false);
   useEffect(() => {
-    if (!selected?.unread) return;
+    const onKey = (e: KeyboardEvent) => { if (['j', 'k', 'ArrowDown', 'ArrowUp'].includes(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) { keyMove.current = true; setTimeout(() => { keyMove.current = false; }, 300); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+  useEffect(() => {
+    if (!keyMove.current) return;
+    keyMove.current = false;
+    if (cursor >= 0 && navigable[cursor]) setPicked(navigable[cursor].key);
+  }, [cursor]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!selected?.unread || selected.key !== picked) return;
     const t = setTimeout(() => void markRead(selected, true), 900);
     return () => clearTimeout(t);
-  }, [selected?.lead.id, selected?.unread]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected?.lead.id, selected?.unread, picked]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { document.querySelector('.inbox-row.selected')?.scrollIntoView({ block: 'nearest' }); }, [cursor]);
 
   // inbox keys (U, ⌫, H, ⇧⌫) listen in the capture phase so they run before the list shortcuts
@@ -207,6 +228,8 @@ export function InboxPage() {
 
   const describe = (n: Notification): { icon: React.ReactNode; what: string } => {
     switch (n.type) {
+      case 'agentFinished': return { icon: <IconCheck size={12} />, what: n.body.startsWith('Ready') ? 'finished, ready for your review' : 'finished' };
+      case 'agentBlocked': return { icon: <IconClose size={12} />, what: n.body.startsWith('Stopped') ? 'stopped before finishing' : 'is blocked' };
       case 'issueAssignedToYou': return { icon: <IconAssignArrow size={12} />, what: 'assigned the issue to you' };
       case 'issueCommented': return { icon: <IconComment size={12} />, what: 'commented' };
       case 'issueReplied': return { icon: <IconReply size={12} />, what: 'replied to your thread' };
@@ -228,6 +251,7 @@ export function InboxPage() {
       case 'loopFailed': return { icon: <IconClose size={12} />, what: `loop failed: ${n.body}` };
       case 'teamActivity': return { icon: <IconBell size={12} />, what: n.body };
       case 'teamMemberAdded': return { icon: <IconPlus size={12} />, what: 'added you to the team' };
+      case 'accessRequested': return { icon: <IconBell size={12} />, what: `asked you to ${n.body.split('|').slice(1).join('|').replace(/^./, c => c.toLowerCase())}` };
       default: return { icon: <IconComment size={12} />, what: 'updated the issue' };
     }
   };
@@ -276,25 +300,28 @@ export function InboxPage() {
             const actors = row.actors.map(a => snap.users.find(u => u.id === a)).filter(Boolean) as typeof snap.users;
             const idx = navigable.indexOf(row);
             const isSel = idx >= 0 && idx === cursor;
-            const excerpt = ['issueCommented', 'issueMentioned', 'issueReplied'].includes(n.type) ? n.body : '';
+            // stored previews are plain text; rows written before that may still hold markdown
+            const excerpt = ['issueCommented', 'issueMentioned', 'issueReplied'].includes(n.type) ? plainText(n.body)
+              : n.type === 'agentFinished' || n.type === 'agentBlocked' ? plainText(n.body.slice(n.body.indexOf(':') + 1)) : '';
             const st = issue ? snap.states.find(s => s.id === issue.stateId) : undefined;
             const project = !issue && n.projectId ? snap.projects.find(p => p.id === n.projectId) : undefined;
             const doc = n.type === 'docChanged' ? { id: n.body.split('|')[0], title: n.body.split('|').slice(1).join('|') } : null;
             const target = updateTarget(snap, n);
             const ini = n.type === 'initiativeUpdateReminder' ? snap.initiatives.find(i => i.id === n.body.split('|')[0]) : target?.initiative;
             const addedTo = n.type === 'teamMemberAdded' ? teamOf(n) : null;
-            const projTitle: React.ReactNode = doc ? `📄 ${doc.title}` : addedTo ? addedTo.name : ini ? <span className="inbox-ini"><InitiativeIcon ini={ini} size={12} />{ini.name}</span> : project ? `${project.icon} ${project.name}` : n.type === 'updatesDigest' ? 'Project updates summary' : '';
+            const projTitle: React.ReactNode = doc ? `📄 ${doc.title}` : addedTo ? addedTo.name : n.type === 'accessRequested' ? 'Request' : ini ? <span className="inbox-ini"><InitiativeIcon ini={ini} size={12} />{ini.name}</span> : project ? `${project.icon} ${project.name}` : n.type === 'updatesDigest' ? 'Project updates summary' : '';
             const snoozed = n.snoozedUntil && n.snoozedUntil > now;
             return (
-              <div key={n.id}>
+              <div key={row.key}>
               {header && <div className="inbox-group">{header}<span className="count">{sectioned.filter(x => x.sec === sec).length}</span></div>}
               <div
                 className={`inbox-row${row.unread ? ' unread' : ''}${(isSel && !openRow) || openRow?.lead.id === n.id ? ' selected' : ''}${idx < 0 ? ' static' : ''}${snoozed ? ' snoozed' : ''}`}
-                onClick={() => { if (idx >= 0) { useCursor.setState({ index: idx }); setOpenRow(null); } else { setOpenRow(row); if (row.unread) void markRead(row, true); } }}
+                onClick={() => { if (idx >= 0) { setPicked(row.key); useCursor.setState({ index: idx }); setOpenRow(null); } else { setOpenRow(row); if (row.unread) void markRead(row, true); } }}
                 onDoubleClick={() => { const k = keyOf(n); if (doc) navigate(`/docs/${doc.id}`); else if (addedTo?.key) navigate(`/team/${addedTo.key}/overview`); else if (ini) navigate(`/initiatives/${ini.id}`); else if (k) navigate(`/issue/${k}`); else if (project) navigate(`/projects/${project.id}`); }}
                 onContextMenu={e => { setMenuRow(row); rowMenu.open(e); }}>
                 <span className="inbox-lead">
-                  {n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'initiativeUpdateReminder' || n.type === 'updatesDigest' || n.type === 'prActivity' ? <span className="inbox-sys">{d.icon}</span>
+                  {n.type === 'agentFinished' || n.type === 'agentBlocked' ? <span className={`inbox-sys ${n.type === 'agentBlocked' ? 'warn' : 'agent'}`}>{d.icon}</span>
+                  : n.type === 'issueReminder' || n.type === 'projectUpdateReminder' || n.type === 'initiativeUpdateReminder' || n.type === 'updatesDigest' || n.type === 'prActivity' ? <span className="inbox-sys">{d.icon}</span>
                     : actors.length > 1 ? <AvatarStack size={20} people={actors.map(a => ({ name: a.name, initials: a.initials, color: a.color }))} />
                     : actors.length === 1 ? <Avatar user={actors[0]} size={20} />
                     : <span className="inbox-sys">{d.icon}</span>}
@@ -308,9 +335,10 @@ export function InboxPage() {
                   <div className="inbox-line2">
                     {keyOf(n) && <span className="inbox-key">{keyOf(n)}</span>}
                     <span className="inbox-what">
-                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'updatesDigest' ? n.body : n.type === 'initiativeUpdateReminder' ? n.body.split('|').slice(1).join('|') : <>{actors[0] ? <>{nameOf(actors[0])}{actors.length > 1 ? ` +${actors.length - 1}` : ''} </> : null}{target?.initiative ? 'posted an initiative update' : d.what}</>}
-                      {(n.type === 'projectIssueAdded' || n.type === 'projectIssueClosed' || n.type === 'projectUpdate') && n.body && <>: <span className="inbox-excerpt">{target ? target.excerpt : n.body.replace(/^(Completed|Canceled): /, '')}</span></>}
+                      {n.type === 'issueReminder' ? 'Reminder' : n.type === 'projectUpdateReminder' || n.type === 'updatesDigest' ? n.body : n.type === 'initiativeUpdateReminder' ? n.body.split('|').slice(1).join('|') : <>{actors[0] ? <>{nameOf(actors[0])}{actors.length === 2 ? ` and ${nameOf(actors[1])}` : actors.length > 2 ? ` and ${actors.length - 1} others` : ''} </> : null}{target?.initiative ? 'posted an initiative update' : d.what}</>}
+                      {(n.type === 'projectIssueAdded' || n.type === 'projectIssueClosed' || n.type === 'projectUpdate') && n.body && <>: <span className="inbox-excerpt">{plainText(target ? target.excerpt : n.body.replace(/^(Completed|Canceled): /, ''))}</span></>}
                       {excerpt && <>: <span className="inbox-excerpt">{excerpt}</span></>}
+                      {row.count > 1 && <span className="inbox-count"> · {row.count} updates</span>}
                     </span>
                   </div>
                 </div>
@@ -398,6 +426,7 @@ export function InboxPage() {
             </div>
             <div className="dopts-sep" />
             <div className="dopts-row"><span>Show snoozed</span><button className={`switch${prefs.showSnoozed ? ' on' : ''}`} onClick={() => patchPrefs({ showSnoozed: !prefs.showSnoozed })}><span /></button></div>
+            <div className="dopts-row"><span>Show status changes</span><button className={`switch${statusMuted ? '' : ' on'}`} aria-label="Show status changes" onClick={() => void setStatusMuted(!statusMuted)}><span /></button></div>
             <div className="dopts-row"><span>Show unread first</span><button className={`switch${prefs.unreadFirst ? ' on' : ''}`} onClick={() => patchPrefs({ unreadFirst: !prefs.unreadFirst })}><span /></button></div>
           </div>
         </Menu>
@@ -473,6 +502,16 @@ function ProjectNotice({ n }: { n: Notification }) {
         <div className="pn-title"><span>📄</span>{rest.join('|')}</div>
         <div className="pn-body">{snap.users.find(u => u.id === n.actorId)?.name ?? 'Someone'} edited this document{p ? ` in ${p.name}` : ''}.</div>
         <div style={{ display: 'flex', gap: 8 }}><button className="btn primary sm" onClick={() => navigate(`/docs/${docId}`)}>Open document</button></div>
+      </div>
+    );
+  }
+  if (n.type === 'accessRequested') {
+    const [path, ...what] = n.body.split('|');
+    return (
+      <div className="proj-notice">
+        <div className="pn-title">{snap.users.find(u => u.id === n.actorId)?.name ?? 'Someone'} asked you</div>
+        <div className="pn-body">{what.join('|')}</div>
+        {path && <div style={{ display: 'flex', gap: 8 }}><button className="btn primary sm" onClick={() => navigate(path)}>Open settings</button></div>}
       </div>
     );
   }

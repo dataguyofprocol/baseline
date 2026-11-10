@@ -11,7 +11,7 @@ export const API_KEY_PREFIX = 'bl_api_';
 type Row = { id: string; name: string; user_id: string; token_hash: string; hint: string; scopes: string | null; team_ids: string | null; created_at: string; last_used_at: string | null };
 
 // settings and anything that starts local processes; reads of these stay under `read`
-const ADMIN_ROUTES = /^\/api\/(workspace|features|users|states|import|seed|locations|directories|sla-rules|loops|git\/(automation|sync|pull-requests|commits)|github\/(webhook|issues)\/[^/]+|github\/(token|repos)|issues\/[^/]+\/open-claude)(\/|$)/;
+const ADMIN_ROUTES = /^\/api\/(workspace|features|users|states|import|seed|locations|directories|sla-rules|loops|git\/(automation|sync|pull-requests|commits)|github\/(webhook|issues)\/[^/]+|github\/(token|repos|repo-teams)|issues\/[^/]+\/open-claude)(\/|$)/;
 const TEAM_ADMIN = /^\/api\/teams(\/[^/]+)?$/;
 /** snapshot parts keyed by team id rather than listed */
 const TEAM_KEYED = new Set(['teamWorkflows', 'teamSubscriptions']);

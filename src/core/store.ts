@@ -3,7 +3,7 @@ import { getMeta, migrateDirectoriesToLocations, setMeta, ensureDefaults, ensure
 import { id, nowIso, midSort, normalizeDir } from './util.js';
 import { buildHandoff, DEFAULT_PROMPT_TEMPLATE } from './handoff.js';
 import { actingUser, currentOp, viaFor } from './actor.js';
-import { mentionedIds, plainMentions } from './mentions.js';
+import { mentionedIds, plainMentions, plainText } from './mentions.js';
 import type {
   ActivityItem, ActivityType, Attachment, RecurringIssue, Doc, TerminalApp, Comment, Location, Cycle, Favorite, Handoff, Preferences, PreferencesPatch, EstimateScale,
   Issue, IssueRelation, IssueTemplate, Label, Milestone, Notification, NotificationType, Priority, Project, ProjectUpdate,
@@ -25,6 +25,9 @@ interface IssueRow { id: string; team_id: string; number: number; title: string;
 interface TemplateRow { id: string; team_id: string; name: string; title: string; description: string; position: number; created_at: string; }
 
 function ts(): string { return nowIso(); }
+/** notification kinds whose body is text someone wrote (stored as a plain-text preview) */
+const PLAIN_BODY = new Set<NotificationType>(['issueCommented', 'issueMentioned', 'issueReplied', 'commentReacted', 'projectUpdate', 'agentFinished', 'agentBlocked']);
+function clip(s: string, n: number): string { return s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s; }
 
 /** Stored first-run state over the defaults, keeping only today's keys: rows from the old step
  *  wizard carry keys it no longer has, and some lack `flow`. */
@@ -75,6 +78,7 @@ export class Store {
     cycleCooldown: t.cycle_cooldown ?? 0, cycleUpcoming: t.cycle_upcoming ?? 2, cycleRollover: t.cycle_rollover !== 0,
     estimateScale: (t.estimate_scale as EstimateScale) ?? 'fibonacci',
     memberIds: (this.db.prepare('SELECT user_id FROM team_members WHERE team_id = ? ORDER BY created_at').all(t.id) as Array<{ user_id: string }>).map(r => r.user_id),
+    leadIds: (this.db.prepare("SELECT user_id FROM team_members WHERE team_id = ? AND role = 'lead' ORDER BY created_at").all(t.id) as Array<{ user_id: string }>).map(r => r.user_id),
     estimateZero: !!t.estimate_zero, estimateExtended: !!t.estimate_extended, estimateCountUnestimated: !!t.estimate_count_unestimated,
   });
   private mapComment = (c: CommentRow): Comment => ({
@@ -159,12 +163,12 @@ export class Store {
     const team = this.getTeam(tid)!;
     const defaults: Array<[string, WorkflowStateType, string]> = [
       ['Backlog', 'backlog', '#95a2b3'], ['Todo', 'unstarted', '#e2e2e2'], ['In Progress', 'started', '#f2c94c'],
-      ['Done', 'completed', '#5e6ad2'], ['Canceled', 'canceled', '#7d8084'],
+      ['In Review', 'started', '#4cb782'], ['Done', 'completed', '#5e6ad2'], ['Canceled', 'canceled', '#7d8084'],
     ];
     defaults.forEach(([name2, type, color2], i) => this.createState(team.id, name2, type, color2, i + 1));
-    // whoever makes a team belongs to it (agents aren't members; they're assigned, not on teams)
+    // whoever makes a team belongs to it and leads it (agents aren't members; they're assigned, not on teams)
     const me = this.actor();
-    if (me && (this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'human'").get(me))) this.addTeamMember(tid, me);
+    if (me && (this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'human'").get(me))) { this.addTeamMember(tid, me); this.setTeamLead(tid, me, true); }
     return this.getTeam(tid)!;
   }
 
@@ -198,6 +202,14 @@ export class Store {
   }
   addTeamMember(teamId: string, userId: string): void {
     this.db.prepare('INSERT OR IGNORE INTO team_members (team_id, user_id, created_at) VALUES (?, ?, ?)').run(teamId, userId, ts());
+  }
+  /** make a team's member its lead, or a member again (adds them to the team first) */
+  setTeamLead(teamId: string, userId: string, lead: boolean): void {
+    this.addTeamMember(teamId, userId);
+    this.db.prepare('UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ?').run(lead ? 'lead' : 'member', teamId, userId);
+  }
+  isTeamLead(teamId: string, userId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ? AND role = 'lead'").get(teamId, userId);
   }
   removeTeamMember(teamId: string, userId: string): void {
     this.db.prepare('DELETE FROM team_members WHERE team_id = ? AND user_id = ?').run(teamId, userId);
@@ -428,7 +440,8 @@ export class Store {
     this.logActivity({ issueId: issue.id, type: 'created', data: { title: issue.title } }, actorId);
     if (issue.creatorId) this.subscribe(issue.id, issue.creatorId);
     if (issue.assigneeId) { this.subscribe(issue.id, issue.assigneeId); this.notifyAssign(issue.id, issue.assigneeId, actorId); }
-    for (const uid of this.mentions(issue.description)) this.subscribe(issue.id, uid);
+    // a mention notifies once; it doesn't follow the issue for them (commenting does)
+    for (const uid of this.mentions(issue.description)) this.notifyMention(issue.id, uid, creatorId, issue.title);
     if (issue.projectId) this.notifyProject(issue.projectId, 'issueAdded', 'projectIssueAdded', creatorId, issue.title, issue.id);
     for (const h of this.issueHooks) h(null, issue, actorId);
     return issue;
@@ -465,9 +478,11 @@ export class Store {
       const st = this.db.prepare('SELECT type FROM states WHERE id = ?').get(patch.stateId) as { type: WorkflowStateType };
       next.completedAt = st.type === 'completed' ? now : null;
       next.canceledAt = st.type === 'canceled' ? now : null;
-      // Preferences › On move to started status, assign to yourself
+      // Preferences › On move to started status, assign to yourself (people only: the GitHub and
+      // Automation agents move issues too, and must never become the assignee)
       const me = actorId ?? this.actor();
-      if (st.type === 'started' && !next.assigneeId && patch.assigneeId === undefined && me && this.getPreferences(me).assignOnStart) {
+      if (st.type === 'started' && !next.assigneeId && patch.assigneeId === undefined && me && this.getPreferences(me).assignOnStart
+        && this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'human'").get(me)) {
         next.assigneeId = me; patch.assigneeId = me;
       }
     }
@@ -480,7 +495,7 @@ export class Store {
     if (patch.description !== undefined && patch.description !== before.description) {
       acts.push(['described', {}]);
       const had = new Set(this.mentions(before.description));
-      for (const uid of this.mentions(next.description)) if (!had.has(uid)) { this.subscribe(issueId, uid); this.notifyMention(issueId, uid, actorId, next.title); }
+      for (const uid of this.mentions(next.description)) if (!had.has(uid)) this.notifyMention(issueId, uid, actorId, next.title);
     }
     if (patch.stateId !== undefined && patch.stateId !== before.stateId) {
       const fromType = this.stateType(before.stateId);
@@ -646,18 +661,25 @@ export class Store {
     const c: Comment = { id: id('c'), issueId, userId, viaUserId: viaFor(userId), body, createdAt: now, editedAt: null, reactions: {}, resolvedAt: null, parentId: threadId };
     this.db.prepare('INSERT INTO comments (id, issue_id, user_id, via_user_id, body, created_at, reactions, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(c.id, issueId, userId, c.viaUserId, body, now, '{}', threadId);
     this.logActivity({ issueId, type: 'commented', data: { commentId: c.id } }, userId);
+    // commenting follows the issue; being mentioned only notifies, once (replying is what subscribes)
     this.subscribe(issueId, userId);
     const mentioned = this.mentions(body);
-    for (const uid of mentioned) this.subscribe(issueId, uid);
     // a mention outranks a reply, which outranks the plain comment notification, so never raise two for one person
     const threadAuthors = threadId ? (this.db.prepare('SELECT DISTINCT user_id FROM comments WHERE id = ? OR parent_id = ?').all(threadId, threadId) as Array<{ user_id: string }>).map(r => r.user_id) : [];
     for (const uid of mentioned) this.notifyMention(issueId, uid, userId, body);
     const replied = threadAuthors.filter(u => !mentioned.includes(u));
-    this.notifyEach(replied, 'issueReplied', { actorId: userId, issueId, body: body.slice(0, 140), createdAt: now });
-    this.notifySubscribed(issueId, 'issueCommented', userId, body.slice(0, 140), 'comments', [...mentioned, ...replied]);
+    this.notifyEach(replied, 'issueReplied', { actorId: userId, issueId, body, createdAt: now });
+    this.notifySubscribed(issueId, 'issueCommented', userId, body, 'comments', [...mentioned, ...replied]);
     return c;
   }
-  updateComment(commentId: string, body: string): void { this.db.prepare('UPDATE comments SET body = ?, edited_at = ? WHERE id = ?').run(body, ts(), commentId); }
+  /** an edit notifies nobody, except people it newly mentions (once each, as a fresh mention would) */
+  updateComment(commentId: string, body: string): void {
+    const before = this.db.prepare('SELECT issue_id, user_id, body FROM comments WHERE id = ?').get(commentId) as { issue_id: string; user_id: string; body: string } | undefined;
+    this.db.prepare('UPDATE comments SET body = ?, edited_at = ? WHERE id = ?').run(body, ts(), commentId);
+    if (!before) return;
+    const had = new Set(this.mentions(before.body));
+    for (const uid of this.mentions(body)) if (!had.has(uid)) this.notifyMention(before.issue_id, uid, before.user_id, body);
+  }
   /** resolving closes a whole thread (its root carries the mark) */
   resolveComment(commentId: string, resolved: boolean): void {
     const row = this.db.prepare('SELECT id, parent_id FROM comments WHERE id = ?').get(commentId) as { id: string; parent_id: string | null } | undefined;
@@ -706,7 +728,7 @@ export class Store {
     this.db.prepare('UPDATE comments SET reactions = ? WHERE id = ?').run(JSON.stringify(r), commentId);
     // someone else reacting to your comment reaches your inbox (Notifications › Reactions)
     const c = this.db.prepare('SELECT issue_id, user_id, body FROM comments WHERE id = ?').get(commentId) as { issue_id: string; user_id: string; body: string };
-    if (!arr.includes(userId)) this.notifyEach([c.user_id], 'commentReacted', { actorId: userId, issueId: c.issue_id, body: `${emoji} ${c.body.slice(0, 120)}` });
+    if (!arr.includes(userId)) this.notifyEach([c.user_id], 'commentReacted', { actorId: userId, issueId: c.issue_id, body: `${emoji} ${c.body}` });
   }
 
   // ---------- relations ----------
@@ -1024,17 +1046,24 @@ export class Store {
   }
   /** single insert point for every notification the store raises; `userId` is whose inbox it lands in */
   notify(type: NotificationType, o: { userId: string; actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string }): void {
+    // text people wrote is a preview line: plain text, not markdown or mention tokens. Other
+    // bodies are structured ("<docId>|<title>") and keep their exact text.
+    const raw = o.body ?? '';
+    const body = PLAIN_BODY.has(type) ? clip(plainText(raw), 160) : plainMentions(raw);
     this.db.prepare('INSERT INTO notifications (id, type, actor_id, issue_id, project_id, body, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id('n'), type, o.actorId ?? null, o.issueId ?? null, o.projectId ?? null, plainMentions(o.body ?? ''), o.createdAt ?? ts(), o.userId);
+      .run(id('n'), type, o.actorId ?? null, o.issueId ?? null, o.projectId ?? null, body, o.createdAt ?? ts(), o.userId);
   }
   /** one notification in each recipient's inbox: once per person, never to agents (they have no
-   *  inbox), and never to whoever is acting unless `selfToo` (as in Linear: your own action isn't news) */
+   *  inbox), and never to whoever is acting unless `selfToo` (as in Linear: your own action isn't news).
+   *  An agent acting for someone counts as that person here: their own agent's moves aren't news
+   *  to them either (only its finish and blocked reports are, which pass `selfToo`). */
   notifyEach(recipients: Iterable<string | null | undefined>, type: NotificationType, o: { actorId?: string | null; issueId?: string | null; projectId?: string | null; body?: string; createdAt?: string; selfToo?: boolean }): void {
     const { selfToo, ...rest } = o;
     const actorId = o.actorId === undefined ? this.actor() : o.actorId;
     const agent = this.db.prepare("SELECT 1 FROM users WHERE id = ? AND kind = 'agent'");
+    const forPerson = actorId ? viaFor(actorId) : null;
     for (const userId of new Set(recipients)) {
-      if (!userId || (!selfToo && userId === actorId) || agent.get(userId)) continue;
+      if (!userId || (!selfToo && (userId === actorId || userId === forPerson)) || agent.get(userId)) continue;
       this.notify(type, { ...rest, actorId, userId });
     }
   }
@@ -1046,15 +1075,15 @@ export class Store {
   subscribers(issueId: string): string[] {
     return (this.db.prepare('SELECT user_id FROM subscriptions WHERE issue_id = ?').all(issueId) as Array<{ user_id: string }>).map(r => r.user_id);
   }
-  /** raise one for each person following the issue, except whoever acted. Everything lands in the
-   *  inbox, as in Linear; Settings › Notifications only chooses what the browser pushes and
-   *  what counts as priority. `skip`: people a stronger notification already reached. */
-  private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, _pref: keyof Preferences['notify'], skip: Iterable<string> = []): void {
+  /** raise one for each person following the issue, except whoever acted and anyone who muted
+   *  this kind (`Preferences.notify`, e.g. status changes, switched from the inbox's display
+   *  options). `skip`: people a stronger notification already reached. */
+  private notifySubscribed(issueId: string, type: NotificationType, actorId: string | undefined, body: string, pref: keyof Preferences['notify'], skip: Iterable<string> = []): void {
     const done = new Set(skip);
-    this.notifyEach(this.subscribers(issueId).filter(u => !done.has(u)), type, { actorId, issueId, body });
+    this.notifyEach(this.subscribers(issueId).filter(u => !done.has(u) && this.getPreferences(u).notify[pref] !== false), type, { actorId, issueId, body });
   }
   private notifyMention(issueId: string, userId: string, actorId: string | undefined, body: string): void {
-    this.notifyEach([userId], 'issueMentioned', { actorId, issueId, body: body.slice(0, 140) });
+    this.notifyEach([userId], 'issueMentioned', { actorId, issueId, body });
   }
   listNotifications(): Notification[] { return this.snapshot().notifications; }
   // everyone reads, snoozes and clears only their own inbox
@@ -1092,7 +1121,26 @@ export class Store {
 
   getFeatures(): WorkspaceFeatures {
     // keys of switches that no longer exist are dropped, so old workspaces don't leak them
-    try { const stored = JSON.parse(getMeta(this.db, 'features') ?? '{}') as Record<string, unknown>; return { ...DEFAULT_FEATURES, ...Object.fromEntries(Object.entries(stored).filter(([k]) => k in DEFAULT_FEATURES)) } as WorkspaceFeatures; } catch { return DEFAULT_FEATURES; }
+    let stored: Record<string, unknown> = {};
+    try { stored = JSON.parse(getMeta(this.db, 'features') ?? '{}') as Record<string, unknown>; } catch { /* defaults */ }
+    return { ...DEFAULT_FEATURES, ...this.featuresInUse(stored), ...Object.fromEntries(Object.entries(stored).filter(([k]) => k in DEFAULT_FEATURES)) } as WorkspaceFeatures;
+  }
+  /** the off-by-default switches nobody has set yet start on when the workspace already uses them,
+   *  so a workspace from before Settings › Features (or the sample workspace) keeps what it has */
+  private featuresInUse(stored: Record<string, unknown>): Partial<WorkspaceFeatures> {
+    const has = (sql: string) => { try { return !!this.db.prepare(sql).get(); } catch { return false; } };
+    const probes: Array<[keyof WorkspaceFeatures, string]> = [
+      ['cyclesEnabled', 'SELECT 1 FROM cycles UNION ALL SELECT 1 FROM teams WHERE auto_cycles = 1 LIMIT 1'],
+      ['estimatesEnabled', 'SELECT 1 FROM issues WHERE estimate IS NOT NULL LIMIT 1'],
+      ['templatesEnabled', 'SELECT 1 FROM issue_templates LIMIT 1'],
+      ['documentsEnabled', 'SELECT 1 FROM documents LIMIT 1'],
+      ['recurringEnabled', 'SELECT 1 FROM recurring_issues LIMIT 1'],
+      ['projectUpdatesEnabled', 'SELECT 1 FROM project_updates LIMIT 1'],
+      ['initiativesEnabled', 'SELECT 1 FROM initiatives LIMIT 1'],
+      ['slasEnabled', 'SELECT 1 FROM sla_rules LIMIT 1'],
+      ['loopsEnabled', 'SELECT 1 FROM loops LIMIT 1'],
+    ];
+    return Object.fromEntries(probes.filter(([k]) => !(k in stored)).map(([k, sql]) => [k, has(sql)]));
   }
   setFeatures(patch: Partial<WorkspaceFeatures>): void { setMeta(this.db, 'features', JSON.stringify({ ...this.getFeatures(), ...patch })); }
 
@@ -1106,6 +1154,7 @@ export class Store {
       approvedDomains: patch.approvedDomains ? [...new Set(patch.approvedDomains.map(d => d.trim().toLowerCase().replace(/^@/, '')).filter(d => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)))] : cur.approvedDomains,
       domainTeamIds: patch.domainTeamIds ?? cur.domainTeamIds,
       whoCanInvite: patch.whoCanInvite === 'members' || patch.whoCanInvite === 'admins' ? patch.whoCanInvite : cur.whoCanInvite,
+      smallTeamInvites: typeof patch.smallTeamInvites === 'boolean' ? patch.smallTeamInvites : cur.smallTeamInvites,
     };
     setMeta(this.db, 'security', JSON.stringify(next));
     return next;
@@ -1183,7 +1232,9 @@ export class Store {
   /** notify everyone following a project for this kind of event, but never about their own changes */
   private notifyProject(projectId: string, flag: 'issueAdded' | 'issueClosed' | 'comments' | 'updates', type: NotificationType, actorId: string | undefined | null, body: string, issueId?: string): void {
     const col = { issueAdded: 'issue_added', issueClosed: 'issue_closed', comments: 'comments', updates: 'updates' }[flag];
-    const subs = this.db.prepare(`SELECT user_id FROM project_subscriptions WHERE project_id = ? AND ${col} = 1`).all(projectId) as Array<{ user_id: string }>;
+    let subs = this.db.prepare(`SELECT user_id FROM project_subscriptions WHERE project_id = ? AND ${col} = 1`).all(projectId) as Array<{ user_id: string }>;
+    // project updates reach a person one way: in their summary while summaries are on, one by one only when off
+    if (flag === 'updates') subs = subs.filter(r => this.getPreferences(r.user_id).updatesSummary === 'off');
     this.notifyEach(subs.map(r => r.user_id), type, { actorId: actorId ?? this.actor(), projectId, issueId: issueId ?? null, body });
   }
 
@@ -1373,7 +1424,7 @@ export class Store {
   }
   wipe(): void {
     for (const t of this.ext.tables) this.db.exec(`DELETE FROM ${t};`);
-    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'documents', 'team_links', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
+    for (const t of ['project_labels', 'project_statuses', 'project_subscriptions', 'documents', 'team_links', 'recurring_issues', 'project_links', 'files', 'attachments', 'subscriptions', 'activity', 'notifications', 'favorites', 'views', 'issue_templates', 'milestones', 'cycles', 'project_updates', 'project_locations', 'locations', 'projects', 'relations', 'comments', 'issues', 'labels', 'states', 'team_join_links', 'team_members', 'teams', 'invites', 'sessions', 'user_preferences', 'users', 'meta']) {
       this.db.exec(`DELETE FROM ${t};`);
     }
     ensureDefaults(this.db);

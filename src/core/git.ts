@@ -2,15 +2,16 @@ import type { DatabaseSync } from 'node:sqlite';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type { Store } from './store.js';
-import { getMeta, setMeta } from './db.js';
+import { ensureReviewStates, getMeta, setMeta } from './db.js';
 import { id } from './util.js';
 import { agentUser } from './automation.js';
-import type { Commit, GitStatus, GithubSource, GithubTokenInfo, IssueCommit, IssuePr, PrAutomation, PrEvent, PrState, PullRequest, TrackedRepo, WorkflowStateType } from './types.js';
+import type { Commit, GithubAuthor, GithubSummary, GitStatus, GithubSource, GithubTokenInfo, IssueCommit, IssuePr, PrAutomation, PrEvent, PrState, PullRequest, TrackedRepo, WorkflowStateType } from './types.js';
 
 /* Git / GitHub, following Linear's GitHub integration (and TEAM_PLAN.md Phase 4):
    - linking: an issue key in the branch name or PR title links it; magic words in the
      description decide closing / non-closing / relation-only links, and `ignore KEY` /
-     `skip KEY` opt out;
+     `skip KEY` opt out. A commit links to its branch's issue and to keys it names, but only a
+     magic word on the default branch closes ("CORE-6: wip" or "does not fix CORE-6" never does);
    - `KEY-NEW` in a PR's title or description files a new issue in team KEY, started, assigned
      to the PR's author and linked to the PR;
    - people: a PR author whose GitHub login matches a user's GitHub username is that user, so
@@ -29,23 +30,59 @@ const SKIP = ['ignore', 'skip'];
 const KEY = '[A-Za-z][A-Za-z0-9]{0,9}-\\d+';
 
 export type LinkKind = IssuePr['kind'];
+const RANK: Record<LinkKind, number> = { related: 0, ref: 1, closing: 2 };
+/** "does not fix", "doesn't close", "won't resolve", "not yet fixing": a negated closing word only references */
+const NEGATED = /(?:\b(?:not|never|no|without)|n['’]t)\s+(?:[\w-]+\s+){0,2}$/i;
 
-/** every issue key a PR links, and how it links; pure, so tests and webhooks can reuse it */
-export function parseLinks(pr: { branch: string; title: string; body: string }): Map<string, LinkKind> {
+/** magic-word links in free text, and the keys `ignore` / `skip` opt out of */
+function wordLinks(text: string) {
   const out = new Map<string, LinkKind>();
-  const rank: Record<LinkKind, number> = { related: 0, ref: 1, closing: 2 };
-  const put = (k: string, kind: LinkKind) => { const key = k.toUpperCase(); const cur = out.get(key); if (!cur || rank[kind] > rank[cur]) out.set(key, kind); };
-  const text = `${pr.title}\n${pr.body}`;
+  const put = (k: string, kind: LinkKind) => { const key = k.toUpperCase(); const cur = out.get(key); if (!cur || RANK[kind] > RANK[cur]) out.set(key, kind); };
   const skipped = new Set<string>();
   const list = `(${KEY}(?:\\s*(?:,|and|&)\\s*${KEY})*)`;
   const words = (ws: string[]) => ws.map(w => w.replace(/ /g, '\\s+')).join('|');
   for (const m of text.matchAll(new RegExp(`\\b(?:${words(SKIP)})\\s+${list}`, 'gi'))) for (const k of m[1].match(new RegExp(KEY, 'g')) ?? []) skipped.add(k.toUpperCase());
   for (const [ws, kind] of [[CLOSING, 'closing'], [NON_CLOSING, 'ref'], [RELATION, 'related']] as const) {
-    for (const m of text.matchAll(new RegExp(`\\b(?:${words(ws)}):?\\s+${list}`, 'gi'))) for (const k of m[1].match(new RegExp(KEY, 'g')) ?? []) put(k, kind);
+    for (const m of text.matchAll(new RegExp(`\\b(?:${words(ws)}):?\\s+${list}`, 'gi'))) {
+      const before = text.slice(text.lastIndexOf('\n', m.index) + 1, m.index);
+      const as = kind === 'closing' && NEGATED.test(before) ? 'ref' : kind;
+      for (const k of m[1].match(new RegExp(KEY, 'g')) ?? []) put(k, as);
+    }
   }
+  return { out, skipped, put };
+}
+
+/** issue keys a branch name carries, in order: `parth/core-12-fix-login`, `feat/CORE-12`, `core-12`.
+ *  A key sits between separators, so `score-14x` names nothing. Pure. */
+export function branchKeys(branch: string): string[] {
+  return [...new Set([...branch.matchAll(new RegExp(`(?:^|[/_.-])(${KEY})(?=$|[/_.-])`, 'gi'))].map(m => m[1].toUpperCase()))];
+}
+/** the one issue a branch is for: its first key naming a real issue (`known`), so a title word like
+ *  `fix-404` or a username like `ada-2/` can't win over the key; without `known`, the first key */
+function branchIssue(branch: string, known?: (key: string) => boolean): string | undefined {
+  const keys = branchKeys(branch);
+  return known ? keys.find(known) : keys[0];
+}
+
+/** every issue key a PR links, and how it links; pure, so tests and webhooks can reuse it */
+export function parseLinks(pr: { branch: string; title: string; body: string }, known?: (key: string) => boolean): Map<string, LinkKind> {
+  const { out, skipped, put } = wordLinks(`${pr.title}\n${pr.body}`);
   // a key in the branch name or the title links it as closing (unless a word above said otherwise)
-  for (const k of pr.branch.match(new RegExp(`(?:^|[/_-])(${KEY})(?=$|[/_-])`, 'gi')) ?? []) { const key = k.replace(/^[/_-]/, ''); if (!out.has(key.toUpperCase())) put(key, 'closing'); }
+  const fromBranch = branchIssue(pr.branch, known);
+  if (fromBranch && !out.has(fromBranch)) put(fromBranch, 'closing');
   for (const k of pr.title.match(new RegExp(`\\b${KEY}\\b`, 'g')) ?? []) if (!out.has(k.toUpperCase())) put(k, 'closing');
+  for (const k of skipped) out.delete(k);
+  return out;
+}
+
+/** every issue key a commit links. Unlike a PR, a commit closes only with a magic word ("fixes CORE-12"):
+ *  a bare key ("CORE-6: wip") is a reference, and so is the branch it's on, which ties the commit to that
+ *  branch's issue with no key in the message. Bare keys are upper case, so `sha-256` isn't one. Pure. */
+export function parseCommitLinks(c: { branch: string; message: string }, known?: (key: string) => boolean): Map<string, LinkKind> {
+  const { out, skipped, put } = wordLinks(c.message);
+  for (const k of c.message.match(/\b[A-Z][A-Z0-9]{0,9}-\d+\b/g) ?? []) if (!out.has(k)) put(k, 'ref');
+  const fromBranch = branchIssue(c.branch, known);
+  if (fromBranch && !out.has(fromBranch)) put(fromBranch, 'ref');
   for (const k of skipped) out.delete(k);
   return out;
 }
@@ -122,6 +159,8 @@ export function parseTokenCheck(raw: string): { login: string; expiresAt: string
 }
 
 const REPO = /^[\w.-]+\/[\w.-]+$/;
+/** `refs/remotes/origin/feat/core-12` or `refs/heads/feat/core-12` → `feat/core-12` */
+export const refBranch = (ref = '') => ref.trim().replace(/^refs\/(?:heads\/|remotes\/[^/]+\/|tags\/)?/, '');
 interface StoredToken { token: string; login: string; expiresAt: string | null }
 
 export class GitSync {
@@ -146,20 +185,16 @@ export class GitSync {
   automation(teamId: string): PrAutomation {
     const states = this.rows<{ id: string; name: string; type: WorkflowStateType }>('SELECT id, name, type FROM states WHERE team_id = ? ORDER BY position', teamId);
     const started = states.find(s => s.type === 'started' && !/review/i.test(s.name))?.id ?? null;
-    const review = states.find(s => /review/i.test(s.name))?.id ?? null;
+    // every team has an In Review state (db.ts ensureReviewStates); one that deleted it falls back to started
+    const review = states.find(s => /review/i.test(s.name))?.id ?? started;
     const done = states.find(s => s.type === 'completed')?.id ?? null;
     const defaults: PrAutomation = { draft: started, opened: started, review, ready: null, merged: done, branchRules: [] };
     try { return { ...defaults, ...JSON.parse(getMeta(this.db, `prAutomation:${teamId}`) ?? '{}') }; } catch { return defaults; }
   }
   setAutomation(teamId: string, patch: Partial<PrAutomation>): void { setMeta(this.db, `prAutomation:${teamId}`, JSON.stringify({ ...this.automation(teamId), ...patch })); }
-  /** Linear's "In Review" state, added once to each team (after its started states) */
-  ensureInReview(): void {
-    for (const t of this.rows<{ id: string }>('SELECT id FROM teams')) {
-      if (this.db.prepare("SELECT 1 FROM states WHERE team_id = ? AND lower(name) = 'in review'").get(t.id)) continue;
-      const last = this.db.prepare("SELECT MAX(position) p FROM states WHERE team_id = ? AND type = 'started'").get(t.id) as { p: number | null };
-      this.store.createState(t.id, 'In Review', 'started', '#4cb782', (last.p ?? 2) + 0.5);
-    }
-  }
+  /** "In Review" on every team that has no review state. New teams are made with one and a migration
+   *  adds it to old ones, so this only matters to callers that build teams by hand */
+  ensureInReview(): void { ensureReviewStates(this.db); }
 
   // ---------- ingest ----------
   private issueByKey(key: string): { id: string; teamId: string; assigneeId: string | null } | undefined {
@@ -197,7 +232,7 @@ export class GitSync {
       .run(pr.id, pr.repo, pr.number, pr.title, pr.body, pr.url, pr.state, pr.branch, pr.base, pr.author, pr.reviewDecision, pr.checks, pr.updatedAt, pr.mergedAt);
     const author = this.userByGithub(pr.author);
     const actor = author ?? agentUser(this.store, this.db, 'GitHub');
-    const links = parseLinks(pr);
+    const links = parseLinks(pr, k => !!this.issueByKey(k));
     for (const teamKey of parseNewIssueKeys(pr)) { const key = this.issueFromPr(pr, teamKey, author, actor); if (key) links.set(key, 'closing'); }
     for (const [key, kind] of links) {
       const issue = this.issueByKey(key);
@@ -214,28 +249,31 @@ export class GitSync {
       const changed = !prev || prev.state !== pr.state || (prev.review_decision ?? null) !== pr.reviewDecision;
       if (changed) {
         const what = pr.state === 'merged' ? 'merged' : pr.state === 'closed' ? 'closed' : pr.reviewDecision === 'approved' ? 'approved' : pr.reviewDecision === 'changes_requested' ? 'changes requested' : prev ? 'updated' : 'opened';
-        // the assignee and everyone following the issue, including the PR's author, because the "actor"
-        // is the PR, and a review or merge by someone else is news to them
-        this.store.notifyEach([issue.assigneeId, ...this.store.subscribers(issue.id)], 'prActivity', { actorId: actor, issueId: issue.id, body: `PR #${pr.number} ${what}: ${pr.title}`, selfToo: true });
+        // the assignee and everyone following the issue. The "actor" is the PR's author, so a review
+        // or merge (by someone else) reaches them too; their own opening or pushing doesn't
+        this.store.notifyEach([issue.assigneeId, ...this.store.subscribers(issue.id)], 'prActivity', { actorId: actor, issueId: issue.id, body: `PR #${pr.number} ${what}: ${pr.title}`, selfToo: what !== 'opened' && what !== 'updated' });
       }
       this.applyAutomation(issue.id);
     }
     return pr;
   }
-  /** commits that name issues link to them; closing words on the default branch count as merged */
+  /** commits link to their branch's issue and the keys they name. Only a closing word on the default
+   *  branch counts as merged; work on a feature branch moves the issue to started; a bare reference
+   *  on the default branch only links */
   ingestPush(commits: Array<Commit & { onDefaultBranch?: boolean }>): number {
     const bot = agentUser(this.store, this.db, 'GitHub');
+    const known = (k: string) => !!this.issueByKey(k);
     let linked = 0;
     for (const c of commits) {
       this.db.prepare('INSERT OR IGNORE INTO commits (sha, repo, message, author, branch, committed_at) VALUES (?,?,?,?,?,?)').run(c.sha, c.repo, c.message, c.author, c.branch, c.committedAt);
-      for (const [key, kind] of parseLinks({ branch: c.branch, title: c.message.split('\n')[0], body: c.message })) {
+      for (const [key, kind] of parseCommitLinks(c, known)) {
         const issue = this.issueByKey(key);
         if (!issue || this.db.prepare('SELECT 1 FROM issue_commits WHERE issue_id = ? AND sha = ?').get(issue.id, c.sha)) continue;
         this.db.prepare('INSERT INTO issue_commits (issue_id, sha) VALUES (?, ?)').run(issue.id, c.sha);
         this.store.logActivity({ issueId: issue.id, type: 'commitLinked', data: { sha: c.sha.slice(0, 7), message: c.message.split('\n')[0], repo: c.repo } }, bot);
         linked++;
         const auto = this.automation(issue.teamId);
-        const target = kind === 'closing' && c.onDefaultBranch ? auto.merged : auto.opened;
+        const target = c.onDefaultBranch ? (kind === 'closing' ? auto.merged : null) : kind === 'related' ? null : auto.opened;
         if (target) this.moveForward(issue.id, target, `commit ${c.sha.slice(0, 7)}`);
       }
     }
@@ -296,6 +334,8 @@ export class GitSync {
     catch (e) { const m = (e as Error).message; throw new Error(/ENOENT/.test(m) ? 'The GitHub CLI (gh) isn\'t installed on this server' : `GitHub didn't accept that token: ${m}`); }
     const { login, expiresAt } = parseTokenCheck(raw);
     setMeta(this.db, 'githubToken', JSON.stringify({ token, login, expiresAt } satisfies StoredToken));
+    // a working token is the decision to use GitHub: no separate switch to find
+    this.store.setFeatures({ githubEnabled: true });
     return this.tokenInfo()!;
   }
   removeToken(): void { setMeta(this.db, 'githubToken', ''); }
@@ -307,7 +347,25 @@ export class GitSync {
     const bad = repos.find(r => !REPO.test(r));
     if (bad !== undefined) throw new Error(`“${bad}” isn't owner/name`);
     const seen = new Set<string>();
-    setMeta(this.db, 'githubRepos', JSON.stringify(repos.filter(r => !seen.has(r.toLowerCase()) && seen.add(r.toLowerCase()))));
+    const kept = repos.filter(r => !seen.has(r.toLowerCase()) && seen.add(r.toLowerCase()));
+    setMeta(this.db, 'githubRepos', JSON.stringify(kept));
+    // with one team there's nothing to choose: its repos are its own
+    const teams = this.rows<{ id: string }>('SELECT id FROM teams');
+    const map = this.repoTeams();
+    if (teams.length === 1) for (const r of kept) map[r.toLowerCase()] ??= teams[0].id;
+    setMeta(this.db, 'githubRepoTeams', JSON.stringify(map));
+    if (kept.length) this.store.setFeatures({ githubEnabled: true });
+  }
+  /** repo (lower case) → the team whose work it holds */
+  repoTeams(): Record<string, string> {
+    try { return JSON.parse(getMeta(this.db, 'githubRepoTeams') ?? '{}') ?? {}; } catch { return {}; }
+  }
+  setRepoTeam(repo: string, teamId: string | null): void {
+    if (!REPO.test(repo)) throw new Error(`“${repo}” isn't owner/name`);
+    if (teamId && !this.db.prepare('SELECT 1 FROM teams WHERE id = ?').get(teamId)) throw new Error('Unknown team');
+    const map = this.repoTeams();
+    if (teamId) map[repo.toLowerCase()] = teamId; else delete map[repo.toLowerCase()];
+    setMeta(this.db, 'githubRepoTeams', JSON.stringify(map));
   }
   /** what the source can see, most recently pushed first */
   async available(): Promise<string[]> {
@@ -317,9 +375,36 @@ export class GitSync {
   async repos(): Promise<TrackedRepo[]> {
     const located = this.hosted ? [] : (await Promise.all(this.store.listLocations().map(async l => ({ repo: await this.remoteOf(l.path), path: l.path, location: l.name })))).filter(l => l.repo);
     const out = new Map<string, TrackedRepo>();
-    for (const repo of this.picked()) { const l = located.find(x => x.repo!.toLowerCase() === repo.toLowerCase()); out.set(repo.toLowerCase(), { repo, path: l?.path ?? null, via: 'picked', location: l?.location ?? null }); }
-    for (const l of located) if (!out.has(l.repo!.toLowerCase())) out.set(l.repo!.toLowerCase(), { repo: l.repo!, path: l.path, via: 'location', location: l.location });
+    const teams = this.repoTeams();
+    const teamOf = (repo: string) => teams[repo.toLowerCase()] ?? null;
+    for (const repo of this.picked()) { const l = located.find(x => x.repo!.toLowerCase() === repo.toLowerCase()); out.set(repo.toLowerCase(), { repo, path: l?.path ?? null, via: 'picked', location: l?.location ?? null, teamId: teamOf(repo) }); }
+    for (const l of located) if (!out.has(l.repo!.toLowerCase())) out.set(l.repo!.toLowerCase(), { repo: l.repo!, path: l.path, via: 'location', location: l.location, teamId: teamOf(l.repo!) });
     return [...out.values()];
+  }
+
+  // ---------- what syncing found: the payoff, and who the PR authors are ----------
+  /** PR authors in synced data, newest activity first, each with the member they are or probably are */
+  authors(repos?: Set<string>): GithubAuthor[] {
+    const counts = new Map<string, { author: string; n: number }>();
+    for (const p of this.rows<{ author: string; repo: string }>("SELECT author, repo FROM pull_requests WHERE author != '' ORDER BY updated_at DESC")) {
+      if (repos?.size && !repos.has(p.repo.toLowerCase())) continue;
+      const k = p.author.toLowerCase();
+      if (!counts.has(k)) counts.set(k, { author: p.author, n: 0 });
+      counts.get(k)!.n++;
+    }
+    const people = this.rows<{ id: string; name: string; email: string; username: string; github_username: string }>("SELECT id, name, email, username, github_username FROM users WHERE kind = 'human' AND COALESCE(status, 'active') = 'active'");
+    const unmapped = people.filter(p => !p.github_username.trim());
+    return [...counts.values()].map(({ author, n }) => {
+      const userId = this.userByGithub(author) ?? null;
+      return { login: author, prs: n, userId, suggestedUserId: userId ? null : suggestMember(author, unmapped) };
+    });
+  }
+  async summary(): Promise<GithubSummary> {
+    const tracked = new Set((await this.repos()).map(r => r.repo.toLowerCase()));
+    const open = this.rows<{ id: string; repo: string; author: string }>("SELECT id, repo, author FROM pull_requests WHERE state IN ('open', 'draft')").filter(p => !tracked.size || tracked.has(p.repo.toLowerCase()));
+    const linked = new Set(this.rows<{ pr_id: string }>('SELECT DISTINCT pr_id FROM issue_prs WHERE dismissed = 0').map(r => r.pr_id));
+    const authors = this.authors(tracked);
+    return { repos: tracked.size, openPrs: open.length, linkedPrs: open.filter(p => linked.has(p.id)).length, authors: authors.length, peopleMatched: authors.filter(a => a.userId).length };
   }
 
   async status(): Promise<GitStatus> {
@@ -361,11 +446,12 @@ export class GitSync {
   }
   private async logCommits(repo: string, path: string): Promise<Array<Commit & { onDefaultBranch: boolean }>> {
     const def = (await run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], path).catch(() => 'origin/main')).trim();
-    const parse = (out: string, onDefault: boolean) => out.split('\x1e').map(r => r.trim()).filter(Boolean).map(r => { const [sha, author, at, ...msg] = r.split('\x1f'); return { sha, repo, author, committedAt: at, message: msg.join('\x1f'), branch: onDefault ? def.replace(/^origin\//, '') : '', onDefaultBranch: onDefault }; });
-    const fmt = '--pretty=format:%H%x1f%an%x1f%cI%x1f%B%x1e';
+    // %S (with --source) is the ref a commit was reached from, so a commit on `parth/core-12-…` links to CORE-12
+    const parse = (out: string, onDefault: boolean) => out.split('\x1e').map(r => r.trim()).filter(Boolean).map(r => { const [sha, ref, author, at, ...msg] = r.split('\x1f'); return { sha, repo, author, committedAt: at, message: msg.join('\x1f'), branch: onDefault ? def.replace(/^origin\//, '') : refBranch(ref), onDefaultBranch: onDefault }; });
+    const fmt = '--pretty=format:%H%x1f%S%x1f%an%x1f%cI%x1f%B%x1e';
     const onDefault = parse(await run('git', ['log', def, '--since=30.days', '-n', '300', fmt], path).catch(() => ''), true);
     const seen = new Set(onDefault.map(c => c.sha));
-    const others = parse(await run('git', ['log', '--all', '--since=30.days', '-n', '300', fmt], path).catch(() => ''), false).filter(c => !seen.has(c.sha));
+    const others = parse(await run('git', ['log', '--all', '--source', '--since=30.days', '-n', '300', fmt], path).catch(() => ''), false).filter(c => !seen.has(c.sha));
     return [...onDefault, ...others];
   }
   /** the default branch's last 30 days, for a repo with no checkout here */
@@ -375,4 +461,22 @@ export class GitSync {
     const list = JSON.parse(await this.gh(['api', `repos/${repo}/commits?since=${since}&per_page=100`], source)) as Array<{ sha: string; author?: { login?: string } | null; commit: { author?: { name?: string; date?: string } | null; committer?: { date?: string } | null; message: string } }>;
     return list.map(c => ({ sha: c.sha, repo, author: c.author?.login || c.commit.author?.name || '', committedAt: c.commit.committer?.date ?? c.commit.author?.date ?? '', message: c.commit.message, branch, onDefaultBranch: true }));
   }
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+/** the one member a GitHub login most likely belongs to: best when it equals their username, email name or
+ *  full name ("bob-smith"), then first name + initial ("bobs"), then when it contains their first name ("octo-bob").
+ *  Null when nobody or several people fit equally; it's a suggestion a person confirms. Pure. */
+export function suggestMember(login: string, people: Array<{ id: string; name: string; email: string; username: string }>): string | null {
+  const l = norm(login);
+  if (l.length < 3) return null;
+  const score = (p: { name: string; email: string; username: string }) => {
+    const parts = p.name.split(/\s+/).map(norm).filter(Boolean);
+    const exact = [p.username, p.email.split('@')[0], p.name].map(norm).filter(x => x.length >= 3);
+    if (exact.includes(l)) return 3;
+    if (parts.length > 1 && (l === parts[0] + parts[parts.length - 1][0] || l === parts[0][0] + parts[parts.length - 1] || l.startsWith(parts[0] + parts[parts.length - 1]))) return 2;
+    return parts[0]?.length >= 3 && l.includes(parts[0]) ? 1 : 0;
+  };
+  const ranked = people.map(p => ({ id: p.id, s: score(p) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s);
+  return ranked.length && (ranked.length === 1 || ranked[0].s > ranked[1].s) ? ranked[0].id : null;
 }

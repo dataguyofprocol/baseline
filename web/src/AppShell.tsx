@@ -6,10 +6,10 @@ import { api } from './api.js';
 import { Menu, MenuItem, MenuSep, useMenu, RegisterMark, ConfirmButton } from './ui.js';
 import { Logo } from './Logo.js';
 import { teamDisplayIcon } from './pickers.js';
-import { AnimatePresence } from 'framer-motion';
-import { CustomizeSidebar, sidebarVisibility, useDrafts } from './Workspace.js';
+import { sidebarVisibility, useDrafts } from './Workspace.js';
 import { InitiativeIcon } from './Initiatives.js';
 import { SetupMenuItem } from './SetupPanel.js';
+import { inboxRows, visibleNotifications } from '../../src/core/inbox.js';
 import {
   IconInbox, IconMyIssues, IconBox, IconViews, IconIssues, IconCycle, IconTeam, IconHelp, IconCaret,
   IconSearch, IconNew, IconSettings, IconChevronDown, IconMore, IconStar, IconMoon, IconSun,
@@ -59,7 +59,6 @@ export function Sidebar() {
   const [sections, toggleSection] = useSectionState();
   const teamMenu = useMenu();
   const [teamMenuFor, setTeamMenuFor] = useState<string | null>(null);
-  const [customizing, setCustomizing] = useState(false);
   const drafts = useDrafts();
   if (!snap) return null;
   // hosted: the teams you're on, as in Linear (everyone else's are a click away in Teams); a laptop,
@@ -70,12 +69,14 @@ export function Sidebar() {
   const triageCount = (teamId: string) => { const st = triageState(teamId); return st ? snap.issues.filter(i => i.stateId === st.id).length : 0; };
   const menuTeam = snap.teams.find(t => t.id === teamMenuFor);
   const nowIso = new Date().toISOString();
-  const unread = snap.notifications.filter(n => !n.readAt && (!n.snoozedUntil || n.snoozedUntil <= nowIso)).length;
+  // the badge counts inbox rows (one per issue), as the inbox shows them
+  const unread = inboxRows(visibleNotifications(snap.notifications, nowIso).filter(n => n.type !== 'issueStatusChanged' || snap.workspace.preferences.notify.statusChanged !== false)).filter(r => r.unread).length;
   const me = snap.currentUser;
   const isOpen = (id: string, fallback = true) => sections[id] ?? fallback;
-  // Customize sidebar: each item always shows, shows only with a badge, or moves to More
+  // each item always shows, shows only with a badge, or sits in More (SIDEBAR_DEFAULTS)
   const f = snap.workspace.features;
   const ALL = [
+    { key: 'my-work', to: '/my-work', icon: <IconHome />, label: 'My work', badge: 0, section: 'personal' },
     { key: 'inbox', to: '/inbox', icon: <IconInbox />, label: 'Inbox', badge: unread, section: 'personal' },
     { key: 'my-issues', to: '/my-issues', icon: <IconMyIssues />, label: 'My issues', badge: 0, section: 'personal' },
     { key: 'drafts', to: '/drafts', icon: <IconDrafts />, label: 'Drafts', badge: drafts.length, section: 'personal' },
@@ -177,13 +178,10 @@ export function Sidebar() {
               <Menu anchor={moreMenu.anchor} onClose={moreMenu.close} width={220}>
                 {hiddenItems.map(i => <MenuItem key={i.key} icon={i.icon} label={i.label} onClick={() => navigate(i.to)} />)}
                 <MenuItem icon={<IconTrash size={14} />} label="Trash" onClick={() => navigate('/trash')} />
-                <MenuSep />
-                <MenuItem icon={<IconSettings size={14} />} label="Customize sidebar" onClick={() => setCustomizing(true)} />
               </Menu>
             )}
           </div>
         )}
-        <AnimatePresence>{customizing && <CustomizeSidebar key="cs" onClose={() => setCustomizing(false)} />}</AnimatePresence>
 
         {favorites.length > 0 && (
           <>
@@ -223,7 +221,7 @@ export function Sidebar() {
                       {t.triageEnabled && <Nav to={`/team/${t.key}/triage`} icon={<IconTriage />} label="Triage" badge={triageCount(t.id)} />}
                       <Nav to={`/team/${t.key}/all`} icon={<IconIssues />} label="Issues"
                         isActive={l => /^\/team\/[^/]+\/(all|active|backlog)$/.test(l.pathname) && l.pathname.startsWith(`/team/${t.key}/`)} />
-                      {(hasCycles || t.autoCycles) && <>
+                      {f.cyclesEnabled && (hasCycles || t.autoCycles) && <>
                         <Nav to={`/team/${t.key}/cycles`} icon={<IconCycle />} label="Cycles" end />
                         <div className="nav-subsub">
                           <Nav to={`/team/${t.key}/cycles/current`} icon={null} label="Current" title="Current cycle (G then V)"
@@ -247,7 +245,7 @@ export function Sidebar() {
         <Menu anchor={teamMenu.anchor} onClose={teamMenu.close} width={220}>
           <MenuItem icon={<IconTeam size={14} />} label="Team overview" onClick={() => navigate(`/team/${menuTeam.key}/overview`)} />
           <MenuItem icon={<IconIssues size={14} />} label="Issues" onClick={() => navigate(`/team/${menuTeam.key}/all`)} />
-          <MenuItem icon={<IconCycle size={14} />} label="Cycles" onClick={() => navigate(`/team/${menuTeam.key}/cycles`)} />
+          {f.cyclesEnabled && <MenuItem icon={<IconCycle size={14} />} label="Cycles" onClick={() => navigate(`/team/${menuTeam.key}/cycles`)} />}
           <MenuItem icon={<IconTriage size={14} />} label="Triage" onClick={() => navigate(`/team/${menuTeam.key}/triage`)} />
           <MenuItem icon={<IconArchive size={14} />} label="Archive" onClick={() => navigate(`/team/${menuTeam.key}/archive`)} />
           <MenuSep />
@@ -335,7 +333,6 @@ function ProjectHoverCard(props: { projectId: string; children: React.ReactNode 
 
 function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: number; end?: boolean; title?: string; isActive?: (loc: { pathname: string }) => boolean }) {
   const loc = useLocation();
-  const badgeStyle = useApp(s => s.snap?.workspace.preferences.sidebar.badgeStyle ?? 'count');
   const active = props.isActive ? props.isActive(loc) : undefined;
   return (
     <NavLink
@@ -354,7 +351,8 @@ function Nav(props: { to: string; icon: React.ReactNode; label: string; badge?: 
               {(active ?? isActive) && <RegisterMark group="nav" />}
             </span>
           </span>
-          {props.badge ? (badgeStyle === 'dot' ? <span className="nav-dot" aria-label={`${props.badge} unread`} /> : badgeStyle === 'none' ? null : <span className="nav-count">{props.badge}</span>) : null}
+          {/* badge styles are cut: a count, always */}
+          {props.badge ? <span className="nav-count">{props.badge}</span> : null}
         </>
       )}
     </NavLink>

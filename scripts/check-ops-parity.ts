@@ -20,9 +20,10 @@ import { cliVerb, fieldsOf, usageOf, type AnyOperation } from '../src/ops/operat
 import { mountOperations } from '../src/cli/ops.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { agentBlock, BLOCK_END, BLOCK_START, handoffTracking } from '../src/ops/guide.js';
+import { agentBlock, BLOCK_END, BLOCK_START, claudeBlock, handoffTracking } from '../src/ops/guide.js';
 import { createMcpServer } from '../src/mcp/server.js';
-import { HARNESSES, planConnect, type FileEdit } from '../src/connect/plan.js';
+import { ALLOWED_TOOLS, CLAUDE_HOOKS, HARNESSES, planConnect, type FileEdit } from '../src/connect/plan.js';
+import { OP_ALIASES } from '../src/ops/operation.js';
 
 const root = join(import.meta.dirname, '..');
 /** `baseline agent` commands that are settings, not agent operations */
@@ -71,7 +72,7 @@ const block = [
   START,
   '## Agent loop (your work on an issue, as your agent identity)',
   '',
-  'Each command is one agent operation; an MCP client gets the same operations as tools, with the same descriptions, input and `--json` output. Every write shows as "Agent via <person>", the workspace\'s agent user; set `BASELINE_AS` only to write as another agent user; set `BASELINE_SESSION` only to keep two parallel sessions on one issue apart. Every write prints an `op_id` (or null when nothing changed); repeating a call is safe.',
+  'Each command is one agent operation; an MCP client gets the same operations as tools, with the same descriptions, input and `--json` output. Every write shows as "<tool> via <person>": Claude Code (detected), or the tool `--as` / `BASELINE_AS` names (`Codex`, `Cursor`, `pi`; its agent user is made on first use), else the workspace\'s Agent. Set `BASELINE_SESSION` only to keep two parallel sessions on one issue apart. Every write prints an `op_id` (or null when nothing changed); repeating a call is safe. Without a login (`baseline login --server <url>`) or a `--db` / `BASELINE_DB` naming an existing database, every command refuses: it never makes a database.',
   '',
   ...OPERATIONS.flatMap(op => [`### \`${op.name}\` (${op.effect.kind})`, '', '```bash', usageOf(op as AnyOperation), '```', '', op.description, '']),
   END,
@@ -135,10 +136,11 @@ if (trackingNow !== tracking) {
 for (const harness of HARNESSES) {
   // the MCP config is usually committed: nothing from this machine, no database, no key
   for (const entry of [{ transport: 'stdio' }, { transport: 'http', url: 'https://baseline.example.com/mcp' }] as const) {
-    const written = planConnect(harness, entry, () => null).filter(e => !e.path.endsWith('.md') && !e.path.includes('.local.'));
+    const all = planConnect(harness, entry, () => null, { team: 'ENG' });
+    for (const e of all) if (/\/Users\/|\/home\/|--db|node_modules|tsx/.test(e.after)) problems.push(`baseline connect ${harness} (${entry.transport}) puts a machine path in ${e.path}`);
+    const written = all.filter(e => ['.mcp.json', '.codex/config.toml', '.pi/mcp.json'].includes(e.path));
     if (!written.length) problems.push(`baseline connect ${harness} writes no MCP config`);
     for (const e of written) {
-      if (/\/Users\/|\/home\/|--db|node_modules|tsx/.test(e.after)) problems.push(`baseline connect ${harness} (${entry.transport}) puts a machine path in ${e.path}`);
       if (entry.transport === 'stdio' && !/"baseline"[\s\S]*"mcp"/.test(e.after)) problems.push(`baseline connect ${harness} doesn't write \`baseline mcp\` to ${e.path}`);
       if (entry.transport === 'http' && !(e.after.includes('${BASELINE_TOKEN}') || e.after.includes('bearer_token_env_var = "BASELINE_TOKEN"'))) problems.push(`baseline connect ${harness} --remote doesn't read the key from $BASELINE_TOKEN in ${e.path}`);
     }
@@ -151,11 +153,25 @@ for (const harness of HARNESSES) {
   if (again.length) problems.push(`baseline connect ${harness} run twice changes ${again.map(e => e.path).join(', ')}`);
   const doc = harness === 'claude' ? 'CLAUDE.md' : 'AGENTS.md';
   const text = files.get(doc) ?? '';
-  for (const op of OPERATIONS) if (!text.includes(`\`${op.name}\``) || !text.includes(`baseline agent ${cliVerb(op)}`)) problems.push(`the connect block in ${doc} doesn't name ${op.name} and \`baseline agent ${cliVerb(op)}\``);
+  if (harness === 'claude') {
+    // Claude Code: a short block (the MCP instructions are the full guide), the hooks and the allow-list
+    if (text.split('\n').length > 8) problems.push(`the CLAUDE.md block is ${text.split('\n').length} lines; it should stay about 5`);
+    for (const name of ['next_issue', 'find_issues', 'propose_issue', 'create_issue', 'start_issue', 'post_progress', 'finish_issue']) if (!text.includes(`\`${name}\``)) problems.push(`the CLAUDE.md block doesn't name ${name}`);
+    const settings = JSON.parse(files.get('.claude/settings.json') ?? '{}');
+    for (const [event, command] of CLAUDE_HOOKS) if (!JSON.stringify(settings.hooks?.[event] ?? []).includes(command)) problems.push(`.claude/settings.json has no ${event} hook running \`${command}\``);
+    const allow: string[] = settings.permissions?.allow ?? [];
+    for (const t of ['start_issue', 'post_progress', 'create_sub_issues', 'propose_issue', 'propose_followup']) if (!allow.includes(`mcp__baseline__${t}`)) problems.push(`.claude/settings.json doesn't allow ${t}`);
+    for (const t of ['create_issue', 'finish_issue', 'undo', 'draft_project_update']) if (allow.includes(`mcp__baseline__${t}`)) problems.push(`.claude/settings.json allows ${t}, which a person should approve`);
+    if (allow.length !== ALLOWED_TOOLS.length) problems.push('.claude/settings.json allow-list differs from ALLOWED_TOOLS');
+  } else {
+    for (const op of OPERATIONS) if (!text.includes(`\`${op.name}\``) || !text.includes(`baseline agent ${cliVerb(op)}`)) problems.push(`the connect block in ${doc} doesn't name ${op.name} and \`baseline agent ${cliVerb(op)}\``);
+  }
   files.set(doc, `# notes\n\n${BLOCK_START}\nan older block\n${BLOCK_END}\n\nmore notes\n`);
   apply(planConnect(harness, server, p => files.get(p) ?? null));
-  if (files.get(doc) !== `# notes\n\n${agentBlock()}\n\nmore notes\n`) problems.push(`baseline connect ${harness} doesn't replace a stale block in ${doc} in place`);
+  if (files.get(doc) !== `# notes\n\n${harness === 'claude' ? claudeBlock() : agentBlock()}\n\nmore notes\n`) problems.push(`baseline connect ${harness} doesn't replace a stale block in ${doc} in place`);
 }
+// a retired tool name still answers, through the op that replaced it
+for (const [old, now] of Object.entries(OP_ALIASES)) if (!OPERATIONS.some(o => o.name === now) || OPERATIONS.some(o => o.name === old)) problems.push(`alias ${old} → ${now} is broken`);
 
 if (problems.length) { for (const p of problems) console.error(`✗ ${p}`); process.exit(1); }
 console.log(`✓ ${OPERATIONS.length} operations, each a \`baseline agent\` command with every input field (${listed.filter(c => NOT_OPS.includes(c)).join(', ')} are settings); an MCP tool with the same schema and annotations; the skill's agent loop, the hand-off {{tracking}} and the connect block are current`);

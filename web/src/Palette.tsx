@@ -517,7 +517,16 @@ export function CommandPalette() {
       action: () => navigate(`/docs/${d.id}`),
     }));
     const bulk: PaletteItem[] = selIssues.length ? bulkRootItems(setSub) : [];
-    return [...bulk, ...nav, ...actions, ...projectItems, ...viewItems, ...docItems, ...issueItems];
+    // commands for a feature the workspace has off (Settings › Features) aren't offered
+    const f = snap.workspace.features;
+    const off = [
+      ...(f.cyclesEnabled ? [] : ['bulk-cycle', 'pick-cycle', 'nav-cycles', 'nav-upcoming', 'nav-current']),
+      ...(f.estimatesEnabled ? [] : ['bulk-estimate']),
+      ...(f.initiativesEnabled ? [] : ['act-create-initiative', 'nav-initiatives']),
+      ...(f.templatesEnabled ? [] : ['act-tpl-issue']),
+      ...(f.documentsEnabled ? [] : ['act-create-doc']),
+    ];
+    return [...bulk, ...nav, ...actions, ...projectItems, ...viewItems, ...docItems, ...issueItems].filter(i => !off.includes(i.id));
   }, [snap, navigate, openCreate, setTheme, open, selIssues]);
 
   // sub-page builders read the stores, so rebuilding on snap/selection keeps

@@ -33,7 +33,7 @@ All helpers live in this skill's `scripts/`. Paths below are relative to the rep
 
 Keep the printed `RUN` id; every other command takes it. `vb list` shows runs and whether they are alive. Runs are independent: several can run side by side.
 
-Seed data you can rely on in a fresh run: teams `CORE` (Backlog/Todo/In Progress/Done/Canceled) and `AGO` "Agent Surface" (adds `Triage`); 24 issues, `CORE-1`…`CORE-17` and `AGO-1`…`AGO-7` (`AGO-7` is in Triage); projects `Agent Handoff`, `Mobile Companion`, `Design System 2.0`; members `Ada Osei`, `Jun Watanabe`, and agents `Agent`, `Claude Code`; the current user (admin) is named after `git config --global user.name`.
+Seed data you can rely on in a fresh run: teams `CORE` (Backlog/Todo/In Progress/In Review/Done/Canceled) and `AGO` "Agent Surface" (adds `Triage`); 24 issues, `CORE-1`…`CORE-17` and `AGO-1`…`AGO-7` (`AGO-7` is in Triage); projects `Agent Handoff`, `Mobile Companion`, `Design System 2.0`; members `Ada Osei`, `Jun Watanabe`, and the agent user `Agent` (`Claude Code`, `Codex` and other coding-tool agents are made the first time that tool writes, e.g. an MCP client named `claude-code` or `--as "Claude Code"`); the current user (admin) is named after `git config --global user.name`.
 
 ## Doctor
 

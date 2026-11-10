@@ -14,6 +14,20 @@ export function plainMentions(text: string): string {
   return text.replace(MENTION_RE, (_m, name: string) => `@${name}`);
 }
 
+/** markdown read back as one line of plain text, for previews (inbox rows): mentions as "@Name",
+ *  and no emphasis marks, headings, list markers, code ticks or link targets */
+export function plainText(md: string): string {
+  return plainMentions(md)
+    .replace(/```[^\n]*\n?/g, '')
+    .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, '$1')
+    .replace(/^[ \t]{0,3}(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)/gm, '')
+    .replace(/(\*\*|__|~~)(?=\S)([^]*?\S)\1/g, '$2')
+    .replace(/(^|[^\w*])[*_](?=\S)([^*_\n]*?\S)[*_](?![\w*])/g, '$1$2')
+    .replace(/`([^`\n]*)`/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** people with exactly one holder of their name (case-insensitive), the only names a plain "@Name" can mean */

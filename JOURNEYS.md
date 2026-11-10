@@ -15,7 +15,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Team row "…" menu | ✅ | 1.3 | Team overview, Issues, Cycles, Triage, Archive, Team settings, Copy link |
 | Team Home: Overview (description, team resources), Documents, Members, Go to | ✅ | 1.5 | |
 | "+" beside Your teams → Create a new team | ✅ | 1.6 | identifier derived from the name |
-| Customize sidebar: badge style; Always show / Show when badged / Don't show; hidden items in More | ✅ | 9.11 | More › Customize sidebar |
+| Sidebar: Teams and Members in More (Customize sidebar and badge styles cut, CORE_FLOW §6) | ✅ | 9.11 | More |
 | Teams and Members directory pages | ✅ | 9.10 | |
 | G-chords, mapped as Linear does | ✅ | 1.7 | G then I · M · A (active) · E (all) · B · T · C · V (current) · W (upcoming) · U (views) · D (drafts) · N · P · X · S; N then P / I / D creates; O then I · P · F · C · L · U · V · D · S opens a picker |
 | ⌘K palette scoped to the open / peeked / hovered issue | ✅ | 1.8 | |
@@ -31,7 +31,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Drafts: Save draft, Drafts page, reopen restores | ✅ | 2.2 | |
 | C is context-aware: project, cycle and triage pages prefill | ✅ | 2.3 | |
 | Rich text: `/` commands (headings, lists, checklists, code, quotes), @mentions | ✅ | 2.4 | stored as Markdown |
-| Attach files from the create modal (uploaded on create) and on the issue page | ✅ | 2.5, 2.6 | files live next to the database |
+| File attachments on issues | ✂️ cut | 2.5 | issues link to files instead of hosting them |
 | Cycle and Milestone pills | ✅ | 2.7 | |
 
 ## 3. Triage incoming work
@@ -47,7 +47,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 |---|---|---|---|
 | Breadcrumb names the source list; "n / total"; J/K | ✅ | 4.1 | |
 | Shortcut menus: S P A L ⇧D ⇧E ⇧C ⇧P ⇧M ⌘⇧P ⌘⇧M ⇧H, M then B/X/R/M | ✅ | 4.2 | |
-| I, ⇧S, ⌥F, ⇧R, ⌘⇧O | ✅ | 4.3 | |
+| I, ⇧S, ⌥F, ⇧R, ⌘⇧O (opens the inline sub-issue composer: one sub-issue path, parent's defaults) | ✅ | 4.3 | |
 | Property menus: filter field and number keys | ✅ | 4.4 | |
 | One activity timeline | ✅ | 4.5 | |
 | Comment threads: post, react, reply, resolve, edit, delete | ✅ | 4.6 | |
@@ -63,6 +63,8 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Create related (sub-issue, parent, blocked, blocking) | ✅ | 4.16 | |
 | Convert to project | ✅ | 4.17 | |
 | Convert to template / recurring issue | ✅ | 4.18 | |
+| One sub-issue path: ⌘⇧O, Add sub-issue and the card + open the inline composer with the parent's defaults; double Enter files one | ✅ | 4.19 | |
+| Lean rail: empty optional properties behind "Add property"; "Needs a location" only once an agent has the issue | ✅ | 4.20 | |
 
 ## 5. Slice the backlog (lists, boards, filters, views)
 | Journey | Status | Check | How it works |
@@ -70,7 +72,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Filter menu: 17 fields | ✅ | 5.1 | |
 | Pills (field · operator · values · ×), is not, Clear, Save, "N issues hidden by filters" | ✅ | 5.2 | |
 | Display options | ✅ | 5.3 | |
-| Board swimlanes, estimate sums | ✅ | 5.4 | |
+| Board swimlanes, estimate sums (labeled pts, only with Estimates on) | ✅ | 5.4 | |
 | Right-click menu | ✅ | 5.5 | |
 | Selection: X, ⇧-click (extends from the last selected row), ⌘-click, ⌘A, bulk bar | ✅ | 5.6 | |
 | Saved views: save, rename, Save / Discard | ✅ | 5.7 | |
@@ -84,13 +86,13 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Projects list: health, priority, lead, target, issues, status %, labels | ✅ | 6.1 | |
 | Projects filters (incl. labels) and display | ✅ | 6.2 | |
 | Board layout | ✅ | 6.3 | the Timeline layout was removed from the Projects list |
-| Named project statuses, custom ones per category | ✅ | 6.4, 9.3 | Settings › Projects › Statuses |
+| Named project statuses, custom ones per category | cut | 6.4 | settings page cut from the UI (CORE_FLOW §6); data stays |
 | Project page tabs, details panel (⌘I) | ✅ | 6.5 | |
 | Overview: hero, properties, resources, update, description, milestones | ✅ | 6.6 | |
 | Documents from resources, editor page, team Documents tab | ✅ | 6.7 | |
 | Milestones with progress | ✅ | 6.8 | |
 | Updates with health; Activity tab | ✅ | 6.9 | |
-| Project labels with groups (P then L) | ✅ | 6.12 | Settings › Projects › Labels |
+| Project labels with groups (P then L) | ✅ | 6.12 | settings page cut (CORE_FLOW §6) |
 | Project bell: per-project inbox notifications + update schedule | ✅ | 6.13 | |
 | Update schedule: due hint, lead reminders | ✅ | 6.14, 9.4 | reminder timing also checked against the store on a scratch database |
 
@@ -114,12 +116,13 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 ## 9. Configure (settings)
 | Journey | Status | Check | How it works |
 |---|---|---|---|
-| Settings nav: Account · Issues · Projects · Features · Administration · Your teams | ✅ | 9.1 | |
+| Settings nav: Personal · Issues · Projects · Features · Administration · Your teams | ✅ | 9.1 | hosted members see only pages they can use |
+| Settings › Features: cycles, estimates, templates, documents, recurring, project updates, initiatives, SLAs, loops (off for a new workspace) | ✅ | 9.3 | |
 | Account: Preferences, Profile, Notifications | ✅ | 9.2 | |
 | Administration pages | ✅ | 9.12 | |
 | Per-team settings | ✅ | 9.13 | |
 | Keyboard shortcuts reference, searchable | ✅ | 9.14 | |
-| Personal API keys (Security & access): name, Full access or Read / Write / Create issues / Create comments / Admin, all or some teams; shown once; last used; revoke. Administration › API: who may create keys, every issued key | ✅ | 9.15 | keys are sha256-hashed; a key acts as its owner; `Authorization: Bearer <key>` or the bare key, as Linear accepts; `baseline api-key` on the CLI; can be required for other devices when `BASELINE_HOST` opens Baseline to the network |
+| Personal API keys (Account & API keys): name, Full access or Read / Write / Create issues / Create comments / Admin, all or some teams; shown once; last used; revoke. Administration › API: who may create keys, every issued key | ✅ | 9.15 | keys are sha256-hashed; a key acts as its owner; `Authorization: Bearer <key>` or the bare key, as Linear accepts; `baseline api-key` on the CLI; can be required for other devices when `BASELINE_HOST` opens Baseline to the network |
 | Every route renders without console errors | ✅ | 10.1 | |
 
 ## 10. Plan and automate at scale
@@ -141,7 +144,7 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Display options: pill chips, ordering direction | ✅ | — | checked by eye side by side |
 | Preferences: Underline links, Auto-assign to self, On move to started status assign to yourself | ✅ | 12.4 | assign-on-start checked on a scratch database |
 | Profile: picture upload, Title, Username (used by `{username}` in branch names) | ✅ | 12.4 | |
-| Notifications: Priority inbox + Priority notifications, Browser push by category (also from a background tab) | ✅ | 12.4 | reaction and document-change notifications added so every category has a source |
+| Notifications: one browser switch (priority inbox and push categories cut, CORE_FLOW §6) | ✅ | 12.4 | |
 | Team settings: hub with General (name, identifier, description, estimates incl. zero / extended / count unestimated), Members, Issue labels, Templates, Recurring issues, Issue statuses, Workflows & automations, Triage, Cycles, Danger zone | ✅ | 12.5 | |
 | Workflows & automations: auto-close parent / sub-issues, auto-close stale issues, auto-archive closed issues, re-order on status change | ✅ | 12.6 | stale + archive sweeps checked on a scratch database |
 | `?` help menu, ⌘/ keyboard-shortcuts drawer with Linear's groups | ✅ | 9.14 | |

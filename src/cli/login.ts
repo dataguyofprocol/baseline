@@ -63,7 +63,7 @@ async function exchange(server: URL, code: string, verifier: string): Promise<Cl
 async function retire(previous: CliConfig, now: CliConfig): Promise<void> {
   if (previous.server !== now.server || previous.keyId === now.keyId) return;
   await connectTo(new URL(previous.server), previous.token).revokeOwnKey()
-    .catch((e: Error) => console.error(`note: couldn't revoke the previous CLI key (${e.message}). Revoke it in Settings › Security & access.`));
+    .catch((e: Error) => console.error(`note: couldn't revoke the previous CLI key (${e.message}). Revoke it in Settings › Account & API keys.`));
 }
 
 async function readStdin(): Promise<string> {
@@ -106,7 +106,7 @@ export function mountAccountCommands(program: Command): void {
       if (c.kind === 'absent') { console.log('Not logged in'); process.exit(0); }
       if (c.kind === 'ok') {
         await connectTo(new URL(c.config.server), c.config.token).revokeOwnKey()
-          .catch((e: Error) => console.error(`note: couldn't revoke the key on ${c.config.server} (${e.message}). It stays valid until revoked in Settings › Security & access.`));
+          .catch((e: Error) => console.error(`note: couldn't revoke the key on ${c.config.server} (${e.message}). It stays valid until revoked in Settings › Account & API keys.`));
       }
       removeConfig();
       console.log(c.kind === 'ok' ? `Logged out of ${c.config.server}` : `Removed ${CONFIG_PATH}`);

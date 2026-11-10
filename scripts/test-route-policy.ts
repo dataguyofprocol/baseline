@@ -7,13 +7,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/server/index.js';
-import { ROUTE_POLICY, type KeyScope, type TeamRule } from '../src/server/route-policy.js';
+import { ROUTE_POLICY, TEAM_ROLE, type KeyScope, type TeamRule } from '../src/server/route-policy.js';
 import type { ApiKey, ApiKeyScope } from '../src/core/types.js';
 
 const ORIGIN = 'https://baseline.example.com';
 const work = mkdtempSync(join(tmpdir(), 'baseline-route-policy-'));
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));
-const { app, store } = createApp(join(work, 'policy.db'), {
+const { app, store, db, accounts } = createApp(join(work, 'policy.db'), {
   mode: 'hosted', publicUrl: new URL(ORIGIN), google: { clientId: 'c', clientSecret: 's' }, ownerEmail: '',
 }, { configured: false, send: async () => {} });
 const { apiKeys } = store.ext;
@@ -112,7 +112,65 @@ for (const route of registered.filter(r => r in ROUTE_POLICY)) {
   }
 }
 
-console.log(`${registered.length} /api routes: ${Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(', ')}`);
+// ---- team roles: every team-setup write, as an admin, the team's lead, one of its members and an outsider ----
+const TEAM_SETUP = /^(POST|PATCH|PUT|DELETE) \/api\/(teams\/:|team-links|states|labels|issue-templates|cycles|recurring|git\/automation)/;
+for (const r of registered.filter(r => TEAM_SETUP.test(r))) check(r in TEAM_ROLE, `${r} writes a team's setup but has no row in TEAM_ROLE (src/server/route-policy.ts)`);
+for (const r of Object.keys(TEAM_ROLE)) check(registered.includes(r), `${r} has a TEAM_ROLE row but no route`);
+{
+  const person = (name: string) => store.createUser(name, `${name.toLowerCase()}@example.com`, false);
+  const lead = person('Lea'), member = person('Mem'), outsider = person('Out'), other = person('Oth');
+  const cookieOf = (userId: string) => `__Host-baseline_session=${accounts.createSession(userId).token}`;
+  const as = { admin: cookieOf(owner.id), lead: cookieOf(lead.id), member: cookieOf(member.id), outsider: cookieOf(outsider.id) };
+  /** a fresh team (each call may delete or reshape it) that Lea leads and Mem is on, with one of each row */
+  const fixture = () => {
+    const t = store.createTeam(`R${Math.random().toString(36).slice(2, 6)}`, 'Roles');
+    for (const u of store.getTeam(t.id)!.leadIds) store.setTeamLead(t.id, u, false);
+    store.setTeamLead(t.id, lead.id, true);
+    store.addTeamMember(t.id, member.id);
+    store.addTeamMember(t.id, other.id);
+    store.addTeamLink(t.id, 'https://example.com');
+    const link = (db.prepare('SELECT id FROM team_links WHERE team_id = ?').get(t.id) as { id: string }).id;
+    return {
+      t: t.id, link, state: store.createState(t.id, 'QA', 'started', '#f2c94c').id, label: store.createLabel(t.id, 'bug', '#eb5757').id,
+      template: store.createTemplate(t.id, 'Bug').id, cycle: store.createCycle(t.id, 1, '2026-01-01T00:00:00.000Z', '2026-01-14T00:00:00.000Z').id,
+      recurring: store.createRecurring({ teamId: t.id, title: 'Weekly', cadence: 'weekly' } as Parameters<typeof store.createRecurring>[0]).id,
+    };
+  };
+  const idFor = (pattern: string, f: ReturnType<typeof fixture>) =>
+    pattern.startsWith('/api/teams/') || pattern.startsWith('/api/git/') ? f.t : pattern.startsWith('/api/team-links') ? f.link
+      : pattern.startsWith('/api/states') ? f.state : pattern.startsWith('/api/labels') ? f.label : pattern.startsWith('/api/issue-templates') ? f.template
+      : pattern.startsWith('/api/cycles') ? f.cycle : f.recurring;
+  const bodyFor = (route: string, f: ReturnType<typeof fixture>): unknown => (({
+    'PUT /api/teams/:id/leads/:userId': { lead: true }, 'POST /api/teams/:id/members': { userIds: [outsider.id] },
+    'POST /api/teams/:id/links': { url: 'https://example.com/x' }, 'POST /api/labels': { teamId: f.t, name: 'x', color: '#000000' },
+    'POST /api/states': { teamId: f.t, name: 'Review', type: 'started', color: '#f2c94c' }, 'POST /api/issue-templates': { teamId: f.t, name: 'x' },
+    'POST /api/cycles': { teamId: f.t, number: 2, startsAt: '2026-02-01T00:00:00.000Z', endsAt: '2026-02-14T00:00:00.000Z' },
+    'POST /api/recurring': { teamId: f.t, title: 'x', cadence: 'weekly' }, 'PATCH /api/teams/:id': { name: 'Renamed' },
+    'PATCH /api/cycles/:id': { name: 'x' }, 'PATCH /api/recurring/:id': { title: 'x' }, 'PATCH /api/states/:id': { name: 'x' },
+    'PATCH /api/labels/:id': { name: 'x' }, 'PATCH /api/issue-templates/:id': { name: 'x' }, 'PUT /api/teams/:id/workflow': { autoCloseDays: 30 },
+  }) as Record<string, unknown>)[route] ?? {};
+  const send = (cookie: string, method: string, path: string, body: unknown) => app.fetch(new Request(new URL(path, ORIGIN), {
+    method, headers: { cookie, origin: ORIGIN, 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }));
+  const ROLES = ['admin', 'lead', 'member', 'outsider'] as const;
+  const allowed: Record<string, Record<(typeof ROLES)[number], boolean>> = {
+    lead: { admin: true, lead: true, member: false, outsider: false }, member: { admin: true, lead: true, member: true, outsider: false },
+    anyone: { admin: true, lead: true, member: true, outsider: true }, admin: { admin: true, lead: false, member: false, outsider: false },
+  };
+  for (const [route, role] of Object.entries(TEAM_ROLE)) {
+    const [method, pattern] = route.split(' ') as [string, string];
+    for (const who of ROLES) {
+      const f = fixture();
+      // members/:userId and leads/:userId act on someone else on the team (removing yourself is anyone's)
+      const path = pathFor(pattern, idFor(pattern, f)).replace(/\/x$/, `/${other.id}`);
+      const res = await send(as[who], method, path, bodyFor(route, f));
+      const ok = res.status !== 403;
+      check(ok === allowed[role]![who], `${route} (${role}) as ${who}: ${res.status} ${ok ? '' : ((await res.json().catch(() => ({}))) as { error?: string }).error ?? ''}`);
+    }
+  }
+}
+
+console.log(`${registered.length} /api routes:${Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(', ')}`);
 console.log(`unchecked known gaps (team data a team-limited key can still reach): ${unchecked.length}\n  ${unchecked.join('\n  ')}`);
 for (const p of problems) console.log(`✗ ${p}`);
 console.log(`\n${pass} passed, ${fail} failed`);

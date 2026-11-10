@@ -2,6 +2,7 @@
 // replace; each maps to exactly one route, so authorization is always the server's.
 import type { ApiKeyScope, Comment, Handoff, Issue, Location, Priority, Project, ProjectUpdate, Snapshot, SnapshotSection, User } from '../core/types.js';
 import type {
+  AgentDraft, AgentDraftKind, CreateIssueResult, ProposeResult, SubIssuesResult,
   DraftResult, FinishWorkResult, FollowupResult, Health, ProgressPatch, ProgressResult, StartWorkResult, UndoResult, WorkOutcome, WorkThread,
 } from '../core/work-types.js';
 import { BaselineError } from './errors.js';
@@ -72,7 +73,7 @@ export interface Baseline {
   // Agent work (core/work.ts). Each is one route and one server transaction; a repeat that changes
   // nothing answers with opId null. `session` is BASELINE_SESSION, or null for the default lane.
   /** POST /api/issues/:id/work/start */
-  startWork(issueId: string, input: { session: string | null }, actorId?: string): Promise<StartWorkResult>;
+  startWork(issueId: string, input: { session: string | null; takeOver?: boolean }, actorId?: string): Promise<StartWorkResult>;
   /** POST /api/issues/:id/work/progress */
   postProgress(issueId: string, input: ProgressPatch & { session: string | null; links: readonly string[] }, actorId?: string): Promise<ProgressResult>;
   /** POST /api/issues/:id/work/finish */
@@ -85,6 +86,16 @@ export interface Baseline {
   draftProjectUpdate(projectId: string, input: { body?: string; health?: Health }, actorId?: string): Promise<DraftResult>;
   /** POST /api/ops/:id/undo */
   undoOp(opId: string, actorId?: string): Promise<UndoResult>;
+  /** POST /api/issues/:id/sub-issues */
+  createSubIssues(parentId: string, input: { session: string | null; titles: readonly string[] }, actorId?: string): Promise<SubIssuesResult>;
+  /** POST /api/agent-drafts: a proposal only the person sees */
+  propose(input: { session: string | null; kind: AgentDraftKind; teamId: string; title: string; description?: string; priority?: number; fromIssueId?: string }, actorId?: string): Promise<ProposeResult>;
+  /** GET /api/agent-drafts: the requesting person's drafts */
+  drafts(filter: { status?: 'pending' | 'filed'; kind?: AgentDraftKind; fromIssueId?: string }): Promise<AgentDraft[]>;
+  /** POST /api/agent-issues: create what the person said yes to (a draft, or fields) */
+  createAgentIssue(input: { session: string | null; teamId: string; draftId?: string; title?: string; description?: string; priority?: number; projectId?: string | null; start?: boolean }, actorId?: string): Promise<CreateIssueResult>;
+  /** POST /api/agent-users: the coding tool's own agent user, made on first use */
+  ensureAgentUser(name: string): Promise<User>;
 }
 
 export class HttpBaseline implements Baseline {
@@ -140,7 +151,7 @@ export class HttpBaseline implements Baseline {
   }
   async revokeOwnKey(): Promise<void> { await this.call('DELETE', '/api/me/key'); }
 
-  startWork(issueId: string, input: { session: string | null }, actorId?: string): Promise<StartWorkResult> {
+  startWork(issueId: string, input: { session: string | null; takeOver?: boolean }, actorId?: string): Promise<StartWorkResult> {
     return this.call('POST', `/api/issues/${encodeURIComponent(issueId)}/work/start`, { json: { ...input, actorId } });
   }
   postProgress(issueId: string, input: ProgressPatch & { session: string | null; links: readonly string[] }, actorId?: string): Promise<ProgressResult> {
@@ -160,5 +171,20 @@ export class HttpBaseline implements Baseline {
   }
   undoOp(opId: string, actorId?: string): Promise<UndoResult> {
     return this.call('POST', `/api/ops/${encodeURIComponent(opId)}/undo`, { json: { actorId } });
+  }
+  createSubIssues(parentId: string, input: { session: string | null; titles: readonly string[] }, actorId?: string): Promise<SubIssuesResult> {
+    return this.call('POST', `/api/issues/${encodeURIComponent(parentId)}/sub-issues`, { json: { ...input, actorId } });
+  }
+  propose(input: { session: string | null; kind: AgentDraftKind; teamId: string; title: string; description?: string; priority?: number; fromIssueId?: string }, actorId?: string): Promise<ProposeResult> {
+    return this.call('POST', '/api/agent-drafts', { json: { ...input, actorId } });
+  }
+  drafts(filter: { status?: 'pending' | 'filed'; kind?: AgentDraftKind; fromIssueId?: string }): Promise<AgentDraft[]> {
+    return this.call('GET', '/api/agent-drafts', { query: { ...filter }, unwrap: 'drafts' });
+  }
+  createAgentIssue(input: { session: string | null; teamId: string; draftId?: string; title?: string; description?: string; priority?: number; projectId?: string | null; start?: boolean }, actorId?: string): Promise<CreateIssueResult> {
+    return this.call('POST', '/api/agent-issues', { json: { ...input, actorId } });
+  }
+  ensureAgentUser(name: string): Promise<User> {
+    return this.call('POST', '/api/agent-users', { json: { name }, unwrap: 'user' });
   }
 }

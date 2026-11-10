@@ -277,6 +277,16 @@ function migrate(db: DatabaseSync): void {
       used_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
+    -- a team's shareable join link (one open per team): anyone with it can make an account on that team
+    CREATE TABLE IF NOT EXISTS team_join_links (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      code TEXT NOT NULL UNIQUE,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      revoked_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_team_join_links_team ON team_join_links(team_id);
   `);
   if (!columns('users').includes('password_hash')) db.exec('ALTER TABLE users ADD COLUMN password_hash TEXT');
   // team membership: who belongs to which team (drives "Your teams"; everyone can still open any team).
@@ -294,6 +304,9 @@ function migrate(db: DatabaseSync): void {
         SELECT t.id, u.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM teams t, users u WHERE u.kind = 'human';
     `);
   }
+  // team leads (CORE_FLOW.md › Roles): a role per membership. Existing teams get no lead (nobody is
+  // promoted by guess); a team without one is led by the workspace admins until someone is made lead
+  if (!columns('team_members').includes('role')) db.exec("ALTER TABLE team_members ADD COLUMN role TEXT NOT NULL DEFAULT 'member'");
 
   // per-person state: favorites, inbox rows and preferences belong to someone, and a saved view is
   // either shared with the workspace or its owner's alone. Everything from before belonged to the
@@ -519,10 +532,29 @@ function migrate(db: DatabaseSync): void {
 
   // a brand-new database (empty meta) is seeded after this runs, and seeding makes the agent
   if (db.prepare('SELECT 1 FROM meta LIMIT 1').get()) ensureWorkspaceAgent(db);
+  // In Review used to arrive only with GitHub; teams from before get it once (a team that later deletes it keeps that choice)
+  // (marked only on a workspace that exists: an empty meta table is how a brand-new database is recognised)
+  if (!getMeta(db, 'reviewStatesMigrated')) { ensureReviewStates(db); if (db.prepare('SELECT 1 FROM meta LIMIT 1').get()) setMeta(db, 'reviewStatesMigrated', '1'); }
 }
 
-// the agent users once made per coding tool
-const BUILT_IN_AGENT = "(email IN ('claude-code@local', 'codex@local', 'pi@local') OR lower(name) IN ('claude code', 'codex', 'pi'))";
+/** add "In Review" (a started state, after the last started one and before Done) to every team with no
+ *  review state; a team that already has one, under any name with "review" in it, is left alone */
+export function ensureReviewStates(db: DatabaseSync): number {
+  let added = 0;
+  for (const { id: teamId } of db.prepare('SELECT id FROM teams').all() as Array<{ id: string }>) {
+    if (db.prepare("SELECT 1 FROM states WHERE team_id = ? AND lower(name) LIKE '%review%'").get(teamId)) continue;
+    const pos = (type: string, agg: string) => (db.prepare(`SELECT ${agg}(position) p FROM states WHERE team_id = ? AND type = ?`).get(teamId, type) as { p: number | null }).p;
+    const started = pos('started', 'MAX'), done = pos('completed', 'MIN');
+    const at = started != null && done != null && done > started ? (started + done) / 2 : (started ?? done ?? 3) + 0.5;
+    db.prepare('INSERT INTO states (id, team_id, name, type, color, position) VALUES (?, ?, ?, ?, ?, ?)').run(id('s'), teamId, 'In Review', 'started', '#4cb782', at);
+    added++;
+  }
+  return added;
+}
+
+// the agent users once made per coding tool, by their old emails only: the per-tool users made on
+// first use now ("Claude Code via Parth", core/work.ts) have <slug>@agents.local and stay
+const BUILT_IN_AGENT = "(email IN ('claude-code@local', 'codex@local', 'pi@local'))";
 // columns that hold a user id but were added without a REFERENCES clause
 const USER_COLUMN = /^(user_id|.+_user_id|assignee_id|creator_id|lead_id|owner_id|actor_id|agent_id|person_id|author_id|invited_by|created_by|uploaded_by|undone_by)$/;
 

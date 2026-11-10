@@ -15,12 +15,13 @@ import { streamSSE } from 'hono/streaming';
 import { inviteAcceptedEmail, mailerFromEnv, type Mailer } from './mail.js';
 import { Accounts, AccountError } from '../core/accounts.js';
 import { attributing, type Attribution } from '../core/actor.js';
+import { inboxRows, visibleNotifications } from '../core/inbox.js';
 import { laneOf, WorkError } from '../core/work.js';
 import { SESSION_KEY, WORK_OUTCOMES } from '../core/work-types.js';
 import { z } from 'zod';
 import { setMeta } from '../core/db.js';
 import { id } from '../core/util.js';
-import { isSnapshotSection, type FileOwnerType, type Priority, type Snapshot, type WorkflowStateType, type RelationType } from '../core/types.js';
+import { isSnapshotSection, type FileOwnerType, type Priority, type Snapshot, type Team, type WorkflowStateType, type RelationType } from '../core/types.js';
 import { WEBHOOK_MAX_BYTES, WEBHOOK_PATH } from '../core/webhooks.js';
 import { FileError, FileService, MAX_IMAGE_BYTES, fileHeaders, formatBytes } from '../core/files.js';
 import { existsSync, readFileSync } from 'node:fs';
@@ -115,6 +116,13 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   if (hosted) mountAuth(app, auth, { accounts, store, sessions: sessions!, mailer, setup }, {
     onInviteAccepted: (userId, invitedBy) => {
       const who = accounts.userBrief(userId), inviter = accounts.userBrief(invitedBy);
+      // in the inbox too, so the person chasing the team onto Baseline sees it without SMTP: whoever
+      // sent the invite or made the link, and the admins
+      if (who) {
+        const teams = store.snapshot().teams.filter(t => t.memberIds.includes(userId)).map(t => t.name);
+        const admins = store.snapshot().users.filter(u => u.admin && u.kind === 'human' && u.status === 'active').map(u => u.id);
+        store.notifyEach([invitedBy, ...admins], 'systemUpdate', { actorId: userId, body: `${who.name} joined ${store.workspaceMeta().name}${teams.length ? ` (${teams.join(', ')})` : ''}` });
+      }
       if (!mailer.configured || !who || !inviter?.email) return;
       mailer.send(inviteAcceptedEmail({ to: inviter.email, who: who.name, workspace: store.workspaceMeta().name, link: auth.publicUrl.toString() }))
         .catch(err => console.error('[baseline] invite-accepted email failed:', (err as Error).message));
@@ -175,21 +183,57 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   // so is how teams and the workspace are set up (TEAM_PLAN.md › Who changes what). Issues, projects,
   // docs, cycles and comments stay everyone's, and so does creating a team or adding a label from a picker
   const configRoutes: Array<[string, string]> = [
-    ['PATCH', '/api/teams/:id'], ['DELETE', '/api/teams/:id'], ['PUT', '/api/teams/:id/workflow'],
-    ['POST', '/api/states'], ['PATCH', '/api/states/:id'], ['DELETE', '/api/states/:id'],
-    ['PATCH', '/api/labels/:id'], ['DELETE', '/api/labels/:id'],
     ['PATCH', '/api/project-labels/:id'], ['DELETE', '/api/project-labels/:id'],
     ['PATCH', '/api/initiative-labels/:id'], ['DELETE', '/api/initiative-labels/:id'],
     ['POST', '/api/project-statuses'], ['PATCH', '/api/project-statuses/:id'], ['DELETE', '/api/project-statuses/:id'],
-    ['POST', '/api/issue-templates'], ['PATCH', '/api/issue-templates/:id'], ['DELETE', '/api/issue-templates/:id'],
     ['POST', '/api/sla-rules'], ['PATCH', '/api/sla-rules/:id'], ['DELETE', '/api/sla-rules/:id'],
     ['POST', '/api/loops'], ['PATCH', '/api/loops/:id'], ['DELETE', '/api/loops/:id'], ['POST', '/api/loops/:id/run'],
     ['PUT', '/api/git/automation/:teamId'],
     ['PUT', '/api/github/webhook/config'], ['POST', '/api/github/webhook/secret'], ['DELETE', '/api/github/webhook/secret'],
     ['POST', '/api/github/issues/import'], ['PUT', '/api/github/issues/follow'],
     ['PUT', '/api/github/token'], ['DELETE', '/api/github/token'], ['GET', '/api/github/repos/available'], ['PUT', '/api/github/repos'],
+    ['PUT', '/api/github/repo-teams'],
   ];
   for (const [method, path] of configRoutes) app.on(method, path, adminOnly);
+  // A team's setup is its lead's (CORE_FLOW.md › Roles): name, statuses, triage, cycle schedule and
+  // automations. Its labels and templates are any of its members'. Admins lead every team (and so
+  // a team that has no lead). A refusal names whom to ask, and `ask` lets the app offer "Ask <name>".
+  const teamOfRow = (table: 'states' | 'labels' | 'issue_templates', rowId: string) =>
+    (db.prepare(`SELECT team_id FROM ${table} WHERE id = ?`).get(rowId) as { team_id: string } | undefined)?.team_id;
+  const bodyTeam = async (c: Context) => ((await c.req.json().catch(() => ({}))) as { teamId?: unknown }).teamId as string | undefined;
+  const teamGate = (who: 'lead' | 'member', teamOf: (c: Context) => Promise<string | undefined> | string | undefined) => async (c: Context, next: Next) => {
+    if (!hosted) return next();
+    const me = store.actor();
+    if (accounts.isAdmin(me)) return next();
+    const team = store.getTeam((await teamOf(c)) ?? '');
+    // nothing to guard (the route answers 400/404 itself), or the caller may
+    if (!team || (who === 'lead' ? team.leadIds : team.memberIds).includes(me)) return next();
+    return c.json({ ...askWhom(team, who), code: 'forbidden' }, 403);
+  };
+  const askWhom = (team: Team, who: 'lead' | 'member') => {
+    const people = store.snapshot().users.filter(u => u.kind === 'human' && u.status !== 'suspended');
+    const leads = people.filter(u => team.leadIds.includes(u.id));
+    const ask = (leads.length ? leads : people.filter(u => u.admin)).map(u => ({ id: u.id, name: u.name }));
+    const names = ask.map(u => u.name.split(' ')[0]).join(' or ');
+    const error = who === 'member' ? `Only ${team.name}'s members can change that. Join the team, or ask ${names}.`
+      : leads.length ? `Only ${team.name}'s lead can change that. Ask ${names}.`
+      : `${team.name} has no lead yet, so its admins set it up. Ask ${names}.`;
+    return { error, ask };
+  };
+  const leadOf = teamGate('lead', c => c.req.param('id'));
+  app.patch('/api/teams/:id', leadOf);
+  app.delete('/api/teams/:id', leadOf);
+  app.put('/api/teams/:id/workflow', leadOf);
+  // a team's join link is part of its membership, which its lead owns
+  app.post('/api/teams/:id/join-link', leadOf);
+  app.delete('/api/teams/:id/join-link', leadOf);
+  app.post('/api/states', teamGate('lead', bodyTeam));
+  for (const m of ['patch', 'delete'] as const) {
+    app[m]('/api/states/:id', teamGate('lead', c => teamOfRow('states', c.req.param('id')!)));
+    app[m]('/api/labels/:id', teamGate('member', c => teamOfRow('labels', c.req.param('id')!)));
+    app[m]('/api/issue-templates/:id', teamGate('member', c => teamOfRow('issue_templates', c.req.param('id')!)));
+  }
+  app.post('/api/issue-templates', teamGate('member', bodyTeam));
   mountMembers(app, { store, accounts, mailer, hosted: hosted ? auth : null });
   mountCliAuth(app, { db, store, accounts, apiKeys });
 
@@ -202,6 +246,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const snap = store.snapshot();
     snap.workspace.auth = auth.mode;
     if (hosted) { snap.workspace.signInMethods = signInMethods(auth); snap.workspace.mail = mailer.configured; }
+    // what the invite UI offers (members invite too while the workspace is small: Accounts.canInvite)
+    snap.workspace.canInvite = hosted && accounts.canInvite(actor(c));
     // the home directory only means something when the server is this machine
     if (!hosted) snap.workspace.homeDir = homedir();
     if (LAN_OPEN) snap.workspace.lanHost = LISTEN_HOST;
@@ -507,9 +553,46 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   const urls = z.array(z.url()).max(10).default([]);
   const actorField = { actorId: z.string().optional(), session };
   app.post('/api/issues/:id/work/start', async (c) => {
-    const b = await body(c, z.object(actorField));
+    const b = await body(c, z.object({ ...actorField, takeOver: z.boolean().optional() }));
     const who = workAs(c, b.actorId);
-    return c.json(work.start(c.req.param('id'), laneOf(who, b.session), who, workBase));
+    return c.json(work.start(c.req.param('id'), laneOf(who, b.session), who, workBase, { takeOver: b.takeOver }));
+  });
+  // sub-issues of the issue being worked on, drafts the agent proposes, and issues the person said yes to
+  app.post('/api/issues/:id/sub-issues', async (c) => {
+    const b = await body(c, z.object({ ...actorField, titles: z.array(z.string().trim().min(3).max(200)).min(1).max(20) }));
+    const who = workAs(c, b.actorId);
+    const r = work.subIssues(c.req.param('id'), laneOf(who, b.session), b.titles, who);
+    return c.json(r, r.opId ? 201 : 200);
+  });
+  app.get('/api/agent-drafts', (c) => {
+    const q = (k: string) => c.req.query(k) || undefined;
+    return c.json({ drafts: work.agentDrafts(actor(c), { status: q('status') as 'pending' | undefined, kind: q('kind') as 'issue' | undefined, fromIssueId: q('fromIssueId') }) });
+  });
+  app.post('/api/agent-drafts', async (c) => {
+    const b = await body(c, z.object({
+      ...actorField, kind: z.enum(['issue', 'followup']), teamId: z.string(), title: z.string().trim().min(3).max(200),
+      description: z.string().optional(), priority: z.number().int().min(0).max(4).optional(), fromIssueId: z.string().optional(),
+    }));
+    // a team-limited key may note a follow-up only from an issue on its teams
+    const p = principalOf(c);
+    if (b.fromIssueId && p.via === 'key' && !apiKeys.teamAllowed(p.key, `/api/issues/${b.fromIssueId}`, null)) throw new Refusal(403, 'forbidden', 'This API key can’t access that team');
+    const who = workAs(c, b.actorId);
+    const r = work.propose(laneOf(who, b.session), b, who);
+    return c.json(r, r.deduplicated ? 200 : 201);
+  });
+  app.post('/api/agent-issues', async (c) => {
+    const b = await body(c, z.object({
+      ...actorField, teamId: z.string(), draftId: z.string().optional(), title: z.string().trim().max(200).optional(), description: z.string().optional(),
+      priority: z.number().int().min(0).max(4).optional(), projectId: z.string().nullish(), start: z.boolean().optional(),
+    }));
+    const who = workAs(c, b.actorId);
+    const r = work.createIssue(laneOf(who, b.session), b, who, workBase);
+    return c.json(r, r.opId ? 201 : 200);
+  });
+  // a coding tool's own agent user ("Claude Code"), made the first time it writes
+  app.post('/api/agent-users', async (c) => {
+    const b = await body(c, z.object({ name: z.string().trim().min(1).max(40) }));
+    return c.json({ user: work.ensureHarnessAgent(b.name) });
   });
   app.post('/api/issues/:id/work/progress', async (c) => {
     const b = await body(c, z.object({ ...actorField, did: z.string().optional(), left: z.string().optional(), blocked: z.string().optional(), links: urls }));
@@ -687,7 +770,7 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     return c.json({ user }, 201);
   });
   app.patch('/api/users/:id', async (c) => {
-    const b = await c.req.json() as { name?: string; color?: string; email?: string; admin?: boolean };
+    const b = await c.req.json() as { name?: string; color?: string; email?: string; admin?: boolean; title?: string; username?: string; githubUsername?: string };
     const targetId = c.req.param('id');
     const admin = !hosted || accounts.isAdmin(store.actor());
     if (!admin && targetId !== store.actor()) return c.json({ error: 'You can only edit your own profile', code: 'forbidden' }, 403);
@@ -696,6 +779,14 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim();
     if (typeof b.color === 'string') patch.color = b.color;
     if (!hosted && typeof b.email === 'string') patch.email = b.email;
+    // Profile and Members save these; they were dropped here before, so a GitHub username never stuck
+    if (typeof b.title === 'string') patch.title = b.title.trim().slice(0, 80);
+    if (typeof b.username === 'string') patch.username = b.username.trim().slice(0, 40);
+    if (typeof b.githubUsername === 'string') {
+      const gh = b.githubUsername.trim().replace(/^@/, '');
+      if (gh && !/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(gh)) return c.json({ error: `${gh} isn't a GitHub username`, code: 'invalid' }, 400);
+      patch.githubUsername = gh;
+    }
     // admin rights go through setAdmin, which refuses to demote the last active admin
     if (admin && typeof b.admin === 'boolean') {
       try { accounts.setAdmin(targetId, b.admin); }
@@ -710,7 +801,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
 
   // ---------- cycles ----------
   app.post('/api/cycles', async (c) => {
-    const b = await c.req.json();
+    const b = await c.req.json().catch(() => ({}));
+    if (typeof b.teamId !== 'string' || !store.getTeam(b.teamId)) return c.json({ error: 'teamId must name a team', code: 'invalid' }, 400);
+    if (!Number.isInteger(b.number) || b.number < 1) return c.json({ error: 'number must be a whole number from 1', code: 'invalid' }, 400);
+    if (typeof b.startsAt !== 'string' || typeof b.endsAt !== 'string' || !(Date.parse(b.startsAt) < Date.parse(b.endsAt))) {
+      return c.json({ error: 'startsAt and endsAt must be dates, startsAt first', code: 'invalid' }, 400);
+    }
     const cycle = store.createCycle(b.teamId, b.number, b.startsAt, b.endsAt, b.name ?? '');
     return c.json({ cycle }, 201);
   });
@@ -753,7 +849,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   });
 
   // ---------- notifications ----------
-  app.get('/api/notifications', (c) => c.json({ notifications: store.listNotifications() }));
+  // `rows`: the inbox as it reads, one row per issue (core/inbox.ts); `notifications` stays the raw list
+  app.get('/api/notifications', (c) => { const notifications = store.listNotifications(); return c.json({ notifications, rows: inboxRows(visibleNotifications(notifications)) }); });
   app.post('/api/notifications/:id/read', async (c) => {
     const b = await c.req.json().catch(() => ({}));
     store.markNotificationRead(c.req.param('id'), b.read ?? true);
@@ -776,8 +873,8 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
   app.patch('/api/features', async (c) => {
     const b = await c.req.json();
     store.setFeatures(b);
-    // turning GitHub on adds Linear's "In Review" state and syncs straight away
-    if (b.githubEnabled === true) { git.ensureInReview(); void git.sync().catch(() => {}); }
+    // turning GitHub on syncs straight away (every team already has In Review: db.ts ensureReviewStates)
+    if (b.githubEnabled === true) void git.sync().catch(() => {});
     return c.json({ ok: true });
   });
 
@@ -833,6 +930,12 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
     const b = await c.req.json();
     try { git.setPicked(Array.isArray(b.repos) ? b.repos.map(String) : []); return c.json({ repos: await git.repos() }); } catch (e) { return c.json({ error: (e as Error).message }, 400); }
   });
+  // repo → team: which team a repository's work belongs to (hooks and `baseline doctor` read this)
+  app.get('/api/github/repo-teams', async (c) => c.json({ repos: (await git.repos()).map(r => ({ repo: r.repo, teamId: r.teamId, teamKey: r.teamId ? store.getTeam(r.teamId)?.key ?? null : null })) }));
+  app.put('/api/github/repo-teams', async (c) => { const b = await c.req.json(); try { git.setRepoTeam(String(b.repo ?? ''), b.teamId ? String(b.teamId) : null); return c.json({ ok: true }); } catch (e) { return c.json({ error: (e as Error).message }, 400); } });
+  // what syncing found, and PR authors with the member each probably is (Members can offer the match)
+  app.get('/api/github/summary', async (c) => c.json(await git.summary()));
+  app.get('/api/github/authors', (c) => c.json({ authors: git.authors() }));
   app.get('/api/git/automation/:teamId', (c) => c.json(git.automation(c.req.param('teamId'))));
   app.put('/api/git/automation/:teamId', async (c) => { git.setAutomation(c.req.param('teamId'), await c.req.json()); return c.json({ ok: true }); });
   // webhook setup (the secret is shown once, when it's made) and one-way GitHub Issues import
@@ -924,7 +1027,6 @@ export function createApp(dbPath: string, auth: AuthConfig = authConfigFromEnv()
       // onboarding's "Load sample data": once per workspace, alongside what you already set up
       if (getMeta(db, 'seededAt')) return c.json({ ok: true, already: true });
       seedWorkspace(db, { into: true });
-      if (store.getFeatures().githubEnabled) git.ensureInReview();
     } else seedWorkspace(db, { workspaceName: b.workspaceName });
     return c.json({ ok: true });
   });

@@ -14,7 +14,7 @@ import type { Issue, Location } from '../../src/core/types.js';
 
 /** hosted: the server can't open programs or folders on your computer until the companion ships */
 export const hostedWorkspace = () => useApp.getState().snap?.workspace.auth === 'hosted';
-export const COMPANION_NOTE = 'Opening Claude Code and adding folders need the Baseline companion on your computer. It’s coming in Phase 2.';
+export const COMPANION_NOTE = 'A browser can’t open apps or folders on your computer from a team server. Copy the prompt into Claude Code in your repo instead.';
 
 /** /Users/me/code/app → ~/code/app */
 export function tildify(path: string, home?: string): string {
@@ -258,25 +258,28 @@ export function DirectoryField(props: { value: string; onSave: (dir: string) => 
 }
 
 /** issue rail row + picker: the one place this task happens */
-export function IssueLocationRow(props: { issue: Issue }) {
+export function IssueLocationRow(props: { issue: Issue; expanded?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const menu = useMenu();
   const navigate = useNavigate();
   const actions = useHandoffActions(props.issue);
   const loc = snap.locations.find(l => l.id === props.issue.locationId);
-  // every open task should say where it happens, not just the ones handed to Claude Code
+  // a location is an agent's concern: ask for one only once someone handed the issue to an agent (an
+  // agent wrote on it); Open in Claude Code asks for itself. Otherwise it waits behind "Add property".
   const stateType = snap.states.find(s => s.id === props.issue.stateId)?.type;
   const hosted = snap.workspace.auth === 'hosted';
+  const handed = snap.comments.some(c => c.issueId === props.issue.id && snap.users.find(u => u.id === c.userId)?.kind === 'agent');
   // hosted: nothing launches from a location yet, so don't ask for one, but existing ones can still be set
-  const needs = !hosted && !loc && stateType !== 'completed' && stateType !== 'canceled';
+  const needs = !hosted && !loc && handed && stateType !== 'completed' && stateType !== 'canceled';
   const c = locationChoices(props.issue);
   if (hosted && !snap.locations.length) return null;
+  if (!loc && !needs && !props.expanded) return null;
   return (
     <>
       <button className={`prop-line ${loc ? '' : needs ? 'warn' : 'dim'}`} onClick={menu.open}
         title={loc ? tildify(loc.path, snap.workspace.homeDir) : 'The local folder this task happens in. Open in Claude Code starts there'}>
         <IconFolder size={14} />
-        <span className="prop-line-label">{loc ? loc.name : needs ? 'Needs a location' : 'No location'}</span>
+        <span className="prop-line-label">{loc ? loc.name : needs ? 'Needs a location' : 'Set location'}</span>
       </button>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={260}>

@@ -4,10 +4,10 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useApp, relTime, shortDate, copyText, dateTime } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, Modal, useMenu, useCanConfigure } from './ui.js';
+import { Menu, MenuItem, MenuSep, Modal, useMenu, useCanConfigure, useCanLead } from './ui.js';
 import { Avatar } from './pickers.js';
 import { IconCheck, IconClose, IconCopy, IconMore, IconPlus, IconSearch, IconLink, IconTrash } from './icons.js';
-import { isEmail, type Invite, type InviteEntry, type InviteResult, type Team, type User } from '../../src/core/types.js';
+import { isEmail, type Invite, type InviteEntry, type InviteResult, type Team, type TeamJoinLink, type User } from '../../src/core/types.js';
 
 type Tab = 'all' | 'active' | 'invited' | 'suspended';
 
@@ -39,7 +39,7 @@ export function HostedMembersSettings() {
   const toast = useApp(s => s.toast);
   const me = snap.currentUser;
   const isAdmin = me.admin;
-  const canInvite = isAdmin || snap.workspace.security.whoCanInvite === 'members';
+  const canInvite = snap.workspace.canInvite ?? (isAdmin || snap.workspace.security.whoCanInvite === 'members');
   const [invites, setInvites] = useState<Invite[]>([]);
   const [tab, setTab] = useState<Tab>('all');
   const [q, setQ] = useState('');
@@ -78,6 +78,7 @@ export function HostedMembersSettings() {
         <h1 style={{ flex: 1 }}>Members</h1>
         {canInvite && <button className="btn primary" onClick={() => setInviting(true)}><IconPlus size={13} /> Invite</button>}
       </div>
+      {canInvite && <JoinLinks />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 10px' }}>
         <div className="set-filter" style={{ flex: 1, margin: 0 }}><IconSearch size={13} /><input placeholder="Search by name or email" value={q} onChange={e => setQ(e.target.value)} /></div>
         {([['all', 'All'], ['active', `Active ${counts.active}`], ...(canInvite ? [['invited', `Invited ${counts.invited}`]] : []), ['suspended', `Suspended ${counts.suspended}`]] as Array<[Tab, string]>).map(([k, label]) => (
@@ -109,13 +110,23 @@ function MemberRow(props: { user: User; isAdmin: boolean; act: (fn: () => Promis
   const teams = snap.teams.filter(t => t.memberIds.includes(u.id));
   const suspended = u.status === 'suspended';
   const [resetFor, setResetFor] = useState<User | null>(null);
+  const [githubFor, setGithubFor] = useState<User | null>(null);
+  // PRs are matched to people by it: admins fill it in for anyone, everyone for themselves
+  const canEditGithub = props.isAdmin || you;
   return (
     <div className="prop-row" style={{ ...ROW, opacity: suspended ? 0.6 : 1 }}>
-      <AnimatePresence>{resetFor && <ResetLinkModal key="reset" user={resetFor} onClose={() => setResetFor(null)} />}</AnimatePresence>
+      <AnimatePresence>
+        {resetFor && <ResetLinkModal key="reset" user={resetFor} onClose={() => setResetFor(null)} />}
+        {githubFor && <GithubUsernameModal key="gh" user={githubFor} onClose={() => setGithubFor(null)} />}
+      </AnimatePresence>
       <Avatar user={u} size={24} />
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
         <span>{u.name}{you && <span style={{ color: 'var(--text-dim)' }}> (you)</span>}</span>
-        <span style={{ color: 'var(--text-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.email}</span>
+        <span style={{ color: 'var(--text-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {u.email}
+          {u.githubUsername ? <span title="GitHub username"> · @{u.githubUsername}</span>
+            : canEditGithub && <> · <button className="link-btn" style={{ fontSize: 12 }} onClick={() => setGithubFor(u)}>Add GitHub username</button></>}
+        </span>
       </span>
       <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 180, justifyContent: 'flex-end' }}>
         {teams.map(t => <span key={t.id} className="plabel-chip" title={t.name}>{t.key}</span>)}
@@ -126,11 +137,17 @@ function MemberRow(props: { user: User; isAdmin: boolean; act: (fn: () => Promis
       <span style={{ width: 92, textAlign: 'right', color: 'var(--text-dim)', fontSize: 12 }} title={u.createdAt ? `Joined ${shortDate(u.createdAt)}` : undefined}>
         {u.lastSeenAt ? relTime(u.lastSeenAt) : 'Never signed in'}
       </span>
-      {props.isAdmin
-        ? <button className="icon-btn" style={{ width: 24, height: 24 }} title="Manage access" onClick={menu.open}><IconMore size={14} /></button>
+      {canEditGithub
+        ? <button className="icon-btn" style={{ width: 24, height: 24 }} title={props.isAdmin ? 'Manage access' : 'Your options'} aria-label={`Options for ${u.name}`} onClick={menu.open}><IconMore size={14} /></button>
         : <span style={{ width: 24 }} />}
-      {menu.anchor && (
+      {menu.anchor && !props.isAdmin && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={230}>
+          <MenuItem label="GitHub username…" onClick={() => { menu.close(); setGithubFor(u); }} />
+        </Menu>
+      )}
+      {menu.anchor && props.isAdmin && (
+        <Menu anchor={menu.anchor} onClose={menu.close} width={230}>
+          {u.kind === 'human' && <MenuItem label="GitHub username…" onClick={() => { menu.close(); setGithubFor(u); }} />}
           {!suspended && <MenuItem label={u.admin ? 'Make member' : 'Make admin'} confirm={you && u.admin ? 'Remove your own admin access?' : undefined} onClick={() => void act(() => api.updateMember(u.id, { admin: !u.admin }), `${u.name} is now ${u.admin ? 'a member' : 'an admin'}`)} />}
           {snap.teams.length > 0 && <MenuSep />}
           {snap.teams.map((t, i) => {
@@ -255,6 +272,10 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
     : r.emailed === 'failed' ? `Invited, but the email failed (${r.error}). Share the link`
     : 'Invited. Email isn\'t set up on this server, so share the link';
   const onlyPeople = pending.length > 0 && pending.every(e => e.kind === 'member');
+  // without SMTP nothing is sent: the dialog makes links to hand over
+  const mail = !!snap.workspace.mail;
+  const shareable = results?.filter(r => r.invite && r.emailed !== 'sent') ?? [];
+  const allLinks = shareable.map(r => `${r.email}: ${r.invite!.link}`).join('\n');
 
   return (
     <Modal onClose={props.onClose} className="modal modal-create cy-modal">
@@ -271,7 +292,7 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
                 onText={setText} onEntries={setEntries} onCommit={commit} />
               <div className="field-help">
                 {onlyPeople && !teamIds.length ? 'They\'re already in the workspace. Choose a team to add them to.'
-                  : `People already in the workspace are added to the teams below. New addresses get an invite link${snap.workspace.signInMethods?.includes('google') ? ': they choose a password, or sign in with the Google account for that address.' : ' and choose a password.'}`}
+                  : `People already in the workspace are added to the teams below. New addresses get an invite link${mail ? ' by email' : ' to send them yourself (email isn\'t set up on this server)'}${snap.workspace.signInMethods?.includes('google') ? ': they choose a password, or sign in with the Google account for that address.' : ', and choose a password.'}`}
               </div>
             </div>
             <div>
@@ -302,10 +323,15 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
                 </div>
               );
             })}
-            {results.some(r => r.invite && r.emailed !== 'sent') && (
-              <div className="field-help">Send each person their link yourself. Anyone with it can join as that address once they type it.</div>
-            )}
-            {results.filter(r => r.invite && r.emailed !== 'sent').map(r => <LinkBox key={`link-${r.email}`} label={r.email} link={r.invite!.link} />)}
+            {shareable.length > 0 && <>
+              <div className="field-help">Send each person their link yourself{shareable.length > 1 ? ', or copy them all into one message' : ''}. A link only lets in the address it was made for.</div>
+              {shareable.length > 1 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <textarea className="text-input mono" data-share-all readOnly rows={Math.min(6, shareable.length)} value={allLinks} style={{ fontSize: 12, height: 'auto', resize: 'none', padding: '6px 8px' }} onFocus={e => e.target.select()} />
+                  <div><button className="btn" onClick={async () => toast({ title: await copyText(allLinks) ? `${shareable.length} invite links copied` : 'Couldn\'t copy. Select the links and copy them' })}><IconCopy size={13} /> Copy all</button></div>
+                </div>
+              )}
+            </>}
           </div>
         )}
         <div className="cm-footer">
@@ -314,7 +340,7 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
               <>
                 <button className="btn" onClick={props.onClose}>Cancel</button>
                 <button className="btn primary" disabled={busy || !sendable} onClick={send}>
-                  {busy ? 'Sending…' : onlyPeople ? 'Add to team' + (teamIds.length === 1 ? '' : 's') : 'Send invites'}<span className="btn-kbd kbd">⌘↵</span>
+                  {busy ? (mail ? 'Sending…' : 'Creating…') : onlyPeople ? 'Add to team' + (teamIds.length === 1 ? '' : 's') : mail ? 'Send invites' : 'Create invite links'}<span className="btn-kbd kbd">⌘↵</span>
                 </button>
               </>
             ) : (
@@ -454,9 +480,11 @@ export function TeamMembersSettings(props: { team: Team }) {
   const { team } = props;
   const me = snap.currentUser;
   const admin = useCanConfigure();
+  // a team's lead removes people from it too (CORE_FLOW.md › Roles)
+  const lead = useCanLead(team.id);
   const onTeam = team.memberIds.includes(me.id);
   const canAdd = admin || onTeam;
-  const canInvite = snap.workspace.auth === 'hosted' && (me.admin || snap.workspace.security.whoCanInvite === 'members');
+  const canInvite = snap.workspace.auth === 'hosted' && (snap.workspace.canInvite ?? (me.admin || snap.workspace.security.whoCanInvite === 'members'));
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [inviting, setInviting] = useState(false);
@@ -475,7 +503,7 @@ export function TeamMembersSettings(props: { team: Team }) {
       <div className="field-help" style={{ marginBottom: 8 }}>{members.length} member{members.length === 1 ? '' : 's'}. Anyone in the workspace can join {team.name}.</div>
       <div className="set-filter" style={{ margin: '4px 0 10px' }}><IconSearch size={13} /><input placeholder="Search by name or email" value={q} onChange={e => setQ(e.target.value)} /></div>
       <div className="card" style={{ padding: '4px 10px', marginBottom: 14 }}>
-        {shown.map(u => <TeamMemberRow key={u.id} team={team} user={u} canRemove={admin} act={act} />)}
+        {shown.map(u => <TeamMemberRow key={u.id} team={team} user={u} canRemove={lead} act={act} />)}
         {!shown.length && <div className="prop-row" style={{ color: 'var(--text-dim)' }}>{members.length ? 'Nobody matches.' : 'Nobody is on this team yet.'}</div>}
       </div>
       <div className="field-help">Agents can work in every team: they're assigned issues, not added to teams.</div>
@@ -501,7 +529,7 @@ function TeamMemberRow(props: { team: Team; user: User; canRemove: boolean; act:
         <span style={{ color: 'var(--text-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.email}</span>
       </span>
       <span style={{ width: 86, textAlign: 'right' }}>
-        {u.status === 'suspended' ? <span className="plabel-chip">Suspended</span> : <span className={`plabel-chip ${u.admin ? 'admin' : ''}`}>{u.admin ? 'Admin' : 'Member'}</span>}
+        {u.status === 'suspended' ? <span className="plabel-chip">Suspended</span> : <span className={`plabel-chip ${u.admin || team.leadIds.includes(u.id) ? 'admin' : ''}`}>{team.leadIds.includes(u.id) ? 'Lead' : u.admin ? 'Workspace admin' : 'Member'}</span>}
       </span>
       {you || props.canRemove
         ? <button className="icon-btn" style={{ width: 24, height: 24 }} title="Member options" aria-label={`Options for ${u.name}`} onClick={menu.open}><IconMore size={14} /></button>
@@ -603,7 +631,7 @@ function AgentsSection() {
   return (
     <div style={{ marginTop: 22 }}>
       <div className="field-label">Agents</div>
-      <div className="field-help">Coding agents write as Agent on behalf of the person who started them ("Agent via you"). Another agent user's writes land under its name with <code>--as "Name"</code>.</div>
+      <div className="field-help">Each coding tool writes as its own agent user on behalf of the person running it, so its changes read "Claude Code via you". The user is made the first time that tool connects.</div>
       <div className="card" style={{ padding: '4px 10px', margin: '8px 0' }}>
         {agents.map(u => <div key={u.id} className="prop-row" style={{ gap: 10 }}><Avatar user={u} size={22} /><span>{u.name}</span></div>)}
       </div>
@@ -687,6 +715,15 @@ export function SecuritySettings() {
           ))}
         </div>
       </div>
+      {sec.whoCanInvite === 'admins' && (
+        <div className="field-row">
+          <div>
+            <div className="field-label">Members invite while the workspace is small</div>
+            <div className="field-help">Under 10 people, anyone can bring in the next teammate. Admins only after that.</div>
+          </div>
+          <button className={`switch${sec.smallTeamInvites ? ' on' : ''}`} role="switch" aria-checked={sec.smallTeamInvites} aria-label="Members invite while the workspace is small" disabled={!isAdmin} onClick={() => void save({ smallTeamInvites: !sec.smallTeamInvites })}><span /></button>
+        </div>
+      )}
 
       <div className="field-row">
         <div>
@@ -696,6 +733,101 @@ export function SecuritySettings() {
         <span style={{ display: 'flex', gap: 4 }}><span className="plabel-chip">Password</span>{google && <span className="plabel-chip">Google</span>}</span>
       </div>
     </div>
+  );
+}
+
+/** Each team's shareable join link: one message in the team's chat instead of a link per person.
+ *  Admins make and turn them off; anyone who may invite can copy an open one. */
+function JoinLinks() {
+  const snap = useApp(s => s.snap)!;
+  const toast = useApp(s => s.toast);
+  const isAdmin = snap.currentUser.admin;
+  const [links, setLinks] = useState<Record<string, TeamJoinLink | null>>({});
+  const load = useCallback(async () => {
+    const got = await Promise.all(snap.teams.map(async t => [t.id, (await api.teamJoinLink(t.id).catch(() => ({ joinLink: null }))).joinLink] as const));
+    setLinks(Object.fromEntries(got));
+  }, [snap.teams.map(t => t.id).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [load]);
+  const run = async (fn: () => Promise<unknown>, done: string) => {
+    try { await fn(); await load(); toast({ title: done }); } catch (err) { toast({ title: (err as Error).message }); }
+  };
+  const teams = snap.teams.filter(t => isAdmin || links[t.id]);
+  if (!teams.length) return null;
+  return (
+    <div style={{ margin: '4px 0 14px' }}>
+      <div className="field-label">Team join links</div>
+      <div className="field-help" style={{ marginBottom: 6 }}>Paste one where your team talks: anyone who opens it can make an account and lands on that team. Turning a link off stops it working.</div>
+      <div className="card" style={{ padding: '4px 10px' }}>
+        {teams.map(t => {
+          const l = links[t.id];
+          return (
+            <div key={t.id} className="prop-row" style={{ gap: 8 }} data-join-team={t.key}>
+              <span style={{ width: 120, flex: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+              {l ? <>
+                <input className="text-input mono" readOnly value={l.link} style={{ flex: 1, minWidth: 0, fontSize: 12, height: 26 }} onFocus={e => e.target.select()} aria-label={`${t.name} join link`} />
+                <button className="btn" style={{ height: 26 }} onClick={async () => toast({ title: await copyText(l.link) ? `${t.name} join link copied` : 'Couldn\'t copy. Select the link and copy it' })}><IconCopy size={12} /> Copy</button>
+                {isAdmin && <button className="btn ghost" style={{ height: 26 }} onClick={() => void run(() => api.revokeTeamJoinLink(t.id), `${t.name}'s join link is off`)}>Turn off</button>}
+              </> : <>
+                <span style={{ flex: 1, color: 'var(--text-dim)', fontSize: 12 }}>No join link</span>
+                <button className="btn" style={{ height: 26 }} onClick={() => void run(() => api.createTeamJoinLink(t.id), `${t.name} join link created`)}><IconLink size={12} /> Create link</button>
+              </>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** a person's GitHub login, which is how their pull requests find them */
+function GithubUsernameModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const toast = useApp(s => s.toast);
+  const [value, setValue] = useState(user.githubUsername ?? '');
+  const [error, setError] = useState('');
+  // PR authors nobody has claimed, this person's likely login first (GET /api/github/authors comes
+  // with the GitHub settings work; without it, or without GitHub, there are just no suggestions)
+  const [authors, setAuthors] = useState<string[]>([]);
+  useEffect(() => {
+    void fetch('/api/github/authors').then(r => r.ok ? r.json() : null).then((b: { authors?: Array<{ login: string; prs?: number; userId?: string | null; suggestedUserId?: string | null }> } | Array<{ login: string; userId?: string | null; suggestedUserId?: string | null }> | null) => {
+      const list = Array.isArray(b) ? b : b?.authors ?? [];
+      const open = list.filter(a => !a.userId);
+      setAuthors([...open.filter(a => a.suggestedUserId === user.id), ...open.filter(a => a.suggestedUserId !== user.id)].map(a => a.login).slice(0, 5));
+    }).catch(() => {});
+  }, [user.id]);
+  const save = async () => {
+    try {
+      await api.updateUser(user.id, { githubUsername: value.trim().replace(/^@/, '') });
+      await refresh();
+      toast({ title: value.trim() ? `${user.name}'s GitHub username is ${value.trim().replace(/^@/, '')}` : `${user.name}'s GitHub username was removed` });
+      onClose();
+    } catch (err) { setError((err as Error).message); }
+  };
+  return (
+    <Modal onClose={onClose} className="modal modal-create cy-modal">
+      <div className="cm-root">
+        <div className="cm-header">
+          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>GitHub username for {user.name}</span>
+          <span style={{ marginLeft: 'auto', display: 'flex' }}><button className="icon-btn" title="Close" aria-label="Close" onClick={onClose}><IconClose size={14} /></button></span>
+        </div>
+        <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <input className="text-input mono" aria-label="GitHub username" autoFocus placeholder="octocat" spellCheck={false} value={value}
+            onChange={e => setValue(e.target.value.replace(/\s+/g, ''))} onKeyDown={e => { if (e.key === 'Enter') void save(); }} />
+          {authors.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+              <span className="field-help" style={{ marginTop: 0 }}>From pull requests:</span>
+              {authors.map(a => <button key={a} type="button" className={`seg seg-fill ${value === a ? 'selected' : ''}`} onClick={() => setValue(a)}>{a}</button>)}
+            </div>
+          )}
+          <div className="field-help" style={{ marginTop: 0, color: error ? 'var(--danger)' : undefined }}>{error || 'Pull requests by this login are attributed to them, and an unassigned issue their PR closes is assigned to them.'}</div>
+        </div>
+        <div className="cm-footer">
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={onClose}>Cancel</button>
+            <button className="btn primary" onClick={() => void save()}>Save</button>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

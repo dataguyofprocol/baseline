@@ -9,9 +9,13 @@ import { BaselineError, ResolveError, TargetError, type Baseline } from '../clie
 
 /** A closed union, so a typo in the registry, a test or the skill generator fails the build. */
 export type OpName =
-  | 'get_issue' | 'list_issues'
-  | 'start_issue' | 'post_progress' | 'file_followup' | 'finish_issue'
+  | 'next_issue' | 'find_issues' | 'get_issue' | 'list_issues' | 'my_activity'
+  | 'propose_issue' | 'create_issue'
+  | 'start_issue' | 'create_sub_issues' | 'post_progress' | 'propose_followup' | 'finish_issue'
   | 'draft_project_update' | 'undo';
+
+/** retired tool names a client may still call (an older CLAUDE.md block): the op that answers them now */
+export const OP_ALIASES: Readonly<Record<string, OpName>> = { file_followup: 'propose_followup' };
 
 /**
  * What an op does to shared state. MCP annotations are derived from it, never written per tool:
@@ -29,11 +33,36 @@ export type Actor = { kind: 'agent'; userId: string; name: string } | { kind: 'p
 /** BASELINE_SESSION, checked; it splits living comments between two sessions of one agent */
 export type SessionKey = string & { readonly __brand: 'SessionKey' };
 
+/** which front door runs the op: receipts name the MCP tool, or the CLI command, to undo with */
+export type Surface = 'cli' | 'mcp';
+
+/** what checking out the issue's branch did for start_issue, or the command to run when it couldn't */
+export interface Checkout {
+  status: 'checked_out' | 'created' | 'already_on' | 'manual';
+  branch: string;
+  /** the exact command; for 'manual', the one to run */
+  command: string;
+  /** why it was left to the person (uncommitted changes, not a repo…) */
+  note?: string;
+}
+
+/** What only a front door on the person's machine (the CLI, stdio MCP) has: the repo it runs in.
+ *  The hosted /mcp endpoint has none, and its ops say what to run instead. */
+export interface LocalRepo {
+  /** check out (or create from the default branch) the issue's branch, when that is safe */
+  checkout(branch: string): Promise<Checkout>;
+  /** the team key this repo is mapped to (.baseline.json, written by `baseline connect`) */
+  team: string | null;
+}
+
 export interface OpContext {
   bl: Baseline;
   actor: Actor;
   /** null: the default lane, one living comment per (issue, agent, person) */
   session: SessionKey | null;
+  /** default 'cli' */
+  surface?: Surface;
+  local?: LocalRepo;
 }
 
 export interface Operation<I extends z.ZodObject, O extends z.ZodObject> {
@@ -49,7 +78,7 @@ export interface Operation<I extends z.ZodObject, O extends z.ZodObject> {
   /** resolves names over the client, makes at most one write call, shapes the output */
   run(ctx: OpContext, input: z.infer<I>): Promise<z.infer<O>>;
   /** the human-readable result: the CLI's default output and MCP's text content */
-  text(out: z.infer<O>): string;
+  text(out: z.infer<O>, surface: Surface): string;
 }
 
 export type AnyOperation = Operation<z.ZodObject, z.ZodObject>;
@@ -107,6 +136,8 @@ export interface Field {
   flag: string;
   kind: 'string' | 'url' | 'number' | 'boolean' | 'enum' | 'array';
   values?: readonly string[];
+  /** an array's items: URLs or free text */
+  of?: 'url' | 'string';
   required: boolean;
   description: string;
 }
@@ -129,13 +160,14 @@ export function fieldsOf(op: AnyOperation): Field[] {
     return {
       name, flag: `--${name.replace(/_/g, '-')}`, kind, required, description: description ?? '',
       ...(t instanceof z.ZodEnum ? { values: t.options as string[] } : {}),
+      ...(t instanceof z.ZodArray ? { of: t.element instanceof z.ZodURL ? 'url' as const : 'string' as const } : {}),
     };
   });
 }
 
 /** the value a flag takes, as --help shows it */
 export const placeholderOf = (f: Field): string =>
-  f.kind === 'enum' ? `<${f.values!.join('|')}>` : f.kind === 'array' ? '<url...>' : f.kind === 'url' ? '<url>' : f.kind === 'number' ? '<n>' : '<text>';
+  f.kind === 'enum' ? `<${f.values!.join('|')}>` : f.kind === 'array' ? (f.of === 'url' ? '<url...>' : '<text...>') : f.kind === 'url' ? '<url>' : f.kind === 'number' ? '<n>' : '<text>';
 
 /** `baseline agent post-progress <issue> [--did <text>] …`, for the skill */
 export function usageOf(op: AnyOperation): string {

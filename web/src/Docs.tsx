@@ -52,7 +52,7 @@ export function Resources(props: { projectId?: string; teamId?: string; initiati
       <button className="prop-chip ghost dim" onClick={menu.open}><IconPlus size={12} /> Add document or link…</button>
       {menu.anchor && (
         <Menu anchor={menu.anchor} onClose={menu.close} width={210}>
-          <MenuItem icon={<IconDoc size={14} />} label="New document" onClick={() => void newDoc(owner, navigate)} />
+          {useApp.getState().snap?.workspace.features.documentsEnabled && <MenuItem icon={<IconDoc size={14} />} label="New document" onClick={() => void newDoc(owner, navigate)} />}
           <MenuItem icon={<IconLink size={14} />} label="Add link…" onClick={() => setLinking(menu.anchor)} />
         </Menu>
       )}
@@ -145,7 +145,8 @@ export function TeamHomePage() {
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={[{ label: team.name, icon: teamDisplayIcon(team) }]} />
       <div className="subnav">
-        {(['overview', 'documents', 'members'] as const).map(t => (
+        {/* documents are a Settings › Features switch */}
+        {(['overview', 'documents', 'members'] as const).filter(t => t !== 'documents' || snap.workspace.features.documentsEnabled).map(t => (
           <button key={t} className={`seg ${tab === t ? 'selected' : ''}`} onClick={() => navigate(`/team/${team.key}/overview${t === 'overview' ? '' : `/${t}`}`)}>
             {t[0].toUpperCase() + t.slice(1)}{tab === t && <RegisterMark group="team-home-tabs" />}
           </button>

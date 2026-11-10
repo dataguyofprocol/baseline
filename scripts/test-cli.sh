@@ -20,6 +20,8 @@ DB="$WORK/demo.db"
 
 PASS=0; FAIL=0; FAILED_NAMES=()
 
+# a coding tool runs this suite: its marker would make agent commands write as "Claude Code"
+unset CLAUDECODE BASELINE_URL BASELINE_TOKEN BASELINE_AS
 export BASELINE_DB="$DB"                          # exercised env-var path
 b() { $BIN "$@"; }                                # run against scratch DB
 newdb() { BASELINE_DB="$WORK/db$1.db" $BIN team list >/dev/null 2>&1; echo "$WORK/db$1.db"; }
@@ -167,6 +169,11 @@ check  "comment edit"         "Updated"         comment edit "$CMID" "edited bod
 check  "edited body visible"  "edited body"     issue comments "$A"
 check  "comment delete"       "Deleted"         comment delete "$CMID"
 check_absent "comment gone"   "hello world"     issue comments "$A"
+b issue comment "$A" "ping @[Ada Osei](user:u_mentionprobe) please" >/dev/null
+check        "comments print a mention as @Name"   "ping @Ada Osei please" issue comments "$A"
+check_absent "comments hide the mention token"     "](user:"               issue comments "$A"
+check        "issue show prints a mention as @Name" "ping @Ada Osei please" issue show "$A"
+check_absent "issue show hides the mention token"  "](user:"               issue show "$A"
 
 echo "=== archive / restore / delete ==="
 b issue create "to archive" -t CORE >/dev/null
@@ -528,6 +535,209 @@ eq("key mid-word in a branch", L("score-14x", "t"), []);
 if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
 '
 
+echo "=== git: commits reference, branches bind, only magic words close ==="
+nodecheck "parseCommitLinks and branchKeys: bare keys, negation, branches, several keys" '
+const { parseCommitLinks, parseLinks, branchKeys, refBranch } = await import("./dist/core/git.js");
+const bad = [];
+const eq = (what, got, want) => { const g = JSON.stringify([...got].sort()), w = JSON.stringify(want.sort()); if (g !== w) bad.push(`${what}: got ${g}, want ${w}`); };
+const C = (branch, message, known) => parseCommitLinks({ branch, message }, known);
+eq("bare key is a reference",        C("main", "CORE-6: wip, not done"), [["CORE-6", "ref"]]);
+eq("bare key in the body too",       C("main", "Tidy up\n\nSee CORE-7"), [["CORE-7", "ref"]]);
+eq("magic word closes",              C("main", "Fix login\n\nFixes CORE-12"), [["CORE-12", "closing"]]);
+eq("negation does not close",        C("main", "does not fix CORE-12"), [["CORE-12", "ref"]]);
+eq("contraction does not close",     C("main", "doesn’t close CORE-13 yet; wont resolve CORE-14".replace("wont", "won" + String.fromCharCode(39) + "t")), [["CORE-13", "ref"], ["CORE-14", "ref"]]);
+eq("not yet fixing",                 C("main", "not yet fixing CORE-15"), [["CORE-15", "ref"]]);
+eq("a later line still closes",      C("main", "does not fix CORE-16\nfixes CORE-17"), [["CORE-16", "ref"], ["CORE-17", "closing"]]);
+eq("several keys",                   C("main", "Fixes CORE-1, CORE-2 and refs CORE-5. Also AGO-3"), [["CORE-1", "closing"], ["CORE-2", "closing"], ["CORE-5", "ref"], ["AGO-3", "ref"]]);
+eq("sha-256 is not a key",           C("main", "switch to sha-256 hashing"), []);
+eq("default branch format binds",    C("parth/core-12-fix-login-redirect", "tidy"), [["CORE-12", "ref"]]);
+eq("agent branch feat/core-12",      C("feat/core-12", "wip"), [["CORE-12", "ref"]]);
+eq("agent branch core-12",           C("core-12", "wip"), [["CORE-12", "ref"]]);
+eq("upper-case agent branch",        C("claude/CORE-12-login", "wip"), [["CORE-12", "ref"]]);
+eq("branch plus closing word",       C("feat/core-12", "fixes CORE-12"), [["CORE-12", "closing"]]);
+eq("skip beats the branch",          C("feat/core-12", "skip CORE-12"), []);
+eq("known picks the real key",       C("ada-2/core-12-fix-404-page", "wip", k => k === "CORE-12"), [["CORE-12", "ref"]]);
+eq("branchKeys in order",            branchKeys("parth/core-12-fix-404"), ["CORE-12", "FIX-404"]);
+eq("branchKeys with dots",           branchKeys("release.core-9"), ["CORE-9"]);
+eq("no key mid-word",                branchKeys("score-14x"), []);
+eq("git log --source ref → branch",  ["refs/heads/parth/core-12-fix", "refs/remotes/origin/feat/core-12", "core-3"].map(refBranch), ["parth/core-12-fix", "feat/core-12", "core-3"]);
+eq("PR body negation only refs",     parseLinks({ branch: "x", title: "t", body: "This does not fix CORE-20" }), [["CORE-20", "ref"]]);
+eq("PR branch: first real key",      parseLinks({ branch: "ada-2/core-21-x", title: "t", body: "" }, k => k === "CORE-21"), [["CORE-21", "closing"]]);
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+'
+
+nodecheck "ingestPush: bare key links only, branch binds and starts, magic word on main closes" '
+const { createApp } = await import("./dist/server/index.js");
+const { store } = createApp(process.argv[1]);
+const git = store.ext.git;
+const bad = [];
+const ok = (what, cond) => { if (!cond) bad.push(what); };
+const snap = () => store.snapshot();
+const team = snap().teams.find(t => t.key === "CORE");
+const st = (type, name) => snap().states.find(s => s.teamId === team.id && s.type === type && (!name || s.name === name));
+const typeOf = (id) => snap().states.find(s => s.id === store.getIssue(id).stateId);
+const mk = (title) => store.createIssue({ teamId: team.id, title, stateId: st("unstarted").id });
+const key = (i) => `CORE-${i.number}`;
+const links = (i) => snap().issueCommits.filter(c => c.issueId === i.id).length;
+let n = 0;
+const commit = (branch, message, onDefaultBranch) => git.ingestPush([{ sha: `sha${++n}`.padEnd(40, "0"), repo: "acme/app", message, author: "octo", branch, committedAt: new Date().toISOString(), onDefaultBranch }]);
+const a = mk("bare key"); commit("main", `${key(a)}: wip, not done`, true);
+ok("bare key on main links", links(a) === 1);
+ok("bare key on main does not close or move", typeOf(a.id).type === "unstarted");
+const b = mk("negated"); commit("main", `does not fix ${key(b)}`, true);
+ok("negated closing word does not close", links(b) === 1 && typeOf(b.id).type === "unstarted");
+const c = mk("branch"); commit(`parth/${key(c).toLowerCase()}-branch`, "tidy the handler", false);
+ok("commit on the key branch links without the key", links(c) === 1);
+ok("commit on the key branch starts the issue", typeOf(c.id).name === "In Progress");
+const d = mk("agent branch"); commit(`feat/${key(d).toLowerCase()}`, "wip", false);
+ok("agent branch feat/core-N links", links(d) === 1);
+const e = mk("closes"); commit("main", `Fixes ${key(e)}`, true);
+ok("magic word on main closes", typeOf(e.id).type === "completed");
+const f = mk("pr branch");
+const pr = git.ingestPullRequest({ repo: "acme/app", number: 900, title: "No key in this title", body: "", url: "https://github.com/acme/app/pull/900", state: "open", branch: `${key(f).toLowerCase()}`, base: "main", author: "octo", reviewDecision: null, checks: null, updatedAt: new Date().toISOString(), mergedAt: null });
+ok("PR on a key branch links", snap().issuePrs.some(l => l.issueId === f.id && l.prId === pr.id && l.kind === "closing"));
+ok("PR opened → In Progress", typeOf(f.id).name === "In Progress");
+git.ingestPullRequest({ ...pr, reviewDecision: "review_required" });
+ok("review requested → In Review", typeOf(f.id).name === "In Review");
+git.ingestPullRequest({ ...pr, state: "merged", mergedAt: new Date().toISOString() });
+ok("merged → Done", typeOf(f.id).type === "completed");
+git.ingestPullRequest({ ...pr, state: "open", reviewDecision: null, mergedAt: null });
+ok("status only moves forward", typeOf(f.id).type === "completed");
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+' "$WORK/git-commits.db"
+
+echo "=== workflow defaults: In Review everywhere, automations on ==="
+nodecheck "default workflow has In Review, defaults are on, the migration adds it once" '
+const { createApp } = await import("./dist/server/index.js");
+const { openDb, getMeta } = await import("./dist/core/db.js");
+const { DEFAULT_PREFERENCES, DEFAULT_TEAM_WORKFLOW } = await import("./dist/core/types.js");
+const path = process.argv[1];
+const bad = [];
+const ok = (what, cond) => { if (!cond) bad.push(what); };
+{
+  const { store, db } = createApp(path);
+  const t = store.createTeam("WFX", "Workflow test");
+  const names = store.snapshot().states.filter(s => s.teamId === t.id).sort((a, b) => a.position - b.position).map(s => `${s.name}:${s.type}`);
+  ok("new team workflow is " + names.join(","), names.join(",") === "Backlog:backlog,Todo:unstarted,In Progress:started,In Review:started,Done:completed,Canceled:canceled");
+  for (const team of store.snapshot().teams) ok(`seeded ${team.key} has In Review`, store.snapshot().states.some(s => s.teamId === team.id && s.name === "In Review"));
+  const auto = store.ext.git.automation(t.id);
+  const nameOf = (id) => store.snapshot().states.find(s => s.id === id)?.name;
+  ok("PR opened → In Progress by default", nameOf(auto.opened) === "In Progress");
+  ok("review requested → In Review by default", nameOf(auto.review) === "In Review");
+  ok("merged → Done by default", nameOf(auto.merged) === "Done");
+  ok("auto-assign on create is on", DEFAULT_PREFERENCES.autoAssign === true);
+  ok("assign on start is on", DEFAULT_PREFERENCES.assignOnStart === true);
+  ok("parent closes with its sub-issues by default", DEFAULT_TEAM_WORKFLOW.closeParent === true && store.ext.automation.teamWorkflows()[t.id].closeParent === true);
+  const parent = store.createIssue({ teamId: t.id, title: "parent" });
+  const kids = [1, 2].map(i => store.createIssue({ teamId: t.id, title: `kid ${i}`, parentId: parent.id }));
+  const done = store.stateOfType(t.id, "completed");
+  kids.forEach(k => store.updateIssue(k.id, { stateId: done }));
+  ok("parent → Done when its last sub-issue is done", store.getIssue(parent.id).stateId === done);
+  ok("picking a repo turns GitHub on", (store.setFeatures({ githubEnabled: false }), store.ext.git.setPicked(["acme/app"]), store.getFeatures().githubEnabled === true));
+  // an old workspace: one team with no review state, one with its own, and the migration never ran
+  const old = store.createTeam("OLD", "Old team");
+  const own = store.createTeam("OWN", "Own review");
+  const review = (id) => store.snapshot().states.filter(s => s.teamId === id && /review/i.test(s.name));
+  db.prepare("DELETE FROM states WHERE team_id = ? AND name = ?").run(old.id, "In Review");
+  db.prepare("UPDATE states SET name = ? WHERE team_id = ? AND name = ?").run("Code review", own.id, "In Review");
+  db.prepare("DELETE FROM meta WHERE key = ?").run("reviewStatesMigrated");
+  db.close();
+}
+const count = (db, key) => db.prepare("SELECT s.name, s.type, s.position FROM states s JOIN teams t ON t.id = s.team_id WHERE t.key = ? AND lower(s.name) LIKE ?").all(key, "%review%");
+{
+  const db = openDb(path);
+  const old = count(db, "OLD"), own = count(db, "OWN");
+  ok("migration adds In Review to a team without one", old.length === 1 && old[0].name === "In Review" && old[0].type === "started");
+  const pos = (n) => db.prepare("SELECT s.position p FROM states s JOIN teams t ON t.id = s.team_id WHERE t.key = ? AND s.name = ?").get("OLD", n).p;
+  ok("…between In Progress and Done", pos("In Progress") < old[0].position && old[0].position < pos("Done"));
+  ok("…and leaves a team with its own review state alone", own.length === 1 && own[0].name === "Code review");
+  ok("migration is marked done", getMeta(db, "reviewStatesMigrated") === "1");
+  db.prepare("DELETE FROM states WHERE name = ? AND team_id = (SELECT id FROM teams WHERE key = ?)").run("In Review", "OLD");
+  db.close();
+}
+{
+  const db = openDb(path);
+  ok("reopening never duplicates, and a deleted In Review stays deleted", count(db, "OLD").length === 0 && count(db, "OWN").length === 1 && count(db, "CORE").length === 1);
+  db.close();
+}
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+' "$WORK/workflow-defaults.db"
+
+echo "=== git: read-only end to end (every gh call a read, every API call a GET) ==="
+mkdir -p "$WORK/fakegh"
+cat > "$WORK/fakegh/gh" <<'FAKEGH'
+#!/usr/bin/env node
+// a stand-in for the GitHub CLI: logs each call and answers with fixtures
+const fs = require("node:fs");
+const a = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify(a) + "\n");
+const out = (s) => { process.stdout.write(s); process.exit(0); };
+const now = new Date().toISOString();
+if (a[0] === "--version") out("gh version 2.60.0\n");
+if (a[0] === "api" && a[1] === "-i" && a[2] === "user") out("HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n{\"login\":\"octo-admin\"}");
+if (a[0] === "api" && a[1] === "user") out("octo-admin\n");
+if (a[0] === "api" && a[1] === "--paginate") out("acme/app\nacme/web\n");
+if (a[0] === "pr" && a[1] === "list") out(JSON.stringify([
+  { number: 1, title: "Login redirect", body: "", url: "https://github.com/acme/app/pull/1", state: "OPEN", isDraft: false, headRefName: "ada-osei/core-1-login", baseRefName: "main", author: { login: "ada-osei" }, reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], updatedAt: now, mergedAt: null },
+  { number: 2, title: "Unrelated chore", body: "", url: "https://github.com/acme/app/pull/2", state: "OPEN", isDraft: false, headRefName: "chore/deps", baseRefName: "main", author: { login: "octo-jun" }, reviewDecision: null, statusCheckRollup: [], updatedAt: now, mergedAt: null },
+]));
+if (a[0] === "api" && /^repos\/[^/]+\/[^/]+$/.test(a[1])) out("main\n");
+if (a[0] === "api" && /\/commits\?/.test(a[1])) out(JSON.stringify([{ sha: "f".repeat(40), author: { login: "ada-osei" }, commit: { message: "CORE-2 wip", author: { date: now }, committer: { date: now } } }]));
+if (a[0] === "issue" && a[1] === "list") out("[]");
+process.stderr.write("fake gh: unexpected " + a.join(" ") + "\n"); process.exit(1);
+FAKEGH
+chmod +x "$WORK/fakegh/gh"
+nodecheck "every outbound GitHub request is a read" '
+const fs = await import("node:fs");
+const [dbPath, fakeDir, log] = process.argv.slice(1);
+process.env.PATH = `${fakeDir}:${process.env.PATH}`;
+process.env.FAKE_GH_LOG = log;
+// nothing may reach GitHub over fetch either: record every request and refuse it
+const fetched = [];
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => { const url = String(input?.url ?? input); fetched.push(`${init?.method ?? input?.method ?? "GET"} ${url}`); if (/github/i.test(url)) throw new Error("no fetch to GitHub"); return realFetch(input, init); };
+const { createApp } = await import("./dist/server/index.js");
+const { assertReadOnly } = await import("./dist/core/git.js");
+const { app, store } = createApp(dbPath);
+const bad = [];
+const ok = (what, cond, detail) => { if (!cond) bad.push(what + (detail === undefined ? "" : ": " + JSON.stringify(detail))); };
+const call = async (method, path, body) => { const r = await app.request("http://localhost" + path, { method, headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); return { status: r.status, body: await r.json() }; };
+store.setFeatures({ githubEnabled: false });
+const team = store.snapshot().teams.find(t => t.key === "CORE");
+ok("token saved", (await call("PUT", "/api/github/token", { token: "github_pat_" + "x".repeat(30) })).status === 200);
+ok("a working token turns GitHub on", store.getFeatures().githubEnabled === true);
+ok("repos listed", (await call("GET", "/api/github/repos/available")).body.repos?.length === 2);
+ok("repos picked", (await call("PUT", "/api/github/repos", { repos: ["acme/app"] })).status === 200);
+ok("repo mapped to a team", (await call("PUT", "/api/github/repo-teams", { repo: "acme/app", teamId: team.id })).status === 200);
+const rt = (await call("GET", "/api/github/repo-teams")).body.repos.find(r => r.repo === "acme/app");
+ok("GET repo-teams shows the mapping", rt?.teamId === team.id && rt?.teamKey === "CORE", rt);
+const s = await call("POST", "/api/git/sync");
+ok("sync ran", s.body.prs === 2 && !s.body.error, s.body);
+const core1 = store.getByKey("CORE-1");
+ok("PR on ada-osei/core-1-login links to CORE-1", store.snapshot().issuePrs.some(l => l.issueId === core1.id));
+const sum = (await call("GET", "/api/github/summary")).body;
+ok("summary counts open and linked PRs", sum.repos >= 1 && sum.openPrs === 2 && sum.linkedPrs === 1 && sum.authors === 2, sum);
+const authors = (await call("GET", "/api/github/authors")).body.authors;
+const ada = store.snapshot().users.find(u => u.name === "Ada Osei");
+ok("PR author ada-osei is suggested as Ada", authors.find(a => a.login === "ada-osei")?.suggestedUserId === ada.id, authors);
+ok("confirming the match stores the GitHub username", (await call("PATCH", `/api/users/${ada.id}`, { githubUsername: "@ada-osei" })).status === 200 && store.snapshot().users.find(u => u.id === ada.id).githubUsername === "ada-osei");
+ok("…and the summary counts the person", (await call("GET", "/api/github/summary")).body.peopleMatched === 1);
+await call("POST", "/api/github/issues/import", { repo: "acme/app", teamId: team.id, follow: false });
+await call("GET", "/api/git/status");
+const calls = fs.readFileSync(log, "utf8").trim().split("\n").map(l => JSON.parse(l));
+ok("gh was called", calls.length >= 6, calls.length);
+for (const a of calls) {
+  try { assertReadOnly("gh", a); } catch (e) { bad.push("not a read: gh " + a.join(" ")); }
+  if (a[0] === "api") ok("gh api call sends no body and no method but GET: " + a.join(" "), !a.some((x, i) => /^(-f|-F|--field|--raw-field|--input)(=|$)/.test(x) || (/^(-X|--method)$/.test(x) && a[i + 1]?.toUpperCase() !== "GET") || /^--method=(?!GET$)/i.test(x)) && !a.some(x => /graphql/i.test(x)));
+  ok("gh subcommand is a read: " + a.join(" "), a[0] === "api" || a[0] === "--version" || ["list", "view", "status"].includes(a[1]));
+}
+ok("no fetch reached GitHub", !fetched.some(f => /github/i.test(f)), fetched);
+// and nothing in the server code talks to the GitHub API directly
+const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(`${d}/${e.name}`) : e.name.endsWith(".js") ? [`${d}/${e.name}`] : []);
+for (const f of [...walk("dist/core"), ...walk("dist/server")]) if (/api\.github\.com|uploads\.github\.com/.test(fs.readFileSync(f, "utf8"))) bad.push("direct GitHub API URL in " + f);
+if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+' "$WORK/readonly.db" "$WORK/fakegh" "$WORK/fakegh.log"
+
 echo "=== git: prEvent ==="
 nodecheck "prEvent maps PR state to automation events" '
 const { prEvent } = await import("./dist/core/git.js");
@@ -793,6 +1003,145 @@ check_json "connect pi --remote: url + Authorization from \${BASELINE_TOKEN}" "$
 if ! grep -rq "$RTOKEN" "$RREPO"; then PASS=$((PASS+1)); else echo "FAIL  the API key was written into the repo"; FAILED_NAMES+=("connect --remote token"); FAIL=$((FAIL+1)); fi
 LOCAL_OUT=$(BASELINE_DB="$WORK/l.db" $BIN connect claude --dir "$RREPO" --remote 2>&1); LOCAL_RC=$?
 if [[ $LOCAL_RC -ne 0 && "$LOCAL_OUT" == *"baseline login"* ]]; then PASS=$((PASS+1)); else echo "FAIL  connect --remote against a local database says to log in"; FAILED_NAMES+=("connect --remote local"); FAIL=$((FAIL+1)); fi
+
+echo "=== agent loop v2: no login, no seed ==="
+ok() { PASS=$((PASS+1)); }
+bad() { echo "FAIL  $1"; [[ -n "${2:-}" ]] && echo "      got: $(echo "$2" | head -4 | tr '\n' '|')"; FAILED_NAMES+=("$1"); FAIL=$((FAIL+1)); }
+EHOME="$WORK/empty-home"; mkdir -p "$EHOME"
+for cmd in "agent next-issue" "agent get-issue CORE-1" "next" "standup" "work CORE-1"; do
+  out=$(env -u BASELINE_DB HOME="$EHOME" $BIN $cmd 2>&1); rc=$?
+  if [[ $rc -ne 0 && "$out" == *"Not connected to Baseline. Run \`baseline login --server <url>\`"* ]]; then ok; else bad "\`baseline $cmd\` with no login refuses and says to log in" "$out"; fi
+done
+out=$(HOME="$EHOME" BASELINE_DB="$WORK/never.db" $BIN agent list-issues 2>&1); rc=$?
+if [[ $rc -ne 0 && "$out" == *"doesn't exist"* && ! -e "$WORK/never.db" ]]; then ok; else bad "BASELINE_DB naming a missing file: refused, no file made" "$out"; fi
+if [[ -z "$(ls -A "$EHOME")" ]]; then ok; else bad "nothing was written under an empty HOME (no ~/.baseline database)" "$(ls -A "$EHOME")"; fi
+
+echo "=== agent loop v2: tools over the CLI ==="
+# commands run from inside a scratch repo need the CLI by absolute path
+ABIN="node $PWD/bin/baseline.js"
+LDB="$WORK/loop.db"; BASELINE_DB="$LDB" $BIN team list >/dev/null 2>&1
+lb() { BASELINE_DB="$LDB" $BIN "$@"; }
+jget() { node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{const d=JSON.parse(s);console.log(eval(process.argv[1]))})" "$1"; }
+LREPO="$WORK/loop-repo"; mkdir -p "$LREPO"
+(cd "$LREPO" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init)
+inrepo() { (cd "$LREPO" && BASELINE_DB="$LDB" $ABIN "$@"); }
+out=$(lb agent next-issue); [[ "$out" == 1.* ]] && ok || bad "agent next-issue lists what to work on" "$out"
+out=$(lb agent find-issues "theme switching reload"); [[ "$out" == "Searched "* && "$out" == *"CORE-1 "* ]] && ok || bad "agent find-issues ranks the match and says what it searched" "$out"
+out=$(lb agent list-issues --query "theme"); [[ "$out" == *"anyone's"* ]] && ok || bad "agent list-issues --query searches everyone's issues" "$out"
+out=$(lb agent my-activity --since 30d); [[ "$out" == "Since "* ]] && ok || bad "agent my-activity prints standup lines" "$out"
+PI=$(lb agent propose-issue "Retry flaky webhook deliveries" --team CORE --json)
+DRAFT=$(echo "$PI" | jget d.draft_id); PIOP=$(echo "$PI" | jget d.op_id)
+[[ "$DRAFT" == dr_* && $(echo "$PI" | jget d.created) == false ]] && ok || bad "agent propose-issue stores a draft, creates nothing" "$PI"
+CI=$(inrepo agent create-issue --draft-id "$DRAFT" --start --json)
+NEWKEY=$(echo "$CI" | jget d.key); CIOP=$(echo "$CI" | jget d.op_id); NEWBRANCH=$(echo "$CI" | jget d.git.branch)
+if [[ $(echo "$CI" | jget d.state) == "In Progress" && $(echo "$CI" | jget d.git.status) == created && "$(git -C "$LREPO" branch --show-current)" == "$NEWBRANCH" ]]; then ok; else bad "agent create-issue --draft-id --start: In Progress, branch created and checked out" "$CI"; fi
+SUB=$(lb agent create-sub-issues "$NEWKEY" --titles "Backoff helper" "Dead-letter queue" --json)
+[[ $(echo "$SUB" | jget d.created.length) == 2 ]] && ok || bad "agent create-sub-issues makes one per title" "$SUB"
+PF=$(lb agent propose-followup "$NEWKEY" "Webhook secrets rotate by hand" --json)
+[[ $(echo "$PF" | jget d.draft_id) == dr_* ]] && ok || bad "agent propose-followup notes a draft" "$PF"
+ALIAS=$(lb agent file-followup "$NEWKEY" "Old name still works" --json)
+[[ $(echo "$ALIAS" | jget d.draft_id) == dr_* ]] && ok || bad "agent file-followup (retired name) still answers as propose-followup" "$ALIAS"
+FIN=$(lb agent finish-issue "$NEWKEY" --outcome stopped --summary "half" --left "dlq")
+[[ "$FIN" == *"Ask the person once"*"Webhook secrets rotate by hand"* ]] && ok || bad "agent finish-issue lists the noted follow-ups to ask about once" "$FIN"
+FILED=$(lb agent create-issue --draft-id "$(echo "$PF" | jget d.draft_id)" --json)
+[[ $(echo "$FILED" | jget d.state) == Backlog ]] && ok || bad "an approved follow-up on a team with triage off goes to Backlog" "$FILED"
+for opid in "$(echo "$FILED" | jget d.op_id)" "$(echo "$ALIAS" | jget d.op_id)" "$(echo "$SUB" | jget d.op_id)"; do
+  out=$(lb agent undo "$opid"); [[ "$out" == Undid* ]] && ok || bad "agent undo $opid" "$out"
+done
+P2=$(lb agent propose-issue "Something to undo" --team CORE --json); C2=$(lb agent create-issue --draft-id "$(echo "$P2" | jget d.draft_id)" --json)
+out=$(lb agent undo "$(echo "$C2" | jget d.op_id)"); [[ "$out" == *"deleted"*"pending again"* ]] && ok || bad "agent undo create-issue deletes it and the draft is pending again" "$out"
+out=$(lb agent undo "$(echo "$P2" | jget d.op_id)"); [[ "$out" == *"discarded"* ]] && ok || bad "agent undo propose-issue discards the draft" "$out"
+out=$(lb agent undo "$(echo "$PF" | jget d.op_id)"); [[ "$out" == Undid* ]] && ok || bad "agent undo propose-followup" "$out"
+out=$(lb agent post-progress "$NEWKEY" --did "ok"); [[ "$out" == *"undo with: baseline agent undo op_"* ]] && ok || bad "a CLI receipt names the CLI undo command" "$out"
+out=$(CLAUDECODE=1 BASELINE_DB="$LDB" $BIN agent post-progress "$NEWKEY" --did "from Claude Code" --json | jget d.attributed_to)
+[[ "$out" == "Claude Code via "* ]] && ok || bad "run from Claude Code (CLAUDECODE=1), agent commands write as \"Claude Code via <person>\"" "$out"
+out=$(BASELINE_DB="$LDB" $BIN agent post-progress "$NEWKEY" --did "as codex" --as Codex --json | jget d.attributed_to)
+[[ "$out" == "Codex via "* ]] && ok || bad "--as Codex works with no Codex user yet (made on first use)" "$out"
+
+echo "=== agent loop v2: start_issue and git ==="
+git -C "$LREPO" checkout -q main
+S1=$(inrepo agent start-issue CORE-5 --json)
+B5=$(echo "$S1" | jget d.branch)
+[[ "$(git -C "$LREPO" branch --show-current)" == "$B5" && $(echo "$S1" | jget d.git.status) == created ]] && ok || bad "agent start-issue creates and checks out the branch from main" "$S1"
+S2=$(inrepo agent start-issue CORE-5)
+[[ "$S2" == *"already started"* && "$S2" == *"already checked out"* && ${#S2} -lt 500 ]] && ok || bad "agent start-issue again: short, no brief" "$S2"
+git -C "$LREPO" checkout -q main; echo x > "$LREPO/f.txt"; git -C "$LREPO" add f.txt; git -C "$LREPO" -c user.email=t@t -c user.name=t commit -q -m f
+git -C "$LREPO" checkout -q -b side; echo y >> "$LREPO/f.txt"
+S3=$(inrepo agent start-issue CORE-5 --json)
+[[ $(echo "$S3" | jget d.git.status) == manual && $(echo "$S3" | jget d.git.command) == "git checkout $B5" && "$(git -C "$LREPO" branch --show-current)" == side ]] && ok || bad "a dirty tree on another branch: nothing switched, the exact command returned" "$S3"
+git -C "$LREPO" checkout -q -- f.txt; git -C "$LREPO" checkout -q main
+# someone else's issue
+ADA=$(lb issue create "Ada's started work" -t CORE -a Ada -s "In Progress" --json | jget d.key)
+out=$(lb agent start-issue "$ADA" 2>&1); rc=$?
+[[ $rc -ne 0 && "$out" == *"Ada"* && "$out" == *"take_over"* ]] && ok || bad "start-issue on another person's issue refuses and says whose" "$out"
+out=$(lb agent start-issue "$ADA" --take-over); [[ "$out" == *"Started $ADA"* ]] && ok || bad "start-issue --take-over takes it" "$out"
+
+echo "=== work / next / standup / doctor / team list --json ==="
+git -C "$LREPO" checkout -q main
+WOUT=$(inrepo work CORE-15); rc=$?
+[[ $rc -eq 0 && "$WOUT" == *"Started CORE-15"* && "$WOUT" == *"Next: claude '"* && "$(git -C "$LREPO" branch --show-current)" == *core-15* ]] && ok || bad "work KEY starts it, checks out the branch and prints the claude command (never launches in a test)" "$WOUT"
+out=$(lb next); [[ "$out" == 1.* ]] && ok || bad "next prints up to 3 issues" "$out"
+out=$(lb standup --since 1d); [[ "$out" == "Since "* && "$out" == *"CORE-15"* ]] && ok || bad "standup lists today's work" "$out"
+lb team list --json > "$WORK/teams.json"
+check_json "team list --json" "$WORK/teams.json" "Array.isArray(d)&&d.some(t=>t.key==='CORE'&&t.states.length>0)"
+DOUT=$(inrepo doctor); rc=$?
+[[ $rc -eq 0 && "$DOUT" == *"✓ server"* && "$DOUT" == *"✓ you"* && "$DOUT" == *"✗ hooks"* ]] && ok || bad "doctor: server and identity, and says hooks are missing" "$DOUT"
+out=$(env -u BASELINE_DB HOME="$EHOME" $BIN doctor 2>&1); rc=$?
+[[ $rc -ne 0 && "$out" == *"Not connected"* ]] && ok || bad "doctor with no login fails and says so" "$out"
+
+echo "=== hooks ==="
+hook() { local ev="$1" json="$2"; (cd "$LREPO" && echo "$json" | BASELINE_DB="$LDB" $ABIN hook "$ev"); }
+git -C "$LREPO" checkout -q "$(git -C "$LREPO" branch --list '*core-15*' --format='%(refname:short)')"
+HS=$(hook session-start "{\"session_id\":\"t1-$$\",\"cwd\":\"$LREPO\",\"source\":\"startup\"}")
+echo "$HS" > "$WORK/hs.json"
+check_json "session-start: hookSpecificOutput.additionalContext names the branch's issue" "$WORK/hs.json" "d.hookSpecificOutput.hookEventName==='SessionStart'&&/CORE-15/.test(d.hookSpecificOutput.additionalContext)&&d.hookSpecificOutput.additionalContext.split('\n').length<=6"
+out=$(cd "$WORK" && echo '{}' | BASELINE_DB="$LDB" $ABIN hook session-start); rc=$?
+[[ $rc -eq 0 && -z "$out" ]] && ok || bad "session-start outside a repo: silent" "$out"
+out=$(cd "$LREPO" && echo '{}' | env -u BASELINE_DB HOME="$EHOME" $ABIN hook session-start 2>&1); rc=$?
+[[ $rc -eq 0 && -z "$out" ]] && ok || bad "session-start not connected: silent, exit 0" "$out"
+out=$(cd "$LREPO" && echo 'not json' | BASELINE_DB="$LDB" $ABIN hook stop 2>&1); rc=$?
+[[ $rc -eq 0 ]] && ok || bad "a hook with garbage on stdin still exits 0" "$out"
+git -C "$LREPO" checkout -q main
+P1=$(hook prompt "{\"session_id\":\"p1-$$\",\"cwd\":\"$LREPO\",\"prompt\":\"fix the flaky login redirect test\"}")
+echo "$P1" > "$WORK/p1.json"
+check_json "prompt: a work request with no active issue gets the one-line nudge" "$WORK/p1.json" "d.hookSpecificOutput.hookEventName==='UserPromptSubmit'&&/find_issues/.test(d.hookSpecificOutput.additionalContext)&&!d.decision"
+out=$(hook prompt "{\"session_id\":\"p1-$$\",\"cwd\":\"$LREPO\",\"prompt\":\"fix the flaky login redirect test\"}"); [[ -z "$out" ]] && ok || bad "prompt: once per session" "$out"
+out=$(hook prompt "{\"session_id\":\"p2-$$\",\"cwd\":\"$LREPO\",\"prompt\":\"what does the importer do?\"}"); [[ -z "$out" ]] && ok || bad "prompt: a question gets no nudge" "$out"
+out=$(hook prompt "{\"session_id\":\"p3-$$\",\"cwd\":\"$LREPO\",\"prompt\":\"fix CORE-12 please, the redirect\"}"); [[ -z "$out" ]] && ok || bad "prompt: naming an issue key gets no nudge" "$out"
+echo '{ "promptHook": false }' > "$LREPO/.baseline.json"
+out=$(hook prompt "{\"session_id\":\"p4-$$\",\"cwd\":\"$LREPO\",\"prompt\":\"fix the flaky login redirect test\"}"); [[ -z "$out" ]] && ok || bad "prompt: off when .baseline.json says promptHook false" "$out"
+rm "$LREPO/.baseline.json"
+git -C "$LREPO" checkout -q "$B5"
+lb agent post-progress CORE-5 --did "checkpoint" >/dev/null; sleep 1
+git -C "$LREPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "wip"
+ST=$(hook stop "{\"session_id\":\"s1-$$\",\"cwd\":\"$LREPO\",\"stop_hook_active\":false}")
+echo "$ST" > "$WORK/st.json"
+check_json "stop: new commits since the last progress note → block once, asking for post_progress" "$WORK/st.json" "d.decision==='block'&&/post_progress on CORE-5/.test(d.reason)"
+out=$(hook stop "{\"session_id\":\"s1-$$\",\"cwd\":\"$LREPO\",\"stop_hook_active\":true}"); [[ -z "$out" ]] && ok || bad "stop: stop_hook_active → silent (no loop)" "$out"
+out=$(hook stop "{\"session_id\":\"s1-$$\",\"cwd\":\"$LREPO\",\"stop_hook_active\":false}"); [[ -z "$out" ]] && ok || bad "stop: the same HEAD is asked about once per session" "$out"
+lb agent post-progress CORE-5 --did "after the commit" >/dev/null
+out=$(hook stop "{\"session_id\":\"s2-$$\",\"cwd\":\"$LREPO\",\"stop_hook_active\":false}"); [[ -z "$out" ]] && ok || bad "stop: progress newer than HEAD → silent" "$out"
+
+echo "=== connect claude: committed settings, hooks, allow-list, team ==="
+KREPO="$WORK/claude-repo"; mkdir -p "$KREPO/.claude"
+printf '{ "permissions": { "allow": ["Bash(npm test)"] }, "hooks": { "Stop": [ { "hooks": [ { "type": "command", "command": "./lint.sh" } ] } ] } }\n' > "$KREPO/.claude/settings.json"
+printf '# Notes\n\nKeep this.\n' > "$KREPO/CLAUDE.md"
+out=$(PATH="$SHIMPATH" BASELINE_DB="$LDB" $BIN connect claude --dir "$KREPO" --team core 2>&1); rc=$?
+[[ $rc -eq 0 && "$out" == *".claude/settings.json"* && "$out" == *".baseline.json"* ]] && ok || bad "connect claude --team writes settings.json and .baseline.json" "$out"
+check_json "connect keeps the repo's own hooks and allow entries" "$KREPO/.claude/settings.json" "d.permissions.allow.includes('Bash(npm test)')&&JSON.stringify(d.hooks.Stop).includes('./lint.sh')"
+check_json "connect adds the three Baseline hooks" "$KREPO/.claude/settings.json" "['SessionStart','UserPromptSubmit','Stop'].every(e=>JSON.stringify(d.hooks[e]).includes('baseline hook '))&&d.hooks.Stop.length===2"
+check_json "connect allow-lists the reversible writes, not create/finish/undo" "$KREPO/.claude/settings.json" "['start_issue','post_progress','create_sub_issues','propose_issue','propose_followup','find_issues'].every(t=>d.permissions.allow.includes('mcp__baseline__'+t))&&!['create_issue','finish_issue','undo'].some(t=>d.permissions.allow.includes('mcp__baseline__'+t))&&d.enabledMcpjsonServers.includes('baseline')"
+check_json "connect maps the repo to the team" "$KREPO/.baseline.json" "d.team==='CORE'"
+if grep -q "Keep this." "$KREPO/CLAUDE.md" && [[ $(sed -n '/agent-tracking:start/,/agent-tracking:end/p' "$KREPO/CLAUDE.md" | wc -l) -le 8 ]]; then ok; else bad "the CLAUDE.md block is about 5 lines, beside what was there" "$(cat "$KREPO/CLAUDE.md")"; fi
+out=$(PATH="$SHIMPATH" BASELINE_DB="$LDB" $BIN connect claude --dir "$KREPO" 2>&1); [[ "$out" == *"nothing changed"* ]] && ok || bad "connect claude again (team from .baseline.json): nothing changed" "$out"
+if [[ ! -e "$KREPO/.claude/settings.local.json" ]]; then ok; else bad "connect claude writes the committed settings, not settings.local.json"; fi
+out=$(PATH="$SHIMPATH" BASELINE_DB="$LDB" $BIN connect claude --dir "$KREPO" --team NOPE 2>&1); rc=$?
+[[ $rc -ne 0 && "$out" == *"Valid keys"* ]] && ok || bad "connect --team with an unknown team lists the valid ones" "$out"
+DOUT=$(cd "$KREPO" && git init -q . && PATH="$SHIMPATH" BASELINE_DB="$LDB" $ABIN doctor); rc=$?
+[[ $rc -eq 0 && "$DOUT" == *"✓ team"*"CORE"* && "$DOUT" == *"✓ hooks"* && "$DOUT" == *"✓ mcp"* && "$DOUT" == *"✓ allow"* ]] && ok || bad "doctor on a connected repo: team, MCP, hooks and allow-list all ✓" "$DOUT"
+[[ "$NOPATH_OUT" == *"claude mcp add --scope local -e BASELINE_DB="* ]] && ok || bad "the personal \`claude mcp add\` fallback carries BASELINE_DB" "$NOPATH_OUT"
+out=$(env -u BASELINE_DB BASELINE_URL=http://127.0.0.1:7999 BASELINE_TOKEN=x $BIN triage list -t CORE 2>&1)
+[[ "$out" == *"isn't available against a Baseline server yet"* && "$out" != *"Pass --db"* ]] && ok || bad "a local-only command against a server says so, without \"Pass --db\"" "$out"
 
 echo
 echo "================================"

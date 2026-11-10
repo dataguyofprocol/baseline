@@ -112,5 +112,50 @@ const row = (issueId: string) => db.prepare('SELECT state_id, completed_at, canc
   })());
 }
 
+// ---------- cycles: a bad create is a 400, not a 500 ----------
+{
+  const count = (t: string) => (db.prepare(`SELECT COUNT(*) n FROM ${t}`).get() as { n: number }).n;
+  const core = store.snapshot().teams.find(t => t.key === 'CORE')!;
+  const n = count('cycles');
+  const noNumber = await call('POST', '/api/cycles', { teamId: core.id, startsAt: '2027-01-01T00:00:00.000Z', endsAt: '2027-01-14T00:00:00.000Z' });
+  const noTeam = await call('POST', '/api/cycles', { number: 99, startsAt: '2027-01-01T00:00:00.000Z', endsAt: '2027-01-14T00:00:00.000Z' });
+  const backwards = await call('POST', '/api/cycles', { teamId: core.id, number: 99, startsAt: '2027-01-14T00:00:00.000Z', endsAt: '2027-01-01T00:00:00.000Z' });
+  check('POST /api/cycles without a number, a team, or with dates backwards is a 400', noNumber.status === 400 && noTeam.status === 400 && backwards.status === 400 && count('cycles') === n,
+    `${noNumber.status} ${noTeam.status} ${backwards.status}`);
+  check('…and a good one still makes a cycle', (await call('POST', '/api/cycles', { teamId: core.id, number: 99, startsAt: '2027-01-01T00:00:00.000Z', endsAt: '2027-01-14T00:00:00.000Z' })).status === 201);
+}
+
+// ---------- team leads: the migration adds a role, promotes nobody; a new team's creator leads it ----------
+{
+  const { openDb } = await import('../src/core/db.js');
+  const file = join(work, 'old.db');
+  const old = openDb(file);
+  // a database from before team leads: no role column, a team with two members
+  old.exec("ALTER TABLE team_members DROP COLUMN role; INSERT INTO teams (id, key, name, icon, color, description, position) VALUES ('t_old', 'OLD', 'Old', '', '', '', 1)");
+  old.exec("INSERT INTO users (id, name, email, initials, color, admin, kind) VALUES ('u_a', 'A', 'a@x', 'A', '', 1, 'human'), ('u_b', 'B', 'b@x', 'B', '', 0, 'human')");
+  old.exec("INSERT INTO team_members (team_id, user_id, created_at) VALUES ('t_old', 'u_a', '2026-01-01'), ('t_old', 'u_b', '2026-01-02')");
+  old.close();
+  const reopened = openDb(file);
+  const roles = reopened.prepare("SELECT user_id, role FROM team_members WHERE team_id = 't_old' ORDER BY user_id").all() as Array<{ user_id: string; role: string }>;
+  check('the migration gives every existing membership the member role (nobody is promoted by guess)', roles.map(r => `${r.user_id}:${r.role}`).join() === 'u_a:member,u_b:member', JSON.stringify(roles));
+  reopened.close();
+  const made = await (await call('POST', '/api/teams', { key: 'LEAD', name: 'Led' })).json() as { team: { id: string; leadIds: string[] } };
+  check('whoever creates a team leads it', made.team.leadIds.join() === store.actor());
+}
+
+// ---------- Settings › Features: off for a new workspace, on where the data already exists ----------
+{
+  const f = store.getFeatures();
+  check('the sample workspace starts with cycles and estimates on (it has them)', f.cyclesEnabled && f.estimatesEnabled, JSON.stringify(f));
+  const { store: fresh, db: freshDb } = createApp(join(work, 'fresh.db'), { mode: 'local' }, { configured: false, send: async () => {} });
+  for (const t of ['cycles', 'issue_templates', 'documents', 'recurring_issues', 'project_updates']) freshDb.exec(`DELETE FROM ${t}`);
+  freshDb.exec('UPDATE issues SET estimate = NULL; UPDATE teams SET auto_cycles = 0');
+  const ff = fresh.getFeatures();
+  check('a workspace without them has cycles, estimates, templates, documents, recurring and project updates off', !ff.cyclesEnabled && !ff.estimatesEnabled && !ff.templatesEnabled && !ff.documentsEnabled && !ff.recurringEnabled && !ff.projectUpdatesEnabled, JSON.stringify(ff));
+  store.setFeatures({ cyclesEnabled: false });
+  check('a switch someone set wins over the data', !store.getFeatures().cyclesEnabled && store.getFeatures().estimatesEnabled);
+  store.setFeatures({ cyclesEnabled: true });
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

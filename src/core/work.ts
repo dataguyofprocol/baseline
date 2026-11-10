@@ -15,12 +15,15 @@ import { appBaseUrl } from './handoff.js';
 import type { Store } from './store.js';
 import { id, nowIso } from './util.js';
 import type { Issue, Project, WorkflowStateType } from './types.js';
-import type {
-  DraftFacts, DraftResult, FinishWorkResult, FollowupResult, Health, ProgressFields, ProgressPatch, ProgressResult,
-  ProjectUpdateDraft, StartWorkResult, UndoResult, WorkOutcome, WorkThread,
+import {
+  harnessNamed,
+  type AgentDraft, type AgentDraftKind, type CreateIssueResult, type DraftFacts, type DraftResult, type FinishWorkResult, type FollowupResult, type Health,
+  type ProgressFields, type ProgressPatch, type ProgressResult, type ProjectUpdateDraft, type ProposeResult, type StartWorkResult, type SubIssuesResult,
+  type UndoResult, type WorkOutcome, type WorkThread,
 } from './work-types.js';
+import type { User } from './types.js';
 
-export const WORK_TABLES = ['agent_ops', 'project_update_drafts', 'work_threads'];
+export const WORK_TABLES = ['agent_ops', 'agent_drafts', 'project_update_drafts', 'work_threads'];
 
 export function migrateWork(db: DatabaseSync): void {
   db.exec(`
@@ -76,6 +79,24 @@ export function migrateWork(db: DatabaseSync): void {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (project_id, person_id)
     );
+    CREATE TABLE IF NOT EXISTS agent_drafts (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('issue', 'followup')),
+      person_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      session_key TEXT NOT NULL DEFAULT '',
+      team_id TEXT NOT NULL,
+      from_issue_id TEXT,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      priority INTEGER NOT NULL DEFAULT 0,
+      dedupe_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      issue_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_drafts_person ON agent_drafts(person_id, status);
   `);
 }
 
@@ -91,10 +112,11 @@ export function laneOf(who: Attribution, sessionKey: string | null): Lane {
   return { agentId: who.actorId, personId: who.actor === 'agent' ? who.viaUserId : who.actorId, sessionKey };
 }
 
-type OpName = 'start_issue' | 'post_progress' | 'file_followup' | 'finish_issue' | 'draft_project_update' | 'undo';
+type OpName = 'start_issue' | 'post_progress' | 'file_followup' | 'finish_issue' | 'draft_project_update' | 'undo'
+  | 'propose_issue' | 'propose_followup' | 'create_issue' | 'create_sub_issues';
 
-/** what activity rows don't hold, so undo can put it back: the thread row, the living comment's text, the draft */
-interface OpState { thread?: WorkThread | null; commentBody?: string | null; draft?: ProjectUpdateDraft | null }
+/** what activity rows don't hold, so undo can put it back: the thread row, the living comment's text, the drafts */
+interface OpState { thread?: WorkThread | null; commentBody?: string | null; draft?: ProjectUpdateDraft | null; agentDraft?: AgentDraft | null }
 
 interface ThreadRow {
   id: string; issue_id: string; agent_id: string; person_id: string; session_key: string; comment_id: string | null; branch: string;
@@ -107,6 +129,10 @@ interface OpRow {
   created_at: string; undone_at: string | null;
 }
 interface DraftRow { project_id: string; person_id: string; author_id: string; body: string; health: Health | null; updated_at: string }
+interface AgentDraftRow {
+  id: string; kind: AgentDraftKind; person_id: string; agent_id: string; session_key: string; team_id: string; from_issue_id: string | null;
+  title: string; description: string; priority: number; dedupe_key: string; status: 'pending' | 'filed'; issue_id: string | null; created_at: string; updated_at: string;
+}
 
 const NOT_STARTED = new Set<WorkflowStateType>(['triage', 'backlog', 'unstarted']);
 const CLOSED = new Set<WorkflowStateType>(['completed', 'canceled']);
@@ -139,17 +165,23 @@ export class Work {
   // ---------- the work loop ----------
   /** Moves a not-started issue to the team's first started state and assigns the person if nobody
    *  is assigned; opens (or reopens) this lane's thread. Nothing to do: no writes, opId null. */
-  start(issueId: string, lane: Lane, who: Attribution, baseUrl?: string): StartWorkResult {
+  start(issueId: string, lane: Lane, who: Attribution, baseUrl?: string, opts: { takeOver?: boolean } = {}): StartWorkResult {
     return this.write(who, () => {
       const issue = this.liveIssue(issueId);
       const key = this.store.keyOf(issue);
       const type = this.store.stateType(issue.stateId);
       const warnings: string[] = [];
+      // another person's open issue is theirs: nothing moves until the person says to take it over
+      const othersOwn = !!issue.assigneeId && issue.assigneeId !== lane.personId && this.store.userKind(issue.assigneeId) === 'human' && !(type && CLOSED.has(type));
+      if (othersOwn && !opts.takeOver) {
+        throw new WorkError(409, 'needs-human', `${key} is ${this.userName(issue.assigneeId)}'s (${this.stateName(issue.stateId)}), so nothing changed. Ask the person whether to take it over from ${this.userName(issue.assigneeId)}; if they say yes, call start_issue again with take_over: true.`);
+      }
       const target = type && NOT_STARTED.has(type) ? this.store.stateOfType(issue.teamId, 'started') : undefined;
       if (type && NOT_STARTED.has(type) && !target) warnings.push(`${key}'s team has no started state, so its state was not changed.`);
       if (type && CLOSED.has(type)) warnings.push(`${key} is ${this.stateName(issue.stateId)}; its state was not changed.`);
-      const assign = !issue.assigneeId;
-      if (issue.assigneeId && issue.assigneeId !== lane.personId) warnings.push(`${key} is assigned to ${this.userName(issue.assigneeId)}; it was not reassigned.`);
+      const assign = !issue.assigneeId || othersOwn;
+      if (othersOwn) warnings.push(`${key} was ${this.userName(issue.assigneeId)}'s; it is assigned to ${this.userName(lane.personId)} now.`);
+      else if (issue.assigneeId && issue.assigneeId !== lane.personId) warnings.push(`${key} is assigned to ${this.userName(issue.assigneeId)}; it was not reassigned.`);
       const before = this.thread(issueId, lane);
       const handoff = this.store.handoffFor(issueId, baseUrl)!;
       const changed = !!target || assign || !before || before.state.status === 'finished';
@@ -186,6 +218,7 @@ export class Work {
         for (const url of fresh) this.store.addAttachment({ issueId, kind: 'link', url, title: linkTitle(url) }, who.actorId);
         const branch = before?.branch ?? this.store.handoffFor(issueId, baseUrl)!.branchName;
         const thread = this.saveThread(issueId, lane, before, { branch, commentId: commentId!, progress, links: allLinks, state: { status: 'active' } });
+        if (progress.blocked && progress.blocked !== before?.progress.blocked) this.report(issueId, lane, who, 'agentBlocked', `Blocked: ${progress.blocked}`);
         return { thread, commentBody: body };
       }) : null;
       return { opId, attributedTo: this.attributedTo(who), issue, url: this.issueUrl(issue, baseUrl), thread: this.thread(issueId, lane)!, created, linksAdded: opId ? fresh.length : 0 };
@@ -215,7 +248,10 @@ export class Work {
       const summary = input.summary.trim();
       const left = input.left?.trim() || null;
       const allLinks = [...new Set([...(before?.links ?? []), ...input.links])];
-      const body = renderFinal(input.outcome, summary, left, allLinks);
+      // the journey stays under the summary (collapsed), and a status that didn't follow the outcome says why
+      const stays = input.outcome === 'in_review' && !target && type && !CLOSED.has(type) && !this.inReviewState(issue.teamId)
+        ? `${key} stays ${this.stateName(issue.stateId)}: its team has no In Review status.` : null;
+      const body = renderFinal(input.outcome, summary, left, allLinks, { last: before?.progress ?? null, stays });
       const comment = this.livingComment(before);
       const fresh = this.unattached(issueId, input.links);
       const same = before?.state.status === 'finished' && before.state.outcome === input.outcome && before.state.summary === summary && before.progress.left === left;
@@ -232,6 +268,8 @@ export class Work {
           progress: { did: before?.progress.did ?? null, left, blocked: null },
           state: { status: 'finished', outcome: input.outcome, summary, finishedAt: nowIso() },
         });
+        if (input.outcome === 'stopped') this.report(issueId, lane, who, 'agentBlocked', `Stopped: ${left}`);
+        else this.report(issueId, lane, who, 'agentFinished', `${input.outcome === 'in_review' ? 'Ready for your review' : 'Done'}: ${summary}`);
         return { thread, commentBody: body };
       }) : null;
       const after = this.store.getIssue(issueId)!;
@@ -239,16 +277,15 @@ export class Work {
     });
   }
 
-  /** New work found along the way. It always lands in the team's Triage state, where a person
-   *  accepts or declines it, related to the issue it came from. The same title from the same
+  /** New work found along the way. It lands in the team's Triage state (Backlog when triage is
+   *  off), where a person accepts or declines it, related to the issue it came from. The same title from the same
    *  lane and issue again returns the first one. */
   followup(sourceIssueId: string, lane: Lane, input: { title: string; description?: string; teamId?: string }, who: Attribution, baseUrl?: string): FollowupResult {
     return this.write(who, () => {
       const source = this.liveIssue(sourceIssueId);
       const team = this.store.getTeam(input.teamId ?? source.teamId);
       if (!team) throw new WorkError(404, 'not-found', `No team ${input.teamId}`);
-      const triage = this.store.stateOfType(team.id, 'triage');
-      if (!triage) throw new WorkError(409, 'needs-human', `${team.key} has triage turned off, so a follow-up there would skip a person's review. Ask the person to turn it on (\`baseline team update ${team.key} --triage on\`), or to file it themselves.`);
+      const triage = this.intakeState(team.id);
       const dedupeKey = normalizeTitle(input.title);
       const prior = this.db.prepare(`SELECT result_id FROM agent_ops WHERE name = 'file_followup' AND issue_id = ? AND actor_id = ? AND person_id = ? AND session_key = ? AND dedupe_key = ? AND undone_at IS NULL ORDER BY created_at DESC LIMIT 1`)
         .get(source.id, lane.agentId, lane.personId, lane.sessionKey ?? '', dedupeKey) as { result_id: string } | undefined;
@@ -263,6 +300,144 @@ export class Work {
         return { resultId: created.id };
       });
       return { opId, attributedTo: this.attributedTo(who), issue: created!, url: this.issueUrl(created!, baseUrl), source, deduplicated: false };
+    });
+  }
+
+  // ---------- new issues: proposed, then created on the person's yes ----------
+  /** The agent user for a coding tool ("Claude Code"), made the first time that tool writes. Only
+   *  the known tools (AGENT_HARNESSES): any other name must already be a user. */
+  ensureHarnessAgent(name: string): User {
+    const h = harnessNamed(name);
+    if (!h) throw new WorkError(404, 'not-found', `"${name}" is not a coding tool Baseline knows; agent users made on first use are for those tools only`);
+    const find = () => this.db.prepare("SELECT id FROM users WHERE kind = 'agent' AND (email = ? OR lower(name) = lower(?)) ORDER BY rowid LIMIT 1").get(`${h.slug}@agents.local`, h.name) as { id: string } | undefined;
+    let row = find();
+    if (!row) {
+      if (this.db.prepare("SELECT 1 FROM users WHERE kind = 'human' AND lower(name) = lower(?)").get(h.name)) throw new WorkError(409, 'conflict', `A person is named ${h.name}; set BASELINE_AS to another agent user`);
+      this.db.prepare("INSERT INTO users (id, name, email, initials, color, admin, kind, created_at) VALUES (?, ?, ?, ?, ?, 0, 'agent', ?)")
+        .run(id('u'), h.name, `${h.slug}@agents.local`, h.initials, h.color, nowIso());
+      row = find()!;
+    }
+    return this.store.snapshot().users.find(u => u.id === row!.id)!;
+  }
+
+  /** a person's drafts, newest first; nobody else's */
+  agentDrafts(personId: string, filter: { status?: 'pending' | 'filed'; kind?: AgentDraftKind; fromIssueId?: string } = {}): AgentDraft[] {
+    return (this.db.prepare('SELECT * FROM agent_drafts WHERE person_id = ? ORDER BY created_at DESC, rowid DESC').all(personId) as unknown as AgentDraftRow[])
+      .map(mapAgentDraft)
+      .filter(d => (!filter.status || d.status === filter.status) && (!filter.kind || d.kind === filter.kind) && (!filter.fromIssueId || d.fromIssueId === filter.fromIssueId));
+  }
+  agentDraft(draftId: string): AgentDraft | null {
+    const r = this.db.prepare('SELECT * FROM agent_drafts WHERE id = ?').get(draftId) as AgentDraftRow | undefined;
+    return r ? mapAgentDraft(r) : null;
+  }
+
+  /** Store a proposed issue (or a follow-up noted mid-work) as a draft for the person. Nothing the
+   *  team sees changes. The same title again (same kind, source issue and person) returns the first. */
+  propose(lane: Lane, input: { kind: AgentDraftKind; teamId: string; title: string; description?: string; priority?: number; fromIssueId?: string }, who: Attribution): ProposeResult {
+    return this.write(who, () => {
+      const team = this.store.getTeam(input.teamId);
+      if (!team) throw new WorkError(404, 'not-found', `No team ${input.teamId}`);
+      const from = input.fromIssueId ? this.liveIssue(input.fromIssueId) : null;
+      const dedupeKey = normalizeTitle(input.title);
+      const prior = this.db.prepare("SELECT * FROM agent_drafts WHERE person_id = ? AND kind = ? AND COALESCE(from_issue_id, '') = ? AND dedupe_key = ? AND status = 'pending' LIMIT 1")
+        .get(lane.personId, input.kind, from?.id ?? '', dedupeKey) as AgentDraftRow | undefined;
+      if (prior) return { opId: null, attributedTo: this.attributedTo(who), draft: mapAgentDraft(prior), deduplicated: true };
+      const draftId = id('dr');
+      const opId = this.op(input.kind === 'issue' ? 'propose_issue' : 'propose_followup', lane, { issueId: from?.id, agentDraftBefore: null }, () => {
+        const now = nowIso();
+        this.db.prepare(`INSERT INTO agent_drafts (id, kind, person_id, agent_id, session_key, team_id, from_issue_id, title, description, priority, dedupe_key, status, issue_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?)`)
+          .run(draftId, input.kind, lane.personId, lane.agentId, lane.sessionKey ?? '', team.id, from?.id ?? null, input.title.trim(), input.description?.trim() ?? '', input.priority ?? 0, dedupeKey, now, now);
+        return { agentDraft: this.agentDraft(draftId), resultId: draftId };
+      });
+      return { opId, attributedTo: this.attributedTo(who), draft: this.agentDraft(draftId)!, deduplicated: false };
+    });
+  }
+
+  /** Create an issue the person said yes to: from a draft (exactly its text) or from fields. A new
+   *  issue is assigned to the person and, with start, starts now with a work thread open on it. A
+   *  follow-up goes to Triage (Backlog when triage is off), unassigned, related to its source. A
+   *  filed draft, or the same title from the same lane again, returns the issue made the first time. */
+  createIssue(lane: Lane, input: { draftId?: string; teamId: string; title?: string; description?: string; priority?: number; projectId?: string | null; start?: boolean }, who: Attribution, baseUrl?: string): CreateIssueResult {
+    return this.write(who, () => {
+      const draft = input.draftId ? this.agentDraft(input.draftId) : null;
+      if (input.draftId && (!draft || draft.personId !== lane.personId)) throw new WorkError(404, 'not-found', `No draft ${input.draftId} for you. Drafts come from propose_issue and propose_followup.`);
+      if (draft && draft.teamId !== input.teamId) throw new WorkError(400, 'invalid', 'teamId must be the draft\'s team');
+      const team = this.store.getTeam(input.teamId);
+      if (!team) throw new WorkError(404, 'not-found', `No team ${input.teamId}`);
+      const title = (draft?.title ?? input.title ?? '').trim();
+      if (title.length < 3) throw new WorkError(400, 'invalid', 'A new issue needs a title (3 characters or more), or the draft_id of a proposal');
+      const reply = (issue: Issue, opId: string | null, started: boolean, deduplicated: boolean): CreateIssueResult => ({
+        opId, attributedTo: this.attributedTo(who), issue, url: this.issueUrl(issue, baseUrl), draft: draft ? this.agentDraft(draft.id) : null,
+        branch: this.store.handoffFor(issue.id, baseUrl)!.branchName, started, deduplicated,
+      });
+      const dedupeKey = `${team.id}:${normalizeTitle(title)}`;
+      const earlier = draft ? draft.issueId : (this.db.prepare(`SELECT result_id FROM agent_ops WHERE name = 'create_issue' AND actor_id = ? AND person_id = ? AND session_key = ? AND dedupe_key = ? AND undone_at IS NULL ORDER BY created_at DESC LIMIT 1`)
+        .get(lane.agentId, lane.personId, lane.sessionKey ?? '', dedupeKey) as { result_id: string } | undefined)?.result_id;
+      const existing = earlier ? this.store.getIssue(earlier) : undefined;
+      if (existing && !existing.deletedAt) return reply(existing, null, false, true);
+
+      const followup = draft?.kind === 'followup';
+      const source = draft?.fromIssueId ? this.store.getIssue(draft.fromIssueId) : undefined;
+      const start = !!input.start && !followup;
+      const stateId = followup ? this.intakeState(team.id)
+        : start ? this.store.stateOfType(team.id, 'started') : this.store.stateOfType(team.id, 'unstarted') ?? this.store.stateOfType(team.id, 'backlog');
+      let created: Issue | undefined;
+      const opId = this.op('create_issue', lane, { dedupeKey: draft ? undefined : dedupeKey, ...(draft ? { agentDraftBefore: draft } : {}), ...(start ? { threadBefore: null } : {}) }, () => {
+        created = this.store.createIssue({
+          teamId: team.id, title, description: draft?.description ?? input.description, priority: (draft?.priority ?? input.priority ?? 0) as Issue['priority'],
+          stateId, assigneeId: followup ? null : lane.personId, projectId: input.projectId ?? source?.projectId ?? null,
+        }, who.actorId);
+        if (followup && source && !source.deletedAt) {
+          // "related" is stored one way (store.setRelation), and an issue page lists its own rows: both pages should show the link
+          this.store.setRelation(created.id, source.id, 'related', who.actorId);
+          this.store.setRelation(source.id, created.id, 'related', who.actorId);
+        }
+        let agentDraft: AgentDraft | null | undefined;
+        if (draft) {
+          this.db.prepare("UPDATE agent_drafts SET status = 'filed', issue_id = ?, updated_at = ? WHERE id = ?").run(created.id, nowIso(), draft.id);
+          agentDraft = this.agentDraft(draft.id);
+        }
+        const thread = start ? this.saveThread(created.id, lane, null, { branch: this.store.handoffFor(created.id, baseUrl)!.branchName, state: { status: 'active' } }) : undefined;
+        return { resultId: created.id, ...(agentDraft ? { agentDraft } : {}), ...(thread ? { thread } : {}) };
+      });
+      // the op belongs to the new issue, so undo's team check sees the right team
+      this.db.prepare('UPDATE agent_ops SET issue_id = ? WHERE id = ?').run(created!.id, opId);
+      return reply(created!, opId, start, false);
+    });
+  }
+
+  /** Split the issue being worked on: each title becomes a sub-issue with the parent's assignee,
+   *  project, milestone and cycle. A title the parent already has as a sub-issue is skipped. */
+  subIssues(parentId: string, lane: Lane, titles: readonly string[], who: Attribution): SubIssuesResult {
+    return this.write(who, () => {
+      const parent = this.liveIssue(parentId);
+      const key = this.store.keyOf(parent);
+      if (this.store.stateType(parent.stateId) !== 'started') {
+        throw new WorkError(409, 'invalid', `${key} is ${this.stateName(parent.stateId)}, not started. Sub-issues go under the issue you work on: call start_issue ${key} first.`);
+      }
+      const children = (this.db.prepare('SELECT id FROM issues WHERE parent_id = ? AND deleted_at IS NULL').all(parent.id) as Array<{ id: string }>).map(r => this.store.getIssue(r.id)!);
+      const have = new Map(children.map(c => [normalizeTitle(c.title), c]));
+      const existing: Issue[] = [], fresh: string[] = [];
+      for (const raw of titles) {
+        const t = raw.trim(), k = normalizeTitle(t);
+        if (!k) continue;
+        const prior = have.get(k);
+        if (prior) { if (!existing.includes(prior)) existing.push(prior); continue; }
+        if (!fresh.some(f => normalizeTitle(f) === k)) fresh.push(t);
+      }
+      const created: Issue[] = [];
+      const stateId = this.store.stateOfType(parent.teamId, 'unstarted') ?? this.store.stateOfType(parent.teamId, 'backlog');
+      const opId = fresh.length ? this.op('create_sub_issues', lane, { issueId: parent.id }, () => {
+        for (const title of fresh) {
+          created.push(this.store.createIssue({
+            teamId: parent.teamId, title, parentId: parent.id, stateId, assigneeId: parent.assigneeId, projectId: parent.projectId,
+            milestoneId: parent.milestoneId, cycleId: parent.cycleId,
+          }, who.actorId));
+        }
+        return {};
+      }) : null;
+      return { opId, attributedTo: this.attributedTo(who), parent, created, existing };
     });
   }
 
@@ -388,6 +563,13 @@ export class Work {
           reverted.push(prev ? 'project update draft: back to its earlier text' : 'project update draft: discarded');
         } else leftAsIs.push('the project update draft: changed since');
       }
+      if (after.agentDraft) {
+        const d = after.agentDraft, prev = before.agentDraft;
+        if (this.agentDraft(d.id)?.updatedAt === d.updatedAt) {
+          steps.push(() => { if (prev) this.writeAgentDraft(prev); else this.db.prepare('DELETE FROM agent_drafts WHERE id = ?').run(d.id); });
+          reverted.push(prev ? `draft "${d.title}": pending again` : `draft "${d.title}": discarded`);
+        } else leftAsIs.push(`the draft "${d.title}": changed since`);
+      }
       if (conflicts.length) throw new WorkError(409, 'conflict', `Not undone, because someone changed it since: ${conflicts.join('; ')}`);
       const lane = laneOf(who, op.session_key || null);
       const undoId = this.op('undo', lane, { issueId: op.issue_id ?? undefined, projectId: op.project_id ?? undefined, undoes: op.id }, () => {
@@ -400,6 +582,13 @@ export class Work {
   }
 
   // ---------- internals ----------
+  /** The outcome of an agent's work is news to the issue's owner: the assignee, else the person the
+   *  agent works for. These are the only moves an agent reports to the person it acts for. */
+  private report(issueId: string, lane: Lane, who: Attribution, type: 'agentFinished' | 'agentBlocked', body: string): void {
+    const owner = this.store.getIssue(issueId)?.assigneeId ?? lane.personId;
+    this.store.notifyEach([owner], type, { actorId: who.actorId, issueId, body, selfToo: who.actor === 'agent' });
+  }
+
   /** one SQLite transaction, under the write's attribution */
   private write<T>(who: Attribution, fn: () => T): T {
     return attributing.run(who, () => this.store.transaction(fn));
@@ -407,7 +596,7 @@ export class Work {
 
   /** runs one op's writes under its id (stamped on every activity row they log) and records it */
   private op(name: OpName, lane: Lane,
-    at: { issueId?: string; projectId?: string; threadBefore?: WorkThread | null; commentBefore?: string | null; draftBefore?: ProjectUpdateDraft | null; dedupeKey?: string; undoes?: string },
+    at: { issueId?: string; projectId?: string; threadBefore?: WorkThread | null; commentBefore?: string | null; draftBefore?: ProjectUpdateDraft | null; agentDraftBefore?: AgentDraft | null; dedupeKey?: string; undoes?: string },
     fn: () => OpState & { resultId?: string }): string {
     const opId = id('op');
     const { resultId, ...after } = currentOp.run(opId, fn);
@@ -415,6 +604,7 @@ export class Work {
       ...('threadBefore' in at ? { thread: at.threadBefore } : {}),
       ...('commentBefore' in at ? { commentBody: at.commentBefore } : {}),
       ...('draftBefore' in at ? { draft: at.draftBefore } : {}),
+      ...('agentDraftBefore' in at ? { agentDraft: at.agentDraftBefore } : {}),
     };
     this.db.prepare(`INSERT INTO agent_ops (id, name, issue_id, project_id, thread_id, actor_id, person_id, session_key, dedupe_key, result_id, before_json, after_json, undoes, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -467,6 +657,16 @@ export class Work {
       .run(d.projectId, d.personId, d.authorId, d.body, d.health, d.updatedAt, d.updatedAt);
   }
 
+  private writeAgentDraft(d: AgentDraft): void {
+    this.db.prepare('UPDATE agent_drafts SET status = ?, issue_id = ?, title = ?, description = ?, priority = ?, updated_at = ? WHERE id = ?')
+      .run(d.status, d.issueId, d.title, d.description, d.priority, d.updatedAt, d.id);
+  }
+
+  /** where agent-found work waits for a person: Triage, or Backlog on a team with triage off */
+  private intakeState(teamId: string): string | undefined {
+    return this.store.stateOfType(teamId, 'triage') ?? this.store.stateOfType(teamId, 'backlog') ?? this.store.stateOfType(teamId, 'unstarted');
+  }
+
   /** the lane's comment, unless a person deleted it (then the next write starts a new one) */
   private livingComment(t: WorkThread | null): { id: string; body: string } | undefined {
     return t?.commentId ? this.db.prepare('SELECT id, body FROM comments WHERE id = ?').get(t.commentId) as { id: string; body: string } | undefined : undefined;
@@ -500,8 +700,8 @@ export class Work {
   private facts(project: Project): DraftFacts {
     const since = (this.db.prepare('SELECT MAX(created_at) at FROM project_updates WHERE project_id = ?').get(project.id) as { at: string | null }).at;
     const from = since ?? project.createdAt;
-    const rows = this.db.prepare(`SELECT i.id, i.team_id, i.number, i.created_at, i.completed_at, s.type, lower(s.name) AS state FROM issues i JOIN states s ON s.id = i.state_id
-      WHERE i.project_id = ? AND i.deleted_at IS NULL AND i.archived_at IS NULL ORDER BY i.team_id, i.number`).all(project.id) as Array<{ id: string; team_id: string; number: number; created_at: string; completed_at: string | null; type: WorkflowStateType; state: string }>;
+    const rows = this.db.prepare(`SELECT i.id, i.team_id, i.number, i.title, i.created_at, i.completed_at, s.type, lower(s.name) AS state FROM issues i JOIN states s ON s.id = i.state_id
+      WHERE i.project_id = ? AND i.deleted_at IS NULL AND i.archived_at IS NULL ORDER BY i.team_id, i.number`).all(project.id) as Array<{ id: string; team_id: string; number: number; title: string; created_at: string; completed_at: string | null; type: WorkflowStateType; state: string }>;
     const key = (r: { team_id: string; number: number }) => this.store.keyOf({ teamId: r.team_id, number: r.number });
     const blocked = new Set((this.db.prepare(`SELECT r.issue_id FROM relations r JOIN issues o ON o.id = r.related_id JOIN states s ON s.id = o.state_id
       WHERE r.type = 'blocked_by' AND o.deleted_at IS NULL AND s.type NOT IN ('completed', 'canceled')`).all() as Array<{ issue_id: string }>).map(r => r.issue_id));
@@ -513,6 +713,7 @@ export class Work {
       inReview: open.filter(r => r.state === 'in review').map(key),
       blocked: open.filter(r => blocked.has(r.id)).map(key),
       filed: rows.filter(r => r.created_at >= from).map(key),
+      titles: Object.fromEntries(rows.map(r => [key(r), r.title])),
     };
   }
 }
@@ -524,6 +725,12 @@ function mapThread(r: ThreadRow): WorkThread {
     progress: { did: r.did, left: r.left_text, blocked: r.blocked }, links: JSON.parse(r.links) as string[],
     state: r.status === 'finished' ? { status: 'finished', outcome: r.outcome as WorkOutcome, summary: r.summary!, finishedAt: r.finished_at! } : { status: 'active' },
     startedAt: r.started_at, updatedAt: r.updated_at,
+  };
+}
+function mapAgentDraft(r: AgentDraftRow): AgentDraft {
+  return {
+    id: r.id, kind: r.kind, personId: r.person_id, agentId: r.agent_id, teamId: r.team_id, fromIssueId: r.from_issue_id, title: r.title,
+    description: r.description, priority: r.priority, status: r.status, issueId: r.issue_id, createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 function mapDraft(r: DraftRow): ProjectUpdateDraft {
@@ -551,8 +758,11 @@ export function renderProgress(p: ProgressFields, links: readonly string[]): str
   return ['**Progress**', ...section('Did', p.did), ...section('Left', p.left), ...section('Blocked', p.blocked), ...linkList(links)].join('\n\n');
 }
 
-export function renderFinal(outcome: WorkOutcome, summary: string, left: string | null, links: readonly string[]): string {
-  return [`**${OUTCOME_HEADING[outcome]}**`, summary, ...section('Left', left), ...linkList(links)].join('\n\n');
+export function renderFinal(outcome: WorkOutcome, summary: string, left: string | null, links: readonly string[],
+  o: { last?: ProgressFields | null; stays?: string | null } = {}): string {
+  const last = o.last && (o.last.did || o.last.left || o.last.blocked)
+    ? ['<details><summary>Progress before finishing</summary>', ...section('Did', o.last.did), ...section('Left', o.last.left), ...section('Blocked', o.last.blocked), '</details>'] : [];
+  return [`**${OUTCOME_HEADING[outcome]}**`, ...(o.stays ? [`_${o.stays}_`] : []), summary, ...section('Left', left), ...linkList(links), ...last].join('\n\n');
 }
 
 /** the dedupe key for a follow-up title: case, punctuation and a leading "fix:" / "todo:" don't count */
@@ -560,9 +770,10 @@ export function normalizeTitle(title: string): string {
   return title.toLowerCase().replace(/^\s*(fix|todo|bug|chore)\s*:\s*/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
-/** one "**Completed:** CORE-1, CORE-2" line per group that has any */
+/** one "**Completed:** CORE-1 Fix login, CORE-2 Add SSO" line per group that has any */
 export function composeDraft(f: DraftFacts): string {
   const groups = [['Completed', f.completed], ['In review', f.inReview], ['In progress', f.inProgress], ['Blocked', f.blocked], ['New', f.filed]] as const;
-  const lines = groups.filter(([, keys]) => keys.length).map(([label, keys]) => `- **${label}:** ${keys.join(', ')}`);
+  const named = (k: string) => f.titles?.[k] ? `${k} ${f.titles[k]}` : k;
+  const lines = groups.filter(([, keys]) => keys.length).map(([label, keys]) => `- **${label}:** ${keys.map(named).join(', ')}`);
   return [`Since ${f.since ? f.since.slice(0, 10) : 'the project started'}:`, ...(lines.length ? lines : ['- No issue changes.'])].join('\n');
 }

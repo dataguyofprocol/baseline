@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useApp } from './store.js';
+import { api } from './api.js';
 import { IconClose, IconCheck, IconChevronRight } from './icons.js';
 import { reducedMotion } from './motion.js';
 
@@ -561,13 +562,62 @@ export function useCanConfigure(): boolean {
   return useApp(s => !s.snap || s.snap.workspace.auth !== 'hosted' || s.snap.currentUser.admin);
 }
 export const ADMIN_NOTE = 'Only admins can change this.';
-/** the same controls, disabled under a note, for someone who can't change them */
-export function AdminLock(props: { children: React.ReactNode; note?: string }) {
-  if (useCanConfigure()) return <>{props.children}</>;
+/** the same controls, disabled under a note naming whom to ask, for someone who can't change them */
+export function AdminLock(props: { children: React.ReactNode; note?: string; teamId?: string; what?: string; level?: 'lead' | 'member' }) {
+  const can = useCanConfigure();
+  const lead = useCanLead(props.teamId ?? null);
+  const member = useOnTeam(props.teamId ?? null);
+  if (props.teamId ? (props.level === 'member' ? member : lead) : can) return <>{props.children}</>;
   return <>
-    <div className="field-help admin-note">{props.note ?? ADMIN_NOTE}</div>
+    <AskLine teamId={props.teamId} what={props.what ?? document.title} note={props.note} />
     <fieldset disabled className="admin-locked">{props.children}</fieldset>
   </>;
+}
+
+/** a team's setup is its lead's (CORE_FLOW.md › Roles): its leads, an admin, or anyone on a laptop */
+export function useCanLead(teamId: string | null): boolean {
+  return useApp(s => !s.snap || s.snap.workspace.auth !== 'hosted' || s.snap.currentUser.admin
+    || (!!teamId && !!s.snap.teams.find(t => t.id === teamId)?.leadIds.includes(s.snap.currentUser.id)));
+}
+/** labels and templates are any of a team's members' */
+export function useOnTeam(teamId: string | null): boolean {
+  return useApp(s => !s.snap || s.snap.workspace.auth !== 'hosted' || s.snap.currentUser.admin
+    || (!!teamId && !!s.snap.teams.find(t => t.id === teamId)?.memberIds.includes(s.snap.currentUser.id)));
+}
+/** whom to ask about a team's setup (its leads, else the admins) or the workspace's (the admins), never yourself */
+export function useAskable(teamId?: string | null): Array<{ id: string; name: string }> {
+  const snap = useApp(s => s.snap);
+  if (!snap) return [];
+  const people = snap.users.filter(u => u.kind === 'human' && u.status !== 'suspended' && u.id !== snap.currentUser.id);
+  const team = teamId ? snap.teams.find(t => t.id === teamId) : undefined;
+  const leads = team ? people.filter(u => team.leadIds.includes(u.id)) : [];
+  return (leads.length ? leads : people.filter(u => u.admin)).map(u => ({ id: u.id, name: u.name }));
+}
+const firstName = (name: string) => name.split(' ')[0] ?? name;
+/** "Ask Parth": one click puts the request in that person's inbox, linking back to this page */
+export function AskButton(props: { to: { id: string; name: string }; what: string }) {
+  const [sent, setSent] = useState(false);
+  const ask = async () => {
+    try {
+      await api.askAccess({ to: props.to.id, what: props.what, path: location.hash.replace(/^#/, '') || '/' });
+      setSent(true);
+      useApp.getState().toast({ title: `Asked ${firstName(props.to.name)}`, line: 'It\'s in their inbox, with a link to this page.' });
+    } catch (e) { useApp.getState().toast({ title: 'Couldn\'t ask', line: (e as Error).message }); }
+  };
+  return <button type="button" className="btn ghost sm ask-btn" disabled={sent} onClick={() => void ask()}>{sent ? `Asked ${firstName(props.to.name)}` : `Ask ${firstName(props.to.name)}`}</button>;
+}
+/** the line every remaining refusal shows: who decides, and a one-click ask to each of them (at most two) */
+export function AskLine(props: { teamId?: string | null; what: string; note?: string }) {
+  const askable = useAskable(props.teamId);
+  const team = useApp(s => props.teamId ? s.snap?.teams.find(t => t.id === props.teamId) : undefined);
+  const who = team ? (team.leadIds.length ? `${team.name}'s lead` : `${team.name} has no lead yet, so admins`) : 'admins';
+  const note = props.note ?? (team && !team.leadIds.length ? `${who} set this up.` : `Only ${who} can change this.`);
+  return (
+    <div className="field-help admin-note ask-line">
+      <span>{note}</span>
+      {askable.slice(0, 2).map(u => <AskButton key={u.id} to={u} what={props.what} />)}
+    </div>
+  );
 }
 
 /** the muted "via Parth" after an agent's name on what it wrote for someone; nothing for a person's own writes */

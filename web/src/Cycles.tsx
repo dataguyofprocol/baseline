@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useApp, shortDate } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { useMenu, Menu, MenuItem, MenuSep, ConfirmButton, NotFound, Modal, exclusive } from './ui.js';
+import { useMenu, Menu, MenuItem, MenuSep, ConfirmButton, NotFound, Modal, exclusive, useCanConfigure } from './ui.js';
 import { Avatar, PriorityIcon, teamDisplayIcon } from './pickers.js';
 import { NewCycleModal } from './Settings.js';
 import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueViews.js';
@@ -200,7 +200,26 @@ function Breakdown(props: { issues: Issue[] }) {
 }
 
 /* ================= cycles list: Linear's timeline ================= */
-export function CyclesPage() {
+/** cycles are Settings › Features › Cycles: off, a link to a cycle lands here instead of the page */
+function CyclesOff() {
+  const admin = useCanConfigure();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <TopBar crumbs={[{ label: 'Cycles' }]} />
+      <div className="empty-state">
+        <Illustration name="cycles" />
+        <div className="empty-title">Cycles are off in this workspace</div>
+        <div className="empty-desc">Cycles time-box a team’s work into short windows. {admin ? 'Turn them on in Settings › Features.' : 'An admin can turn them on in Settings › Features.'}</div>
+        {admin && <div className="empty-actions"><Link className="btn secondary" to="/settings/features">Open Features</Link></div>}
+      </div>
+    </div>
+  );
+}
+const useCyclesOn = () => useApp(s => !!s.snap?.workspace.features.cyclesEnabled);
+export function CyclesPage() { return useCyclesOn() ? <CyclesList /> : <CyclesOff />; }
+export function CycleDetailPage() { return useCyclesOn() ? <CycleDetail /> : <CyclesOff />; }
+
+function CyclesList() {
   const { teamKey = '' } = useParams();
   const navigate = useNavigate();
   const snap = useApp(s => s.snap)!;
@@ -287,7 +306,7 @@ export function CycleAlias({ which }: { which: 'current' | 'upcoming' }) {
 }
 
 /* ================= cycle page ================= */
-export function CycleDetailPage() {
+function CycleDetail() {
   const { teamKey = '', cycleId = '' } = useParams();
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();

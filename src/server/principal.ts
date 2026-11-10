@@ -36,7 +36,7 @@ const PUBLISH = /^\/api\/projects\/[^/]+\/update-draft\/publish$/;
 /** the hosted MCP endpoint: keys only. Its tool calls are /api requests made with the same key,
  *  so scopes, teams and response scoping are applied there, per call, not to the MCP envelope */
 const MCP = '/mcp';
-const needsKey = (c: Context) => c.json({ error: 'Baseline\'s MCP endpoint needs an API key: send Authorization: Bearer <key> (create one in Settings › Security & access)', code: 'unauthorized' }, 401);
+const needsKey = (c: Context) => c.json({ error: 'Baseline\'s MCP endpoint needs an API key: send Authorization: Bearer <key> (create one in Settings › Account & API keys)', code: 'unauthorized' }, 401);
 
 const principals = new WeakMap<Request, Principal>();
 
@@ -98,7 +98,7 @@ export function authenticate(d: AuthenticateDeps): MiddlewareHandler {
     const key = apiKeys.verify(header.replace(/^Bearer\s+/i, ''));
     if (!key) return c.json({ error: 'Invalid API key', code: 'unauthorized' }, 401);
     const path = c.req.path;
-    if (KEYLESS.test(path)) return forbid(c, 'API keys are managed in Settings › Security & access, not with an API key');
+    if (KEYLESS.test(path)) return forbid(c, 'API keys are managed in Settings › Account & API keys, not with an API key');
     if (PUBLISH.test(path)) return forbid(c, 'A person publishes project updates from the project page in Baseline; an API key can only draft them');
     const missing = apiKeys.missingScope(key, c.req.method, path);
     if (missing) return forbid(c, `This API key doesn't have the “${API_KEY_SCOPES.find(([k]) => k === missing)?.[1]}” permission`);

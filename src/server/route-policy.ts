@@ -83,6 +83,13 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/issues/:id/work/progress': { scope: 'write', team: 'issue' },
   'POST /api/issues/:id/work/finish': { scope: 'write', team: 'issue' },
   'POST /api/issues/:id/followups': { scope: 'write', team: 'issue' },
+  'POST /api/issues/:id/sub-issues': { scope: 'write', team: 'issue' },
+  // an agent's drafts are the caller's own; proposing names its team in the body (and a source issue the route checks)
+  'GET /api/agent-drafts': { scope: 'read', team: 'workspace' },
+  'POST /api/agent-drafts': { scope: 'write', team: 'body' },
+  'POST /api/agent-issues': { scope: 'write', team: 'body' },
+  // makes the shared "Claude Code" (or Codex…) agent user on first use; known tool names only
+  'POST /api/agent-users': { scope: 'write', team: 'workspace' },
   'GET /api/issues/:id/work': { scope: 'read', team: 'issue' },
   // an op id names no team for the middleware; the route itself refuses a team-limited key's undo outside its teams
   'POST /api/ops/:id/undo': { scope: 'write', team: 'unchecked' },
@@ -106,9 +113,13 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'PUT /api/teams/:id/workflow': { scope: 'write', team: 'team' },
   'PUT /api/teams/:id/subscription': { scope: 'write', team: 'team' },
   'POST /api/teams/:id/join': { scope: 'write', team: 'team' },
+  'GET /api/teams/:id/join-link': { scope: 'read', team: 'team' },
+  'POST /api/teams/:id/join-link': { scope: 'write', team: 'team' },
+  'DELETE /api/teams/:id/join-link': { scope: 'write', team: 'team' },
   'POST /api/teams/:id/leave': { scope: 'write', team: 'team' },
   'POST /api/teams/:id/members': { scope: 'write', team: 'team' },
   'DELETE /api/teams/:id/members/:userId': { scope: 'write', team: 'team' },
+  'PUT /api/teams/:id/leads/:userId': { scope: 'write', team: 'team' },
   'POST /api/teams/:id/links': { scope: 'write', team: 'team' },
   'DELETE /api/team-links/:id': { scope: 'write', team: 'unchecked' },
   'GET /api/git/automation/:teamId': { scope: 'read', team: 'team' },
@@ -200,6 +211,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'POST /api/invites/:id/resend': { scope: 'write', team: 'workspace' },
   'DELETE /api/invites/:id': { scope: 'write', team: 'workspace' },
   'PATCH /api/members/:id': { scope: 'write', team: 'workspace' },
+  // "Ask <name>": a row in an admin's or a team lead's inbox
+  'POST /api/access-requests': { scope: 'write', team: 'workspace' },
   'POST /api/members/:id/reset-link': { scope: 'write', team: 'keyless' },
   'PATCH /api/security': { scope: 'write', team: 'workspace' },
   'PATCH /api/workspace': { scope: 'admin', team: 'workspace' },
@@ -227,6 +240,10 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'DELETE /api/github/token': { scope: 'admin', team: 'workspace' },
   'GET /api/github/repos/available': { scope: 'admin', team: 'workspace' },
   'PUT /api/github/repos': { scope: 'admin', team: 'workspace' },
+  'GET /api/github/repo-teams': { scope: 'read', team: 'workspace' },
+  'PUT /api/github/repo-teams': { scope: 'admin', team: 'workspace' },
+  'GET /api/github/summary': { scope: 'read', team: 'workspace' },
+  'GET /api/github/authors': { scope: 'read', team: 'workspace' },
   'GET /api/github/webhook/config': { scope: 'read', team: 'workspace' },
   'PUT /api/github/webhook/config': { scope: 'admin', team: 'workspace' },
   'POST /api/github/webhook/secret': { scope: 'admin', team: 'workspace' },
@@ -234,4 +251,43 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'GET /api/github/webhook/deliveries': { scope: 'read', team: 'workspace' },
   'POST /api/github/issues/import': { scope: 'admin', team: 'body' },
   'PUT /api/github/issues/follow': { scope: 'admin', team: 'body' },
+};
+
+/** Who may write a team's setup on a hosted server (CORE_FLOW.md › Roles), beyond admins, who may do
+ *  all of it: the team's 'lead', any of its 'member's, 'anyone' signed in, or 'admin's only.
+ *  Every team-setup write needs a row (index.ts teamGate and members.ts enforce them), and
+ *  scripts/test-route-policy.ts calls each one as an admin, a lead, a member and an outsider. */
+export type TeamRole = 'lead' | 'member' | 'anyone' | 'admin';
+export const TEAM_ROLE: Record<string, TeamRole> = {
+  'PATCH /api/teams/:id': 'lead',
+  'DELETE /api/teams/:id': 'lead',
+  'PUT /api/teams/:id/workflow': 'lead',
+  'PUT /api/teams/:id/leads/:userId': 'lead',
+  'DELETE /api/teams/:id/members/:userId': 'lead',
+  'POST /api/teams/:id/join-link': 'lead',
+  'DELETE /api/teams/:id/join-link': 'lead',
+  'POST /api/states': 'lead',
+  'PATCH /api/states/:id': 'lead',
+  'DELETE /api/states/:id': 'lead',
+  'PATCH /api/labels/:id': 'member',
+  'DELETE /api/labels/:id': 'member',
+  'POST /api/issue-templates': 'member',
+  'PATCH /api/issue-templates/:id': 'member',
+  'DELETE /api/issue-templates/:id': 'member',
+  'POST /api/teams/:id/members': 'member',
+  'POST /api/labels': 'anyone',
+  'PUT /api/teams/:id/subscription': 'anyone',
+  'POST /api/teams/:id/join': 'anyone',
+  'POST /api/teams/:id/leave': 'anyone',
+  'POST /api/teams/:id/links': 'anyone',
+  'DELETE /api/team-links/:id': 'anyone',
+  // cycles and recurring issues are everyday work; the cycle schedule is PATCH /api/teams/:id
+  'POST /api/cycles': 'anyone',
+  'PATCH /api/cycles/:id': 'anyone',
+  'DELETE /api/cycles/:id': 'anyone',
+  'POST /api/recurring': 'anyone',
+  'PATCH /api/recurring/:id': 'anyone',
+  'DELETE /api/recurring/:id': 'anyone',
+  // PR automations are GitHub's, and GitHub is the admins'
+  'PUT /api/git/automation/:teamId': 'admin',
 };

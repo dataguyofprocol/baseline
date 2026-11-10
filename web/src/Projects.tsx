@@ -1093,7 +1093,8 @@ function UpdateDue({ project: p }: { project: Project }) {
   const snap = useApp(s => s.snap)!;
   const cadence = p.updateCadence ?? snap.workspace.features.updateCadence;
   const days = cadence === 'weekly' ? 7 : cadence === 'biweekly' ? 14 : cadence === 'monthly' ? 30 : 0;
-  if (!days || p.status === 'completed' || p.status === 'canceled') return null;
+  // an update schedule is Settings › Features › Project updates; off, nothing is ever due
+  if (!snap.workspace.features.projectUpdatesEnabled || !days || p.status === 'completed' || p.status === 'canceled') return null;
   const last = snap.projectUpdates.find(u => u.projectId === p.id)?.createdAt ?? p.createdAt;
   const due = new Date(new Date(last).getTime() + days * 86400000);
   const overdue = due.getTime() < Date.now();
@@ -1160,11 +1161,11 @@ function ProjectBell(props: { project: Project }) {
               <span className="mi-label">{l}</span><span className={`mi-check${flags[k] ? ' on' : ''}`} style={{ marginLeft: 'auto' }}>{flags[k] && <IconCheck size={11} />}</span>
             </button>
           ))}
-          <MenuSep />
+          {snap.workspace.features.projectUpdatesEnabled && <><MenuSep />
           <div className="bell-schedule">
             <div><div className="bell-h">Update schedule</div><div className="bell-sub">{UPDATE_CADENCE_LABELS[cadence]}{!p.updateCadence && ' (workspace default)'}</div></div>
             <button className="btn secondary sm" onClick={e => { e.stopPropagation(); cadenceMenu.open(e); }}>Change</button>
-          </div>
+          </div></>}
         </Menu>
       )}
       {cadenceMenu.anchor && <Menu anchor={cadenceMenu.anchor} onClose={cadenceMenu.close} width={260}><ProjectMenuBody kind="cadence" project={p} onClose={cadenceMenu.close} /></Menu>}
@@ -1381,7 +1382,7 @@ function ProjectDetails(props: { project: Project }) {
         {row('Target', 'target', p.targetDate ? <><IconCalendar size={13} />{shortDate(p.targetDate.slice(0, 10) + 'T12:00')}</> : <span className="dim">Target date</span>)}
         {row('Team', 'team', team ? team.name : <span className="dim">Add team</span>)}
         {row('Labels', 'labels', p.labelIds.length ? <ProjectLabelChips project={p} max={4} /> : <span className="dim">Add labels</span>)}
-        {row('Updates', 'cadence', <span className={p.updateCadence ? '' : 'dim'}>{UPDATE_CADENCE_LABELS[p.updateCadence ?? snap.workspace.features.updateCadence]}</span>)}
+        {snap.workspace.features.projectUpdatesEnabled && row('Updates', 'cadence', <span className={p.updateCadence ? '' : 'dim'}>{UPDATE_CADENCE_LABELS[p.updateCadence ?? snap.workspace.features.updateCadence]}</span>)}
         <ProjectLocationsRow project={p} />
       </div>
       {ms.length > 0 && (

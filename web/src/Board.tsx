@@ -41,7 +41,7 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
   const due = issue.dueDate?.slice(0, 10);
   const overdue = !!due && !closed && due < localIsoDate();
   const links = d.links ? snap.attachments.filter(a => a.issueId === issue.id).length : 0;
-  const est = estimateLabel(issue, snap);
+  const est = snap.workspace.features.estimatesEnabled ? estimateLabel(issue, snap) : null;
   const pr = d.prs !== false ? issuePrState(snap, issue.id) : null;
   const grouped = (g: GroupBy) => props.groupBy === g || props.subgroupBy === g;
   const onProp = props.onProp;
@@ -56,7 +56,7 @@ function CardBody(props: { issue: Issue; groupBy: GroupBy; subgroupBy?: GroupBy 
     d.priority && issue.priority > 0 && !grouped('priority') && (
       <span key="p" className={`bc-chip icon${editable}`} {...edit('priority')} title={['', 'Urgent', 'High', 'Medium', 'Low'][issue.priority]}><PriorityIcon priority={issue.priority} size={12} /></span>
     ),
-    d.cycle && cycle && !grouped('cycle') && (
+    d.cycle && cycle && snap.workspace.features.cyclesEnabled && !grouped('cycle') && (
       <span key="c" className={`bc-chip${editable}`} {...edit('cycle')} title={cycle.name || `Cycle ${cycle.number}`}><IconCycle size={12} />{cycle.number}</span>
     ),
     d.project && project && !grouped('project') && (
@@ -430,13 +430,15 @@ function ColumnHeader(props: {
   const menu = useMenu();
   const canCreate = CREATE_GROUPS.includes(props.groupBy);
   const addIssue = () => openCreate(createOpts(snap, props.teamId, props.createDefaults, [[props.groupBy, props.col.id]]));
-  const estimatesOn = props.teamId ? snap.teams.find(t => t.id === props.teamId)?.estimateScale !== 'none' : true;
+  // point totals only where estimates are on: the workspace's switch, then the team's scale
+  const estimatesOn = snap.workspace.features.estimatesEnabled && (props.teamId ? snap.teams.find(t => t.id === props.teamId)?.estimateScale !== 'none' : true);
   return (
     <div className="board-col-header">
       {props.col.icon}
       <span className="bch-label">{props.col.label}</span>
-      <span className="count">{props.total}</span>
-      {estimatesOn && props.points > 0 && <span className="gh-points" title={`${props.points} points`}><IconEstimate size={11} />{props.points}</span>}
+      {/* "Todo 7 ▲8" read as two bare numbers: say what each one counts */}
+      <span className="count">{props.total} issue{props.total === 1 ? '' : 's'}</span>
+      {estimatesOn && props.points > 0 && <span className="gh-points" title={`Estimate total: ${props.points} points`} aria-label={`Estimate total: ${props.points} points`}><IconEstimate size={11} />{props.points} pts</span>}
       <span className="col-actions">
         <button className="icon-btn col-more" data-no-drag title="Column actions" onClick={menu.open}><IconMore size={13} /></button>
         {canCreate && <button className="icon-btn" data-no-drag title="New issue" onClick={addIssue}><IconPlus size={13} /></button>}

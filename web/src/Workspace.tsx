@@ -45,18 +45,20 @@ export function TeamsPage() {
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const now = new Date().toISOString();
+  const cyclesOn = snap.workspace.features.cyclesEnabled;
   const list = snap.teams.filter(t => `${t.name} ${t.key}`.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={[{ label: 'Teams' }]} right={<button className="btn secondary" onClick={() => navigate('/settings/new-team')}><IconPlus size={13} /> New team</button>} />
       <div className="subnav"><div className="set-filter" style={{ border: 0, margin: 0, flex: 1 }}><IconSearch size={13} /><input placeholder="Find teams…" value={q} onChange={e => setQ(e.target.value)} /></div></div>
       <div className="content">
+        {/* the Cycle column stays (the grid is fixed) but says nothing while cycles are off */}
         <div className="wtable">
-          <div className="wt-head wt-teams"><span>Name</span><span>Description</span><span>Membership</span><span>Members</span><span>Cycle</span><span>Active projects</span></div>
+          <div className="wt-head wt-teams"><span>Name</span><span>Description</span><span>Membership</span><span>Members</span><span>{cyclesOn ? 'Cycle' : ''}</span><span>Active projects</span></div>
           {!list.length && <div className="set-empty">No teams match “{q.trim()}”.</div>}
           {list.map(t => {
             const members = t.memberIds.map(id => snap.users.find(u => u.id === id)).filter(Boolean);
-            const cur = snap.cycles.find(c => c.teamId === t.id && c.startsAt <= now && c.endsAt >= now);
+            const cur = cyclesOn ? snap.cycles.find(c => c.teamId === t.id && c.startsAt <= now && c.endsAt >= now) : undefined;
             const active = snap.projects.filter(p => p.teamId === t.id && p.status === 'started').length;
             return (
               <div key={t.id} className="wt-row wt-teams" onClick={() => navigate(`/team/${t.key}/overview`)}>
@@ -181,8 +183,10 @@ export const SIDEBAR_ITEMS: Array<{ key: string; label: string; section: 'Person
   { key: 'initiatives', label: 'Initiatives', section: 'Workspace' }, { key: 'projects', label: 'Projects', section: 'Workspace' }, { key: 'views', label: 'Views', section: 'Workspace' },
   { key: 'teams', label: 'Teams', section: 'Workspace' }, { key: 'members', label: 'Members', section: 'Workspace' },
 ];
-export function sidebarVisibility(snap: Snap, key: string): SidebarVisibility {
-  return snap.workspace.preferences.sidebar.items[key] ?? SIDEBAR_DEFAULTS[key] ?? 'show';
+// Customize sidebar is cut (CORE_FLOW.md › Core vs niche): everyone gets the defaults. Stored
+// choices stay in preferences, unread, in case it comes back
+export function sidebarVisibility(_snap: Snap, key: string): SidebarVisibility {
+  return SIDEBAR_DEFAULTS[key] ?? 'show';
 }
 
 const SIDEBAR_ICONS: Record<string, React.ReactNode> = {

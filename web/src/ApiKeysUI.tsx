@@ -76,7 +76,7 @@ function PasswordSection() {
   );
 }
 
-/* ================= Settings › Security & access ================= */
+/* ================= Settings › Account & API keys ================= */
 export function SecuritySettings() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -87,7 +87,7 @@ export function SecuritySettings() {
   const blocked = snap.workspace.features.apiKeyCreation === 'admins' && !me.admin;
   return (
     <div className="settings-card">
-      <h1>Security &amp; access</h1>
+      <h1>Account &amp; API keys</h1>
       {snap.workspace.auth === 'hosted' && <PasswordSection />}
       <div className="settings-h2">Sessions</div>
       <div className="field-help" style={{ marginBottom: 8 }}>Devices using this workspace</div>
@@ -101,14 +101,14 @@ export function SecuritySettings() {
         {(keys ?? []).map(k => <KeyRow key={k.id} k={k} onRevoke={async () => { await api.revokeApiKey(k.id); load(); }} />)}
         <div className="set-row">
           <span className="dim" style={{ flex: 1 }}>{keys && !keys.length ? 'No API keys created' : blocked ? 'Only admins can create API keys' : ''}</span>
-          <button className="btn ghost sm" disabled={blocked} onClick={() => navigate('/settings/security/new-api-key')}>New API key</button>
+          <button className="btn ghost sm" disabled={blocked} onClick={() => navigate('/settings/account/new-api-key')}>New API key</button>
         </div>
       </div>
     </div>
   );
 }
 
-/* ================= Settings › Security & access › Create API key ================= */
+/* ================= Settings › Account & API keys › Create API key ================= */
 export function NewApiKey() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
@@ -128,7 +128,7 @@ export function NewApiKey() {
     try { setCreated(await api.createApiKey({ name: name.trim(), scopes: limitScopes ? scopes : null, teamIds: limitTeams ? teamIds : null })); setErr(''); }
     catch (e) { setErr((e as Error).message); }
   });
-  const back = <Link to="/settings/security" className="settings-crumb"><IconBack size={13} /> Security settings</Link>;
+  const back = <Link to="/settings/account" className="settings-crumb"><IconBack size={13} /> Account &amp; API keys</Link>;
   if (created) return (
     <div className="settings-card">
       {back}
@@ -141,7 +141,7 @@ export function NewApiKey() {
           <button className="btn secondary sm" onClick={async () => { if (await copyText(created.token)) useApp.getState().toast({ title: 'Copied API key' }); }}><IconCopy size={13} /> Copy</button>
         </div>
         <div className="field-help" style={{ marginTop: 10 }}>Try it: <code>curl -H "Authorization: Bearer {created.token.slice(0, 11)}…" {location.origin}/api/bootstrap</code></div>
-        <div className="form-actions"><button className="btn primary" onClick={() => navigate('/settings/security')}>Done</button></div>
+        <div className="form-actions"><button className="btn primary" onClick={() => navigate('/settings/account')}>Done</button></div>
       </div>
     </div>
   );
@@ -173,7 +173,7 @@ export function NewApiKey() {
         </div>}
         {err && <div className="field-help" style={{ color: 'var(--danger)', marginTop: 10 }}>{err}</div>}
         <div className="form-actions">
-          <button className="btn secondary" onClick={() => navigate('/settings/security')}>Cancel</button>
+          <button className="btn secondary" onClick={() => navigate('/settings/account')}>Cancel</button>
           <button className="btn primary" disabled={!valid || busy} onClick={() => void create()}>Create</button>
         </div>
       </div>
@@ -194,7 +194,7 @@ export function ApiAdminSettings() {
       <h1>API</h1>
       <div className="field-help" style={{ marginBottom: 16 }}>Baseline’s REST API (<code>{location.origin}/api</code>) is what the app and the <code>baseline</code> CLI’s server mode use. Scripts and integrations call it with a personal API key.</div>
       <div className="settings-h2">API keys</div>
-      <div className="field-help" style={{ marginBottom: 8 }}>Control whether workspace members can create personal API keys. View your own keys in <Link to="/settings/security">Security &amp; access</Link> settings.</div>
+      <div className="field-help" style={{ marginBottom: 8 }}>Control whether workspace members can create personal API keys. View your own keys in <Link to="/settings/account">Account &amp; API keys</Link>.</div>
       <div className="card set-list">
         <div className="set-row">
           <div style={{ flex: 1 }}><div className="field-label">API key creation</div><div className="field-help">Choose which members can create personal API keys</div></div>
@@ -204,7 +204,7 @@ export function ApiAdminSettings() {
           </select>
         </div>
         <div className="set-row">
-          <div style={{ flex: 1 }}><div className="field-label">Require a key from other devices</div><div className="field-help">{snap.workspace.lanHost ? `Baseline is open to your network at ${snap.workspace.lanHost}. When on, requests from other devices need an API key, including the web app opened on them.` : 'Baseline only answers this machine right now. If you set BASELINE_HOST to open it to your network, this makes other devices send an API key.'}</div></div>
+          <div style={{ flex: 1 }}><div className="field-label">Require a key from other devices</div><div className="field-help">{snap.workspace.lanHost ? `Baseline is open to your network at ${snap.workspace.lanHost}. When on, requests from other devices need an API key, including the web app opened on them.` : snap.workspace.auth === 'hosted' ? 'Everyone signs in on this server, and agents and scripts send an API key; this setting is for a laptop opened to its network.' : 'Baseline only answers this machine right now. If you set BASELINE_HOST to open it to your network, this makes other devices send an API key.'}</div></div>
           <button className={`switch${f.apiKeyRequiredRemote ? ' on' : ''}`} role="switch" aria-checked={f.apiKeyRequiredRemote} aria-label="Require a key from other devices" onClick={async () => { await api.setFeatures({ apiKeyRequiredRemote: !f.apiKeyRequiredRemote }); await refresh(); }}><span /></button>
         </div>
       </div>

@@ -56,6 +56,9 @@ export interface Team {
   estimateScale: EstimateScale;
   /** people who belong to the team (its "Your teams" entry); anyone can still open the team */
   memberIds: string[];
+  /** members who lead the team: they own its name, statuses, triage, templates, labels, membership and
+   *  cycle schedule. Its creator by default; a team with none is led by the workspace admins */
+  leadIds: string[];
   /** issues can be estimated with zero points */
   estimateZero?: boolean;
   /** the scale goes further (13, 21… / 32, 64…) */
@@ -331,7 +334,11 @@ export type GithubSource =
 /** what the web app sees of a saved token (never the token itself) */
 export interface GithubTokenInfo { hint: string; login: string; expiresAt: string | null }
 /** a repository Baseline syncs: picked in settings, or a location's origin (laptop only) */
-export interface TrackedRepo { repo: string; path: string | null; via: 'picked' | 'location'; location: string | null }
+export interface TrackedRepo { repo: string; path: string | null; via: 'picked' | 'location'; location: string | null; /** the team this repo's work belongs to (Settings › GitHub) */ teamId: string | null }
+/** what syncing found, for the GitHub page's payoff line: "23 open PRs, 9 linked, 3 people matched" */
+export interface GithubSummary { repos: number; openPrs: number; linkedPrs: number; authors: number; peopleMatched: number }
+/** a PR author seen in synced repos, and the member they probably are (for members with no GitHub username yet) */
+export interface GithubAuthor { login: string; prs: number; userId: string | null; suggestedUserId: string | null }
 export interface GitStatus {
   source: GithubSource['kind']; token: GithubTokenInfo | null; ghInstalled: boolean; ghUser: string | null;
   repos: TrackedRepo[]; lastSyncAt: string | null; lastError: string | null;
@@ -363,7 +370,7 @@ export interface TeamWorkflow {
   /** where an issue lands in its new status column when its status moves forward */
   reorder: 'first' | 'last' | 'none';
 }
-export const DEFAULT_TEAM_WORKFLOW: TeamWorkflow = { closeParent: false, closeSubIssues: false, closeStale: false, staleMonths: 6, staleStateId: null, archiveMonths: 6, reorder: 'first' };
+export const DEFAULT_TEAM_WORKFLOW: TeamWorkflow = { closeParent: true, closeSubIssues: false, closeStale: false, staleMonths: 6, staleStateId: null, archiveMonths: 6, reorder: 'first' };
 export type ApiKeyScope = 'read' | 'write' | 'createIssues' | 'createComments' | 'admin';
 /** a personal API key; the token itself is shown once and never stored */
 export interface ApiKey {
@@ -419,7 +426,31 @@ export interface WorkspaceFeatures {
   apiKeyCreation: 'all' | 'admins';
   /** when BASELINE_HOST opens Baseline to the network, requests from other devices need an API key */
   apiKeyRequiredRemote: boolean;
+  // Settings › Features: weight a small team doesn't need on day one. Off until the workspace turns it
+  // on; a workspace that already has the data starts with it on (Store.getFeatures)
+  estimatesEnabled: boolean;
+  cyclesEnabled: boolean;
+  templatesEnabled: boolean;
+  documentsEnabled: boolean;
+  recurringEnabled: boolean;
+  /** project update cadence, reminders and digests */
+  projectUpdatesEnabled: boolean;
+  /** cut from the default UI; kept behind a switch because existing rules keep running */
+  slasEnabled: boolean;
+  loopsEnabled: boolean;
 }
+/** the Settings › Features switches (initiativesEnabled is one too), in the order the page shows them */
+export const FEATURE_SWITCHES: Array<[keyof WorkspaceFeatures, string, string]> = [
+  ['cyclesEnabled', 'Cycles', 'Time-boxed iterations per team, with an optional auto-schedule'],
+  ['estimatesEnabled', 'Estimates', 'Points on issues, and point totals on boards and cycles'],
+  ['templatesEnabled', 'Templates', 'Issue templates in the create modal'],
+  ['documentsEnabled', 'Documents', 'Team and project documents'],
+  ['recurringEnabled', 'Recurring issues', 'Issues a team files on a schedule'],
+  ['projectUpdatesEnabled', 'Project updates', 'An update cadence, reminders and digests for projects'],
+  ['initiativesEnabled', 'Initiatives', 'Group projects into initiatives across teams'],
+  ['slasEnabled', 'SLAs', 'Deadlines by priority, with breach notifications'],
+  ['loopsEnabled', 'Loops', 'Automations that run when an issue changes'],
+];
 /** who may join a hosted workspace without a personal invite, and who may invite */
 export interface WorkspaceSecurity {
   /** Google Workspace domains (e.g. acme.dev) whose accounts join as members on first sign-in */
@@ -427,8 +458,11 @@ export interface WorkspaceSecurity {
   /** teams people joining through an approved domain are added to */
   domainTeamIds: string[];
   whoCanInvite: 'admins' | 'members';
+  /** members can invite too while the workspace has fewer than SMALL_WORKSPACE people */
+  smallTeamInvites: boolean;
 }
-export const DEFAULT_SECURITY: WorkspaceSecurity = { approvedDomains: [], domainTeamIds: [], whoCanInvite: 'admins' };
+export const DEFAULT_SECURITY: WorkspaceSecurity = { approvedDomains: [], domainTeamIds: [], whoCanInvite: 'admins', smallTeamInvites: true };
+export const SMALL_WORKSPACE = 10;
 
 export type AuthMode = 'local' | 'hosted';
 /** a hosted server always offers 'password'; 'google' when a Google OAuth client is configured */
@@ -450,6 +484,9 @@ export interface Invite {
   link: string;
 }
 
+/** a team's shareable join link: anyone who opens it can make an account on that team, until an admin revokes it */
+export interface TeamJoinLink { teamId: string; link: string; createdBy: string | null; createdAt: string }
+
 /** one person in an invite request: someone already in the workspace, or an address */
 export type InviteEntry = { kind: 'member'; userId: string } | { kind: 'email'; email: string };
 
@@ -469,7 +506,8 @@ export interface InviteResult {
   error?: string;
 }
 
-export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', initiativesEnabled: true, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false };
+export const DEFAULT_FEATURES: WorkspaceFeatures = { updateCadence: 'none', initiativeUpdateCadence: 'none', initiativesEnabled: false, githubEnabled: false, branchFormat: '{username}/{issueIdentifier}-{issueTitle}', apiKeyCreation: 'all', apiKeyRequiredRemote: false,
+  estimatesEnabled: false, cyclesEnabled: false, templatesEnabled: false, documentsEnabled: false, recurringEnabled: false, projectUpdatesEnabled: false, slasEnabled: false, loopsEnabled: false };
 
 /** a directory on this machine that coding agents can work in, usually a git repo */
 export interface Location {
@@ -663,7 +701,13 @@ export type NotificationType =
   /** someone else changed a document you wrote; body is "<docId>|<title>" */
   | 'docChanged'
   /** raised by the app itself with no human actor, so the inbox row signs with the tile */
-  | 'systemUpdate';
+  | 'systemUpdate'
+  /** an agent finished work on an issue you own (or it works for you): "Ready for your review: …" / "Done: …" */
+  | 'agentFinished'
+  /** an agent stopped before finishing, or reported a blocker: "Stopped: …" / "Blocked: …" */
+  | 'agentBlocked'
+  /** someone asked you (an admin or a team lead) to change a setting they can't; body is "<settings path>|<what>" */
+  | 'accessRequested';
 
 export interface Notification {
   id: string;
@@ -719,6 +763,8 @@ export interface Workspace {
   mail?: boolean;
   /** set when BASELINE_HOST opens the server to other devices */
   lanHost?: string;
+  /** whether the person asking may invite new people (hosted: Accounts.canInvite) */
+  canInvite?: boolean;
   preferences: Preferences;
   features: WorkspaceFeatures;
   security: WorkspaceSecurity;
@@ -727,7 +773,7 @@ export interface Workspace {
 /** per-install preferences (one person per local install) */
 export interface Preferences {
   /** where the app opens */
-  homeView: 'inbox' | 'my-issues' | 'team';
+  homeView: 'my-work' | 'inbox' | 'my-issues' | 'team';
   /** 0 = Sunday, 1 = Monday */
   firstDayOfWeek: 0 | 1;
   /** which events raise inbox notifications */
@@ -777,8 +823,9 @@ export interface GettingStarted {
 }
 export type SidebarVisibility = 'show' | 'badged' | 'hide';
 /** the kinds Linear's notification settings speak in */
-export type NotifyCategory = 'assignments' | 'statusChanges' | 'comments' | 'mentions' | 'reactions' | 'subscriptions' | 'documents' | 'updates' | 'reminders' | 'loops' | 'triage';
+export type NotifyCategory = 'agentWork' | 'assignments' | 'statusChanges' | 'comments' | 'mentions' | 'reactions' | 'subscriptions' | 'documents' | 'updates' | 'reminders' | 'loops' | 'triage';
 export const NOTIFY_CATEGORIES: Array<[NotifyCategory, string, string]> = [
+  ['agentWork', 'Agent work', 'An agent finished work for you, stopped, or got blocked'],
   ['assignments', 'Assignments', 'Assignments, unassignments, and membership changes'],
   ['statusChanges', 'Status changes', 'Changes to the status, priority, and blocking relationships of issues'],
   ['comments', 'Comments and replies', 'Comments, replies, and thread resolutions'],
@@ -793,6 +840,7 @@ export const NOTIFY_CATEGORIES: Array<[NotifyCategory, string, string]> = [
 ];
 export function notifyCategory(type: NotificationType, body = ''): NotifyCategory | null {
   switch (type) {
+    case 'agentFinished': case 'agentBlocked': return 'agentWork';
     case 'issueAssignedToYou': case 'issueAssigned': return 'assignments';
     case 'issueStatusChanged': return 'statusChanges';
     case 'issueCommented': case 'issueReplied': return 'comments';
@@ -811,12 +859,12 @@ export function notifyCategory(type: NotificationType, body = ''): NotifyCategor
 export const SIDEBAR_DEFAULTS: Record<string, SidebarVisibility> = { inbox: 'show', 'my-issues': 'show', drafts: 'badged', initiatives: 'show', projects: 'show', views: 'show', teams: 'hide', members: 'hide' };
 
 export const DEFAULT_PREFERENCES: Preferences = {
-  homeView: 'inbox', firstDayOfWeek: 1,
+  homeView: 'my-work', firstDayOfWeek: 1,
   notify: { assigned: true, statusChanged: true, comments: true, mentions: true },
   sidebar: { badgeStyle: 'count', items: {} },
   gettingStarted: { onboarding: 'done', flow: 'create', since: null },
-  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: false, assignOnStart: false, startOnBranchCopy: true, startOnHandoff: true, updatesSummary: 'weekly',
-  push: { browser: false, types: { assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
+  displayNames: 'full', convertEmoticons: true, sendCommentsOn: 'mod-enter', fontSize: 'default', pointerCursors: false, underlineLinks: false, autoAssign: true, assignOnStart: true, startOnBranchCopy: true, startOnHandoff: true, updatesSummary: 'weekly',
+  push: { browser: false, types: { agentWork: true, assignments: true, statusChanges: true, comments: true, mentions: true, reactions: false, subscriptions: true, documents: true, updates: true, reminders: true, loops: true, triage: true } },
 };
 
 /** macOS terminals interactive sessions can open in, by app name (`open -a <name>`) */

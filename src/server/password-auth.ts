@@ -2,7 +2,7 @@
 // invite link, reset links, and changing your own password. Every route that ends signed in goes
 // through Sessions.start, the same cookie sessions Google sign-in uses.
 import type { Context, Hono } from 'hono';
-import { isEmail, normalizeEmail, type Accounts } from '../core/accounts.js';
+import { emailProblem, isEmail, normalizeEmail, type Accounts } from '../core/accounts.js';
 import { hashPassword, passwordProblem, verifyPassword } from '../core/passwords.js';
 import type { Store } from '../core/store.js';
 import type { HostedAuth, Sessions } from './auth.js';
@@ -91,6 +91,26 @@ export function mountPasswordAuth(app: Hono, cfg: HostedAuth, d: { accounts: Acc
       return r.error === 'invite-mismatch' ? refuse(c, 400, r.error, 'This invite was sent to a different address.')
         : r.error === 'already-member' ? refuse(c, 409, r.error, 'There’s already an account for that address. Sign in instead.')
         : refuse(c, 400, r.error, 'This invite has expired or was revoked. Ask for a new one.');
+    }
+    if (r.invitedBy) hooks.onInviteAccepted?.(r.userId, r.invitedBy);
+    sessions.start(c, r.userId);
+    return c.json({ ok: true }, 201);
+  });
+
+  // ---------- joining through a team's join link ----------
+  app.post('/auth/join/:code/accept', async (c) => {
+    if (crossSite(c)) return refuse(c, 403, 'forbidden', 'Cross-site requests are not allowed');
+    if (!ipLimit.take(clientIp(c))) return tooMany(c);
+    const b = await body(c);
+    const email = normalizeEmail(text(b.email, 320)), name = text(b.name, NAME_MAX);
+    if (!isEmail(email)) return refuse(c, 400, 'invalid', email ? emailProblem(email) : 'Enter your work email address');
+    if (!name) return refuse(c, 400, 'invalid', 'Add your name');
+    const problem = passwordProblem(b.password);
+    if (problem) return refuse(c, 400, 'weak-password', problem);
+    const r = accounts.joinWithLink(c.req.param('code'), { email, name, passwordHash: await hashPassword(b.password as string) });
+    if ('error' in r) {
+      return r.error === 'already-member' ? refuse(c, 409, r.error, 'There’s already an account for that address. Sign in instead.')
+        : refuse(c, 400, r.error, 'This join link was turned off. Ask your team for a new one.');
     }
     if (r.invitedBy) hooks.onInviteAccepted?.(r.userId, r.invitedBy);
     sessions.start(c, r.userId);

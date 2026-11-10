@@ -21,7 +21,7 @@ process.on('exit', () => rmSync(work, { recursive: true, force: true }));
 // email goes to this list instead of an SMTP server
 const sent: MailMessage[] = [];
 const dbFile = join(work, 'hosted.db');
-const { app, store, db, changes } = createApp(dbFile, {
+const { app, store, db, accounts, changes } = createApp(dbFile, {
   mode: 'hosted', publicUrl: new URL(ORIGIN), google: { clientId: CLIENT_ID, clientSecret: 'secret' }, ownerEmail: OWNER,
 }, { configured: true, send: async (m) => { sent.push(m); } });
 
@@ -56,9 +56,9 @@ const cookiesFrom = (res: Response): Record<string, string> => {
 /** run the whole browser redirect sequence: /auth/google → (Google) → /auth/google/callback; returns the final redirect and cookies */
 // each sign-in comes from its own address, so the sign-in rate limit only trips in the tests that check it
 let ipSeq = 0;
-async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boolean; next?: string; invite?: string; ip?: string } = {}) {
+async function signIn(claims: Record<string, unknown>, opts: { tamperState?: boolean; next?: string; invite?: string; join?: string; ip?: string } = {}) {
   const ip = opts.ip ?? `10.0.${Math.floor(++ipSeq / 250)}.${ipSeq % 250}`;
-  const start = await req(`/auth/google?next=${encodeURIComponent(opts.next ?? '/#/inbox')}${opts.invite ? `&invite=${opts.invite}` : ''}`, { headers: { 'x-forwarded-for': ip } });
+  const start = await req(`/auth/google?next=${encodeURIComponent(opts.next ?? '/#/inbox')}${opts.invite ? `&invite=${opts.invite}` : ''}${opts.join ? `&join=${opts.join}` : ''}`, { headers: { 'x-forwarded-for': ip } });
   const google = new URL(start.headers.get('location')!);
   const oauthCookie = cookiesFrom(start)['baseline_oauth']!;
   nextIdentity = {
@@ -180,7 +180,7 @@ check('…and so is its activity', created.user_id === ada.id);
     && (await req('/api/locations', { ...json({ path: '/etc' }), cookie: ownerCookie })).status === 403);
 }
 
-// ---- team and workspace configuration is admins' (TEAM_PLAN.md › Who changes what) ----
+// ---- workspace configuration is admins' (CORE_FLOW.md › Roles); a team's is its lead's, below ----
 {
   const send = (cookie: string, method: string, path: string, body?: unknown) =>
     req(path, { method, cookie, headers: { 'content-type': 'application/json', origin: ORIGIN }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
@@ -192,22 +192,16 @@ check('…and so is its activity', created.user_id === ada.id);
   const labelRes = await send(adaCookie, 'POST', '/api/labels', { teamId: team.team.id, name: 'bug', color: '#eb5757' });
   const projectLabelRes = await send(adaCookie, 'POST', '/api/project-labels', { name: 'Q3' });
   const initiativeLabelRes = await send(adaCookie, 'POST', '/api/initiative-labels', { name: 'Bet' });
+  check('…which they lead', store.getTeam(ownId)!.leadIds.join() === ada.id);
   check('…and add issue, project and initiative labels', labelRes.status === 201 && projectLabelRes.status === 201 && initiativeLabelRes.status === 201,
     `${labelRes.status}/${projectLabelRes.status}/${initiativeLabelRes.status}`);
   const ids: Record<string, string> = {
-    team: team.team.id, doomed: store.createTeam('TMP', 'Temporary').id, label: await idOf(labelRes, 'label'),
+    team: team.team.id, label: await idOf(labelRes, 'label'),
     projectLabel: await idOf(projectLabelRes, 'label'), initiativeLabel: await idOf(initiativeLabelRes, 'label'),
   };
 
   // each route a member is refused and an admin isn't; `save` keeps the id an admin's create returns
   const routes: Array<{ name: string; method: string; path: () => string; body?: unknown; save?: [string, string]; adminStatus?: number }> = [
-    { name: 'rename a team', method: 'PATCH', path: () => `/api/teams/${ids.team}`, body: { name: 'Engineering' } },
-    { name: 'change a team\'s workflow automations', method: 'PUT', path: () => `/api/teams/${ids.team}/workflow`, body: { autoCloseDays: 30 } },
-    { name: 'add a workflow state', method: 'POST', path: () => '/api/states', body: { teamId: ids.team, name: 'QA', type: 'started', color: '#f2c94c' }, save: ['state', 'state'] },
-    { name: 'edit a workflow state', method: 'PATCH', path: () => `/api/states/${ids.state}`, body: { name: 'Testing' } },
-    { name: 'remove a workflow state', method: 'DELETE', path: () => `/api/states/${ids.state}` },
-    { name: 'edit a label', method: 'PATCH', path: () => `/api/labels/${ids.label}`, body: { name: 'Bug' } },
-    { name: 'remove a label', method: 'DELETE', path: () => `/api/labels/${ids.label}` },
     { name: 'edit a project label', method: 'PATCH', path: () => `/api/project-labels/${ids.projectLabel}`, body: { name: 'Q4' } },
     { name: 'remove a project label', method: 'DELETE', path: () => `/api/project-labels/${ids.projectLabel}` },
     { name: 'edit an initiative label', method: 'PATCH', path: () => `/api/initiative-labels/${ids.initiativeLabel}`, body: { name: 'Big bet' } },
@@ -215,9 +209,6 @@ check('…and so is its activity', created.user_id === ada.id);
     { name: 'add a project status', method: 'POST', path: () => '/api/project-statuses', body: { name: 'On ice', type: 'paused' }, save: ['status', 'projectStatus'] },
     { name: 'edit a project status', method: 'PATCH', path: () => `/api/project-statuses/${ids.projectStatus}`, body: { name: 'Frozen' } },
     { name: 'remove a project status', method: 'DELETE', path: () => `/api/project-statuses/${ids.projectStatus}` },
-    { name: 'add an issue template', method: 'POST', path: () => '/api/issue-templates', body: { teamId: ids.team, name: 'Bug report' }, save: ['template', 'issueTemplate'] },
-    { name: 'edit an issue template', method: 'PATCH', path: () => `/api/issue-templates/${ids.issueTemplate}`, body: { name: 'Bug' } },
-    { name: 'remove an issue template', method: 'DELETE', path: () => `/api/issue-templates/${ids.issueTemplate}` },
     { name: 'add an SLA', method: 'POST', path: () => '/api/sla-rules', body: { name: 'Urgent', priorities: [1], hours: 24 }, save: ['rule', 'sla'] },
     { name: 'edit an SLA', method: 'PATCH', path: () => `/api/sla-rules/${ids.sla}`, body: { hours: 12 } },
     { name: 'remove an SLA', method: 'DELETE', path: () => `/api/sla-rules/${ids.sla}` },
@@ -239,7 +230,6 @@ check('…and so is its activity', created.user_id === ada.id);
     { name: 'list the repos GitHub can see', method: 'GET', path: () => '/api/github/repos/available', adminStatus: 400 },
     { name: 'pick the repos to sync', method: 'PUT', path: () => '/api/github/repos', body: { repos: ['acme/app'] } },
     { name: 'follow a GitHub repo\'s issues', method: 'PUT', path: () => '/api/github/issues/follow', body: { repo: 'acme/app', teamId: ids.team } },
-    { name: 'delete a team', method: 'DELETE', path: () => `/api/teams/${ids.doomed}` },
   ];
   for (const r of routes) {
     const member = await send(adaCookie, r.method, r.path(), r.body);
@@ -253,6 +243,78 @@ check('…and so is its activity', created.user_id === ada.id);
   check('a member can still subscribe to a team and add its resources',
     (await send(adaCookie, 'PUT', `/api/teams/${ownId}/subscription`, { issueAdded: true })).status === 200
     && (await send(adaCookie, 'POST', `/api/teams/${ownId}/links`, { url: 'https://example.com/runbook' })).status === 201);
+}
+
+// ---- team leads (CORE_FLOW.md › Roles): a team's setup is its lead's; labels and templates its members' ----
+{
+  const send = (cookie: string, method: string, path: string, body?: unknown) =>
+    req(path, { method, cookie, headers: { 'content-type': 'application/json', origin: ORIGIN }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+  const ownerId = boot.currentUser.id;
+  // Lead: Ada leads Led. Plain: Ada is a member of a team Owner leads. Leaderless: nobody leads it (a team from before leads)
+  const mk = async (key: string, cookie: string) => ((await (await send(cookie, 'POST', '/api/teams', { key, name: key })).json()) as { team: { id: string } }).team.id;
+  const led = await mk('LED', adaCookie), plain = await mk('PLN', ownerCookie), leaderless = await mk('NOL', ownerCookie);
+  store.addTeamMember(plain, ada.id);
+  store.addTeamMember(leaderless, ada.id);
+  store.setTeamLead(leaderless, ownerId, false);
+  // a team-scoped row per team, made by the store so each route below starts from the same state
+  const rows = (teamId: string) => ({
+    state: store.createState(teamId, 'QA', 'started', '#f2c94c').id,
+    label: store.createLabel(teamId, 'bug', '#eb5757').id,
+    template: store.createTemplate(teamId, 'Bug', '', '').id,
+  });
+  type Route = { name: string; method: string; path: (t: string, r: ReturnType<typeof rows>) => string; body?: (t: string) => unknown; who: 'lead' | 'member' };
+  const routes: Route[] = [
+    { name: 'rename the team', method: 'PATCH', path: t => `/api/teams/${t}`, body: () => ({ name: 'Renamed' }), who: 'lead' },
+    { name: 'turn on triage', method: 'PATCH', path: t => `/api/teams/${t}`, body: () => ({ triageEnabled: true }), who: 'lead' },
+    { name: 'set the cycle schedule', method: 'PATCH', path: t => `/api/teams/${t}`, body: () => ({ autoCycles: false, cycleDuration: 1 }), who: 'lead' },
+    { name: 'set estimates', method: 'PATCH', path: t => `/api/teams/${t}`, body: () => ({ estimateScale: 'linear' }), who: 'lead' },
+    { name: 'change workflow automations', method: 'PUT', path: t => `/api/teams/${t}/workflow`, body: () => ({ autoCloseDays: 30 }), who: 'lead' },
+    { name: 'add a status', method: 'POST', path: () => '/api/states', body: t => ({ teamId: t, name: 'Review', type: 'started', color: '#f2c94c' }), who: 'lead' },
+    { name: 'edit a status', method: 'PATCH', path: (_t, r) => `/api/states/${r.state}`, body: () => ({ name: 'Testing' }), who: 'lead' },
+    { name: 'remove a status', method: 'DELETE', path: (_t, r) => `/api/states/${r.state}`, who: 'lead' },
+    { name: 'edit a label', method: 'PATCH', path: (_t, r) => `/api/labels/${r.label}`, body: () => ({ name: 'Bug' }), who: 'member' },
+    { name: 'remove a label', method: 'DELETE', path: (_t, r) => `/api/labels/${r.label}`, who: 'member' },
+    { name: 'add a template', method: 'POST', path: () => '/api/issue-templates', body: t => ({ teamId: t, name: 'Feature' }), who: 'member' },
+    { name: 'edit a template', method: 'PATCH', path: (_t, r) => `/api/issue-templates/${r.template}`, body: () => ({ name: 'Bug report' }), who: 'member' },
+    { name: 'remove a template', method: 'DELETE', path: (_t, r) => `/api/issue-templates/${r.template}`, who: 'member' },
+  ];
+  const ok = (r: Response) => r.status === 200 || r.status === 201;
+  const outsider = store.createUser('Out Sider', 'outsider@example.com');
+  for (const r of routes) {
+    const at = async (cookie: string, t: string) => send(cookie, r.method, r.path(t, rows(t)), r.body?.(t));
+    const asLead = await at(adaCookie, led), asMember = await at(adaCookie, plain), asAdmin = await at(ownerCookie, plain), leaderlessRes = await at(adaCookie, leaderless);
+    if (r.who === 'lead') {
+      const refusal = await asMember.json() as { error: string; ask: Array<{ id: string; name: string }> };
+      check(`a team's lead can ${r.name}, an admin can, a member can't (and is told to ask the lead)`, ok(asLead) && ok(asAdmin) && asMember.status === 403
+        && /Ask Owner/.test(refusal.error) && refusal.ask.map(a => a.id).join() === ownerId, `lead ${asLead.status}, admin ${asAdmin.status}, member ${asMember.status} ${refusal.error}`);
+      const lr = await leaderlessRes.json() as { error: string; ask: Array<{ id: string }> };
+      check(`…on a team with no lead, the admins do it, and a member is told to ask them`, leaderlessRes.status === 403 && /no lead yet/.test(lr.error) && lr.ask.some(a => a.id === ownerId), lr.error);
+    } else {
+      check(`a team's member can ${r.name}, as can its lead and an admin`, ok(asLead) && ok(asMember) && ok(asAdmin) && ok(leaderlessRes), `${asLead.status} ${asMember.status} ${asAdmin.status} ${leaderlessRes.status}`);
+    }
+  }
+  // someone not on the team can't touch its labels or templates
+  const ghost = `__Host-baseline_session=${accounts.createSession(outsider.id).token}`;
+  const plainRows = rows(plain);
+  check('someone not on a team can\'t edit its labels or templates', (await send(ghost, 'PATCH', `/api/labels/${plainRows.label}`, { name: 'x' })).status === 403
+    && (await send(ghost, 'DELETE', `/api/issue-templates/${plainRows.template}`)).status === 403);
+  // leads choose leads, and remove members
+  const makeLead = (cookie: string, t: string, u: string, lead: boolean) => send(cookie, 'PUT', `/api/teams/${t}/leads/${u}`, { lead });
+  check('a member can\'t make themselves lead', (await makeLead(adaCookie, plain, ada.id, true)).status === 403 && !store.getTeam(plain)!.leadIds.includes(ada.id));
+  check('a lead makes someone else a lead (adding them to the team)', ok(await makeLead(adaCookie, led, outsider.id, true)) && store.getTeam(led)!.leadIds.includes(outsider.id) && store.getTeam(led)!.memberIds.includes(outsider.id));
+  check('…and back to a member', ok(await makeLead(adaCookie, led, outsider.id, false)) && !store.getTeam(led)!.leadIds.includes(outsider.id));
+  check('a lead removes a member from their team', ok(await send(adaCookie, 'DELETE', `/api/teams/${led}/members/${outsider.id}`)) && !store.getTeam(led)!.memberIds.includes(outsider.id));
+  check('an admin makes a lead on any team', ok(await makeLead(ownerCookie, leaderless, ada.id, true)) && store.getTeam(leaderless)!.leadIds.includes(ada.id));
+  check('…after which that lead sets the team up', ok(await send(adaCookie, 'PATCH', `/api/teams/${leaderless}`, { name: 'Has a lead' })));
+  check('a lead deletes their team; a member can\'t', (await send(adaCookie, 'DELETE', `/api/teams/${plain}`)).status === 403 && ok(await send(adaCookie, 'DELETE', `/api/teams/${led}`)) && !store.getTeam(led));
+
+  // "Ask <name>": a plain row in the asked person's inbox, naming the page
+  const ask = (cookie: string, body: unknown) => send(cookie, 'POST', '/api/access-requests', body);
+  check('a member asks the lead to change something', (await ask(adaCookie, { to: ownerId, what: 'Add an In Review status to PLN', path: '/settings/team/PLN/statuses' })).status === 201);
+  const asked = (await (await req('/api/bootstrap', { cookie: ownerCookie })).json() as { notifications: Array<{ type: string; actorId: string; body: string }> }).notifications.find(n => n.type === 'accessRequested');
+  check('…which lands in their inbox, from the member, with the page', asked?.actorId === ada.id && asked.body === '/settings/team/PLN/statuses|Add an In Review status to PLN', JSON.stringify(asked));
+  check('only admins and leads can be asked', (await ask(ownerCookie, { to: outsider.id, what: 'x' })).status === 400);
+  check('…and the ask says what', (await ask(adaCookie, { to: ownerId, what: ' ' })).status === 400);
 }
 
 // ---- coding agents: nothing runs on, or reaches into, the server's machine ----
@@ -355,20 +417,22 @@ const bootOf = async (cookie: string) => await (await req('/api/bootstrap', { co
   // ---- mentions ----
   const ownerId = boot.currentUser.id;
   const subscribed = (uid: string) => store.isSubscribed(issue.id, uid);
+  // a mention notifies once and doesn't subscribe (replying does), so "mentioned" reads the inbox
+  const mentioned = (uid: string) => !!db.prepare("SELECT 1 FROM notifications WHERE type = 'issueMentioned' AND user_id = ? AND issue_id = ?").get(uid, issue.id);
   store.unsubscribe(issue.id, ownerId);
   db.prepare("DELETE FROM notifications WHERE type = 'issueMentioned'").run();
   await req(`/api/issues/${issue.id}/comments`, { ...json({ body: `ping @[Owner Person](user:${ownerId}) please` }), cookie: adaCookie });
   const mention = (await bootOf(ownerCookie)).notifications.find(n => n.type === 'issueMentioned');
-  check('an id mention subscribes and notifies that person', subscribed(ownerId) && !!mention);
+  check('an id mention notifies that person, without subscribing them', !subscribed(ownerId) && !!mention);
   check('…and the inbox line reads as a plain name', mention?.body === 'ping @Owner Person please', mention?.body);
   const samA = store.createUser('Sam Lee', 'sam.a@example.com'), samB = store.createUser('Sam Lee', 'sam.b@example.com');
   await req(`/api/issues/${issue.id}/comments`, { ...json({ body: 'hey @Sam Lee' }), cookie: adaCookie });
-  check('a plain name two people share mentions nobody', !subscribed(samA.id) && !subscribed(samB.id));
+  check('a plain name two people share mentions nobody', !mentioned(samA.id) && !mentioned(samB.id));
   await req(`/api/issues/${issue.id}/comments`, { ...json({ body: `hey @[Sam Lee](user:${samB.id})` }), cookie: adaCookie });
-  check('…while an id mention picks exactly one of them', !subscribed(samA.id) && subscribed(samB.id));
+  check('…while an id mention picks exactly one of them', !mentioned(samA.id) && mentioned(samB.id));
   const solo = store.createUser('Priya Nair', 'priya@example.com'), priyaShort = store.createUser('Priya', 'p2@example.com');
   await req(`/api/issues/${issue.id}/comments`, { ...json({ body: 'cc @Priya Nair' }), cookie: adaCookie });
-  check('a plain unique name still works (CLI-written text), longest name first', subscribed(solo.id) && !subscribed(priyaShort.id));
+  check('a plain unique name still works (CLI-written text), longest name first', mentioned(solo.id) && !mentioned(priyaShort.id));
   const handoff = await (await req(`/api/issues/${issue.id}/handoff`, { cookie: adaCookie })).json() as { handoff: { prompt: string } };
   check('hand-off prompts carry the readable form', !handoff.handoff.prompt.includes('](user:'));
 
@@ -506,7 +570,7 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   const link = by('cara@example.com')!.invite!.link;
   check('the email carries the invite link and the inviter', mail.text.includes(link) && mail.subject.startsWith('Owner Person invited you'), mail.subject);
   const info = await (await req(`/auth/invite/${new URL(link).searchParams.get('invite')}`)).json() as { state: string; inviter: string; email: string };
-  check('an invite link shows who sent it, with the address masked', info.state === 'valid' && info.inviter === 'Owner Person' && info.email === 'ca•••@example.com', JSON.stringify(info));
+  check('an invite link shows who sent it and the address, to prefill', info.state === 'valid' && info.inviter === 'Owner Person' && info.email === 'cara@example.com', JSON.stringify(info));
   const list = await (await req('/api/invites', { cookie: ownerCookie })).json() as { invites: Array<{ email: string }> };
   check('open invites are listed', list.invites.map(i => i.email).sort().join() === 'ben@example.com,cara@example.com');
 
@@ -539,7 +603,20 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   const eveIn = await signIn({ sub: 'g-eve', email: 'eve@example.com', name: 'Eve' });
   check('…after which it works', !!eveIn.session);
   const caraCookie = `__Host-baseline_session=${cara.session}`;
-  check('a member can\'t invite while only admins may', (await req('/api/invites', { ...json({ emails: 'x@example.com' }), cookie: caraCookie })).status === 403);
+  // a workspace under 10 people lets members invite whatever whoCanInvite says (Settings › Security)
+  const caraBoot = async () => (await (await req('/api/bootstrap', { cookie: caraCookie })).json() as { workspace: { canInvite: boolean } }).workspace.canInvite;
+  check('while the workspace is small, a member can invite, and bootstrap says so', await caraBoot() && (await req('/api/invites', { cookie: caraCookie })).status === 200);
+  check('a member can\'t turn that off', (await patch('/api/security', { smallTeamInvites: false }, caraCookie)).status === 403);
+  await patch('/api/security', { smallTeamInvites: false }, ownerCookie);
+  check('a member can\'t invite while only admins may', (await req('/api/invites', { ...json({ emails: 'x@example.com' }), cookie: caraCookie })).status === 403 && !await caraBoot());
+  {
+    // ten people: the small-team rule stops applying even when it's on
+    await patch('/api/security', { smallTeamInvites: true }, ownerCookie);
+    const extra = Array.from({ length: 10 }, (_, i) => store.createUser(`Filler ${i}`, `filler${i}@example.com`, false));
+    check('…nor at 10 people, even with members inviting while small', (await req('/api/invites', { ...json({ emails: 'x@example.com' }), cookie: caraCookie })).status === 403);
+    for (const u of extra) db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+    await patch('/api/security', { smallTeamInvites: false }, ownerCookie);
+  }
   check('a member can\'t change who may join', (await patch('/api/security', { whoCanInvite: 'members' }, caraCookie)).status === 403);
   await patch('/api/security', { whoCanInvite: 'members' }, ownerCookie);
   check('once members may invite, they can', (await req('/api/invites', { ...json({ emails: 'x@example.com' }), cookie: caraCookie })).status === 201);
@@ -560,6 +637,18 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('…but an account Google doesn\'t manage for that domain (no hd) doesn\'t', personal.location.endsWith('?auth_error=not-invited'));
   const other = await signIn({ sub: 'g-kim', email: 'kim@other.com', name: 'Kim', hd: 'other.com' });
   check('…nor does another Workspace domain', other.location.endsWith('?auth_error=not-invited'));
+
+  // ---- a team's join link, with Google ----
+  {
+    const made = await (await req(`/api/teams/${team.team.id}/join-link`, { ...json({}), cookie: ownerCookie })).json() as { joinLink: { link: string } };
+    const code = new URL(made.joinLink.link).searchParams.get('join')!;
+    const lou = await signIn({ sub: 'g-lou', email: 'lou@gmail.com', name: 'Lou' }, { join: code });
+    const louUser = store.snapshot().users.find(u => u.email === 'lou@gmail.com');
+    check('a Google account joins through a team join link, onto that team', !!lou.session && !!louUser && !louUser.admin && store.getTeam(team.team.id)!.memberIds.includes(louUser.id), lou.location);
+    await req(`/api/teams/${team.team.id}/join-link`, { method: 'DELETE', cookie: ownerCookie, headers: { origin: ORIGIN } });
+    const late = await signIn({ sub: 'g-mo', email: 'mo@gmail.com', name: 'Mo' }, { join: code });
+    check('…and not once the link is turned off', !late.session && late.location.endsWith('?auth_error=invite-expired'), late.location);
+  }
 
   // ---- roles, suspension, teams ----
   const ownerId = boot.currentUser.id;
@@ -648,7 +737,7 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   const notOnEngByAddress = await invite({ emails: 'eve@example.com', teamIds: [team.team.id] }, rajNow);
   check('someone not on a team (and not an admin) can\'t add existing people to it by invite', notOnEng.status === 403 && notOnEngByAddress.status === 403
     && !members(team.team.id).includes(eveUser.id), `${notOnEng.status} ${notOnEngByAddress.status}`);
-  await patch('/api/security', { whoCanInvite: 'admins' }, ownerCookie);
+  await patch('/api/security', { whoCanInvite: 'admins', smallTeamInvites: false }, ownerCookie);
   const newWhileAdminsOnly = await invite({ emails: 'newcomer@example.com', teamIds: [t2.team.id] }, rajNow);
   const existingWhileAdminsOnly = await invite({ userIds: [eveUser.id], teamIds: [t2.team.id] }, rajNow);
   check('a new address still needs permission to invite, while adding someone already here only needs the team',
@@ -979,6 +1068,69 @@ type Result = { email: string; status: string; userId?: string; teamIds?: string
   check('an accepted invite can\'t be used again', reuse.status === 400 && (await errOf(reuse)).code === 'invite-expired');
   check('the teammate signs in with that password later', (await signInPw('tia@example.com', tia.password)).status === 200);
   const tiaId = tBoot.currentUser.id;
+
+  // ---- first run: who sees which onboarding, and the admin hears about joins without SMTP ----
+  type GsBoot = { currentUser: { id: string }; workspace: { preferences: { homeView: string; gettingStarted: { onboarding: string; flow: string } } }; notifications: Array<{ type: string; body: string; actorId: string | null }>; teams: Array<{ id: string; memberIds: string[] }>; users: Array<{ id: string; githubUsername?: string }> };
+  const bootAs = async (cookie: string) => await (await preq('/api/bootstrap', { cookie })).json() as GsBoot;
+  const ownerBoot = await bootAs(ownerCookie2);
+  const ownerIdNow = ownerBoot.currentUser.id;
+  check('the owner starts on the onboarding flow that creates the workspace', ownerBoot.workspace.preferences.gettingStarted.onboarding === 'pending' && ownerBoot.workspace.preferences.gettingStarted.flow === 'create', JSON.stringify(ownerBoot.workspace.preferences.gettingStarted));
+  check('…and everyone\'s home is My work by default', ownerBoot.workspace.preferences.homeView === 'my-work');
+  const tiaGs = (await bootAs(tiaCookie)).workspace.preferences.gettingStarted;
+  check('an invitee starts on the joining flow', tiaGs.onboarding === 'pending' && tiaGs.flow === 'join', JSON.stringify(tiaGs));
+  check('the inviter gets an inbox notification when someone joins, with no SMTP', ownerBoot.notifications.some(n => n.type === 'systemUpdate' && n.actorId === tiaId && n.body.includes('Tia Teammate joined') && n.body.includes('Acme')), JSON.stringify(ownerBoot.notifications));
+
+  // ---- invite links: the address is shown and prefilled, with the team ----
+  {
+    const r = await (await post('/api/invites', { emails: 'Uma@example.com maya@local', teamIds: [team.team.id] }, { cookie: ownerCookie2 })).json() as { results: Array<{ email: string; status: string; error?: string; invite?: { link: string } }> };
+    const uma = r.results.find(x => x.email === 'uma@example.com')!, maya = r.results.find(x => x.email === 'maya@local')!;
+    const info = await (await preq(`/auth/invite/${new URL(uma.invite!.link).searchParams.get('invite')}`)).json() as { state: string; email: string; inviter: string; teams: string[] };
+    check('an invite link names the full address, the inviter and the team', info.state === 'valid' && info.email === 'uma@example.com' && info.inviter === 'Olu Owner' && info.teams.join() === 'Acme', JSON.stringify(info));
+    check('an address without a domain ending is refused with a reason', maya.status === 'invalid' && /domain/.test(maya.error ?? ''), JSON.stringify(maya));
+  }
+
+  // ---- a team's join link ----
+  {
+    const tid = team.team.id;
+    check('a member can\'t make a team join link', (await post(`/api/teams/${tid}/join-link`, {}, { cookie: tiaCookie })).status === 403);
+    check('…but can see one while the workspace is small enough for members to invite', (await preq(`/api/teams/${tid}/join-link`, { cookie: tiaCookie })).status === 200);
+    check('a team has no join link until an admin makes one', ((await (await preq(`/api/teams/${tid}/join-link`, { cookie: ownerCookie2 })).json()) as { joinLink: unknown }).joinLink === null);
+    const made = await (await post(`/api/teams/${tid}/join-link`, {}, { cookie: ownerCookie2 })).json() as { joinLink: { link: string; teamId: string } };
+    check('an admin makes one', made.joinLink.link.startsWith(`${PW}/?join=`) && made.joinLink.teamId === tid, JSON.stringify(made));
+    const code = new URL(made.joinLink.link).searchParams.get('join')!;
+    const jinfo = await (await preq(`/auth/join/${code}`)).json() as { state: string; teams: string[]; inviter: string };
+    check('…which says which team and who made it', jinfo.state === 'valid' && jinfo.teams.join() === 'Acme' && jinfo.inviter === 'Olu Owner', JSON.stringify(jinfo));
+    const join = (body: Record<string, unknown>, c = code) => post(`/auth/join/${c}/accept`, body);
+    check('joining with it comes from this site', (await post(`/auth/join/${code}/accept`, { email: 'vic@example.com', name: 'Vic', password: 'vic has a long password' }, { origin: 'https://evil.example' })).status === 403);
+    const taken = await join({ email: 'tia@example.com', name: 'Tia again', password: 'some long password here' });
+    check('…can\'t take over an address that has an account', taken.status === 409 && (await errOf(taken)).code === 'already-member');
+    const bad = await join({ email: 'vic@local', name: 'Vic', password: 'vic has a long password' });
+    check('…and says why an address is wrong', bad.status === 400 && /example\.com/.test((await errOf(bad)).error ?? ''));
+    const vic = await join({ email: 'Vic@example.com', name: 'Vic Viewer', password: 'vic has a long password' });
+    const vicCookie = `__Host-baseline_session=${sessionOf(vic)}`;
+    check('anyone with the link makes an account and is signed in', vic.status === 201 && !!sessionOf(vic));
+    const vb = await bootAs(vicCookie);
+    check('…as a member of that team', vb.teams.find(t => t.id === tid)?.memberIds.includes(vb.currentUser.id) === true && !(vb as unknown as { currentUser: { admin: boolean } }).currentUser.admin);
+    check('…on the joining flow', vb.workspace.preferences.gettingStarted.flow === 'join');
+    check('…and the admin hears about it', (await bootAs(ownerCookie2)).notifications.some(n => n.type === 'systemUpdate' && n.body.startsWith('Vic Viewer joined')));
+    const again = await join({ email: 'wes@example.com', name: 'Wes', password: 'wes has a long password' });
+    check('the link keeps working for the next person', again.status === 201);
+    const rotated = await (await post(`/api/teams/${tid}/join-link`, {}, { cookie: ownerCookie2 })).json() as { joinLink: { link: string } };
+    check('making a new link turns the old one off', (await preq(`/auth/join/${code}`)).status === 404 && new URL(rotated.joinLink.link).searchParams.get('join') !== code);
+    check('a member can\'t turn it off', (await preq(`/api/teams/${tid}/join-link`, { method: 'DELETE', cookie: tiaCookie, headers: { origin: PW } })).status === 403);
+    check('an admin can', (await preq(`/api/teams/${tid}/join-link`, { method: 'DELETE', cookie: ownerCookie2, headers: { origin: PW } })).status === 200);
+    const off = await join({ email: 'xan@example.com', name: 'Xan', password: 'xan has a long password' }, new URL(rotated.joinLink.link).searchParams.get('join')!);
+    check('…after which nobody joins with it', off.status === 400 && (await errOf(off)).code === 'invite-expired' && (await preq(`/auth/join/${new URL(rotated.joinLink.link).searchParams.get('join')}`)).status === 404);
+
+    // GitHub usernames: everyone sets their own, admins anyone's (PRs are matched to people by it)
+    const patchUser = (id: string, body: unknown, cookie: string) => preq(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(body), cookie, headers: { 'content-type': 'application/json', origin: PW } });
+    check('a member sets their own GitHub username', (await patchUser(vb.currentUser.id, { githubUsername: '@vic-gh' }, vicCookie)).status === 200
+      && (await bootAs(vicCookie)).users.find(u => u.id === vb.currentUser.id)?.githubUsername === 'vic-gh');
+    check('…but not someone else\'s', (await patchUser(tiaId, { githubUsername: 'nope' }, vicCookie)).status === 403);
+    check('an admin sets anyone\'s', (await patchUser(tiaId, { githubUsername: 'tia-codes' }, ownerCookie2)).status === 200
+      && (await bootAs(ownerCookie2)).users.find(u => u.id === tiaId)?.githubUsername === 'tia-codes');
+    check('a GitHub username has to look like one', (await patchUser(tiaId, { githubUsername: 'not a login!' }, ownerCookie2)).status === 400);
+  }
 
   // reset links
   const ownerId = pw.store.snapshot().users.find(u => u.email === 'olu@example.com')!.id;

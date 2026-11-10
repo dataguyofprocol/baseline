@@ -3,7 +3,7 @@ import { useApp, relTime, copyText, shortDate } from './store.js';
 import { api } from './api.js';
 import { IconPr, IconCommit, IconClose, IconExternal, IconCopy, IconShieldUser } from './icons.js';
 import { branchName } from '../../src/core/handoff.js';
-import type { GitStatus, PrAutomation, PrEvent, PullRequest, WebhookConfig, WebhookDelivery } from '../../src/core/types.js';
+import type { GithubAuthor, GithubSummary, GitStatus, PrAutomation, PrEvent, PullRequest, WebhookConfig, WebhookDelivery } from '../../src/core/types.js';
 import { ConfirmButton } from './ui.js';
 
 const refresh = () => useApp.getState().bootstrap();
@@ -69,64 +69,95 @@ export function IssuePullRequests({ issueId }: { issueId: string }) {
   );
 }
 
-/* ================= Settings › Integrations › GitHub ================= */
+/* ================= Settings › Integrations › GitHub =================
+   One path first: access (a read-only token, or the gh sign-in on a laptop) → repositories, each
+   mapped to a team → what syncing found. Automations sit on the same page. How it stays read-only,
+   webhooks and issue import are an "advanced" fold for whoever wants them. */
 export function GitHubSettings() {
   const snap = useApp(s => s.snap)!;
   const f = snap.workspace.features;
   const hosted = snap.workspace.auth === 'hosted';
   const [status, setStatus] = useState<GitStatus | null>(null);
+  const [summary, setSummary] = useState<GithubSummary | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState('');
   const [format, setFormat] = useState(f.branchFormat);
-  const load = () => api.gitStatus().then(setStatus).catch(() => {});
+  const load = async () => { await api.gitStatus().then(setStatus).catch(() => {}); await api.githubSummary().then(setSummary).catch(() => {}); };
   useEffect(() => { void load(); }, [f.githubEnabled]);
-  const sync = async () => { setSyncing(true); try { const r = await api.gitSync(); setResult(`${r.prs} pull requests, ${r.commits} new commit links${r.error ? ` — ${r.error}` : ''}`); await refresh(); setStatus(await api.gitStatus()); } finally { setSyncing(false); } };
+  const sync = async () => {
+    setSyncing(true);
+    try { const r = await api.gitSync(); setResult(r.error ? `Synced with errors: ${r.error}` : ''); await refresh(); await load(); }
+    finally { setSyncing(false); }
+  };
   const syncButton = <button className="btn secondary sm" disabled={syncing} onClick={sync}>{syncing ? 'Syncing…' : 'Sync now'}</button>;
-  const sample = snap.issues[0];
-  const sampleKey = sample ? `${snap.teams.find(t => t.id === sample.teamId)?.key}-${sample.number}` : 'ENG-42';
+  // examples use a real key from this workspace, never a made-up team
+  const sample = snap.issues.find(i => !i.deletedAt);
+  const teamKey = (sample && snap.teams.find(t => t.id === sample.teamId)?.key) ?? snap.teams[0]?.key ?? 'CORE';
+  const sampleKey = sample ? `${teamKey}-${sample.number}` : `${teamKey}-42`;
+  const canRead = !!status && (status.source === 'token' || (status.source === 'login' && !!status.ghUser));
   return (
-    <div className="settings-card">
+    <div className="settings-card" data-github-settings>
       <h1>GitHub</h1>
-      <div className="field-help" style={{ marginBottom: 14 }}>Link pull requests and commits to issues and move issues as PRs progress, like Linear's GitHub integration.</div>
-      <div className="gh-readonly">
-        <IconShieldUser size={16} />
-        <div>
-          <b>Read-only by design.</b> Baseline never writes to GitHub: no comments, status checks, labels, branches or pushes.{' '}
-          It reads pull requests, reviews, checks, commits and issues with {hosted ? 'a read-only token' : <>your <code>gh</code> sign-in, limited in code to read commands, or a read-only token</>}, which
-          GitHub itself refuses to write with, and from signed webhooks GitHub sends here, which need no token at all.
-        </div>
-      </div>
-      <div className="field-row">
-        <div><div className="field-label">Enable GitHub</div><div className="field-help">{hosted ? 'Syncs every two minutes once there’s a read-only token, takes webhooks as they arrive, and adds an “In Review” state to each team.' : 'Syncs every two minutes and adds an “In Review” state to each team.'}</div></div>
-        <button className={`switch${f.githubEnabled ? ' on' : ''}`} role="switch" aria-checked={f.githubEnabled} aria-label="Enable GitHub" onClick={async () => { await api.setFeatures({ githubEnabled: !f.githubEnabled }); await refresh(); }}><span /></button>
-      </div>
-      {!hosted && (
-        <div className="field-row">
-          <div><div className="field-label">GitHub CLI</div><div className="field-help">{!status ? 'Checking…' : !status.ghInstalled ? 'Not found. Install it with `brew install gh`, then run `gh auth login`.' : status.ghUser ? `Signed in as ${status.ghUser}` : 'Installed, not signed in. Run `gh auth login`.'}</div></div>
-          {syncButton}
-        </div>
-      )}
-      {result && <div className="field-help" style={{ margin: '-6px 0 10px' }}>{result}</div>}
+      <div className="field-help" style={{ marginBottom: 14 }}>Pull requests and commits link to issues by branch name, and issues move as PRs open, get reviewed and merge. Baseline only reads from GitHub.</div>
+      {status && status.repos.length > 0 && <GitHubPayoff summary={summary} lastSyncAt={status.lastSyncAt} syncButton={canRead ? syncButton : null} />}
+      {result && <div className="field-help" style={{ margin: '-6px 0 10px', color: 'var(--danger)' }}>{result}</div>}
       {status && <GitHubAccess status={status} hosted={hosted} onChange={load} />}
-      {status && <GitHubRepos status={status} hosted={hosted} onChange={load} syncButton={hosted && status.source !== 'none' ? syncButton : null} />}
-      <WebhookSettings polls={status?.source !== 'none'} />
-      <IssueImportSettings repos={(status?.repos ?? []).map(r => r.repo)} />
-      <div className="settings-h2">Linking</div>
-      <div className="field-help">A PR links to an issue when its branch name or title contains the issue ID, or its description uses a magic word: <b>closes, fixes, resolves, completes, implements</b> (moves the issue), <b>ref, part of, contributes to, towards</b> (links without moving), <b>related to</b> (mention only). <code>skip {sampleKey}</code> or <code>ignore {sampleKey}</code> opts out. Commits on the default branch with a closing word count as merged.</div>
-      <div className="field-help" style={{ marginTop: 8 }}><b>{sampleKey.split('-')[0]}-NEW</b> in a PR's title or description files a new issue in that team, titled from the PR, started, assigned to the PR's author and linked to the PR.</div>
-      <div className="settings-h2">People</div>
-      <div className="field-help">A PR whose author matches a member's GitHub username (Settings › Profile, or Members) is theirs: its activity shows under their name, and an unassigned issue it closes is assigned to them. {(() => { const n = snap.users.filter(u => u.kind === 'human' && u.githubUsername).length; return n ? `${n} member${n === 1 ? ' has' : 's have'} a GitHub username.` : 'No member has a GitHub username yet.'; })()}</div>
+      {status && <GitHubRepos status={status} hosted={hosted} canRead={canRead} onChange={load} onAdded={sync} />}
+      <GitHubPeople onChange={load} />
+      <div className="settings-h2">Pull request automations</div>
+      <PrAutomationPicker />
+      <div className="settings-h2">How linking works</div>
+      <ul className="gh-rules">
+        <li>A branch named like <code>{branchName(sampleKey, sample?.title ?? 'Fix login redirect', f.branchFormat, snap.currentUser.username || snap.currentUser.name)}</code>, <code>feat/{sampleKey.toLowerCase()}</code> or <code>{sampleKey}</code> links its commits and its PR to {sampleKey}. No key needed in commit messages.</li>
+        <li>A PR closes {sampleKey} when it merges. In a PR or commit, <b>fixes / closes / resolves {sampleKey}</b> closes it too; <b>refs / part of {sampleKey}</b> only links. A bare <code>{sampleKey}</code> in a commit is a reference, and so is “does not fix {sampleKey}”.</li>
+        <li><code>skip {sampleKey}</code> or <code>ignore {sampleKey}</code> opts out. <b>{teamKey}-NEW</b> in a PR's title files a new {teamKey} issue for it, assigned to the PR's author.</li>
+      </ul>
       <div className="settings-h2">Branch format</div>
       <div className="field-row">
         <div><div className="field-label">Copy git branch (⌘⇧.)</div><div className="field-help">Variables: <code>{'{username}'}</code> <code>{'{issueIdentifier}'}</code> <code>{'{issueTitle}'}</code>, e.g. <code>{branchName(sampleKey, sample?.title ?? 'Fix login redirect', format, snap.currentUser.username || snap.currentUser.name)}</code></div></div>
         <input className="text-input" style={{ width: 300 }} aria-label="Branch format" value={format} onChange={e => setFormat(e.target.value)} onBlur={async () => { if (format !== f.branchFormat) { await api.setFeatures({ branchFormat: format }); await refresh(); } }} />
       </div>
-      <div className="field-help" style={{ marginTop: 12 }}>Pull request automations are per team: Settings › your team › Pull request automations.</div>
+      <details className="gh-advanced" data-github-advanced>
+        <summary>Advanced: how it stays read-only, instant updates (webhooks), issue import</summary>
+        <div className="gh-readonly">
+          <IconShieldUser size={16} />
+          <div>
+            <b>Read-only by design.</b> Baseline never writes to GitHub: no comments, status checks, labels, branches or pushes, under any setting.{' '}
+            It reads pull requests, reviews, checks, commits and issues with {hosted ? 'a read-only token' : <>your <code>gh</code> sign-in, limited in code to read commands, or a read-only token</>}, which
+            GitHub itself refuses to write with, and from signed webhooks GitHub sends here, which need no token at all.
+          </div>
+        </div>
+        <div className="field-row">
+          <div><div className="field-label">Sync with GitHub</div><div className="field-help">Turns on by itself when you add a token or a repository. Syncs every two minutes and takes webhooks as they arrive. Turn off to pause both.</div></div>
+          <button className={`switch${f.githubEnabled ? ' on' : ''}`} role="switch" aria-checked={f.githubEnabled} aria-label="Sync with GitHub" onClick={async () => { await api.setFeatures({ githubEnabled: !f.githubEnabled }); await refresh(); }}><span /></button>
+        </div>
+        <WebhookSettings polls={status?.source !== 'none'} />
+        <IssueImportSettings repos={(status?.repos ?? []).map(r => r.repo)} />
+      </details>
     </div>
   );
 }
 
-/* ================= access: the gh sign-in or a read-only token ================= */
+/** the payoff line: what syncing found */
+function GitHubPayoff({ summary, lastSyncAt, syncButton }: { summary: GithubSummary | null; lastSyncAt: string | null; syncButton: React.ReactNode }) {
+  const s = summary;
+  const synced = !!lastSyncAt && !!s;
+  return (
+    <div className="gh-payoff" data-github-payoff>
+      <div className="gh-payoff-stats">
+        {synced ? <>
+          <span><b>{s.openPrs}</b> open PR{s.openPrs === 1 ? '' : 's'}</span>
+          <span><b>{s.linkedPrs}</b> linked to issues</span>
+          <span><b>{s.peopleMatched}</b>{s.authors ? ` of ${s.authors}` : ''} {s.peopleMatched === 1 && !s.authors ? 'person' : 'people'} matched</span>
+        </> : <span>Not synced yet. Sync to see what Baseline finds.</span>}
+      </div>
+      <span className="set-meta">{lastSyncAt ? `Synced ${relTime(lastSyncAt)}` : ''}</span>
+      {syncButton}
+    </div>
+  );
+}
+
+/* ================= access: a read-only token, or (laptop) the gh sign-in ================= */
 const TOKEN_PERMISSIONS = ['Metadata', 'Contents', 'Pull requests', 'Issues', 'Checks'];
 function GitHubAccess({ status, hosted, onChange }: { status: GitStatus; hosted: boolean; onChange: () => Promise<void> }) {
   const [token, setToken] = useState('');
@@ -136,18 +167,14 @@ function GitHubAccess({ status, hosted, onChange }: { status: GitStatus; hosted:
   const t = status.token;
   const save = async () => {
     setBusy(true); setError('');
-    try { await api.saveGithubToken(token); setToken(''); setReplacing(false); await onChange(); }
+    try { await api.saveGithubToken(token); setToken(''); setReplacing(false); await refresh(); await onChange(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   const days = t?.expiresAt ? (Date.parse(t.expiresAt) - Date.now()) / 86_400_000 : null;
+  const ghReady = !hosted && !t && status.source === 'login' && !!status.ghUser;
   return (
     <>
-      <div className="settings-h2">Access</div>
-      <div className="field-help" style={{ marginBottom: 8 }}>
-        {hosted
-          ? 'The server reads GitHub with a read-only token an admin creates. Without one, only webhooks reach Baseline.'
-          : <>Baseline reads GitHub with your <code>gh</code> sign-in. A read-only token takes its place, and GitHub itself refuses writes made with it.</>}
-      </div>
+      <div className="settings-h2">1. Access</div>
       {t && !replacing ? (
         <div className="field-row">
           <div>
@@ -162,19 +189,24 @@ function GitHubAccess({ status, hosted, onChange }: { status: GitStatus; hosted:
             <ConfirmButton className="btn ghost sm" label="Remove" confirmLabel="Stop syncing?" onConfirm={async () => { await api.removeGithubToken(); await onChange(); }} />
           </span>
         </div>
+      ) : ghReady && !replacing ? (
+        <div className="field-row">
+          <div><div className="field-label">Using your GitHub CLI sign-in (@{status.ghUser})</div><div className="field-help">Baseline only lets read commands through to <code>gh</code>. A read-only token is stricter: GitHub itself refuses writes made with it.</div></div>
+          <button className="btn ghost sm" style={{ whiteSpace: 'nowrap' }} onClick={() => setReplacing(true)}>Use a token instead</button>
+        </div>
       ) : (
         <div className="gh-steps" style={{ marginTop: 0 }}>
-          <div className="field-label" style={{ marginBottom: 6 }}>{t ? 'Replace the token' : 'Add a read-only token'}</div>
+          <div className="field-label" style={{ marginBottom: 6 }}>{t ? 'Replace the token' : 'Paste a read-only token'}</div>
           <ol>
-            <li>Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">fine-grained token</a>. Choose only the repositories Baseline should see.</li>
-            <li>Under <b>Repository permissions</b>, set each of these to <b>Read-only</b>: {TOKEN_PERMISSIONS.map((p, i) => <span key={p}>{i ? ', ' : ''}<b>{p}</b></span>)}. Leave everything else at No access.</li>
-            <li>Paste it here. Baseline checks it with GitHub and refuses a classic token that can write.</li>
+            <li>Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">fine-grained token</a> for the repositories Baseline should see.</li>
+            <li>Under <b>Repository permissions</b>, set {TOKEN_PERMISSIONS.map((p, i) => <span key={p}>{i ? ', ' : ''}<b>{p}</b></span>)} to <b>Read-only</b>.</li>
           </ol>
           <div className="gh-import">
             <input className="text-input" type="password" autoComplete="off" aria-label="GitHub token" placeholder="github_pat_…" value={token} onChange={e => setToken(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && token.trim()) void save(); }} />
             <button className="btn primary sm" disabled={busy || !token.trim()} onClick={() => void save()}>{busy ? 'Checking…' : 'Save'}</button>
-            {t && <button className="btn ghost sm" onClick={() => { setReplacing(false); setError(''); }}>Cancel</button>}
+            {(t || ghReady) && <button className="btn ghost sm" onClick={() => { setReplacing(false); setError(''); }}>Cancel</button>}
           </div>
+          <div className="field-help" style={{ marginTop: 6 }}>Baseline checks it with GitHub and refuses a token that can write.{!hosted && !status.ghUser && <> On this machine, <code>gh auth login</code> works too.</>}</div>
           {error && <div className="field-help" style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
           {hosted && !status.ghInstalled && <div className="field-help" style={{ marginTop: 6 }}>The GitHub CLI (<code>gh</code>) isn't installed on this server, so a token can't be checked or used yet.</div>}
         </div>
@@ -183,8 +215,9 @@ function GitHubAccess({ status, hosted, onChange }: { status: GitStatus; hosted:
   );
 }
 
-/* ================= the repositories Baseline syncs ================= */
-function GitHubRepos({ status, hosted, onChange, syncButton }: { status: GitStatus; hosted: boolean; onChange: () => Promise<void>; syncButton: React.ReactNode }) {
+/* ================= the repositories Baseline syncs, each mapped to a team ================= */
+function GitHubRepos({ status, hosted, canRead, onChange, onAdded }: { status: GitStatus; hosted: boolean; canRead: boolean; onChange: () => Promise<void>; onAdded: () => Promise<void> }) {
+  const snap = useApp(s => s.snap)!;
   const [available, setAvailable] = useState<string[] | null>(null);
   const [picking, setPicking] = useState(false);
   const [filter, setFilter] = useState('');
@@ -197,30 +230,33 @@ function GitHubRepos({ status, hosted, onChange, syncButton }: { status: GitStat
     setPicking(true); setError(''); setAvailable(null); setChosen([]); setFilter('');
     try { setAvailable((await api.availableGithubRepos()).repos); } catch (e) { setError((e as Error).message); }
   };
-  const save = async (repos: string[]) => {
-    try { await api.setGithubRepos(repos); setPicking(false); await onChange(); } catch (e) { setError((e as Error).message); }
+  const save = async (repos: string[], added: boolean) => {
+    try { await api.setGithubRepos(repos); setPicking(false); await refresh(); await onChange(); if (added) await onAdded(); } catch (e) { setError((e as Error).message); }
   };
+  const setTeam = async (repo: string, teamId: string) => { await api.setGithubRepoTeam(repo, teamId || null); await onChange(); };
   return (
     <>
-      <div className="settings-h2">Repositories</div>
+      <div className="settings-h2">2. Repositories</div>
       <div className="field-help" style={{ marginBottom: 8 }}>
-        {hosted ? 'The repositories Baseline syncs.' : <>Repositories you add here, and every location (Settings › Coding tools) whose <code>origin</code> is on GitHub.</>}
-        {' '}{status.lastSyncAt ? `Last sync ${relTime(status.lastSyncAt)}.` : ''} {status.lastError ? `Last error: ${status.lastError}` : ''}
+        Pick the repositories to sync and the team each one's work belongs to.{!hosted && <> Locations (Settings › Coding tools) whose <code>origin</code> is on GitHub are synced too.</>}
+        {status.lastError ? <span style={{ color: 'var(--danger)' }}> Last error: {status.lastError}</span> : ''}
       </div>
-      <div className="card set-list">
+      <div className="card set-list" data-github-repos>
         {status.repos.map(r => (
           <div key={r.repo} className="set-row">
             <IconPr size={14} />
-            <span style={{ flex: 1 }}><b>{r.repo}</b>{r.location && <span className="set-meta"> {r.location} · {r.path}</span>}</span>
+            <span style={{ flex: 1, minWidth: 0 }}><b>{r.repo}</b>{r.location && <span className="set-meta"> location {r.location}</span>}</span>
+            <select className="text-input" aria-label={`Team for ${r.repo}`} value={r.teamId ?? ''} onChange={e => void setTeam(r.repo, e.target.value)}>
+              <option value="">No team</option>
+              {snap.teams.map(t => <option key={t.id} value={t.id}>{t.name} ({t.key})</option>)}
+            </select>
             {r.via === 'picked'
-              ? <button className="icon-btn" title={`Stop syncing ${r.repo}`} onClick={() => void save(picked.filter(x => x !== r.repo))}><IconClose size={12} /></button>
-              : <span className="set-meta">location</span>}
+              ? <button className="icon-btn" title={`Stop syncing ${r.repo}`} onClick={() => void save(picked.filter(x => x !== r.repo), false)}><IconClose size={12} /></button>
+              : <span style={{ width: 24 }} />}
           </div>
         ))}
-        {!status.repos.length && !picking && <div className="set-empty">{status.source === 'none' ? 'Add a read-only token above first, then pick the repositories to sync.' : hosted ? 'No repositories yet. Add the ones Baseline should sync.' : 'No repositories yet. Add some here, or a location in Settings › Coding tools.'}</div>}
-        {status.source !== 'none' && !picking && (
-          <div className="set-row"><button className="btn ghost sm" onClick={() => void open()}>Add repositories</button><span style={{ flex: 1 }} />{syncButton}</div>
-        )}
+        {!status.repos.length && !picking && <div className="set-empty">{canRead ? 'No repositories yet.' : 'Add access above first, then pick repositories.'}</div>}
+        {canRead && !picking && <div className="set-row"><button className="btn ghost sm" onClick={() => void open()}>Add repositories</button></div>}
         {picking && (
           <div className="gh-picker" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <input className="text-input" autoFocus aria-label="Filter repositories" placeholder="Filter repositories" value={filter} onChange={e => setFilter(e.target.value)} />
@@ -237,13 +273,65 @@ function GitHubRepos({ status, hosted, onChange, syncButton }: { status: GitStat
             )}
             {error && <div className="field-help" style={{ color: 'var(--danger)' }}>{error}</div>}
             <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn primary sm" disabled={!chosen.length} onClick={() => void save([...picked, ...chosen])}>{chosen.length ? `Add ${chosen.length}` : 'Add'}</button>
+              <button className="btn primary sm" disabled={!chosen.length} onClick={() => void save([...picked, ...chosen], true)}>{chosen.length ? `Add ${chosen.length} and sync` : 'Add'}</button>
               <button className="btn ghost sm" onClick={() => setPicking(false)}>Cancel</button>
             </div>
           </div>
         )}
       </div>
       {error && !picking && <div className="field-help" style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
+    </>
+  );
+}
+
+/* ================= people: PR authors matched to members ================= */
+function GitHubPeople({ onChange }: { onChange: () => Promise<void> }) {
+  const snap = useApp(s => s.snap)!;
+  const [authors, setAuthors] = useState<GithubAuthor[] | null>(null);
+  const [pick, setPick] = useState<Record<string, string>>({});
+  const load = () => api.githubAuthors().then(r => setAuthors(r.authors)).catch(() => {});
+  useEffect(() => { void load(); }, [snap.pullRequests.length]);
+  const unmapped = snap.users.filter(u => u.kind === 'human' && !u.githubUsername);
+  const open = (authors ?? []).filter(a => !a.userId);
+  const match = async (login: string, userId: string) => { await api.updateUser(userId, { githubUsername: login }); await refresh(); await load(); await onChange(); };
+  const n = snap.users.filter(u => u.kind === 'human' && u.githubUsername).length;
+  return (
+    <>
+      <div className="settings-h2">People</div>
+      <div className="field-help" style={{ marginBottom: open.length && unmapped.length ? 8 : 0 }}>A PR whose author is a member's GitHub username is theirs: its activity shows under their name, and an unassigned issue it closes is assigned to them. {n ? `${n} member${n === 1 ? ' has' : 's have'} a GitHub username.` : 'No member has a GitHub username yet.'}</div>
+      {open.length > 0 && unmapped.length > 0 && (
+        <div className="card set-list" data-github-people>
+          {open.slice(0, 8).map(a => {
+            const chosen = pick[a.login] ?? a.suggestedUserId ?? '';
+            return (
+              <div key={a.login} className="set-row">
+                <span style={{ flex: 1, minWidth: 0 }}><b>@{a.login}</b> <span className="set-meta">{a.prs} PR{a.prs === 1 ? '' : 's'}{a.suggestedUserId ? ' · suggested match' : ''}</span></span>
+                <select className="text-input" aria-label={`Member for @${a.login}`} value={chosen} onChange={e => setPick({ ...pick, [a.login]: e.target.value })}>
+                  <option value="">Not a member</option>
+                  {unmapped.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                <button className="btn secondary sm" disabled={!chosen} onClick={() => void match(a.login, chosen)}>Match</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** PR automations for one team at a time, on the GitHub page (the team's Workflows page has the same) */
+function PrAutomationPicker() {
+  const snap = useApp(s => s.snap)!;
+  const [teamId, setTeamId] = useState(snap.teams[0]?.id ?? '');
+  if (!teamId) return null;
+  return (
+    <>
+      <div className="field-help" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span>On by default: PR opened → started, review requested → In Review, merged → Done. Issues only move forward.</span>
+        {snap.teams.length > 1 && <select className="text-input" style={{ width: 'auto', height: 28 }} aria-label="Team for automations" value={teamId} onChange={e => setTeamId(e.target.value)}>{snap.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
+      </div>
+      <PrAutomationSettings teamId={teamId} bare />
     </>
   );
 }
@@ -357,7 +445,7 @@ function IssueImportSettings({ repos }: { repos: string[] }) {
 }
 
 /* ================= team settings: pull request automations ================= */
-export function PrAutomationSettings({ teamId }: { teamId: string }) {
+export function PrAutomationSettings({ teamId, bare }: { teamId: string; /** without its own heading (the GitHub page has one) */ bare?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const [auto, setAuto] = useState<PrAutomation | null>(null);
   useEffect(() => { void api.gitAutomation(teamId).then(setAuto); }, [teamId, snap.states.length]);
@@ -365,9 +453,11 @@ export function PrAutomationSettings({ teamId }: { teamId: string }) {
   const states = snap.states.filter(s => s.teamId === teamId).sort((a, b) => a.position - b.position);
   const save = async (patch: Partial<PrAutomation>) => { const next = { ...auto, ...patch }; setAuto(next); await api.setGitAutomation(teamId, patch); };
   return (
-    <div className="pr-auto">
-      <div className="settings-h2">Pull request automations</div>
-      <div className="field-help" style={{ marginBottom: 8 }}>Move issues when their linked pull requests change. Issues only move forward, canceled issues are never touched, and with several PRs the issue waits for the last one.{!snap.workspace.features.githubEnabled && ' Turn on Settings › Integrations › GitHub to start syncing.'}</div>
+    <div className={bare ? undefined : 'pr-auto'} data-pr-automations>
+      {!bare && <>
+        <div className="settings-h2">Pull request automations</div>
+        <div className="field-help" style={{ marginBottom: 8 }}>Move issues when their linked pull requests change. On by default; issues only move forward, canceled issues are never touched, and with several PRs the issue waits for the last one.{!snap.workspace.features.githubEnabled && ' Add a repository in Settings › Integrations › GitHub to start syncing.'}</div>
+      </>}
       <div className="card set-list">
         {EVENTS.map(([ev, label]) => (
           <div key={ev} className="set-row">

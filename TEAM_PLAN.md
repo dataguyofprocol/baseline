@@ -73,20 +73,19 @@ After this phase, the team can sign in to the hosted app at, for example, `https
 - Issue triage changes from "creator isn't me" to Linear's rule: an issue lands in triage when it's created by someone who isn't a member of the team, or by an agent.
 
 #### Who changes what
-This follows Linear's split. Admins set up the workspace and its teams. Members do the work. Linear lets team owners restrict team settings, but Baseline has no team owners yet, so admins hold those settings. The rules apply only on a hosted server, where the server returns 403 to a member. A local workspace stays fully open, because its one person is every role. In the web app, a member sees these settings pages with their controls disabled under "Only admins can change this".
+Three roles (CORE_FLOW.md › Roles). Workspace admins own people, invites, security, GitHub and data. A team's lead (its creator by default; a lead or an admin names more) owns that team's setup. Members do the work, and may change labels and templates on teams they're on. A team with no lead (every team from before leads existed) is set up by the admins. The rules apply only on a hosted server, where the server returns 403 with whom to ask; a local workspace stays fully open, because its one person is every role. In the web app a member sees only the settings they can use; a page reached by its link shows its controls locked under "Ask <name>", which puts the request in that person's inbox. `src/server/route-policy.ts` TEAM_ROLE lists each team-setup route's role.
 
-| Area | Members | Admins only |
-|---|---|---|
-| Teams | Create a team. Join or leave a team. Add people to a team you're on (Team settings › Members). Turn on a team's bell. Add team resources (links). | Add people to any team. Remove someone else from a team. Rename, re-key or describe a team. Set estimates, triage and the cycle schedule. Set workflow automations (auto-close, auto-archive, re-order). Delete a team. |
-| Workflow states | | Add, edit, reorder and remove states. |
-| Labels (issue, project, initiative) | Add a label, for example from a label menu (Linear's default). | Rename, recolor or remove a label. |
-| Templates (issue, project, document) | Apply a template. | Add, edit and remove templates, including "Save as template" on an issue. |
-| Project statuses, customer statuses and tiers | | Add, edit and remove them. |
-| SLAs, Asks, Loops | Submit an Ask. | Add, edit and remove SLA rules, Ask forms and loops. Run a loop by hand. |
-| GitHub | Unlink a PR from an issue. | PR automations, webhook URL and secret, issue import and follow. |
-| Emojis | Add a custom emoji. | Remove one. |
-| Workspace | | Name, feature toggles, people, invites when restricted, security, import/export, locations (this was already the rule). |
-| Everyday work | Issues, projects, milestones, documents, comments, cycles, recurring issues, initiatives, releases, customers and their requests, views, favorites, and their own profile, preferences and inbox. | |
+| Area | Members | Team lead | Admins only |
+|---|---|---|---|
+| Teams | Create a team (and lead it). Join or leave a team. Add people to a team you're on. Turn on a team's bell. Add team resources (links). | Rename, re-key, describe or delete the team. Remove someone from it. Name its leads. Estimates, triage, the cycle schedule, workflow automations. | Everything a lead does, on every team. |
+| Workflow states | | Add, edit, reorder and remove the team's states. | |
+| Labels | Add, rename, recolor or remove labels on a team you're on. | | Project and initiative labels. |
+| Templates | Add, edit and remove issue templates on a team you're on. | | |
+| Cycles, recurring issues | Add, edit and remove them. | The auto-schedule. | |
+| Project statuses, SLAs, Loops | | | Add, edit and remove them (cut from the default UI, CORE_FLOW §6). |
+| GitHub | Unlink a PR from an issue. | | PR automations, token, repos, webhook, issue import and follow. |
+| Workspace | Invite while the workspace has under 10 people (a Security setting, on by default). | | Name, Settings › Features, people, invites otherwise, security, import/export, locations. |
+| Everyday work | Issues, projects, milestones, documents, comments, initiatives, views, favorites, and their own profile, preferences and inbox. | | |
 
 ### Per-person state
 - `favorites.user_id`; `views.owner_id` with `shared` (personal versus workspace views, as in Linear).

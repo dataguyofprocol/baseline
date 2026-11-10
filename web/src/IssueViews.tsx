@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useApp, shortDate, relTime, useSelection, useCursor, registerVisibleList, visibleList, LIST_GROUP_ORDER, localIsoDate, dateTime } from './store.js';
 import { Menu, MenuItem, MenuSep, MenuSub, useMenu, useCanConfigure } from './ui.js';
+import { startSubIssue } from './SubIssueComposer.js';
 import { OpenInClaudeItems, useHandoffActions } from './CodingTools.js';
 import { StateIcon, PriorityIcon, Avatar } from './pickers.js';
 import { PropertyMenu, PropertyMenuBody, propMenuWidth, PROP_KBD, type PropKind } from './propertyMenus.js';
@@ -43,9 +44,11 @@ export interface ViewOptions {
   orderReversed?: boolean;
 }
 
+// what a row needs to be read at a glance: ID, status, title, assignee and its PR. Everything else is
+// opt-in in Display options (a saved view or an earlier choice keeps what it chose)
 export const DEFAULT_DISPLAY: DisplayProps = {
-  id: true, status: true, assignee: true, priority: true, labels: true, project: true, due: true,
-  cycle: false, milestone: false, estimate: false, created: true, updated: false, links: false, creator: false, prs: true,
+  id: true, status: true, assignee: true, priority: false, labels: false, project: false, due: false,
+  cycle: false, milestone: false, estimate: false, created: false, updated: false, links: false, creator: false, prs: true,
 };
 export const DEFAULT_VIEW_OPTIONS: Omit<ViewOptions, 'filters'> = {
   layout: 'list', groupBy: 'status', subgroupBy: 'none', orderBy: 'priority', showEmpty: false,
@@ -429,7 +432,10 @@ export function IssueRow(props: {
   const issueMenu = useMenu();
   const toggleSelected = useSelection(s => s.toggle);
   const checksOn = useSelection(s => s.ids.length > 0);
-  const display: RowDisplay = props.display ?? DEFAULT_DISPLAY;
+  // a property whose feature is off (Settings › Features) never shows, whatever the view asked for
+  const f = snap.workspace.features;
+  const asked: RowDisplay = props.display ?? DEFAULT_DISPLAY;
+  const display: RowDisplay = { ...asked, cycle: asked.cycle && f.cyclesEnabled, estimate: asked.estimate && f.estimatesEnabled };
   const issue = props.issue;
   const team = snap.teams.find(t => t.id === issue.teamId);
   const state = snap.states.find(s => s.id === issue.stateId);
@@ -511,7 +517,7 @@ export function IssueRow(props: {
         {est && <span className="proj-chip" title={`${issue.estimate} points`}><IconEstimate size={11} /> {est}</span>}
         {display.links && links > 0 && <span className="proj-chip" title={`${links} link${links === 1 ? '' : 's'}`}><IconAttach size={11} /> {links}</span>}
         {display.prs !== false && (() => { const pr = issuePrState(snap, issue.id); return pr ? <PrIcon state={pr} size={13} title={prSummary(issuePrList(snap, issue.id))} /> : null; })()}
-        {issue.slaBreachesAt && !closed && <SlaBadge issue={issue} />}
+        {f.slasEnabled && issue.slaBreachesAt && !closed && <SlaBadge issue={issue} />}
         {display.due && due && (
           <span className={`due-chip ${overdue ? 'overdue' : ''}`} title={overdue ? `Overdue, due ${shortDate(due)}` : `Due ${shortDate(due)}`}>
             <IconCalendar size={11} /> {shortDate(due + 'T12:00')}
@@ -576,7 +582,7 @@ export function IssueContextMenu(props: { anchor: DOMRect; onClose: () => void; 
       {!many && (
         <MenuSub icon={<IconPlus size={14} />} label="Create related" width={220}>
           <MenuItem icon={<IconPlus size={14} />} label="Issue…" onClick={() => openCreate({ teamId: props.issue.teamId, projectId: props.issue.projectId })} />
-          <MenuItem icon={<IconSubIssue size={14} />} label="Sub-issue…" right={<span className="mi-kbd">⌘⇧O</span>} onClick={() => openCreate({ teamId: props.issue.teamId, parentId: props.issue.id, projectId: props.issue.projectId, cycleId: props.issue.cycleId })} />
+          <MenuItem icon={<IconSubIssue size={14} />} label="Sub-issue…" right={<span className="mi-kbd">⌘⇧O</span>} onClick={() => startSubIssue(props.issue)} />
           <MenuItem icon={<IconSubIssue size={14} />} label="Parent issue…" onClick={() => openCreate({ teamId: props.issue.teamId, projectId: props.issue.projectId, related: { issueId: props.issue.id, kind: 'parent' } })} />
           <MenuItem icon={<IconBlocked size={14} />} label="Blocked issue…" onClick={() => openCreate({ teamId: props.issue.teamId, projectId: props.issue.projectId, related: { issueId: props.issue.id, kind: 'blocked_by' } })} />
           <MenuItem icon={<IconBlocks size={14} />} label="Blocking issue…" onClick={() => openCreate({ teamId: props.issue.teamId, projectId: props.issue.projectId, related: { issueId: props.issue.id, kind: 'blocks' } })} />
@@ -675,6 +681,10 @@ const FIELDS: FieldDef[] = [
 ];
 
 const DATE_FIELDS: FieldKey[] = ['due', 'created', 'updated'];
+/** filters, groupings, orderings and properties that belong to a feature the workspace has off */
+function offFeatureKeys(f: Snap['workspace']['features']): Set<string> {
+  return new Set([...(f.estimatesEnabled ? [] : ['estimates', 'estimate']), ...(f.cyclesEnabled ? [] : ['cycleIds', 'cycle']), ...(f.slasEnabled ? [] : ['sla'])]);
+}
 const FIELD_GROUPS: FieldKey[][] = [
   ['states', 'assigneeIds', 'creatorIds', 'priority', 'estimates', 'labelIds', 'relations', 'hierarchy'],
   ['projectIds', 'milestoneIds', 'cycleIds'],
@@ -835,7 +845,8 @@ function FilterMenu(props: { anchor: DOMRect; onClose: () => void; filters: View
   }
 
   // field list, or cross-field value search while typing
-  const hits = q.trim() ? FIELDS.flatMap(fd => fieldValues(fd.key, snap, props.teamId).filter(v => match(v.label)).map(v => ({ fd, v }))).slice(0, 14) : [];
+  const off = offFeatureKeys(snap.workspace.features);
+  const hits = q.trim() ? FIELDS.filter(fd => !off.has(fd.key)).flatMap(fd => fieldValues(fd.key, snap, props.teamId).filter(v => match(v.label)).map(v => ({ fd, v }))).slice(0, 14) : [];
   const fieldRow = (fd: FieldDef) => (
     <button key={fd.key} className="menu-item" onClick={e => { e.stopPropagation(); setField(fd.key); }}>
       <span className="mi-icon">{fd.icon}</span>
@@ -853,7 +864,7 @@ function FilterMenu(props: { anchor: DOMRect; onClose: () => void; filters: View
       {FIELDS.filter(fd => DATE_FIELDS.includes(fd.key)).map(fieldRow)}
     </Menu>
   );
-  const groups: FieldKey[][] = q.trim() ? [FIELDS.filter(fd => match(fd.label)).map(fd => fd.key)] : FIELD_GROUPS;
+  const groups: FieldKey[][] = (q.trim() ? [FIELDS.filter(fd => match(fd.label)).map(fd => fd.key)] : FIELD_GROUPS).map(g => g.filter(k => !off.has(k)));
   return (
     <Menu anchor={props.anchor} onClose={props.onClose} width={220}>
       <div className="menu-input menu-filter" onClick={e => e.stopPropagation()}>
@@ -1121,7 +1132,9 @@ export function DisplayOptionsMenu(props: {
   const { opts, onPatch } = props;
   // "Show triage issues" means nothing until some team has triage turned on
   const triageOn = useApp(s => !!s.snap?.teams.some(t => t.triageEnabled));
-  const groupKeys: GroupBy[] = ['status', 'assignee', 'project', 'priority', 'cycle', 'label', 'milestone', ...(props.multiTeam ? ['team' as GroupBy] : [])];
+  const features = useApp(s => s.snap!.workspace.features);
+  const off = offFeatureKeys(features);
+  const groupKeys: GroupBy[] = (['status', 'assignee', 'project', 'priority', 'cycle', 'label', 'milestone', ...(props.multiTeam ? ['team' as GroupBy] : [])] as GroupBy[]).filter(g => !off.has(g));
   const groups: Array<[GroupBy, string]> = [...groupKeys.map(g => [g, GROUP_LABELS[g]] as [GroupBy, string]), ['none', 'No grouping']];
   const board = opts.layout === 'board';
   const propRows: Array<[keyof DisplayProps, string]> = [
@@ -1129,6 +1142,8 @@ export function DisplayOptionsMenu(props: {
     ['due', 'Due date'], ['milestone', 'Milestone'], ['cycle', 'Cycle'], ['estimate', 'Estimate'], ['labels', 'Labels'], ['links', 'Links'],
     ['prs', 'Pull requests'], ['created', 'Created'], ['updated', 'Updated'],
   ];
+  const shownProps = propRows.filter(([p]) => !off.has(p));
+  const orders = (Object.entries(ORDER_LABELS) as Array<[OrderBy, string]>).filter(([o]) => !off.has(o));
   return (
     <Menu anchor={props.anchor} onClose={props.onClose} width={300}>
       <div className="dopts">
@@ -1144,7 +1159,7 @@ export function DisplayOptionsMenu(props: {
           <InlineSelect value={opts.subgroupBy} options={[['none', 'No grouping'], ...groups.filter(g => g[0] !== 'none' && g[0] !== opts.groupBy)] as Array<[GroupBy | 'none', string]>} onChange={v => onPatch({ subgroupBy: v })} /></div>
         <div className="dopts-row"><span>Ordering</span>
           {opts.orderBy !== 'manual' && <button className={`icon-btn dopts-dir${opts.orderReversed ? ' on' : ''}`} title={opts.orderReversed ? 'Ascending' : 'Descending'} onClick={() => onPatch({ orderReversed: !opts.orderReversed })}><IconSortDir size={14} style={{ transform: opts.orderReversed ? 'scaleY(-1)' : undefined }} /></button>}
-          <InlineSelect value={opts.orderBy} options={Object.entries(ORDER_LABELS) as Array<[OrderBy, string]>} onChange={v => onPatch({ orderBy: v })} /></div>
+          <InlineSelect value={opts.orderBy} options={orders} onChange={v => onPatch({ orderBy: v })} /></div>
         <div className="dopts-row"><span>Order completed by recency</span><Toggle on={!!opts.completedByRecency} onChange={v => onPatch({ completedByRecency: v })} /></div>
         <div className="dopts-sep" />
         <div className="dopts-row"><span>Completed issues</span>
@@ -1156,7 +1171,7 @@ export function DisplayOptionsMenu(props: {
         <div className="dopts-row"><span>{board ? 'Show empty columns' : 'Show empty groups'}</span><Toggle on={opts.showEmpty} onChange={v => onPatch({ showEmpty: v })} /></div>
         <div className="dopts-head">Display properties</div>
         <div className="dopts-props">
-          {propRows.map(([prop, label]) => (
+          {shownProps.map(([prop, label]) => (
             <button key={prop} className={`dprop${opts.display[prop] ? ' on' : ''}`}
               onClick={() => onPatch({ display: { ...opts.display, [prop]: !opts.display[prop] } })}>{label}</button>
           ))}
@@ -1180,6 +1195,7 @@ export function SelectionBar() {
   const clear = useSelection(s => s.clear);
   const setPalette = useApp(s => s.setPalette);
   const setQuickMenu = useApp(s => s.setQuickMenu);
+  const cyclesOn = useApp(s => !!s.snap?.workspace.features.cyclesEnabled);
   const quick = (kind: PropKind) => (e: React.MouseEvent) => setQuickMenu({ issueIds: ids, kind, anchor: (e.currentTarget as HTMLElement).getBoundingClientRect() });
   return (
     <AnimatePresence>
@@ -1201,7 +1217,7 @@ export function SelectionBar() {
           <button className="bulk-act" title="Assignee (A)" onClick={quick('assignee')}><IconUser size={13} /></button>
           <button className="bulk-act" title="Labels (L)" onClick={quick('labels')}><IconTag size={13} /></button>
           <button className="bulk-act" title="Project (⇧P)" onClick={quick('project')}><IconBox size={13} /></button>
-          <button className="bulk-act" title="Cycle (⇧C)" onClick={quick('cycle')}><IconCycle size={13} /></button>
+          {cyclesOn && <button className="bulk-act" title="Cycle (⇧C)" onClick={quick('cycle')}><IconCycle size={13} /></button>}
           <span className="bulk-sep" />
           <button className="bulk-act" title="Archive (E)" aria-label="Archive selected" onClick={() => { void archiveIssues(ids); clear(); }}><IconArchive size={13} /></button>
           <button className="bulk-act" title="Delete (⌘⌫)" aria-label="Delete selected" onClick={() => { void deleteIssues(ids); clear(); }}><IconTrash size={13} /></button>
@@ -1251,7 +1267,8 @@ export function GroupedList(props: {
   }, [props.issues, props.hideGroups, props.opts, snap.states]); // eslint-disable-line react-hooks/exhaustive-deps
   const pool = useMemo(() => applyFilters(shown, props.opts.filters), [shown, props.opts.filters, snap]); // eslint-disable-line react-hooks/exhaustive-deps
   const hiddenByFilters = shown.length - pool.length;
-  const estimatesOn = props.teamId ? snap.teams.find(t => t.id === props.teamId)?.estimateScale !== 'none' : true;
+  // point totals only where estimates are on: the workspace's switch, then the team's scale
+  const estimatesOn = snap.workspace.features.estimatesEnabled && (props.teamId ? snap.teams.find(t => t.id === props.teamId)?.estimateScale !== 'none' : true);
 
   const { render, flat } = useMemo(() => {
     const ordered = orderIssues(pool, props.opts.orderBy, props.opts.completedByRecency, props.opts.orderReversed);
@@ -1378,8 +1395,8 @@ export function GroupedList(props: {
               </button>
               {item.spec.icon}
               <span>{item.spec.label}</span>
-              <span className="count">{item.count}</span>
-              {estimatesOn && item.points > 0 && <span className="gh-points" title={`${item.points} points`}><IconEstimate size={11} />{item.points}</span>}
+              <span className="count" title={`${item.count} issue${item.count === 1 ? '' : 's'}`} aria-label={`${item.count} issue${item.count === 1 ? '' : 's'}`}>{item.count}</span>
+              {estimatesOn && item.points > 0 && <span className="gh-points" title={`Estimate total: ${item.points} points`} aria-label={`Estimate total: ${item.points} points`}><IconEstimate size={11} />{item.points} pts</span>}
               {/* the label + count cut this rule; it runs to the right edge */}
               <span className="gh-rule" />
               <span className="group-actions" onClick={e => e.stopPropagation()}>
@@ -1402,7 +1419,7 @@ export function GroupedList(props: {
             <div key={`sh-${item.groupId}`} className="group-subheader">
               {item.spec.icon}
               <span>{item.spec.label}</span>
-              <span className="count">{item.count}</span>
+              <span className="count" title={`${item.count} issue${item.count === 1 ? '' : 's'}`} aria-label={`${item.count} issue${item.count === 1 ? '' : 's'}`}>{item.count}</span>
               <span className="gh-rule" />
             </div>
           );

@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef } from 'react';
+import { Component, useEffect, useRef, useState } from 'react';
 import { MotionConfig } from 'framer-motion';
 import { HashRouter, Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useApp, useCursor, useSelection, visibleList, copyText } from './store.js';
@@ -12,6 +12,7 @@ import { Sidebar } from './AppShell.js';
 import { CreateIssueModal } from './CreateIssueModal.js';
 import { CommandPalette, ShortcutsOverlay, recordRecentIssue } from './Palette.js';
 import { QuickMenus, SelectionBar } from './IssueViews.js';
+import { startSubIssue } from './SubIssueComposer.js';
 import { Toasts, Tooltips } from './ui.js';
 import {
   TeamPage, MyIssuesPage, ViewsIndexPage, SavedViewPage, LabelPage, ProfilePage,
@@ -20,6 +21,7 @@ import { SettingsLayout } from './Settings.js';
 import { TriagePage, ArchivePage, TrashPage, SearchPage } from './TeamPages.js';
 import { CycleDetailPage, CyclesPage, CycleAlias } from './Cycles.js';
 import { InboxPage } from './Inbox.js';
+import { MyWorkPage } from './MyWork.js';
 import { DocumentPage, TeamHomePage } from './Docs.js';
 import { TeamsPage, MembersPage, DraftsPage } from './Workspace.js';
 import { InitiativesPage, InitiativePage } from './Initiatives.js';
@@ -27,7 +29,8 @@ import { ProjectsPage, NewProjectPage, ProjectPage } from './Projects.js';
 import { IssuePage } from './IssueDetail.js';
 import { TeamGate } from './TeamGate.js';
 import { setupHome } from './SetupPanel.js';
-import { SignIn } from './SignIn.js';
+import { SignIn, SignedInInvite } from './SignIn.js';
+import { api } from './api.js';
 import { Logo } from './Logo.js';
 import { reducedMotion } from './motion.js';
 import { Illustration } from './illustrations.js';
@@ -188,11 +191,13 @@ function KeyboardManager() {
       const menuKey: Record<string, PropKind> = e.shiftKey
         ? { d: 'due', e: 'estimate', c: 'cycle', p: 'project', h: 'remind', m: 'milestone' }
         : { s: 'status', p: 'priority', a: 'assignee', l: 'labels' };
-      if (!e.metaKey && !e.ctrlKey && !e.altKey && menuKey[k]) { e.preventDefault(); openQuick(targets, menuKey[k]); return; }
+      // ⇧E / ⇧C do nothing while Settings › Features has estimates / cycles off
+      const off = (kind: PropKind) => (kind === 'estimate' && !s.snap?.workspace.features.estimatesEnabled) || (kind === 'cycle' && !s.snap?.workspace.features.cyclesEnabled);
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && menuKey[k] && !off(menuKey[k])) { e.preventDefault(); openQuick(targets, menuKey[k]); return; }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'p') { e.preventDefault(); openQuick(targets, 'parent'); return; }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'm' && one) { e.preventDefault(); openQuick(targets, 'team'); return; }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'o' && one) {
-        e.preventDefault(); s.openCreate({ teamId: one.teamId, parentId: one.id, projectId: one.projectId, cycleId: one.cycleId }); return;
+        e.preventDefault(); startSubIssue(one); return;
       }
       if (plain && !e.shiftKey && k === 'i') { e.preventDefault(); void assignToMe(ids); return; }
       if (plain && !e.shiftKey && k === 'm') { startChord('m'); return; }
@@ -341,9 +346,9 @@ function InboxRedirect() {
   useEffect(() => {
     const s = useApp.getState().snap;
     if (s?.workspace.preferences.gettingStarted.onboarding === 'pending') { navigate(setupHome(s), { replace: true }); return; }
-    const home = s?.workspace.preferences.homeView ?? 'inbox';
+    const home = s?.workspace.preferences.homeView ?? 'my-work';
     const team = localStorage.getItem('baseline:issuesTeam') ?? s?.teams[0]?.key;
-    navigate(home === 'my-issues' ? '/my-issues' : home === 'team' && team ? `/team/${team}/all` : '/inbox', { replace: true });
+    navigate(home === 'my-issues' ? '/my-issues' : home === 'inbox' ? '/inbox' : home === 'team' && team ? `/team/${team}/all` : '/my-work', { replace: true });
   }, [navigate]);
   return null;
 }
@@ -368,6 +373,7 @@ export function App() {
   const resolvedTheme = useApp(s => s.resolvedTheme);
   // every issue needs a team, so a workspace with none (new, or all deleted) names one before any route
   const noTeams = useApp(s => !!s.snap && !s.snap.teams.length);
+  const [linkWhileSignedIn, setLinkWhileSignedIn] = useState(() => /[?&](invite|join)=/.test(window.location.search));
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
@@ -393,6 +399,16 @@ export function App() {
     );
   }
 
+  // an invite or join link opened while signed in: say so instead of quietly dropping it
+  if (linkWhileSignedIn) {
+    const s = useApp.getState().snap!;
+    const clear = () => { window.history.replaceState(null, '', window.location.pathname + window.location.hash); setLinkWhileSignedIn(false); };
+    return <SignedInInvite me={s.currentUser} teams={s.teams.map(t => ({ id: t.id, name: t.name, joined: t.memberIds.includes(s.currentUser.id) }))}
+      onDone={clear}
+      onSignOut={async () => { await api.logout(); window.location.reload(); }}
+      onJoinTeam={async id => { await api.joinTeam(id); await useApp.getState().bootstrap(); const t = s.teams.find(x => x.id === id); window.history.replaceState(null, '', `${window.location.pathname}#/team/${t?.key}/active`); setLinkWhileSignedIn(false); }} />;
+  }
+
   if (noTeams) {
     return <TeamGate />;
   }
@@ -410,6 +426,7 @@ export function App() {
               <PageHost>
               <Routes>
                 <Route path="/" element={<InboxRedirect />} />
+                <Route path="/my-work" element={<MyWorkPage />} />
                 <Route path="/inbox" element={<InboxPage />} />
                 <Route path="/my-issues" element={<MyIssuesPage />} />
                 <Route path="/my-issues/:tab" element={<MyIssuesPage />} />

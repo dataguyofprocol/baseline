@@ -158,6 +158,7 @@ export function CreateIssueModal() {
   const parent = state.parentId && snap ? snap.issues.find(i => i.id === state.parentId) : undefined;
   const parentKey = parent ? `${snap?.teams.find(t => t.id === parent.teamId)?.key}-${parent.number}` : '';
   const templates = snap?.templates.filter(t => t.teamId === team?.id) ?? [];
+  const features = snap?.workspace.features;
   const appliedTemplate = templates.find(t => t.id === appliedTemplateId);
   const applyTemplate = (tplId: string | null) => {
     setAppliedTemplateId(tplId ?? undefined);
@@ -275,6 +276,9 @@ export function CreateIssueModal() {
       line: <><StateIcon type={current.type} color={current.color} size={12} /> {key} — {issue.title}</>,
     };
     if (createMore) {
+      // the modal stays open, so its reset effect doesn't run: clear the text for the next issue, keep the properties
+      setTitle(''); setDescription(''); setDraft(null); setEditorKey(k => k + 1);
+      setTimeout(() => titleRef.current?.focus(), 30);
       openCreate({ teamId: team.id, projectId, parentId: state.parentId, cycleId: cycleId ?? undefined });
       useApp.getState().toast(toastBody);
     } else {
@@ -337,7 +341,7 @@ export function CreateIssueModal() {
           <span style={{ color: 'var(--text-primary)' }}>New issue</span>
         )}
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
-          {templates.length > 0 && (
+          {templates.length > 0 && features?.templatesEnabled && (
             <button className={`cm-template${appliedTemplate ? ' on' : ''}`} onClick={templateMenu.open} title="Apply a template">
               <IconDoc size={13} />
               {appliedTemplate?.name ?? 'Template'}
@@ -414,16 +418,17 @@ export function CreateIssueModal() {
             <span className="chip-text">{milestone?.name ?? 'Milestone'}</span>
           </button>
         )}
-        {(openCycles.length > 0 || cycle) && (
+        {/* cycles and estimates are decisions only for a workspace that turned them on (Settings › Features) */}
+        {(cycle || (features?.cyclesEnabled && openCycles.length > 0)) && (
           <button className={`prop-chip${cycle ? ' set' : ' cm-icon-chip'}`} onClick={cycleMenu.open} title="Cycle">
             <IconCycle size={13} style={{ color: 'var(--text-dim)' }} />
             {cycle && <span className="chip-text">{cycleName(cycle)}</span>}
           </button>
         )}
-        <button className={`prop-chip${estimate != null ? ' set' : ''}`} onClick={e => { setMorePhase('estimate'); moreMenu.open(e); }}>
+        {(estimate != null || (features?.estimatesEnabled && team?.estimateScale !== 'none')) && <button className={`prop-chip${estimate != null ? ' set' : ''}`} onClick={e => { setMorePhase('estimate'); moreMenu.open(e); }}>
           <IconEstimate size={13} style={{ color: 'var(--text-dim)' }} />
           <span className="chip-text">{estimate != null ? `${estimate} point${estimate !== 1 ? 's' : ''}` : 'Estimate'}</span>
-        </button>
+        </button>}
         <button className={`prop-chip${selectedLabels.length ? ' set' : ''}`} onClick={e => { setNewLabelName(''); labelsMenu.open(e); }}>
           {selectedLabels.length
             ? <span className="cm-label-dots">{selectedLabels.slice(0, 3).map(l => <span key={l.id} className="label-dot" style={{ background: l.color }} />)}</span>

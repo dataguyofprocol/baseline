@@ -151,7 +151,7 @@ function LoopEditor({ draft, setDraft, onSave, saveLabel = 'Create loop' }: { sa
           {a.kind === 'status' && <select className="text-input" value={a.stateType} onChange={e => setAction(i, { kind: 'status', stateType: e.target.value as WorkflowStateType })}>{STATE_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>}
           {a.kind === 'createIssue' && <input className="text-input grow" placeholder="Title, with {date} filled in" value={a.title} onChange={e => setAction(i, { ...a, title: e.target.value })} />}
           {a.kind === 'claudeCode' && <span className="set-meta">{snap.workspace.auth === 'hosted'
-            ? 'skipped on the hosted app for now, since it needs a connected companion on your computer (coming in Phase 2)'
+            ? 'skipped on a shared server, since it opens Claude Code on a computer'
             : 'opens an interactive session in the issue\'s location'}</span>}
           <button className="icon-btn" title="Remove action" onClick={() => setDraft({ ...draft, actions: draft.actions.filter((_, n) => n !== i) })}><IconClose size={12} /></button>
         </div>

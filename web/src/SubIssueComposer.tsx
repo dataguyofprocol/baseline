@@ -1,17 +1,40 @@
 // Inline sub-issue composer on the issue page: a card that opens in place under the sub-issue list,
 // pre-filled from the parent (team, priority, assignee, cycle, project). Enter creates and keeps the
 // card open for the next one, so breaking an issue down is one keystroke per piece.
+// It is the one way to start a sub-issue: ⌘⇧O, the + under the description, the sub-issues card's +
+// and a row's "Sub-issue…" all open it (startSubIssue), so every path gives the same defaults.
 
 import { useEffect, useRef, useState } from 'react';
 import { useApp, shortDate } from './store.js';
 import { api } from './api.js';
-import { Menu, MenuItem, MenuSep, useMenu } from './ui.js';
+import { Menu, MenuItem, MenuSep, useMenu, useInFlight } from './ui.js';
 import { StateIcon, PriorityIcon, Avatar, CalendarGrid } from './pickers.js';
 import { IconEstimate, IconTag, IconCycle, IconMore, IconUser, IconBox, IconCalendar, IconCheck, IconClose, IconFolder } from './icons.js';
 import { teamScale } from '../../src/core/types.js';
 import type { Issue, Priority } from '../../src/core/types.js';
 
 const PRIORITIES: Array<[Priority, string]> = [[0, 'No priority'], [1, 'Urgent'], [2, 'High'], [3, 'Medium'], [4, 'Low']];
+
+const START = 'baseline:start-sub-issue';
+/** the parent whose composer should open once its page shows (a request made from a list, or before the page mounted) */
+let pending: string | null = null;
+/** open the sub-issue composer under `parent`: on its page if that's showing (page or peek), else go there first */
+export function startSubIssue(parent: Issue): void {
+  pending = parent.id;
+  window.dispatchEvent(new Event(START));
+  if (pending !== parent.id) return;
+  const key = `${useApp.getState().snap?.teams.find(t => t.id === parent.teamId)?.key}-${parent.number}`;
+  location.hash = `#/issue/${key}`;
+}
+/** SubIssuesSection: opens its composer when a request for this parent comes in */
+export function useSubIssueRequests(parentId: string, open: () => void): void {
+  useEffect(() => {
+    const take = () => { if (pending === parentId) { pending = null; open(); } };
+    take();
+    window.addEventListener(START, take);
+    return () => window.removeEventListener(START, take);
+  }, [parentId]); // eslint-disable-line react-hooks/exhaustive-deps
+}
 
 export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) {
   const snap = useApp(s => s.snap)!;
@@ -34,7 +57,8 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
   const [pickedLocation, setPickedLocation] = useState<{ id: string | null } | null>(null);
   const setLocationId = (id: string | null) => setPickedLocation({ id });
   const [dueDate, setDueDate] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  // the main modal's guard: a double Enter in one tick files one issue, not two
+  const { busy, guard } = useInFlight();
   const titleRef = useRef<HTMLInputElement>(null);
   const descRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -62,10 +86,9 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
   const locOrder = [...(project?.locationIds ?? []).map(id => snap.locations.find(l => l.id === id)).filter((l): l is NonNullable<typeof l> => !!l),
     ...snap.locations.filter(l => !(project?.locationIds ?? []).includes(l.id))];
 
-  const create = async () => {
-    if (!title.trim() || busy) return;
-    setBusy(true);
-    try {
+  const create = guard(async () => {
+    if (!title.trim()) return;
+    {
       const { issue } = await api.createIssue({
         teamId: team.id, title: title.trim(), description, stateId, priority, assigneeId,
         labelIds, projectId, cycleId, dueDate, estimate, parentId: parent.id,
@@ -77,10 +100,8 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
       setTitle('');
       setDescription('');
       titleRef.current?.focus();
-    } finally {
-      setBusy(false);
     }
-  };
+  });
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if ((e.target as HTMLElement).closest?.('.menu') || e.nativeEvent.isComposing) return;
@@ -110,16 +131,17 @@ export function SubIssueComposer(props: { parent: Issue; onClose: () => void }) 
           {assignee ? <Avatar user={assignee} size={16} /> : <IconUser size={13} />}
           <span className="chip-text">{assignee?.name ?? 'Assignee'}</span>
         </button>
-        <button className={`prop-chip${estimate != null ? ' set' : ''}`} onClick={est.open}>
+        {/* estimates and cycles only for a workspace that turned them on (Settings › Features), as in the create modal */}
+        {(estimate != null || (snap.workspace.features.estimatesEnabled && team.estimateScale !== 'none')) && <button className={`prop-chip${estimate != null ? ' set' : ''}`} onClick={est.open}>
           <IconEstimate size={13} /><span className="chip-text">{estimate != null ? `${estimate} point${estimate !== 1 ? 's' : ''}` : 'Estimate'}</span>
-        </button>
+        </button>}
         <button className={`prop-chip${labels.length ? ' set' : ''}`} onClick={lbl.open}>
           {labels.length
             ? <span className="cm-label-dots">{labels.slice(0, 3).map(l => <span key={l.id} className="label-dot" style={{ background: l.color }} />)}</span>
             : <IconTag size={13} />}
           <span className="chip-text">{labels.length === 0 ? 'Labels' : labels.length === 1 ? labels[0].name : `${labels.length} labels`}</span>
         </button>
-        {teamCycles.length > 0 && (
+        {(cycle || (snap.workspace.features.cyclesEnabled && teamCycles.length > 0)) && (
           <button className={`prop-chip${cycle ? ' set' : ''}`} onClick={cyc.open}>
             <IconCycle size={13} /><span className="chip-text">{cycle ? (cycle.name || `Cycle ${cycle.number}`) : 'Cycle'}</span>
           </button>

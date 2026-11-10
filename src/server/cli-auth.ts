@@ -99,7 +99,7 @@ const AUTHORIZE_PAGE = `<!doctype html>
     if (r.status === 401) { location.href = '/?next=' + encodeURIComponent(location.pathname + location.search); return; }
     if (!r.ok) { say([['Couldn\\'t check who you are. Reload to try again.']]); return; }
     const me = await r.json();
-    say([['Allow the Baseline CLI on '], [q.device, true], [' to read and change issues in '], [me.workspace.name, true], [' as '], [me.user.name, true], [' (' + me.user.email + ')? It gets a personal API key, which you can revoke in Settings › Security & access.']]);
+    say([['Allow the Baseline CLI on '], [q.device, true], [' to read and change issues in '], [me.workspace.name, true], [' as '], [me.user.name, true], [' (' + me.user.email + ')? It gets a personal API key, which you can revoke in Settings › Account & API keys.']]);
     actions.hidden = false;
   });
   document.getElementById('allow').onclick = async () => {

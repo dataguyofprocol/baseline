@@ -14,7 +14,7 @@ export function setLegacyCommand(name: string, as?: string): void { command = na
 export function legacyApp(db: string | undefined) {
   const target = targetFor({ db });
   if (target.kind === 'remote') {
-    throw new BaselineError(0, 'not-yet-remote', `\`${command}\` doesn't work against a hosted server yet (${describeTarget(target)}). Pass --db <path> to use a local database.`);
+    throw new BaselineError(0, 'not-yet-remote', `\`${command}\` isn't available against a Baseline server yet (${describeTarget(target)}); it works on a local database only. Use the web app for it meanwhile.`);
   }
   // local mode and no mail, like localTransport: a server's env (BASELINE_PUBLIC_URL, SMTP_*) must not leak into the CLI
   const app = createApp(target.dbPath, { mode: 'local' }, { configured: false, send: async () => {} });

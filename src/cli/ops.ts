@@ -2,7 +2,7 @@
 // and Codex get, with the same descriptions, validation, errors and JSON.
 import { Command } from 'commander';
 import { OPERATIONS } from '../ops/index.js';
-import { cliVerb, fieldsOf, OpError, placeholderOf, runOp, type AnyOperation, type Field, type OpContext } from '../ops/operation.js';
+import { cliVerb, fieldsOf, OP_ALIASES, OpError, placeholderOf, runOp, type AnyOperation, type Field, type OpContext } from '../ops/operation.js';
 
 export interface OpFlags { db?: string; as?: string; json?: boolean }
 
@@ -21,10 +21,10 @@ async function valueOf(f: Field, raw: unknown): Promise<unknown> {
   return raw;
 }
 
-function command(op: AnyOperation, context: (flags: OpFlags) => Promise<OpContext>): Command {
+function command(op: AnyOperation, context: (flags: OpFlags) => Promise<OpContext>, verb = cliVerb(op)): Command {
   const pos = op.positional ?? [];
   const fields = fieldsOf(op);
-  const cmd = new Command(cliVerb(op)).description(op.description).summary(op.description.split('. ')[0]! + '.');
+  const cmd = new Command(verb).description(op.description).summary(op.description.split('. ')[0]! + '.');
   for (const name of pos) {
     const f = fields.find(x => x.name === name)!;
     cmd.argument(f.required ? `<${name}>` : `[${name}]`, f.description);
@@ -48,7 +48,7 @@ function command(op: AnyOperation, context: (flags: OpFlags) => Promise<OpContex
     }
     try {
       const out = await runOp(op, await context(flags), input);
-      console.log(flags.json ? JSON.stringify(out, null, 2) : op.text(out));
+      console.log(flags.json ? JSON.stringify(out, null, 2) : op.text(out, 'cli'));
     } catch (e) {
       if (!(e instanceof OpError)) throw e;
       console.error(`error: ${e.message}`);
@@ -62,4 +62,8 @@ function command(op: AnyOperation, context: (flags: OpFlags) => Promise<OpContex
 /** one command per operation under `parent` (the CLI's `agent` command) */
 export function mountOperations(parent: Command, context: (flags: OpFlags) => Promise<OpContext>): void {
   for (const op of OPERATIONS) parent.addCommand(command(op, context));
+  // retired verbs keep working for older CLAUDE.md / AGENTS.md blocks, unlisted
+  for (const [old, now] of Object.entries(OP_ALIASES)) {
+    parent.addCommand(command(OPERATIONS.find(o => o.name === now)!, context, old.replace(/_/g, '-')), { hidden: true });
+  }
 }

@@ -1,9 +1,10 @@
 // What the CLI and the MCP server import from src/client. Transports and HttpBaseline stay internal.
+import { existsSync } from 'node:fs';
 import { DEFAULT_DB_PATH } from '../core/db.js';
 import type { Issue } from '../core/types.js';
 import { HttpBaseline, type Baseline } from './baseline.js';
 import { readConfig } from './config.js';
-import { resolveTarget, type Target } from './target.js';
+import { resolveTarget, TargetError, type Target } from './target.js';
 import { httpTransport, transportFor } from './transport.js';
 import type { IssueIndex } from './views.js';
 
@@ -22,6 +23,27 @@ export function targetFor(flags: { db?: string }): Target {
 
 export async function connect(flags: { db?: string }): Promise<Baseline> {
   const target = targetFor(flags);
+  return new HttpBaseline(target, await transportFor(target));
+}
+
+export const NOT_CONNECTED = 'Not connected to Baseline. Run `baseline login --server <url>`';
+
+/**
+ * The agent surface's target (`baseline mcp`, `baseline agent`, hooks, `work`): a server you logged
+ * in to, or a local database named with --db / BASELINE_DB that already exists. Never the default
+ * database and never a new file: opening either would create and seed a sample workspace, and an
+ * agent in a freshly cloned repo would track work in it as if it were the team's.
+ */
+export function agentTarget(flags: { db?: string }): Target {
+  const t = targetFor(flags);
+  if (t.kind === 'remote') return t;
+  if (t.source === 'default') throw new TargetError(`${NOT_CONNECTED} (or set BASELINE_DB to a local Baseline database).`);
+  if (!existsSync(t.dbPath)) throw new TargetError(`${NOT_CONNECTED}. ${t.source === 'flag' ? '--db' : 'BASELINE_DB'} names ${t.dbPath}, which doesn't exist; the agent commands never create a database.`);
+  return t;
+}
+
+export async function connectAgent(flags: { db?: string }): Promise<Baseline> {
+  const target = agentTarget(flags);
   return new HttpBaseline(target, await transportFor(target));
 }
 

@@ -5,11 +5,12 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { connect, describeTarget, type Baseline } from '../client/index.js';
+import { agentTarget, connectAgent, describeTarget, TargetError, type Baseline } from '../client/index.js';
 import { OPERATIONS } from '../ops/index.js';
 import { agentGuide } from '../ops/guide.js';
 import { agentActor, sessionFrom } from '../ops/identity.js';
-import { annotationsOf, OpError, runOp, toOpError, type Actor, type AnyOperation, type OpContext } from '../ops/operation.js';
+import { annotationsOf, OP_ALIASES, OpError, runOp, toOpError, type Actor, type AnyOperation, type LocalRepo, type OpContext } from '../ops/operation.js';
+import { localRepo } from '../cli/repo.js';
 
 /** JSON Schema for a tool: the shape the model fills in (input) or receives (output) */
 function jsonSchema(schema: z.ZodType, io: 'input' | 'output'): Tool['inputSchema'] {
@@ -38,6 +39,8 @@ export interface McpSessionInput {
   as: string | undefined;
   /** BASELINE_SESSION */
   session: string | undefined;
+  /** the repo `baseline mcp` runs in; the hosted endpoint has none */
+  local?: LocalRepo;
 }
 
 const errorResult = (text: string): CallToolResult => ({ isError: true, content: [{ type: 'text', text }] });
@@ -55,11 +58,13 @@ export function createMcpServer(input: McpSessionInput): Server {
   let actor: Promise<Actor> | undefined;
   const baseline = () => bl ??= input.connect().catch(e => { bl = undefined; throw e; });
   // retried after a failure: an admin may add the agent user BASELINE_AS names, mid-session
-  const agent = () => actor ??= baseline().then(b => agentActor(b, input.as)).catch(e => { actor = undefined; throw e; });
+  // the client's own name picks its agent user ("Claude Code via Parth") unless BASELINE_AS says otherwise
+  const agent = () => actor ??= baseline().then(b => agentActor(b, input.as, server.getClientVersion()?.name)).catch(e => { actor = undefined; throw e; });
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {
-    const op = OPERATIONS.find(o => o.name === req.params.name) as AnyOperation | undefined;
+    const name = OP_ALIASES[req.params.name] ?? req.params.name;
+    const op = OPERATIONS.find(o => o.name === name) as AnyOperation | undefined;
     if (!op) return errorResult(`Unknown tool "${req.params.name}". Valid tools: ${OPERATIONS.map(o => o.name).join(', ')}.`);
     try {
       const ctx: OpContext = {
@@ -67,9 +72,11 @@ export function createMcpServer(input: McpSessionInput): Server {
         // a read is the same whoever asks; it must work before the agent's identity is settled
         actor: op.effect.kind === 'read' ? { kind: 'person' } : await agent(),
         session: sessionFrom(input.session),
+        surface: 'mcp',
+        local: input.local,
       };
       const out = await runOp(op, ctx, req.params.arguments ?? {});
-      return { content: [{ type: 'text', text: op.text(out) }], structuredContent: out };
+      return { content: [{ type: 'text', text: op.text(out, 'mcp') }], structuredContent: out };
     } catch (e) {
       const known = toOpError(e);
       if (known) return errorResult(known.message);
@@ -86,15 +93,18 @@ export async function serveStdio(flags: { db?: string }): Promise<void> {
   // anything that would print to stdout (a library's log line) would corrupt the protocol stream
   console.log = console.info = console.debug = console.warn = (...args: unknown[]) => console.error(...args);
   const server = createMcpServer({
+    // never the default database or a new file: unconnected, every tool call says to log in
     connect: async () => {
-      const b = await connect(flags);
+      const b = await connectAgent(flags);
       console.error(`[baseline mcp] ${describeTarget(b.target)}`);
       return b;
     },
     as: process.env.BASELINE_AS,
     session: process.env.BASELINE_SESSION,
+    local: localRepo(),
   });
-  // checked at spawn too, so a bad value shows in the harness's MCP log right away
+  // checked at spawn too, so a bad value or a missing login shows in the harness's MCP log right away
   try { sessionFrom(process.env.BASELINE_SESSION); } catch (e) { if (e instanceof OpError) console.error(`[baseline mcp] ${e.message}`); }
+  try { agentTarget(flags); } catch (e) { if (e instanceof TargetError) console.error(`[baseline mcp] ${e.message}`); }
   await server.connect(new StdioServerTransport());
 }

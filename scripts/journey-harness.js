@@ -148,19 +148,9 @@
       const miss = ['Heading', 'Bullet', 'Numbered', 'Check', 'Code', 'Quote'].filter(x => !new RegExp(x, 'i').test(slash)); if (miss.length) t.fail('slash missing ' + miss + ' :: ' + slash.slice(0, 60)); if (!at.includes('Ada')) t.fail('mention: ' + at.slice(0, 40));
       return 'slash menu + people suggestions' + (orig ? '' : '');
     });
-    await t.run('2.5 Attach a file from the create modal (uploaded on create, served back)', async () => {
-      const file = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'harness.png', { type: 'image/png' });
-      await t.nav('/team/CORE/all', 600); await t.press('c', {}, 650); await t.type(t.q('.cm-root input, .cm-root textarea'), 'Harness: attachment from modal', 200);
-      const inp = t.q('.cm-root input[type=file]'); if (!inp) t.fail('no file input'); const dt = new DataTransfer(); dt.items.add(file); inp.files = dt.files; inp.dispatchEvent(new Event('change', { bubbles: true })); await sleep(300);
-      const chip = t.q('.cm-files')?.innerText.includes('harness.png'); t.key('Enter', { meta: true }); await sleep(1500);
-      const s = await t.snap(); const iss = s.issues.find(i => i.title === 'Harness: attachment from modal'); const att = iss && s.attachments.find(a => a.issueId === iss.id && a.title === 'harness.png');
-      if (!chip || !att) t.fail(`chip ${chip} attachment ${!!att}`); const res = await fetch(att.url); if (!res.ok) t.fail('served ' + res.status);
-      return `uploaded (${att.size} bytes), served ${res.status}`;
-    });
-    await t.run('2.6 Attach a file and paste-style upload on the issue page', async () => {
-      const id = (await t.issue('CORE-3')).id; await t.nav('/issue/CORE-3', 900); const inp = t.qa('input[type=file]').find(i => i.closest('.issue-col, .issue-main, .content')); if (!inp) t.fail('no issue file input');
-      const dt = new DataTransfer(); dt.items.add(new File(['hello'], 'notes.txt', { type: 'text/plain' })); inp.files = dt.files; inp.dispatchEvent(new Event('change', { bubbles: true })); await sleep(1300);
-      const s = await t.snap(); if (!s.attachments.some(a => a.issueId === id && a.title === 'notes.txt')) t.fail('not attached'); return 'notes.txt attached to CORE-3';
+    await t.run('2.5 No file attachments in the create modal (cut: issues link to files, they don\'t host them)', async () => {
+      await t.nav('/team/CORE/all', 600); await t.press('c', {}, 650); const inp = t.q('.cm-root input[type=file]'), chip = t.q('.cm-files'); await t.closeAll();
+      if (inp || chip) t.fail('attachment controls still in the create modal'); return 'no file input, no file chips';
     });
     await t.run('2.7 Cycle and Milestone pills in the create modal', async () => {
       const s = await t.snap(); const p = s.projects.find(x => s.milestones.some(m => m.projectId === x.id));
@@ -225,7 +215,7 @@
       const sub = async () => (await t.snap()).subscriptions.some(x => x.issueId === id && x.userId === me); const s1 = await sub(); await t.press('S', { shift: true }, 950); const s2 = await sub(); await t.press('S', { shift: true }, 950); if (s1 === s2) bad.push('⇧S');
       const fav = async () => (await t.snap()).favorites.some(f => f.refId === id); const f1 = await fav(); await t.press('f', { alt: true }, 950); const f2 = await fav(); await t.press('f', { alt: true }, 950); if (f1 === f2) bad.push('⌥F');
       await t.press('R', { shift: true }, 500); if (!['TEXTAREA', 'INPUT'].includes(document.activeElement?.tagName)) bad.push('⇧R'); document.activeElement?.blur();
-      await t.press('o', { meta: true, shift: true }, 700); if (!(t.q('.cm-root')?.innerText ?? '').includes('sub-issue')) bad.push('⌘⇧O');
+      await t.press('o', { meta: true, shift: true }, 700); if (!t.q('.subc')) bad.push('⌘⇧O'); await t.closeAll();
       if (bad.length) t.fail('failed ' + bad); return 'all act';
     });
     await t.run('4.4 Property menus: filter field and number keys', async () => {
@@ -249,7 +239,8 @@
       s = await t.snap(); const c2 = s.comments.find(x => x.id === c.id); const reply = s.comments.find(x => x.parentId === c.id);
       await t.post(`/api/comments/${c.id}`, { resolved: false }, 'PATCH'); await t.sync(); await t.nav('/issue/CORE-5', 900);
       const r = t.qa('.cmt').find(e => e.innerText.includes('Harness reply')); await t.click(r.querySelector('[title="More"]'), 400); const menu = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Delete'), 900);
-      s = await t.snap(); const gone = !s.comments.some(x => x.body.includes('Harness reply'));
+      // delete waits out its Undo toast before it reaches the server
+      await sleep(7000); s = await t.snap(); const gone = !s.comments.some(x => x.body.includes('Harness reply'));
       if (!Object.keys(c2.reactions).length || !reply || !c2.resolvedAt || !menu.includes('Edit') || !gone) t.fail(`react ${Object.keys(c2.reactions).length} reply ${!!reply} resolved ${!!c2.resolvedAt} edit ${menu.includes('Edit')} deleted ${gone}`);
       return 'posted, reacted, replied, resolved, edit offered, deleted';
     });
@@ -313,6 +304,19 @@
       await t.nav('/issue/CORE-10', 900); const title = (await t.issue('CORE-10')).title; const open = async () => { await t.click(t.q('.topbar .topbar-more'), 400); const c = t.menuItem('Convert to'); await t.hover(c); await t.click(c, 400); };
       await open(); await t.click(t.menuItem('Template'), 900); await t.closeAll(); await open(); const r = t.menuItem('Recurring'); await t.hover(r); await t.click(r, 400); await t.click(t.menuItem('Every week'), 900);
       const s = await t.snap(); if (!s.templates.some(x => x.title === title) || !s.recurring.some(x => x.title === title)) t.fail('missing'); return 'template + weekly recurring';
+    });
+    await t.run('4.19 One sub-issue path: ⌘⇧O opens the inline composer with the parent\'s defaults; a double Enter files one', async () => {
+      await t.nav('/issue/CORE-5', 900); const parent = await t.issue('CORE-5'); await t.press('o', { meta: true, shift: true }, 700);
+      const input = t.q('.subc-title input'); if (!input || t.q('.cm-root')) t.fail('no inline composer'); await t.type(input, 'Harness: one sub-issue', 150);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(1400); await t.closeAll();
+      const kids = (await t.snap()).issues.filter(i => i.title === 'Harness: one sub-issue');
+      if (kids.length !== 1 || kids[0].parentId !== parent.id || kids[0].priority !== parent.priority || kids[0].assigneeId !== parent.assigneeId) t.fail(`${kids.length} filed`); return 'one child, parent\'s priority and assignee';
+    });
+    await t.run('4.20 Lean rail: a one-line bug shows no "Needs a location" and keeps empty optional properties behind Add property', async () => {
+      const core = (await t.snap()).teams.find(x => x.key === 'CORE'); const { issue } = await t.post('/api/issues', { teamId: core.id, title: 'Harness: lean rail' }); await t.sync();
+      await t.nav(`/issue/CORE-${issue.number}`, 900); const rail = t.q('.props-rail').innerText;
+      if (/Needs a location|Set due date|Add to cycle|Set estimate/.test(rail) || !t.q('[data-add-property]')) t.fail(rail.replace(/\n/g, ' · '));
+      await t.click('[data-add-property]', 500); if (!/Set due date/.test(t.q('.props-rail').innerText)) t.fail('Add property revealed nothing'); return 'lean, then Add property reveals the rest';
     });
   });
 
@@ -420,7 +424,7 @@
       if (!m.includes('New document') || !m.includes('Add link') || /From template/.test(m) || !d || d.projectId !== p.id || !d.content.includes('Problem') || !listed) t.fail(`menu ${m.replace(/\n/g, ', ')} doc ${!!d} listed ${listed}`); return 'created from resources, saved, listed under the team';
     });
     await t.run('6.8 Milestones with progress', async () => {
-      const p = await P(); await t.nav('/projects/' + p.id, 900); const txt = t.text(); if (!/Alpha/.test(txt) || !/\d+%/.test(txt)) t.fail('milestones'); return 'Alpha / Beta with %';
+      const p = await P(); await t.nav('/projects/' + p.id, 900); const txt = t.text(); if (!/Alpha/.test(txt) || !/\d+ of \d+ done|\d+%/.test(txt)) t.fail('milestones'); return 'Alpha / Beta with progress';
     });
     await t.run('6.9 Post an update with health; Activity tab', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click(t.q('.update-card.empty') ?? t.byText('New update'), 600);
@@ -428,11 +432,11 @@
       const u = (await t.snap()).projectUpdates.find(x => x.body.includes('Harness weekly update')); await t.nav(`/projects/${p.id}/activity`, 800);
       if (!u || u.health !== 'atRisk') t.fail(`update ${!!u} ${u?.health}`); return 'posted (at risk); activity tab renders';
     });
-    await t.run('6.12 Project labels: P then L, group exclusivity, settings page', async () => {
+    await t.run('6.12 Project labels: P then L, group exclusivity (settings page cut)', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); await t.press('p', {}, 120); await t.press('l', {}, 650); const m = t.q('.menu:not(.closing)')?.innerText ?? '';
       await t.click(t.menuItem('Apps'), 800); await t.closeAll(); const s = await t.snap(); const id = n => s.projectLabels.find(x => x.name === n).id; const p2 = s.projects.find(x => x.id === p.id);
-      await t.nav('/settings/project-labels', 700); const set = t.text();
-      if (!m.includes('Area') || !p2.labelIds.includes(id('Apps')) || p2.labelIds.includes(id('Agents')) || !set.includes('New group')) t.fail(`menu ${m.slice(0, 30)} labels ${p2.labelIds}`); return 'P then L; Apps replaced Agents; settings lists groups';
+      await t.nav('/settings/preferences', 700); const nav = t.q('.settings-nav').innerText;
+      if (!m.includes('Area') || !p2.labelIds.includes(id('Apps')) || p2.labelIds.includes(id('Agents')) || /Statuses/.test(nav)) t.fail(`menu ${m.slice(0, 30)} labels ${p2.labelIds}`); return 'P then L; Apps replaced Agents; no project labels/statuses settings';
     });
     await t.run('6.13 Project bell: per-project inbox notifications', async () => {
       const p = await P(); await t.nav('/projects/' + p.id, 900); await t.click('[data-project-bell]', 500); const m = t.q('.menu:not(.closing)').innerText; const on = t.qa('.menu:not(.closing) .mi-check.on').length; await t.click(t.menuItem('An issue is added'), 700);
@@ -477,7 +481,7 @@
     });
     await t.run('8.2 Inbox filters (type incl. project kinds) and display', async () => {
       await t.nav('/inbox', 900); await t.openMenu('[title="Filter"]'); const m = t.q('.menu:not(.closing)').innerText; await t.closeAll(); await t.openMenu('[title="Display options"]'); const d = t.q('.menu:not(.closing)').innerText;
-      const miss = ['Mentions', 'Project updates', 'Project activity', 'Update reminders'].filter(x => !m.includes(x)); const dmiss = ['Newest', 'snoozed', 'Priority', 'Focus'].filter(x => !new RegExp(x, 'i').test(d));
+      const miss = ['Mentions', 'Project updates', 'Project activity', 'update reminders'].filter(x => !m.toLowerCase().includes(x.toLowerCase())); const dmiss = ['Newest', 'snoozed', 'Priority', 'Focus'].filter(x => !new RegExp(x, 'i').test(d));
       if (miss.length || dmiss.length) t.fail(`filter ${miss} display ${dmiss}`); return 'type/from filters; ordering, snoozed, priority inbox, focus';
     });
     await t.run('8.3 Project notifications show and preview in the inbox', async () => {
@@ -510,18 +514,19 @@
 
   /* ================= 9. settings & workspace pages ================= */
   S('settings', async t => {
-    await t.run('9.1 Settings nav mirrors Linear: Account · Issues · Projects · Features · Administration · Your teams', async () => {
-      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Statuses', 'Updates', 'Features', 'Security & access', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
-      if (miss.length) t.fail('missing ' + miss); return 'all sections';
+    await t.run('9.1 Settings nav: Personal · Issues · Projects · Features · Administration · Your teams (project labels/statuses cut)', async () => {
+      await t.nav('/settings/preferences', 800); const nav = t.q('.settings-nav').innerText; const miss = ['Preferences', 'Profile', 'Notifications', 'Issues', 'Projects', 'Updates', 'Features', 'Account & API keys', 'Administration', 'Members', 'API', 'Import & export'].filter(x => !nav.includes(x));
+      if (miss.length || /Statuses/.test(nav)) t.fail('missing ' + miss); return 'all sections';
     });
     await t.run('9.2 Account pages: Preferences, Profile, Notifications', async () => {
-      await t.nav('/settings/preferences', 700); const a = /home|week/i.test(t.text()); await t.nav('/settings/profile', 700); const b = /Name|Email/i.test(t.text()); await t.nav('/settings/notifications', 700); const c = /Priority inbox/.test(t.text()) && /Browser/.test(t.text());
+      await t.nav('/settings/preferences', 700); const a = /home|week/i.test(t.text()); await t.nav('/settings/profile', 700); const b = /Name|Email/i.test(t.text()); await t.nav('/settings/notifications', 700); const c = !/Priority inbox/.test(t.text()) && /Browser notifications/.test(t.text());
       if (!a || !b || !c) t.fail(`${a} ${b} ${c}`); return 'all three render with their fields';
     });
-    await t.run('9.3 Project statuses settings: add, rename, delete a custom status', async () => {
-      await t.nav('/settings/project-statuses', 800); const add = t.qa('.set-cat').find(c => c.innerText.startsWith('Planned')).querySelector('button'); await t.click(add, 400); await t.type(t.q('.set-list input'), 'Harness scoping', 200); t.key('Enter'); await sleep(900);
-      let s = await t.snap(); const st = s.projectStatuses.find(x => x.name === 'Harness scoping'); if (!st) t.fail('not created');
-      await t.post(`/api/project-statuses/${st.id}`, {}, 'DELETE'); s = await t.snap(); if (s.projectStatuses.some(x => x.id === st.id)) t.fail('not deleted'); return 'added under Planned, then deleted';
+    await t.run('9.3 Settings › Features: switches hide a feature and bring it back (project statuses settings cut)', async () => {
+      await t.nav('/settings/features', 800); const sw = t.q('button[role="switch"][aria-label="Cycles"]'); if (!sw) t.fail('no Cycles switch');
+      await t.click(sw, 900); const off = !(await t.snap()).workspace.features.cyclesEnabled; await t.nav('/team/CORE/all', 700); const hidden = !t.q('.sidebar').innerText.includes('Cycles');
+      await t.nav('/settings/features', 700); await t.click(t.q('button[role="switch"][aria-label="Cycles"]'), 900); const on = (await t.snap()).workspace.features.cyclesEnabled;
+      if (!off || !hidden || !on) t.fail(`off ${off} hidden ${hidden} back ${on}`); return 'Cycles off → gone from the sidebar → on again';
     });
     await t.run('9.4 Project updates settings: workspace update schedule', async () => {
       await t.nav('/settings/project-updates', 800); const sel = t.q('select[aria-label="Update schedule"]'); await t.type(sel, 'biweekly', 800); const f = (await t.snap()).workspace.features.updateCadence; await t.type(t.q('select[aria-label="Update schedule"]'), 'none', 600);
@@ -531,12 +536,9 @@
       await t.nav('/teams', 800); const tt = t.q('.wt-head')?.innerText ?? ''; const tr = t.qa('.wt-row').length; await t.nav('/members', 800); const mt = t.q('.wt-head')?.innerText ?? ''; const mr = t.qa('.wt-row').length;
       if (!/Membership/.test(tt) || !/Last seen/.test(mt) || !tr || !mr) t.fail(`${tt} ${mt}`); return `${tr} teams (${tt.replace(/\n/g, ' · ')}); ${mr} members`;
     });
-    await t.run('9.11 Customize sidebar: badge style and per-item visibility (hidden items move to More)', async () => {
-      await t.nav('/inbox', 700); const more = t.qa('.sidebar .nav-item').find(b => b.innerText.trim() === 'More'); await t.click(more, 400); const mm = t.q('.menu:not(.closing)').innerText; await t.click(t.menuItem('Customize sidebar'), 700);
-      const pick = async (label, item) => { await t.click(t.q(`button[aria-label="${label}"]`), 400); await t.click(t.menuItem(item), 700); };
-      await pick('Teams visibility', 'Always show'); const shown = t.q('.sidebar').innerText.includes('Teams'); await pick('Default badge style', 'Dot'); const dot = !!t.q('.nav-dot');
-      await pick('Teams visibility', "Don't show"); await pick('Default badge style', 'Count'); await t.closeAll();
-      if (!mm.includes('Members') || !mm.includes('Teams') || !shown) t.fail(`more ${mm} shown ${shown}`); return `More: ${mm.replace(/\n/g, ', ')}; Teams shown when set; dot badges ${dot}`;
+    await t.run('9.11 Sidebar: More holds Teams and Members; Customize sidebar is cut', async () => {
+      await t.nav('/inbox', 700); const more = t.qa('.sidebar .nav-item').find(b => b.innerText.trim() === 'More'); await t.click(more, 400); const mm = t.q('.menu:not(.closing)').innerText; await t.closeAll();
+      if (!mm.includes('Members') || !mm.includes('Teams') || mm.includes('Customize sidebar')) t.fail(mm); return 'More: ' + mm.replace(/\n/g, ', ');
     });
     await t.run('9.12 Workspace settings: General, Teams, Members, Labels, Templates, Coding tools, Import & export', async () => {
       const bad = []; for (const sec of ['workspace', 'teams', 'members', 'labels', 'templates', 'handoff', 'data']) { await t.nav('/settings/' + sec, 500); if (t.text().length < 40) bad.push(sec); } if (bad.length) t.fail(bad); return 'all render';
@@ -550,7 +552,7 @@
       if (!help.includes('Keyboard shortcuts') || !txt.includes('Save as view') || txt.includes('Open command menu')) t.fail(`help ${help.slice(0, 30)} drawer ${txt.slice(0, 60)}`); return 'help menu; drawer search narrows to Save as view';
     });
     await t.run('9.15 Personal API keys: create a read-only key, call the API with it, revoke it', async () => {
-      await t.nav('/settings/security', 800); await t.click(t.byText('New API key'), 700); if (!location.hash.endsWith('/settings/security/new-api-key')) t.fail('form route ' + location.hash);
+      await t.nav('/settings/account', 800); await t.click(t.byText('New API key'), 700); if (!location.hash.endsWith('/settings/account/new-api-key')) t.fail('form route ' + location.hash);
       await t.type('#api-key-name', 'Harness key', 150); await t.click(t.qa('.radio-row').find(r => r.innerText.includes('Only select permissions')).querySelector('input'), 300);
       await t.click(t.qa('.check-row').find(r => r.innerText.startsWith('Read')).querySelector('input'), 200); await t.click(t.byText('Create'), 900);
       const token = t.q('[data-api-token]')?.textContent; if (!token?.startsWith('bl_api_')) t.fail('no token shown');
@@ -559,7 +561,7 @@
       const bad = (await fetch('/api/bootstrap', { headers: { Authorization: 'Bearer bl_api_nope' } })).status;
       await t.click(t.byText('Done'), 700); const mine = () => t.qa('[data-api-key]').find(r => r.querySelector('input')?.value === 'Harness key'); const row = mine(); if (!row?.innerText.includes('Last used')) t.fail('row ' + row?.innerText);
       await t.nav('/settings/api', 800); const issued = t.qa('[data-issued-keys] [data-api-key]').some(r => r.innerText.includes('Harness key'));
-      await t.nav('/settings/security', 700); const r2 = mine(); const rv = [...r2.querySelectorAll('button')].find(b => b.textContent === 'Revoke'); await t.click(rv, 300); await t.click([...r2.querySelectorAll('button')].find(b => /Revoke\?/.test(b.textContent)), 800);
+      await t.nav('/settings/account', 700); const r2 = mine(); const rv = [...r2.querySelectorAll('button')].find(b => b.textContent === 'Revoke'); await t.click(rv, 300); await t.click([...r2.querySelectorAll('button')].find(b => /Revoke\?/.test(b.textContent)), 800);
       const after = (await fetch('/api/bootstrap', { headers: h })).status;
       if (read !== 200 || write !== 403 || bad !== 401 || !issued || after !== 401) t.fail(`read ${read} write ${write} bad ${bad} issued ${issued} after ${after}`);
       return 'shown once; reads 200, writes 403, bad key 401; listed under Administration › API; revoked → 401';
@@ -571,7 +573,7 @@
     await t.run('11.1 Initiatives: sidebar, G then N, create, add project, post update, status', async () => {
       await t.nav('/inbox', 500); if (!t.q('.sidebar').innerText.includes('Initiatives')) t.fail('no sidebar item');
       await t.press('g', {}, 120); await t.press('n', {}, 600); if (location.hash !== '#/initiatives') t.fail('G then N → ' + location.hash);
-      await t.click(t.byText('New initiative'), 600); await t.type(t.q('.ini-modal-name'), 'Harness initiative', 200); await t.click(t.byText('Create initiative'), 1000);
+      await t.click(t.byText('New initiative'), 600); await t.type(t.q('.np-name'), 'Harness initiative', 200); await t.click(t.byText('Create initiative'), 1000);
       if (!location.hash.startsWith('#/initiatives/in_')) t.fail('not on the page: ' + location.hash);
       await t.click(t.byText('Add project'), 500); await t.click(t.qa('.menu:not(.closing) .menu-item')[0], 800); await t.closeAll();
       await t.click(t.byText('Write the first initiative update'), 500); const post = t.byText('Post update'); let box = post; while (box && !box.querySelector('.ProseMirror')) box = box.parentElement;
@@ -605,7 +607,7 @@
     });
     await t.run('11.7 GitHub: settings, In Review state, PR links by branch, status follows the PR, PR row + filter', async () => {
       await t.nav('/settings/github', 900); const txt = t.text(); if (!txt.includes('GitHub CLI') || !txt.includes('Branch format')) t.fail('settings page');
-      const sw = t.q('button[aria-label="Enable GitHub"]'); if (sw.getAttribute('aria-checked') !== 'true') await t.click(sw, 1200);
+      const sw = t.q('button[aria-label="Sync with GitHub"]'); if (sw.getAttribute('aria-checked') !== 'true') await t.click(sw, 1200);
       const s = await t.snap(); const core = s.teams.find(x => x.key === 'CORE'); if (!s.states.some(x => x.teamId === core.id && x.name === 'In Review')) t.fail('no In Review state');
       const todo = s.issues.find(i => i.teamId === core.id && s.states.find(x => x.id === i.stateId).type === 'unstarted' && !s.issuePrs.some(l => l.issueId === i.id)); const k = await t.keyOf(todo.id);
       const pr = (st, rd) => t.post('/api/git/pull-requests', { repo: 'example/app', number: 777, title: 'Harness PR', body: '', url: 'https://github.com/example/app/pull/777', state: st, branch: `parth/${k.toLowerCase()}-harness`, base: 'main', author: 'parth', reviewDecision: rd, checks: 'success', updatedAt: new Date().toISOString(), mergedAt: st === 'merged' ? new Date().toISOString() : null });
@@ -623,8 +625,8 @@
     await t.run('12.1 Create modal: Linear chrome (team key chip, pill properties, no scrim), V opens it full screen', async () => {
       await t.nav('/team/CORE/all', 600); await t.press('c', {}, 600); const head = t.q('.cm-header .cm-team')?.innerText.trim(); const scrim = getComputedStyle(t.q('.overlay')).backgroundColor; const pill = getComputedStyle(t.q('.cm-pills .prop-chip')).borderRadius; const assignee = t.qa('.cm-pills .prop-chip').map(b => b.innerText.trim()).find(x => /Assignee|Parth/.test(x));
       await t.closeAll(); await t.press('v', {}, 600); const full = !!t.q('.modal-create.expanded'); await t.closeAll();
-      if (!head?.endsWith('CORE') || !/rgba\(0, 0, 0, 0\)|transparent/.test(scrim) || !pill.startsWith('9999') || assignee !== 'Assignee' || !full) t.fail(`head ${head} scrim ${scrim} pill ${pill} assignee ${assignee} full ${full}`);
-      return 'CORE chip; no scrim; pill chips; unassigned by default (Auto-assign off); V → full screen';
+      if (!head?.endsWith('CORE') || !/rgba\(0, 0, 0, 0\)|transparent/.test(scrim) || !pill.startsWith('9999') || !assignee || assignee === 'Assignee' || !full) t.fail(`head ${head} scrim ${scrim} pill ${pill} assignee ${assignee} full ${full}`);
+      return 'CORE chip; no scrim; pill chips; assigned to the creator by default; V → full screen';
     });
     await t.run('12.2 ⌘K lists Linear’s groups; O then U / O then L open pickers; user and label pages', async () => {
       await t.nav('/team/CORE/all', 500); await t.press('k', { meta: true }, 600); const heads = t.qa('.modal-palette .menu-header').map(h => h.innerText.trim()); await t.closeAll();
@@ -639,9 +641,10 @@
       const miss = ['More properties', 'Create related', 'Mark as', 'Copy', 'Convert to', 'Make a copy', 'Move', 'Open in', 'Favorite', 'Remind me', 'Delete'].filter(x => !cm.includes(x));
       if (!dates || miss.length || !copy || cm.includes('Subscribe')) t.fail(`dates ${dates} missing ${miss} copy ${copy}`); return 'Dates submenu; Linear’s context menu; Make a copy prefills the create modal';
     });
-    await t.run('12.4 Settings: Profile (picture, title, username), Notifications (priority + browser), Preferences automations', async () => {
-      await t.nav('/settings/profile', 600); const pr = t.text(); await t.nav('/settings/notifications', 600); const no = t.text(); await t.nav('/settings/notifications/browser', 600); const de = t.text(); await t.nav('/settings/preferences', 600); const pf = t.text();
-      const miss = [['Profile picture', pr], ['Title', pr], ['Username', pr], ['Priority inbox', no], ['Browser', no], ['Reactions', de], ['Document changes', de], ['Auto-assign to self', pf], ['On move to started status', pf], ['Underline links', pf]].filter(([w, txt]) => !txt.includes(w)).map(([w]) => w);
+    await t.run('12.4 Settings: Profile (picture, title, username), Notifications (one browser switch), Preferences automations', async () => {
+      await t.nav('/settings/profile', 600); const pr = t.text(); await t.nav('/settings/notifications', 600); const no = t.text(); await t.nav('/settings/preferences', 600); const pf = t.text();
+      const miss = [['Profile picture', pr], ['Title', pr], ['Username', pr], ['Browser notifications', no], ['Auto-assign to self', pf], ['On move to started status', pf], ['Underline links', pf]].filter(([w, txt]) => !txt.includes(w)).map(([w]) => w);
+      if (/Priority inbox|Reactions/.test(no)) miss.push('priority inbox / push categories still shown');
       if (miss.length) t.fail('missing ' + miss); return 'all present';
     });
     await t.run('12.5 Team settings hub links to General, Members, labels, templates, recurring, statuses, workflows, triage, cycles', async () => {

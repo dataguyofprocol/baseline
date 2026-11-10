@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useApp, relTime, shortDate, useCursor, registerVisibleList } from './store.js';
 import { api } from './api.js';
 import { TopBar } from './AppShell.js';
-import { Menu, MenuItem, ConfirmButton, useCanConfigure, exclusive } from './ui.js';
+import { Menu, MenuItem, ConfirmButton, useCanLead, AskLine, exclusive } from './ui.js';
 import { IssueDetail } from './IssueDetail.js';
 import { StateIcon, PriorityIcon, Avatar, teamDisplayIcon } from './pickers.js';
 import { PropertyMenuBody, propMenuWidth, parseReminder } from './propertyMenus.js';
@@ -33,7 +33,8 @@ export function TriagePage() {
   const snap = useApp(s => s.snap)!;
   const navigate = useNavigate();
   const team = teamFromKey(teamKey);
-  const canConfigure = useCanConfigure();
+  // triage is the team's setup, so its lead's (or an admin's) to turn on
+  const canLead = useCanLead(team?.id ?? null);
   const cursor = useCursor(s => s.index);
   const dup = useMenu();
   const triageState = team ? snap.states.find(s => s.teamId === team.id && s.type === 'triage') : undefined;
@@ -90,9 +91,9 @@ export function TriagePage() {
           <div className="empty-title">Triage is off for {team.name}</div>
           <div className="empty-desc">With triage on, issues that agents and teammates file through the CLI land in a review queue before they reach the backlog.</div>
           <div className="empty-actions">
-            {canConfigure
+            {canLead
               ? <button className="btn primary" onClick={() => void exclusive(`triage-${team.id}`, async () => { await api.updateTeam(team.id, { triageEnabled: true }); await useApp.getState().bootstrap(); })}>Turn on triage</button>
-              : <span className="dim">Only admins can turn on triage.</span>}
+              : <AskLine teamId={team.id} what={`Turn on triage for ${team.name}`} />}
           </div>
         </div>
       </div>
@@ -249,7 +250,7 @@ export function ArchivePage() {
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <TopBar crumbs={[{ label: title }]} right={<span className="set-meta">{count || ''}</span>} />
       <div className="subnav">
-        {([['issues', 'Issues'], ['cycles', 'Cycles'], ['deleted', 'Recently deleted issues']] as const).map(([k, l]) => (
+        {([['issues', 'Issues'], ...(snap.workspace.features.cyclesEnabled ? [['cycles', 'Cycles'] as const] : []), ['deleted', 'Recently deleted issues']] as const).map(([k, l]) => (
           <button key={k} className={`seg ${tab === k ? 'selected' : ''}`} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>

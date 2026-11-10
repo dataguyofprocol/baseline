@@ -18,7 +18,7 @@ import {
 } from './pickers.js';
 import { PropertyMenuBody, propMenuWidth } from './propertyMenus.js';
 import { SubIssueSpine, AvatarStack } from './AvatarStack.js';
-import { SubIssueComposer } from './SubIssueComposer.js';
+import { SubIssueComposer, startSubIssue, useSubIssueRequests } from './SubIssueComposer.js';
 import { SubIssueProgress, subIssueProgress, estimateLabel } from './IssueViews.js';
 import { archiveIssues, deleteIssues, setIssueProps, toggleSubscription, markDuplicate, convertToProject, convertToTemplate, makeRecurring, CADENCE_LABELS, triageDecide } from './actions.js';
 import { navFor, neighbour, exitPathFor } from './nav.js';
@@ -252,6 +252,7 @@ function SubIssuesSection(props: { issue: Issue }) {
   const [composing, setComposing] = useState(false);
   const [open, setOpen] = useState(true);
   useEffect(() => { setComposing(false); }, [props.issue.id]);
+  useSubIssueRequests(props.issue.id, () => setComposing(true));
   const children = snap.issues.filter(i => i.parentId === props.issue.id && !i.archivedAt && !i.deletedAt)
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const childKey = (ch: Issue) => `${snap.teams.find(t => t.id === ch.teamId)?.key}-${ch.number}`;
@@ -272,7 +273,7 @@ function SubIssuesSection(props: { issue: Issue }) {
               onPick={async (child) => { await setIssueProps([child.id], { parentId: props.issue.id }); toast({ title: 'Sub-issue added', line: <>{child.title}</> }); }}>
               {({ open: o }) => <button className="icon-btn" title="Add existing issue" onClick={o}><IconLink size={13} /></button>}
             </IssuePickerMenu>
-            <button className="icon-btn" title="Add sub-issue (⌘⇧O)" onClick={() => setComposing(true)}><IconPlus size={13} /></button>
+            <button className="icon-btn" title="Add sub-issue (⌘⇧O)" aria-label="Add sub-issue" onClick={() => setComposing(true)}><IconPlus size={13} /></button>
           </div>
           {open && (
             <div style={{ display: 'flex', gap: 4 }}>
@@ -425,8 +426,14 @@ export function PropertiesRail(props: { issue: Issue }) {
   const hasMilestones = !!project && snap.milestones.some(m => m.projectId === project.id);
   const cycle = snap.cycles.find(c => c.id === issue.cycleId);
   const team = snap.teams.find(t => t.id === issue.teamId);
-  const estimatesOn = team?.estimateScale !== 'none';
+  const f = snap.workspace.features;
+  const estimatesOn = f.estimatesEnabled && team?.estimateScale !== 'none';
   const est = estimateLabel(issue, snap);
+  // a one-line bug shows what it has: empty optional properties wait behind "Add property"
+  const [more, setMore] = useState(false);
+  useEffect(() => { setMore(false); }, [issue.id]);
+  const show = { estimate: estimatesOn && (issue.estimate != null || more), cycle: !!cycle || (f.cyclesEnabled && more), due: !!issue.dueDate || more, project: !!project || more };
+  const hidden = (estimatesOn && !show.estimate) || (f.cyclesEnabled && !show.cycle) || !show.due || !show.project;
   const closed = state?.type === 'completed' || state?.type === 'canceled';
   const due = issue.dueDate?.slice(0, 10);
   const overdue = !!due && !closed && due < localIsoDate();
@@ -461,7 +468,7 @@ export function PropertiesRail(props: { issue: Issue }) {
             </button>
           )}
         </AssigneeMenu>
-        {estimatesOn && (
+        {show.estimate && (
           <EstimateMenu issue={issue}>
             {({ open }) => (
               <button className={`prop-line ${issue.estimate == null ? 'dim' : ''}`} data-prop="estimate" onClick={open} title="Set estimate (⇧E)">
@@ -471,23 +478,24 @@ export function PropertiesRail(props: { issue: Issue }) {
             )}
           </EstimateMenu>
         )}
-        <CycleMenu issue={issue}>
+        {show.cycle && <CycleMenu issue={issue}>
           {({ open }) => (
             <button className={`prop-line ${cycle ? '' : 'dim'}`} data-prop="cycle" onClick={open} title="Add to cycle (⇧C)">
               <IconCycle size={14} />
               <span className="prop-line-label">{cycle ? (cycle.name || `Cycle ${cycle.number}`) : 'Add to cycle'}</span>
             </button>
           )}
-        </CycleMenu>
-        <DueDateMenu issue={issue}>
+        </CycleMenu>}
+        {show.due && <DueDateMenu issue={issue}>
           {({ open }) => (
             <button className={`prop-line ${issue.dueDate ? '' : 'dim'}${overdue ? ' overdue' : ''}`} data-prop="due" onClick={open} title="Set due date (⇧D)">
               <IconCalendar size={14} />
               <span className="prop-line-label">{due ? `${overdue ? 'Overdue · ' : ''}${shortDate(due + 'T12:00')}` : 'Set due date'}</span>
             </button>
           )}
-        </DueDateMenu>
-        <IssueLocationRow issue={issue} />
+        </DueDateMenu>}
+        <IssueLocationRow issue={issue} expanded={more} />
+        {hidden && <button className="prop-line dim" data-add-property onClick={() => setMore(true)} title="Show the properties this issue doesn’t use yet"><IconPlus size={13} /><span className="prop-line-label">Add property</span></button>}
       </div>
 
       <div className="rail-section">
@@ -509,7 +517,7 @@ export function PropertiesRail(props: { issue: Issue }) {
         </LabelsMenu>
       </div>
 
-      <div className="rail-section">
+      {show.project && <div className="rail-section">
         <div className="rail-header">Project</div>
         <ProjectMenu issue={issue}>
           {({ open }) => (
@@ -531,8 +539,8 @@ export function PropertiesRail(props: { issue: Issue }) {
             )}
           </MilestoneMenu>
         )}
-        {issue.slaBreachesAt && <div className="prop-line" data-prop="sla"><SlaBadge issue={issue} long /></div>}
-      </div>
+        {f.slasEnabled && issue.slaBreachesAt && <div className="prop-line" data-prop="sla"><SlaBadge issue={issue} long /></div>}
+      </div>}
 
       <RelationsCard issue={issue} />
     </aside>
@@ -764,9 +772,10 @@ export function IssueDetail(props: { issue: Issue; onClose?: () => void; full?: 
                   onChange={md => void saveDesc(md)} onBlur={md => void saveDesc(md)} />
               </div>
               <div className="issue-under-desc">
-                <button className="icon-btn" data-add-link title="Add link (⌃L)" onClick={linkMenu.open}><IconLink size={14} /></button>
+                {/* labeled: two bare icons here read as decoration */}
+                <button className="btn ghost sm under-desc-btn" data-add-link title="Add link (⌃L)" onClick={linkMenu.open}><IconLink size={13} /> Add link</button>
                 {/* once there are sub-issues their section header has its own +, so this one would be a second copy */}
-                {!snap.issues.some(i => i.parentId === issue.id) && <button className="icon-btn" title="Add sub-issue (⌘⇧O)" onClick={() => useApp.getState().openCreate({ teamId: issue.teamId, parentId: issue.id, projectId: issue.projectId, cycleId: issue.cycleId })}><IconPlus size={14} /></button>}
+                {!snap.issues.some(i => i.parentId === issue.id) && <button className="btn ghost sm under-desc-btn" title="Add sub-issue (⌘⇧O)" onClick={() => startSubIssue(issue)}><IconPlus size={13} /> Add sub-issue</button>}
               </div>
               <Attachments issue={issue} />
               <SubIssuesSection issue={issue} />

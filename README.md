@@ -38,7 +38,7 @@ How hosted mode differs:
   - with Google: a Google Workspace account at an approved domain (Settings › Security).
 
   Opening an invite with a different address or Google account says so instead of letting them in.
-- **Passwords:** at least 10 characters, stored as scrypt hashes with a per-user salt. A wrong email and a wrong password get the same answer. An admin can make a one-use reset link for a member (Settings › Members, the member's menu; it lasts 24 hours). Everyone can change their own password in Settings › Security & access. Setting a new password signs out that person's other sessions.
+- **Passwords:** at least 10 characters, stored as scrypt hashes with a per-user salt. A wrong email and a wrong password get the same answer. An admin can make a one-use reset link for a member (Settings › Members, the member's menu; it lasts 24 hours). Everyone can change their own password in Settings › Account & API keys. Setting a new password signs out that person's other sessions.
 - **Settings › Members:** invite people as Members or Admins onto chosen teams (the dialog also finds people already in the workspace by name or email and adds them to those teams instead); resend, copy or revoke invites; change roles and teams; suspend or reactivate people. The workspace always keeps at least one admin, and nobody can suspend themselves.
 - **Settings › Security:** approved domains and the teams those people start on, and whether members may invite (only admins invite admins).
 - **Sessions** last 30 days, renewed as long as you keep using them.
@@ -158,27 +158,36 @@ Where a command goes: `--db <path>` (a local database), else `BASELINE_DB`, else
 
 So far `team list`, `user list`, `issue list|show|create|update|comment|handoff` and `search` work against a server; the other commands still need a local database and say so.
 
-## Coding agents over MCP
-
-Claude Code, Codex and pi keep their issues current through Baseline's MCP tools (`start_issue`, `post_progress`, `file_followup`, `finish_issue`, `draft_project_update`, `undo`, `get_issue`, `list_issues`). One command per repo:
+## Connect Claude Code (three steps)
 
 ```bash
-baseline connect claude|codex|pi            # the agent starts `baseline mcp` (stdio), which uses the CLI's target
-baseline connect claude|codex|pi --remote   # the agent calls https://<your server>/mcp with the key in $BASELINE_TOKEN
+npm install -g <this package>          # 1. once per machine: puts `baseline` on PATH (from a checkout: npm run build && npm install -g .)
+baseline login --server https://baseline.example.com   # 2. once per machine: browser sign-in
+baseline connect claude --team ENG     # 3. once per repo; commit what it writes, and teammates skip this step
+baseline doctor                        # server, who you are, the repo's team, MCP, hooks and allow-list
 ```
 
-It writes the agent's project MCP config (`.mcp.json`, `.codex/config.toml` or `.pi/mcp.json`) and a block in `CLAUDE.md` / `AGENTS.md` that tells the agent to use the tools (and the `baseline agent` commands when MCP isn't available). Those files are usually committed, so connect never writes a machine path, a database path or a key into them: `baseline` must be on your PATH (`npm run build && npm install -g .` in this checkout), and `--remote` entries read the key from `$BASELINE_TOKEN` (set it, with `BASELINE_URL`, in the shell that starts the agent). The hosted `/mcp` endpoint accepts API keys only; each tool call runs with that key's permissions and teams, and publishing a project update stays a person's action in the web app. Writes show as "Agent via <you>": every coding agent writes as the workspace's one agent user, and the record keeps the person it acted for.
+`connect claude` writes plain files, merged into what is there: `.mcp.json` (the `baseline mcp` server), `.claude/settings.json` (the Baseline hooks, plus an allow-list for the reads and the reversible writes `start_issue`, `post_progress`, `create_sub_issues`, `propose_issue` and `propose_followup`), `.baseline.json` (the repo's team) and a five-line block in `CLAUDE.md`. Nothing machine-specific or secret goes in them. `baseline connect codex|pi` writes the same server and an `AGENTS.md` block for those tools.
+
+What the agent then does on its own:
+- **Hooks.** `baseline hook session-start` tells Claude which issue the branch is on and what else is yours; `baseline hook prompt` adds a one-line "track this?" nudge when no issue is active (turn it off with `"promptHook": false` in `.baseline.json`); `baseline hook stop` asks for a progress note when there are commits newer than the last one, once.
+- **Tools.** `next_issue` ("what should I work on?"), `find_issues` (searches the whole team), `get_issue`, `list_issues`, `my_activity` (standup), `propose_issue` then `create_issue` (an issue is created only after you say yes), `start_issue` (checks out the branch), `create_sub_issues`, `post_progress`, `propose_followup` (asked about once, at finish), `finish_issue`, `draft_project_update` (never published by the agent) and `undo`. Each write returns an `op_id` that `undo` reverses.
+- **Attribution.** Writes show as "Claude Code via <you>" (or Codex, Cursor, pi): each tool gets its own agent user the first time it writes.
+
+Without a login (or a `--db` / `BASELINE_DB` naming an existing local database), `baseline mcp`, `baseline agent …`, `work`, `next` and `standup` refuse with "Not connected to Baseline. Run `baseline login --server <url>`"; they never create a database.
+
+In a plain terminal: `baseline work ENG-15` starts the issue, checks out its branch and opens Claude Code on it; `baseline next` and `baseline standup` answer the same questions as the tools.
+
+For sandboxes and cloud agents that can't run the CLI, `baseline connect claude --remote` points the agent at `https://<your server>/mcp` with an API key read from `$BASELINE_TOKEN`; tool calls there run with that key's permissions and teams, and `start_issue` returns the git command instead of running it.
 
 ## Skill (AI coding tools)
 
-`skills/baseline/SKILL.md` is an [Agent Skills](https://agentskills.io)-format skill that teaches Claude Code / OpenCode / ZCode to drive the tracker through this CLI. It ships with the repo; to install it user-wide, symlink the directory into your tools' skill folders:
+`skills/baseline/SKILL.md` is an [Agent Skills](https://agentskills.io)-format skill that teaches Claude Code / OpenCode / ZCode to drive the tracker through this CLI. It ships in the package; to install it user-wide, symlink the directory into your tools' skill folders (`<checkout>` is wherever this repo or the installed package lives):
 
 ```bash
-ln -sfn ~/sideones/baseline/skills/baseline ~/.agents/skills/baseline   # cross-tool standard
-ln -sfn ~/sideones/baseline/skills/baseline ~/.claude/skills/baseline   # Claude Code
+ln -sfn <checkout>/skills/baseline ~/.agents/skills/baseline   # cross-tool standard
+ln -sfn <checkout>/skills/baseline ~/.claude/skills/baseline   # Claude Code
 ```
-
-Agents report back through the same CLI: comments, status flips and relations land as "Agent via <you>" when the commands pass `--as "Agent"` (the workspace's agent user; add another agent identity in Settings ▸ Members or via `user add "<name>" --agent`).
 
 ## License
 

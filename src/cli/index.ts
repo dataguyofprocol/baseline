@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { serve } from '../server/index.js';
 import { isDirectory, LaunchError, openInClaudeCode } from '../server/launch.js';
 import { seedWorkspace } from '../core/seed.js';
+import { plainMentions } from '../core/mentions.js';
 import { hashPassword, passwordProblem } from '../core/passwords.js';
 import { issueKey, initiativeKey, PRIORITY_SHORT, PRIORITY_LABELS, TERMINAL_APPS, API_KEY_SCOPES } from '../core/types.js';
 import type { RelationType, Snapshot, Team, Label, Project, Issue, Location, ApiKeyScope } from '../core/types.js';
@@ -14,9 +15,9 @@ import { readSetupToken } from '../server/setup.js';
 import { legacyApp, legacyStore, setLegacyCommand } from './legacy.js';
 import { mountAccountCommands } from './login.js';
 import { mountOperations } from './ops.js';
-import { agentActor, sessionFrom } from '../ops/identity.js';
 import { serveStdio } from '../mcp/server.js';
 import { mountConnectCommand } from './connect.js';
+import { agentContext, mountWorkflowCommands } from './workflow.js';
 
 const { priorityNum, resolveTeam, resolveState, resolveUser, resolveProject, resolveLabel, resolveCycle, milestoneIdFor } = resolve;
 const { relationRows, invertRelation } = views;
@@ -170,8 +171,16 @@ program
 
 // ---------- team / user / label discovery ----------
 const team = program.command('team').description('Team operations');
-withDb(team.command('list')).description('List teams with their workflow states').action(async (opts: { db?: string }) => {
-  const snap = await (await connect(opts)).snapshot(['teams', 'states', 'issues']);
+withDb(team.command('list')).description('List teams with their workflow states').option('--json', 'output as JSON', false).action(async (opts: { db?: string; json?: boolean }) => {
+  const snap = await (await connect(opts)).snapshot(['teams', 'states', 'issues', 'currentUser']);
+  if (opts.json) {
+    console.log(JSON.stringify(snap.teams.map(t => ({
+      key: t.key, name: t.name, member: t.memberIds.includes(snap.currentUser.id), triage: t.triageEnabled,
+      issues: snap.issues.filter(i => i.teamId === t.id).length,
+      states: snap.states.filter(s => s.teamId === t.id).map(s => ({ name: s.name, type: s.type })),
+    })), null, 2));
+    process.exit(0);
+  }
   for (const t of snap.teams) {
     const states = snap.states.filter(s => s.teamId === t.id).map(s => `${s.name}(${s.type})`).join(', ');
     const count = snap.issues.filter(i => i.teamId === t.id).length;
@@ -450,7 +459,7 @@ withDb(issue.command('show <key>')).description('Show full issue detail')
       if (i.archivedAt) bits.push('ARCHIVED');
       if (i.deletedAt) bits.push('DELETED');
       if (bits.length) console.log(bits.join('  '));
-      if (i.description) console.log(`\n${i.description}`);
+      if (i.description) console.log(`\n${plainMentions(i.description)}`);
       if (children.length) {
         console.log('\nsub-issues:');
         for (const c of children) {
@@ -468,7 +477,7 @@ withDb(issue.command('show <key>')).description('Show full issue detail')
         }
       }
       const comments = snap.comments.filter(c => c.issueId === i.id);
-      for (const c of comments) console.log(`\n— ${views.byline(snap, c)} (${c.id}): ${c.body}`);
+      for (const c of comments) console.log(`\n— ${views.byline(snap, c)} (${c.id}): ${plainMentions(c.body)}`);
     }
     process.exit(0);
   });
@@ -661,7 +670,7 @@ withDb(issue.command('comments <key>')).description('List comments on an issue')
   const comments = snap.comments.filter(c => c.issueId === i.id);
   for (const c of comments) {
     const author = snap.users.find(u => u.id === c.userId)?.name ?? '?';
-    console.log(`${c.id}  ${author}  ${c.createdAt.slice(0, 16).replace('T', ' ')}  ${c.body}`);
+    console.log(`${c.id}  ${author}  ${c.createdAt.slice(0, 16).replace('T', ' ')}  ${plainMentions(c.body)}`);
   }
   console.error(`\n${comments.length} comment(s)`);
   process.exit(0);
@@ -1366,11 +1375,9 @@ withDb(doc.command('delete <doc>')).description('Delete a document').action((ref
 });
 
 // ---------- coding tools ----------
-const agent = program.command('agent').description('Your coding agent\'s side of an issue (start, progress, follow-ups, finish, project drafts, undo; written as Agent unless BASELINE_AS names another agent user; BASELINE_SESSION), and coding-tool settings');
-mountOperations(agent, async (flags) => {
-  const bl = await connect(flags);
-  return { bl, actor: await agentActor(bl, flags.as ?? process.env.BASELINE_AS), session: sessionFrom(process.env.BASELINE_SESSION) };
-});
+const agent = program.command('agent').description('Your coding agent\'s side of an issue: pick (next-issue, find-issues), propose and create, start, progress, sub-issues, follow-ups, finish, project drafts, undo. Writes as the coding tool\'s agent user (--as or BASELINE_AS; Claude Code is detected), else Agent; BASELINE_SESSION. Plus coding-tool settings');
+// the agent surface never opens the default database or makes a new one (agentContext): unconnected, it says to log in
+mountOperations(agent, (flags) => agentContext(flags));
 withDb(program.command('mcp')).description('Serve the agent operations as MCP tools on stdin/stdout, for Claude Code, Codex and other MCP clients (set up with `baseline connect`)')
   .action(async (opts: { db?: string }) => { await serveStdio(opts); });
 
@@ -1431,6 +1438,7 @@ withDb(location.command('remove <name>')).description('Unregister a location (pr
 
 mountAccountCommands(program);
 mountConnectCommand(program);
+mountWorkflowCommands(program);
 
 const commandPath = (c: Command): string => c.parent?.parent ? `${commandPath(c.parent)} ${c.name()}` : c.name();
 program.hook('preAction', (_root, action) => setLegacyCommand(commandPath(action), action.opts().as as string | undefined));

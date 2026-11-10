@@ -1236,6 +1236,9 @@ button.rail-kv:hover { background: var(--bg-hover); }
   width: 20px; height: 20px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
   background: var(--bg-pill); color: var(--text-secondary);
 }
+.inbox-sys.agent { color: var(--green); }
+.inbox-sys.warn { color: var(--danger); }
+.inbox-count { color: var(--text-dim); }
 .inbox-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .inbox-line1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .inbox-title {
@@ -2325,7 +2328,7 @@ html[data-font-size="small"] #root { zoom: 0.92; }
 html[data-font-size="large"] #root { zoom: 1.08; }
 html.pointer-cursors button, html.pointer-cursors a, html.pointer-cursors [role="button"], html.pointer-cursors .issue-row, html.pointer-cursors .menu-item { cursor: pointer; }
 
-/* ---------- API keys (Settings › Security & access) ---------- */
+/* ---------- API keys (Settings › Account & API keys) ---------- */
 .settings-crumb { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 13px; margin: -8px 0 20px; text-decoration: none; }
 .settings-crumb:hover { color: var(--text-primary); }
 .api-key-form, .api-key-reveal { display: flex; flex-direction: column; padding: 16px; gap: 4px; }
@@ -2929,6 +2932,16 @@ button.ini-upd-src:hover { background: var(--bg-hover); }
 .gh-import { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .gh-import input.text-input { width: 220px; }
 .gh-import select.text-input { width: 160px; }
+.gh-payoff { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; margin-bottom: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-overlay); }
+.gh-payoff-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); }
+.gh-payoff-stats b { color: var(--text-primary); font-weight: 590; font-variant-numeric: tabular-nums; }
+.gh-payoff .set-meta { margin-left: auto; }
+.gh-rules { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
+.gh-rules b { color: var(--text-primary); font-weight: 510; }
+.gh-advanced { margin-top: 22px; border-top: 1px solid var(--border); padding-top: 12px; }
+.gh-advanced > summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); padding: 4px 0; }
+.gh-advanced > summary:hover { color: var(--text-primary); }
+.gh-advanced[open] > summary { margin-bottom: 10px; }
 .gh-follow { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
 
 /* settings a member can read but not change (hosted): disabled, and only links in them respond to clicks */
@@ -2978,3 +2991,25 @@ fieldset.admin-locked a { pointer-events: auto; }
 .auth-input-wrap:has(.auth-reveal) .text-input { padding-right: 52px; }
 .auth-reveal { position: absolute; right: 6px; top: 50%; translate: 0 -50%; height: 22px; padding: 0 6px; border-radius: 5px; font-size: 11.5px; color: var(--text-secondary); background: transparent; border: 0; cursor: pointer; }
 .auth-reveal:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+/* ---------- a text button that reads as a link (Members) ---------- */
+.link-btn { color: var(--text-secondary); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 2px; }
+.link-btn:hover { color: var(--text-primary); }
+
+/* ---------- My work (MyWork.tsx) ---------- */
+.mw { padding-bottom: 40px; }
+.mw-section { margin-bottom: 10px; }
+.mw-section > .ma-row { margin: 0 4px; width: calc(100% - 8px); }
+.mw-empty { padding: 8px 24px 12px; color: var(--text-dim); font-size: 12.5px; }
+.mw-ask { cursor: default; }
+.mw-ask .icon-btn { opacity: 0; }
+.mw-ask:hover .icon-btn, .mw-ask:focus-within .icon-btn { opacity: 1; }
+.mw-toggle { width: 100%; border: 0; background: transparent; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 6px; }
+/* "Ask Parth" (ui.tsx AskLine): who decides, and a one-click request into their inbox */
+.ask-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ask-line > span { flex: 1 1 240px; }
+.ask-btn { flex: none; }
+.issue-under-desc .under-desc-btn { color: var(--text-dim); gap: 5px; }
+.issue-under-desc .under-desc-btn:hover { color: var(--text-primary); }
+/* the agent's journey under its final summary (core/work.ts renderFinal) */
+.md details > summary { cursor: pointer; color: var(--text-dim); font-size: 12px; }
