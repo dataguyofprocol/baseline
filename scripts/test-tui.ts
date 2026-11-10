@@ -99,6 +99,10 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
 
   check('truncate ends in an ellipsis inside the width', truncate('Theme switching without reload', 10) === 'Theme swi…');
   check('wide characters count as two cells', displayWidth('漢字ab') === 6 && displayWidth(truncate('漢字漢字漢字', 5)) <= 5);
+  check('emoji outside the old ranges count as two cells, as Ink draws them', displayWidth('🚀') === 2 && displayWidth('✅ done') === 7);
+  const family = '👨‍👩‍👧';
+  check('truncate never splits a joined emoji', truncate(`${family}${family}${family}`, 4) === `${family}…`);
+  check('wrapped emoji text never runs past the line', wrap('Ship 🚀🚀🚀 rocket 日本語のタイトル 🚀🚀', 7).every(l => lineWidth(l) <= 7));
   const text = 'One CLI covering the whole store so coding agents never need the UI, with a verylongunbreakablewordthatmustbesplit.';
   check('wrap never exceeds the width', [12, 20, 33].every(w => wrap(text, w).every(l => lineWidth(l) <= w)));
 

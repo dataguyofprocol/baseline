@@ -1,5 +1,6 @@
 // Pure view-model: what each screen shows, computed from TuiData. No Ink, no I/O, so it is testable.
 import { homedir } from 'node:os';
+import stringWidth from 'string-width';
 import { PRIORITY_LABELS, STATE_TYPE_LABELS, type ActivityItem, type Issue, type Notification, type NotificationType, type Priority, type Project, type ProjectStatus, type WorkflowStateType } from '../core/types.js';
 import { plainMentions } from '../core/mentions.js';
 import type { TuiData } from './data.js';
@@ -11,30 +12,21 @@ import { priorityGlyph, STATE_ICON } from './theme.js';
 export interface Seg { text: string; color?: string; bg?: string; bold?: boolean; dim?: boolean; italic?: boolean; underline?: boolean; strike?: boolean; inverse?: boolean }
 export type Line = Seg[];
 
-function charWidth(cp: number): number {
-  if (cp === 0x200d || (cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0x0300 && cp <= 0x036f)) return 0;
-  if ((cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) ||
-    (cp >= 0xf900 && cp <= 0xfaff) || (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) ||
-    (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1f64f) || (cp >= 0x1f900 && cp <= 0x1f9ff) ||
-    (cp >= 0x20000 && cp <= 0x3fffd)) return 2;
-  return 1;
-}
+// The same measure Ink lays out with: padding computed any other way drifts from what Ink draws.
+export const displayWidth = (s: string): number => stringWidth(s);
 
-export function displayWidth(s: string): number {
-  let w = 0;
-  for (const ch of s) w += charWidth(ch.codePointAt(0)!);
-  return w;
-}
+const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+const graphemes = (s: string) => Array.from(segmenter.segment(s), g => g.segment);
 
-/** cut to `width` cells, ending in an ellipsis when something was cut */
+/** cut to `width` cells, ending in an ellipsis when something was cut; never splits a grapheme */
 export function truncate(s: string, width: number): string {
   if (width <= 0) return '';
   if (displayWidth(s) <= width) return s;
   let out = '', w = 0;
-  for (const ch of s) {
-    const cw = charWidth(ch.codePointAt(0)!);
+  for (const g of graphemes(s)) {
+    const cw = stringWidth(g);
     if (w + cw > width - 1) break;
-    out += ch; w += cw;
+    out += g; w += cw;
   }
   return `${out}…`;
 }
@@ -77,7 +69,7 @@ export function wrapSegs(segs: Line, width: number, indent = ''): Line[] {
         if (w + ww > room && w > lineStart) newline();
         if (ww > room - w) {
           let chunk = '';
-          for (const ch of word) {
+          for (const ch of graphemes(word)) {
             if (w + displayWidth(chunk + ch) > room) { push({ ...seg, text: chunk }); newline(); chunk = ''; }
             chunk += ch;
           }
