@@ -1,4 +1,4 @@
-# Baseline — Feature Spec (defines "done")
+# Baseline feature spec (defines "done")
 
 Sources: user's reference video (60 frames catalogued, light theme, projects/initiatives promo) + live inspection of the logged-in Linear workspace (dark theme, screenshots in /tmp/linear-ref).
 
@@ -17,7 +17,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Team Home (team "…" › Team overview): Overview (icon, name, description, team resources), Documents, Members; right rail with members and Go to links
 - ✅ "+" beside Your teams opens Create a new team (name, identifier derived from it)
 - ✅ Team sub-items start with Home; Workspace has Initiatives, Projects and Views; Drafts shows when you have drafts
-- ✅ Customize sidebar (More › Customize sidebar): badge style (count / dot / none) and per-item Always show / Show when badged / Don't show — hidden items live in More
+- ✅ Customize sidebar (More › Customize sidebar): badge style (count / dot / none) and per-item Always show / Show when badged / Don't show; hidden items live in More
 - ✅ Teams and Members directory pages; Drafts page
 
 ## 2. Issues list
@@ -30,8 +30,8 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Display options popover: List/Board, Grouping, Sub-grouping, Ordering, Show empty groups, Display-property toggles (ID/Priority/Assignee/Labels/Project/Due date)
 - ✅ Filters: pill bar with dismissible pills (query, status, priority, assignee, label, project); `/` focuses filter; per-view persistence
 - ✅ J/K cursor ring with scrollIntoView; X select; Enter opens peek; multi-select bulk bar (status/priority/assignee/archive/delete)
-- ✅ Context menu: status/priority/assignee/labels (opens the same menus as detail), copy ID, copy as prompt (agent hand-off brief), open full page, duplicate, archive, delete — all with undo toasts
-- ✅ Linear filter menu: Status, Assignee (incl. Me / none), Creator, Priority, Estimate, Labels, Relations, Sub-issues, Due, Created, Updated, Project, Milestone, Cycle, Content — typing searches values across fields, per-value counts; pills are field · operator (is / is not / any of) · values · ×, with Clear and Save-as-view; "N issues hidden by filters"
+- ✅ Context menu: status/priority/assignee/labels (opens the same menus as detail), copy ID, copy as prompt (agent hand-off brief), open full page, duplicate, archive, delete, all with undo toasts
+- ✅ Linear filter menu: Status, Assignee (incl. Me / none), Creator, Priority, Estimate, Labels, Relations, Sub-issues, Due, Created, Updated, Project, Milestone, Cycle, Content. Typing searches values across fields, per-value counts; pills are field · operator (is / is not / any of) · values · ×, with Clear and Save-as-view; "N issues hidden by filters"
 - ✅ Display options (Linear's popover): Grouping/Columns, Sub-grouping/Rows, Ordering, Order completed by recency, Completed issues window, Show sub-issues, Show triage issues, empty groups, 14 display properties, Reset
 - ✅ Every property menu (shortcut, rail, context menu, bulk bar) is the same filterable menu with number keys, acting on one issue or the selection
 - ✅ Right-click menu with property flyouts, Create related, Mark as (parent/sub-issue/related/blocked/blocking/duplicate), Copy ▸, Favorite, Subscribe, Remind me, Delete
@@ -57,18 +57,18 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Properties rail: Status, Priority, Assignee, Labels, Project, Cycle, Due date (calendar popover with Today/Tomorrow/Next week), Estimate (0/1/2/3/5/8/13/21)
 - ✅ Activity feed: created/renamed/description/status/priority/assignee/label/project/parent/cycle/due/estimate/related events with relative times; comment composer (⌘⏎)
 - ✅ Comments: reactions (👍👎❤️🎉🚀😄 with counts + picker), edit/delete own, (edited) marker
-- ✅ Agent hand-off: Linear-style issue toolbar (copy URL ⌘⇧, · copy ID ⌘. · copy branch ⌘⇧. · copy as prompt ⌘⌥P) with a caret menu: **Open in Claude Code ▸** (the issue's location, its project's locations, other locations, or "Choose a folder…" via the native folder picker — picking one makes it the issue's location) launches an interactive `claude` session in your terminal (Terminal, iTerm, Ghostty, Warp, kitty, Alacritty or WezTerm); also in row context menus and the palette
+- ✅ Agent hand-off: Linear-style issue toolbar (copy URL ⌘⇧, · copy ID ⌘. · copy branch ⌘⇧. · copy as prompt ⌘⌥P) with a caret menu: **Open in Claude Code ▸** (the issue's location, its project's locations, other locations, or "Choose a folder…" via the native folder picker; picking one makes it the issue's location) launches an interactive `claude` session in your terminal (Terminal, iTerm, Ghostty, Warp, kitty, Alacritty or WezTerm); also in row context menus and the palette
 - ✅ Locations: a workspace list of directories (usually git repos) linked many-to-many to projects; every issue works in exactly one (Location property; every open issue without one shows "Needs a location"); sub-issues inherit the parent's location; a project's locations are suggestions in the picker, never defaults; add several at once (⌘-click in the folder picker)
 - ✅ Hand-off is always explicit (Copy as prompt, Open in Claude Code): nothing picks up assigned issues on its own
 - ✅ Sub-issues: list rows nest under their parent (elbow + indent), show "› parent" when apart, and parents show a closed/total progress ring; issue page shows "Sub-issue of ◐ KEY title  ◌ n/m"; inline sub-issue composer inherits the parent's priority, assignee, cycle and project, and Enter creates and keeps it open for the next one
 - ✅ Breadcrumb names the list you came from, "3 / 27" with ↓↑, J/K steps through it; every issue shortcut works on the open issue (menus anchor at the rail)
-- ✅ Rich-text description and comments (TipTap, stored as Markdown): headings, lists, checklists, code, quotes, `/` commands, @mentions of people and issues, pasted/dropped images (images only, up to 2 MB, stored in the database — the same in docs, project, initiative and team descriptions)
-- ✅ One activity timeline; comment threads with reply / resolve / reactions; real subscriptions (subscribers shown, ⇧S); link attachments (⌃L) — files aren't hosted, link to them; Remind me (⇧H); move to team (⌘⇧M); Make a copy
+- ✅ Rich-text description and comments (TipTap, stored as Markdown): headings, lists, checklists, code, quotes, `/` commands, @mentions of people and issues, pasted/dropped images (images only, up to 2 MB, stored in the database; the same in docs, project, initiative and team descriptions)
+- ✅ One activity timeline; comment threads with reply / resolve / reactions; real subscriptions (subscribers shown, ⇧S); link attachments (⌃L), since files aren't hosted; Remind me (⇧H); move to team (⌘⇧M); Make a copy
 - ✅ Triage banner (Accept / Duplicate / Decline) on issues waiting in triage; archived and trashed URLs open with Restore
 
 ## 5. Board view
 - ✅ Columns per group (status/priority/assignee/project/cycle); header icon+name+count+actions; "+" per status column
-- ✅ Cards (Linear layout): key + "› parent" for sub-issues + assignee; status icon + title; bordered chips for priority, cycle, project, sub-issue progress, labels, estimate, due; created date — chips that repeat the column's grouping are omitted
+- ✅ Cards (Linear layout): key + "› parent" for sub-issues + assignee; status icon + title; bordered chips for priority, cycle, project, sub-issue progress, labels, estimate, due; created date. Chips that repeat the column's grouping are omitted
 - ✅ Drag & drop: reorder within a column (sortOrder midpoint) and across columns (moves the group field)
 - ✅ Hidden columns panel: empty columns and Canceled (plus any you hide) move to a side panel with counts; rows accept drops and a click brings the column back
 - ✅ One agent identity per workspace ("Agent"): every agent write records the person it acted for ("Agent via Parth")

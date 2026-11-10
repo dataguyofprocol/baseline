@@ -1,11 +1,11 @@
 # Baseline
 
-Local-first issue & project tracker in the Linear style — one SQLite file, drivable from the **web UI** or the **CLI** (the CLI is the coding-agent surface).
+Local-first issue and project tracker in the Linear style. One SQLite file, drivable from the **web UI** or the **CLI** (the CLI is the coding-agent surface).
 
 ## Running locally
 
 Dev commands here (`npm run dev`, `dev:server`, `start`, `serve`, `cli`, `seed`) default to the
-sandbox DB and port 7327 so they can't touch real data — including `seed --reset`. Bare
+sandbox DB and port 7327 so they can't touch real data, `seed --reset` included. Bare
 `node dist/server/index.js` and `node bin/baseline.js` default to the real DB on
 port 7770. Override anything with `BASELINE_DB`, `BASELINE_PORT`, or `BASELINE_URL`.
 The server only listens on this machine (127.0.0.1 and ::1) and rejects requests addressed to any other host or sent cross-site from another origin; set `BASELINE_HOST=0.0.0.0` to open it to your network (launching Claude Code stays local-only either way).
@@ -54,8 +54,8 @@ How hosted mode differs:
 
 `npm run test:auth` covers setup, password and Google sign-in, invites, reset links, domains and roles.
 
-**Production data:** the work DB was wiped of all seed/demo data on 2026-08-29 — the workspace
-starts empty (create your team in Settings) and only real work lives there now. A database whose
+**Production data:** the work DB was wiped of all seed/demo data on 2026-08-29. The workspace
+starts empty (create your team in Settings) and holds only real work. A database whose
 `meta` table is empty starts blank in the web app (a first-run flow names your team and offers
 the sample data) and seeded from the CLI, so never point dev tools or experiments at
 `~/.baseline/baseline.db`; deleting or resetting that file would lose your work.
@@ -110,7 +110,7 @@ Issues with statuses, priorities, labels, sub-issues, relations, due dates, esti
 
 ## CLI
 
-Every project & task operation is drivable from the CLI — `node bin/baseline.js`, `npm run cli`, or `baseline` when linked. Issues are addressed by key (`CORE-3`); teams, projects, labels and users by name. Every command accepts `--db <path>` (or `BASELINE_DB` env), so agents can work on scratch databases. Run `baseline <command> --help` for all flags.
+Every project & task operation is drivable from the CLI: `node bin/baseline.js`, `npm run cli`, or `baseline` when linked. Issues are addressed by key (`CORE-3`); teams, projects, labels and users by name. Every command accepts `--db <path>` (or `BASELINE_DB` env), so agents can work on scratch databases. Run `baseline <command> --help` for all flags.
 
 ```bash
 # tasks
@@ -143,7 +143,7 @@ export [--out file] · import <file>    # full workspace backup / restore (image
 seed [--reset]
 ```
 
-Regression suite for all of the above: `npm run test:cli` (builds, then exercises every command against throwaway databases — never touches your workspace).
+Regression suite for all of the above: `npm run test:cli` (builds, then exercises every command against throwaway databases, so it never touches your workspace).
 
 ### Against a hosted server
 

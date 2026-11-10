@@ -1,11 +1,11 @@
 ---
 name: baseline
-description: Manage tasks and projects in the Baseline tracker via its CLI — create/update/list/search issues, change status, priority, assignees, labels, sub-issues, relations, comments; create projects, post progress updates and milestones; take hand-off briefs for coding agents (`issue handoff`); back up or restore the workspace. Use whenever the user mentions Baseline, their tracker, backlog, tasks, issues, or project status, asks to check off, move, triage, or break down work, or wants project state read or updated — even if they don't say "Baseline".
+description: Manage tasks and projects in the Baseline tracker via its CLI: create/update/list/search issues, change status, priority, assignees, labels, sub-issues, relations, comments; create projects, post progress updates and milestones; take hand-off briefs for coding agents (`issue handoff`); back up or restore the workspace. Use whenever the user mentions Baseline, their tracker, backlog, tasks, issues, or project status, asks to check off, move, triage, or break down work, or wants project state read or updated, even if they don't say "Baseline".
 ---
 
 # Baseline CLI
 
-Baseline is the team's issue and project tracker (Linear-style; a hosted server, or one SQLite file on a laptop). This skill drives it through its CLI — reading project state, creating and updating tasks, and keeping progress current.
+Baseline is the team's issue and project tracker (Linear-style; a hosted server, or one SQLite file on a laptop). This skill drives it through its CLI: reading project state, creating and updating tasks, and keeping progress current.
 
 ## Invocation
 
@@ -47,13 +47,13 @@ Or set `BASELINE_URL` + `BASELINE_TOKEN` (a personal API key) for one shell; set
 
 - **Issues by key**: `CORE-3` (case-insensitive). Keys are `TEAM-NUMBER`.
 - **Teams, projects, labels, users by name**: case-insensitive, substring match (`-j "Agent"` finds "Agent Handoff").
-- Workflow states are **per team**. Defaults are Backlog / Todo / In Progress / Done / Canceled, but teams may define others — discover them with `baseline team list` before setting `-s`.
+- Workflow states are **per team**. Defaults are Backlog / Todo / In Progress / Done / Canceled, but teams may define others; discover them with `baseline team list` before setting `-s`.
 - Priorities: `none|urgent|high|medium|low` (or `0`–`4`).
 - `"none"` clears a field: `--assignee none`, `--project none`, `--parent none`, `--estimate none`, `--due none`.
 
 ## Output modes
 
-- Human-readable by default; count summary on stderr — good for grepping.
+- Human-readable by default; count summary on stderr, good for grepping.
 - Add `--json` to `issue list|show|create` and `project list|show` for machine-readable output. Prefer `--json` when you need to parse fields (keys, ids, dates, progress); never parse prose.
 - `--help` works on every command.
 
@@ -233,7 +233,7 @@ baseline agent my-activity --since yesterday   # standup lines
 
 Each command is described in **Agent loop** below. Prefer them to `issue update` / `issue comment` for your own work: they converge on retries, keep one progress note instead of a pile of comments, and return an `op_id` the person can ask you to undo.
 
-- Report back even on partial work — the comment is the deliverable the human reads. Shape it to the work:
+- Report back even on partial work: the comment is the deliverable the human reads. Shape it to the work:
   - **Code:** branch, commit or PR link, files changed, how you verified it (tests/commands run).
   - **Docs / write-ups:** absolute path of each file you created (or the artifact link) plus a 2–3 line summary.
   - **Bug / investigation:** root cause, evidence (`file:line`, log lines), then the fix or next step.
@@ -241,8 +241,8 @@ Each command is described in **Agent loop** below. Prefer them to `issue update`
   - Absolute paths for local files; backticks around paths, branches and commands; keep it short.
 - If the work splits into separate pieces, `create_sub_issues` instead of one long comment.
 - Attribute other writes to your agent identity: add `--as "Claude Code"` (or your tool's name) to write commands (`issue create|update|bulk|archive|relate|comment`, `project note`) so activity, comments and notifications land under that user, recorded as "Claude Code via <the human>". Agent identities are marked `agent` in `user list`.
-- `BASELINE_AS=<name or user id>` does the same for every command without the flag (an explicit `--as` still wins) — export it once per agent session.
-- Locations: every task works in exactly one **location** (a registered directory, usually a git repo). There is no default directory — an issue without a location is never run anywhere by guess. Sub-issues start in their parent's location; nothing else is defaulted — a project's linked locations are only suggestions in the picker, so every other issue needs one chosen (the UI shows "Needs a location"). Set one with `issue update KEY --location <name>`.
+- `BASELINE_AS=<name or user id>` does the same for every command without the flag (an explicit `--as` still wins). Export it once per agent session.
+- Locations: every task works in exactly one **location** (a registered directory, usually a git repo). There is no default directory: an issue without a location is never run anywhere by guess. Sub-issues start in their parent's location and nothing else is defaulted. A project's linked locations are only suggestions in the picker, so every other issue needs one chosen (the UI shows "Needs a location"). Set one with `issue update KEY --location <name>`.
 - Where sessions open: `baseline agent config --terminal Terminal|iTerm|Ghostty|Warp|kitty|Alacritty|WezTerm`. Session briefs live in `~/.baseline/sessions/` (owner-only, pruned after a week).
 - Template overrides live in the web app under Settings ▸ Coding tools; `issue handoff --json` always reflects the current template.
 
@@ -379,7 +379,7 @@ Reverse one change that you made in Baseline, by the op_id that the change retur
 ## Conventions the store enforces (why your updates look the way they do)
 
 - Completing an issue (moving to a done-type state) sets `completedAt`; canceling sets `canceledAt`. Project progress % counts completed + canceled issues over total.
-- Every mutation writes an activity entry. Notifications follow subscriptions: creating, being assigned, commenting or being @mentioned subscribes a user, and the human's inbox gets status changes, comments, replies and mentions on issues they follow — so your status moves and comments reach them. `issue show --json` exposes the activity trail, comment threads (`replyTo`), subscribers and links — read it to catch up on an issue's history.
+- Every mutation writes an activity entry. Notifications follow subscriptions: creating, being assigned, commenting or being @mentioned subscribes a user, and the human's inbox gets status changes, comments, replies and mentions on issues they follow, so your status moves and comments reach them. `issue show --json` exposes the activity trail, comment threads (`replyTo`), subscribers and links. Read it to catch up on an issue's history.
 - Triage: when a team has triage on, issues you create there (as an agent, via `--as` or `BASELINE_AS`) land in its Triage state for the human to accept. Pass `-s Todo` to skip triage only when you were asked to.
 - Cycles with automation on are created and closed by the app; unfinished issues roll into the next cycle. Use `--cycle current|next` instead of guessing numbers.
 - `@Full Name` in a comment or description mentions that member (and notifies them); an issue key like `CORE-12` renders as a link to it.

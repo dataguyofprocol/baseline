@@ -39,7 +39,7 @@ The CLI test suite builds a fresh database per scenario, so it never touches you
 
 - TypeScript strict mode. `tsc --noEmit` must pass.
 - Two tsconfig roots: `tsconfig.node.json` (server, CLI) and `web/tsconfig.json` (web). Keep them in sync when adding shared types.
-- No bundler-only type checking — the CI workflow runs `tsc` explicitly.
+- No bundler-only type checking: the CI workflow runs `tsc` explicitly.
 - Match the surrounding code's comment density and naming. Don't restate the obvious.
 - Before opening a PR, run `npm run typecheck && npm run test:cli` and paste the result in the description.
 
@@ -48,7 +48,7 @@ The CLI test suite builds a fresh database per scenario, so it never touches you
 - Prefer squash merges with a Conventional-Commits-style subject (`feat: …`, `fix: …`, `docs: …`, `chore: …`).
 - One logical change per PR. Keep diffs reviewable.
 - Reference the issue in the PR body (`Closes #123` or `Refs #123`).
-- Add a short note for any user-facing change in the PR description — what they do, what they used to do, and what they'd notice.
+- Add a short note for any user-facing change in the PR description: what users do now, what they used to do, and what they'd notice.
 
 ## Releasing
 

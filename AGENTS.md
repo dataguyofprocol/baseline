@@ -7,7 +7,7 @@ installed under the `.agents/` convention:
 
 - Skills live in `.agents/skills/<name>/SKILL.md` (58 skills, including
   `poteto-mode`, `why`, `how`, `tdd`, `architect`, and the `principle-*` set).
-- Guide and harness notes: `.agents/pstack/docs/` — when a pstack skill uses a
+- Guide and harness notes: `.agents/pstack/docs/`. When a pstack skill uses a
   Cursor-specific tool or subagent name, map it per
   `.agents/pstack/docs/harness/claude-code.md`.
 - A pstack skill's `<pstack>/skills/<name>/SKILL.md` means

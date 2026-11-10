@@ -135,7 +135,7 @@ The web app has five jobs. Everything that serves none of them is hidden or cut.
 
 ## 4. First runs
 
-### 4.1 Admin (hosted) — target 15 minutes
+### 4.1 Admin (hosted): target 15 minutes
 1. Setup token → owner account and workspace name (unchanged).
 2. **First team:** name, with a 3-letter key suggested (ENG, not ENGI).
 3. **Invite:** paste emails *and* get one team join link to drop in Slack. "Copy all" when email is off.

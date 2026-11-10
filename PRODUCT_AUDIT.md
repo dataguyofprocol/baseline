@@ -275,7 +275,7 @@ That gives three surfaces, each with one job:
    - a Stop hook nudges `post_progress`/`finish_issue` when there are new commits.
 3. **Track, then tell:** with no key, the agent searches the team. On a match it starts that issue; with no match it creates one ("Agent via you", started, assigned to you) and reports it in one line, with undo.
 4. **The branch is the binding:** `start_issue` checks out the key-bearing branch, and from then on everything can infer the issue from the branch: tools, hooks, commits, PRs.
-5. **New tools for the questions people actually open a tracker for:** `create_issue`, `create_sub_issues`, `next_issue` ("what should I work on?"), `my_activity(since)` (the standup).
+5. **New tools for the questions people open a tracker for:** `create_issue`, `create_sub_issues`, `next_issue` ("what should I work on?"), `my_activity(since)` (the standup).
 6. **Defaults that close the loop:** In Review exists; finishing work sends a "Ready for your review" notification; follow-ups always land somewhere; one agent user per tool ("Claude Code via Parth").
 
 ### 5.3 Decisions (2026-11-09)
