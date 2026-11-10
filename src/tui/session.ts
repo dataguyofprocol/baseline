@@ -17,7 +17,7 @@ export interface SessionContext {
   route: Route;
   /** the routes `esc` walks back through */
   stack: Route[];
-  /** "My Issues › CORE-4" */
+  /** "My work › CORE-4" */
   showing: string;
   openIssue: { key: string; title: string } | null;
   /** the list display options, restored on the next start */
@@ -140,7 +140,7 @@ export function contextMarkdown(f: SessionFile, opts: { now: number; alive: bool
 
 export interface Restored { route: Route; stack: Route[]; groupBy: GroupBy; preset: Preset; cursorKey: string | null }
 
-/** where to reopen, from a file whose ids are checked against what still exists; routes that vanished fall back to My Issues */
+/** where to reopen, from a file whose ids are checked against what still exists; routes that vanished fall back to My work */
 export function restoreFrom(f: SessionFile, exists: { issue: (id: string) => boolean; team: (id: string) => boolean; project: (id: string) => boolean }): Restored {
   const ok = (r: Route | undefined): r is Route => !!r && (
     r.kind === 'my' || r.kind === 'inbox' || r.kind === 'projects' ||

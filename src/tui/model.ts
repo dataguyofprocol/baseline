@@ -8,7 +8,7 @@ import { priorityGlyph, STATE_ICON } from './theme.js';
 
 // ---------- text ----------
 
-export interface Seg { text: string; color?: string; bold?: boolean; dim?: boolean; italic?: boolean; underline?: boolean; strike?: boolean; inverse?: boolean }
+export interface Seg { text: string; color?: string; bg?: string; bold?: boolean; dim?: boolean; italic?: boolean; underline?: boolean; strike?: boolean; inverse?: boolean }
 export type Line = Seg[];
 
 function charWidth(cp: number): number {
@@ -91,7 +91,7 @@ export function wrapSegs(segs: Line, width: number, indent = ''): Line[] {
 }
 
 const sameStyle = (a: Seg, b: Seg) =>
-  a.color === b.color && !!a.bold === !!b.bold && !!a.dim === !!b.dim && !!a.italic === !!b.italic && !!a.underline === !!b.underline && !!a.strike === !!b.strike && !!a.inverse === !!b.inverse;
+  a.color === b.color && a.bg === b.bg && !!a.bold === !!b.bold && !!a.dim === !!b.dim && !!a.italic === !!b.italic && !!a.underline === !!b.underline && !!a.strike === !!b.strike && !!a.inverse === !!b.inverse;
 
 export const wrap = (text: string, width: number, style: Omit<Seg, 'text'> = {}): Line[] => wrapSegs([{ ...style, text }], width);
 
@@ -351,25 +351,43 @@ export function progressBar(done: number, total: number, width: number): { fille
   return { filled: '█'.repeat(n), empty: '░'.repeat(width - n) };
 }
 
-// ---------- sidebar ----------
+// ---------- tabs ----------
 
-export interface NavItem { id: string; label: string; route: Route; count: number | null; color?: string; icon: string }
+export interface Tab { id: string; label: string; route: Route; count: number | null }
 
-export function navItems(data: TuiData, now: number): NavItem[] {
-  const open = (i: Issue) => !CLOSED_TYPES.has(data.stateById.get(i.stateId)?.type ?? 'backlog');
+export const openIssue = (data: Pick<TuiData, 'stateById'>) => (i: Issue) => !CLOSED_TYPES.has(data.stateById.get(i.stateId)?.type ?? 'backlog');
+
+/** My work, Inbox, every team, Projects */
+export function allTabs(data: TuiData, now: number): Tab[] {
   return [
-    { id: 'my', label: 'My Issues', route: { kind: 'my' }, count: data.issues.filter(i => i.assigneeId === data.currentUser.id && open(i)).length, icon: '◉' },
-    { id: 'inbox', label: 'Inbox', route: { kind: 'inbox' }, count: unreadCount(data, now), icon: '✉' },
-    ...data.teams.map((t): NavItem => ({
-      id: `team:${t.id}`, label: t.name, route: { kind: 'team', teamId: t.id },
-      count: (data.issuesByTeam.get(t.id) ?? []).filter(open).length, color: t.color, icon: '■',
-    })),
-    { id: 'projects', label: 'Projects', route: { kind: 'projects' }, count: data.projects.length, icon: '◆' },
+    { id: 'my', label: 'My work', route: { kind: 'my' }, count: data.issues.filter(i => i.assigneeId === data.currentUser.id && openIssue(data)(i)).length },
+    { id: 'inbox', label: 'Inbox', route: { kind: 'inbox' }, count: unreadCount(data, now) || null },
+    ...data.teams.map((t): Tab => ({ id: `team:${t.id}`, label: t.name, route: { kind: 'team', teamId: t.id }, count: null })),
+    { id: 'projects', label: 'Projects', route: { kind: 'projects' }, count: null },
   ];
 }
 
-/** which sidebar entry a route belongs to (an issue or project belongs to whatever it was opened from) */
-export function navIdFor(route: Route, stack: readonly Route[]): string | null {
+export const tabText = (t: Tab, n: number) => `${n} ${t.label}${t.count ? ` ${t.count}` : ''}`;
+export const TAB_GAP = 3;
+
+/** the tabs that fit in `width` and in the digits 1-9: My work, Inbox and Projects always, teams in order while they fit
+ *  (the active team kept in), and how many teams were left out (reachable through /) */
+export function visibleTabs(data: TuiData, now: number, width: number, activeId: string | null): { tabs: Tab[]; hidden: number } {
+  const all = allTabs(data, now);
+  const teams = all.filter(t => t.route.kind === 'team');
+  const fixed = all.filter(t => t.route.kind !== 'team');
+  const more = (n: number) => (n ? displayWidth(`+${n} more · /`) + TAB_GAP : 0);
+  const widthOf = (ts: Tab[]) => ts.reduce((w, t, i) => w + displayWidth(tabText(t, i + 1)) + 2 + TAB_GAP, 0);
+  let shown = teams.slice(0, 9 - fixed.length);
+  const build = (ts: Tab[]) => [fixed[0], fixed[1], ...ts, fixed[2]];
+  while (shown.length && widthOf(build(shown)) + more(teams.length - shown.length) > width) shown = shown.slice(0, -1);
+  const active = teams.find(t => t.id === activeId);
+  if (active && !shown.includes(active) && shown.length) shown = [...shown.slice(0, -1), active];
+  return { tabs: build(shown), hidden: teams.length - shown.length };
+}
+
+/** which tab a route belongs to (an issue or project belongs to whatever it was opened from) */
+export function tabIdFor(route: Route, stack: readonly Route[]): string | null {
   for (const r of [route, ...[...stack].reverse()]) {
     if (r.kind === 'my' || r.kind === 'inbox' || r.kind === 'projects') return r.kind;
     if (r.kind === 'team') return `team:${r.teamId}`;

@@ -58,7 +58,7 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('sortIssues: urgent, high, medium, low, then no priority', sortIssues(fake).map(i => i.priority).join() === '1,2,3,4,0', sortIssues(fake).map(i => i.priority).join());
 
   const mine = issuesForRoute({ kind: 'my' }, data);
-  check('My Issues holds exactly the current user\'s issues', mine.length > 0 && mine.every(i => i.assigneeId === data.currentUser.id));
+  check('My work holds exactly the current user\'s issues', mine.length > 0 && mine.every(i => i.assigneeId === data.currentUser.id));
   const groups = groupIssues(mine, data);
   const order = groups.map(g => g.key as WorkflowStateType);
   check('groups follow Linear order: In Progress before Todo before Backlog, closed last',
@@ -155,7 +155,7 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
 
   const draft = newDraft({ route: { kind: 'team', teamId: team.id }, stack: [] }, data);
   check('a new issue defaults to the team in view', draft.teamId === team.id && draft.assigneeId === null);
-  check('on My Issues a new issue is assigned to me', newDraft({ route: { kind: 'my' }, stack: [] }, data).assigneeId === data.currentUser.id);
+  check('on My work a new issue is assigned to me', newDraft({ route: { kind: 'my' }, stack: [] }, data).assigneeId === data.currentUser.id);
   const otherTeam = data.teams[1];
   const switched = cycleDraft('team', draft, 1, data);
   check('changing the team resets the state to that team\'s', switched.teamId === otherTeam.id && data.stateById.get(switched.stateId!)?.teamId === otherTeam.id);
@@ -182,11 +182,10 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('no key is bound twice in one context', !clashes.length, clashes.join(', '));
   const st = run(initialState(), { type: 'loaded', data, at: now });
   check('s on a list opens the status picker', lookup(['list', 'global'], 's')?.command === 'setState');
-  check('j moves on lists and scrolls the issue page, through one binding', lookup(['detail', 'global'], 'j') === lookup(['list', 'global'], 'j') && lookup(['list', 'global'], 'j')?.command === 'down');
+  check('j moves on lists and scrolls the issue page', lookup(['detail', 'global'], 'j')?.command === 'down' && lookup(['list', 'global'], 'j')?.command === 'down');
   check('removed keys answer nothing: g, D, J, z, ctrl-b, ctrl-k', ['g', 'D', 'J', 'z', 'ctrl+b', 'ctrl+k', 'g i'].every(k => !lookup(['list', 'global'], k)));
   const help = helpSections().flatMap(sec => sec.rows.map(r => `${sec.group}|${r.key}|${r.label}`));
-  check('the help overlay has no duplicate rows, and one j/k row for lists and the issue page',
-    new Set(help).size === help.length && help.filter(r => r.startsWith('Move|j/k')).length === 1, help.filter((r, i) => help.indexOf(r) !== i).join(', '));
+  check('the help overlay has no duplicate rows', new Set(help).size === help.length, help.filter((r, i) => help.indexOf(r) !== i).join(', '));
   const pickerState = run(st, { type: 'openOverlay', overlay: { kind: 'picker', field: 'priority', issueId: data.issues[0].id, input: emptyField, cursor: 0, selected: [] } });
   check('a picker: digits always pick, every other letter filters',
     lookup(contextsFor(pickerState), '3')?.command === 'pickerPick' && lookup(contextsFor(run(pickerState, { type: 'editInput', input: fieldOf('h') })), '3')?.command === 'pickerPick' &&
@@ -235,7 +234,7 @@ class FakeStdin extends EventEmitter {
       if (ok(stdout.last)) return true;
       await new Promise(r => setTimeout(r, 25));
     }
-    check(`(timed out waiting for ${what})`, false, stdout.last.split('\n').slice(0, 12).join('\n'));
+    check(`(timed out waiting for ${what})`, false, stdout.last);
     return false;
   };
 
@@ -247,11 +246,13 @@ class FakeStdin extends EventEmitter {
 
   const mine = issuesForRoute({ kind: 'my' }, data);
   const openKeys = mine.filter(i => !CLOSED_TYPES.has(typeOf(i))).map(i => data.keyOf(i));
-  await waitFor('My Issues', f => f.includes('My Issues') && f.includes(openKeys[0]));
+  await waitFor('My work', f => f.includes('My work') && f.includes(openKeys[0]));
   const frame = stdout.last;
-  check('My Issues renders every open issue assigned to me', openKeys.every(k => frame.includes(k)), openKeys.filter(k => !frame.includes(k)).join(', '));
+  check('My work renders every open issue assigned to me', openKeys.every(k => frame.includes(k)), openKeys.filter(k => !frame.includes(k)).join(', '));
   check('group headers render with counts', /In Progress\s+\d+/.test(frame) && /Todo\s+\d+/.test(frame));
-  check('the footer shows hints from the keymap', frame.includes('s status') && frame.includes('? help'));
+  check('the tab bar numbers My work, Inbox, each team and Projects', new RegExp(`1 My work \\d+\\s+2 Inbox.*3 ${data.teams[0].name}\\s+4 ${data.teams[1].name}\\s+5 Projects`).test(frame), frame.split('\n')[0]);
+  check('the footer is one line of keys from the keymap', /↑↓ move\s+enter open\s+1-5 tabs\s+\/ find\s+\? help/.test(frame), frame.split('\n').slice(-2).join('\n'));
+  check('a detail pane beside the list shows the issue under the cursor with a key on each field', /│ s Status/.test(frame) && /│ a Assignee/.test(frame) && /│ w Work on it with an agent\s+c copy/.test(frame));
 
   const target = data.issueById.get(selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[0])!;
   const next = data.states.filter(s => s.teamId === target.teamId && s.id !== target.stateId).sort((a, b) => a.position - b.position).find(s => s.type === 'completed')!;
@@ -283,7 +284,7 @@ class FakeStdin extends EventEmitter {
   check('m → a comment is saved on the open issue', snap.comments.some(c => c.issueId === other.id && c.body === 'Reviewed from the terminal'));
 
   stdin.press('\x1b');
-  await waitFor('back to the list', f => f.includes('My Issues') && !f.includes('Description'));
+  await waitFor('back to the list', f => f.includes('My work') && !f.includes('Description'));
   stdin.press('c');
   await waitFor('new issue form', f => f.includes('New issue'));
   stdin.press('Filed from the TUI test');
@@ -291,15 +292,15 @@ class FakeStdin extends EventEmitter {
   stdin.press('\r');
   await waitFor('created toast', f => f.includes('Created') && f.includes('Filed from the TUI test'));
   const created = (await fresh.listIssues({ query: 'Filed from the TUI test' }))[0];
-  check('c → enter creates the issue, assigned to me from My Issues', !!created && created.assigneeId === data.currentUser.id);
+  check('c → enter creates the issue, assigned to me from My work', !!created && created.assigneeId === data.currentUser.id);
 
-  const second = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[1];
+  const second = selectableIds({ kind: 'my' }, await fetchData(fresh), DEFAULT_VIEW, now)[1];
   const secondTitle = (await fresh.getIssue(second))!.title;
   stdin.press('kkkkkkkkkkkkj\r');
   await waitFor('burst opens the second issue', f => f.includes('Description') && f.includes(secondTitle));
   check('a burst of keys in one chunk (tmux send-keys) acts as separate presses', stdout.last.includes(secondTitle));
   stdin.press('\x1b');
-  await waitFor('back to the list again', f => f.includes('My Issues') && !f.includes('Description'));
+  await waitFor('back to the list again', f => f.includes('My work') && !f.includes('Description'));
 
   const live = await fetchData(fresh);
   const pick = live.issueById.get(selectableIds({ kind: 'my' }, live, DEFAULT_VIEW, now)[0])!;
@@ -347,7 +348,7 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
   const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, onContext: writer.update }), {
     stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream, debug: true, exitOnCtrlC: false, patchConsole: false,
   });
-  await until(() => stdout.last.includes('My Issues'));
+  await until(() => stdout.last.includes('My work'));
   stdin.press('jj');
   const live = await fetchData(await connect({ db: dbPath }));
   const ids = selectableIds({ kind: 'my' }, live, DEFAULT_VIEW, Date.now());
@@ -361,7 +362,7 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
   const marked = ctx.stdout.split('\n').filter(l => l.includes('← cursor'));
   const position = (file?.list?.rows ?? []).findIndex(r => r.key === thirdKey) + 1;
   check('`baseline context` marks the cursor on the right row of the list', ctx.status === 0 && marked.length === 1 && marked[0].startsWith(`${position}. ${thirdKey} `), ctx.stdout + ctx.stderr);
-  check('`baseline context` says what is showing and that the TUI is open', ctx.stdout.includes('- Showing: My Issues') && ctx.stdout.includes(`pid ${process.pid}, open,`), ctx.stdout.split('\n')[0]);
+  check('`baseline context` says what is showing and that the TUI is open', ctx.stdout.includes('- Showing: My work') && ctx.stdout.includes(`pid ${process.pid}, open,`), ctx.stdout.split('\n')[0]);
   const json = cli(['context', '--json', '--db', dbPath]);
   check('`baseline context --json` prints the file', json.status === 0 && JSON.parse(json.stdout).list.cursorKey === thirdKey && JSON.parse(json.stdout).open === true);
 

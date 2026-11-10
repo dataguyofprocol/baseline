@@ -7,7 +7,7 @@ import { readSession, restoreFrom, sessionPath, sessionWriter, targetId, workspa
 
 export interface TuiOptions { db?: string; as?: string; issue?: string; fresh?: boolean }
 
-/** where the TUI opens: the issue asked for, else where the last session in this directory left off, else My Issues */
+/** where the TUI opens: the issue asked for, else where the last session in this directory left off, else My work */
 export async function prepareStart(bl: Baseline, opts: Pick<TuiOptions, 'issue' | 'fresh'>, workspace = workspaceDir()): Promise<Pick<AppProps, 'route' | 'stack' | 'start'>> {
   if (opts.issue) {
     const issue = await bl.getByKey(opts.issue);

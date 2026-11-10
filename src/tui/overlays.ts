@@ -79,7 +79,7 @@ export function defaultStateId(data: TuiData, teamId: string): string {
   return (states.find(s => s.type === 'unstarted') ?? states[0])?.id ?? '';
 }
 
-/** a new issue starts where you are: this team or project, assigned to you on My Issues so it shows up there */
+/** a new issue starts where you are: this team or project, assigned to you on My work so it shows up there */
 export function newDraft(s: Pick<TuiState, 'route' | 'stack'>, data: TuiData): IssueDraft {
   const fromRoute = [s.route, ...[...s.stack].reverse()];
   const issueRoute = fromRoute.find(r => r.kind === 'issue');

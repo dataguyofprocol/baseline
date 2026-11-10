@@ -9,7 +9,7 @@ const MAX_ROWS = 50;
 
 function routeName(r: Route, data: TuiData): string {
   switch (r.kind) {
-    case 'my': return 'My Issues';
+    case 'my': return 'My work';
     case 'inbox': return 'Inbox';
     case 'projects': return 'Projects';
     case 'team': return data.teamById.get(r.teamId)?.name ?? 'Team';

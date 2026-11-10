@@ -1429,7 +1429,7 @@ withDb(location.command('remove <name>')).description('Unregister a location (pr
 
 // ---------- terminal UI ----------
 withAs(withDb(program.command('tui [issue]'))).description('Open the workspace in a full-screen terminal UI, optionally straight to an issue key (bare `baseline` in a terminal does the same); it reopens where you left off in this directory')
-  .option('--fresh', 'start on My Issues instead of where the last session in this directory left off')
+  .option('--fresh', 'start on My work instead of where the last session in this directory left off')
   .action(async (issueKey: string | undefined, opts: { db?: string; as?: string; fresh?: boolean }) => {
     if (!process.stdout.isTTY || !process.stdin.isTTY) fail('`baseline tui` needs an interactive terminal, and stdout or stdin isn\'t one. In scripts, use `baseline issue list` and the other commands.');
     // loaded here so no other command pays for React and Ink

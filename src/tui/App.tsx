@@ -3,19 +3,22 @@ import { Box, Text, useApp, useInput, useStdout, useWindowSize, type Key } from 
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import type { Baseline } from '../client/index.js';
 import { copyToClipboard } from '../cli/system.js';
-import { errorText, runCommand, toast, type Ctx, type Layout } from './commands.js';
+import { currentInboxItem, errorText, runCommand, targetIssue, toast, type Ctx, type Layout } from './commands.js';
 import { fetchData } from './data.js';
 import { detailLines } from './detail.js';
-import { contextsFor, keyName, lookup, takesText, type CommandId } from './keys.js';
+import { contextsFor, hintsFor, keyName, lookup, takesText, type CommandId, type Context } from './keys.js';
 import { contextOf } from './context.js';
-import { displayWidth, type GroupBy, type Line, type Preset } from './model.js';
+import { displayWidth, isListRoute, tabIdFor, visibleTabs, type GroupBy, type Line, type Preset } from './model.js';
 import type { SessionContext } from './session.js';
 import { OverlayView } from './overlay-views.js';
-import { DetailScreen, Footer, headerLine, InboxScreen, ListScreen, ProjectsScreen, scrollLabel, ToastLine } from './screens.js';
+import { DetailPane, DetailScreen, Footer, hintSegs, inboxNote, InboxScreen, ListScreen, ProjectsScreen, scrollLabel, tabBarLine, ToastLine } from './screens.js';
 import { initialState, reducer, routeKey, type Action, type Route, type TuiState } from './state.js';
 import { editField, type TextField } from './textfield.js';
 import { SPINNER, theme } from './theme.js';
 import { LineView } from './ui.js';
+
+/** from this width the list gets a detail pane beside it */
+const WIDE_COLS = 100;
 
 export interface AppProps {
   bl: Baseline;
@@ -141,10 +144,16 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const contextJson = context ? JSON.stringify(context) : '';
   useEffect(() => { if (context && onContext) onContext(context); }, [contextJson]);
 
-  const mainW = columns;
-  const contentW = Math.max(20, mainW - 2);
-  const bodyH = Math.max(1, rows - 4);
   const data = state.data;
+  const wide = columns >= WIDE_COLS;
+  const contentW = Math.max(20, columns - 2);
+  const bodyH = Math.max(1, rows - 4);
+  const r = state.route;
+  const hasPane = wide && (isListRoute(r) || r.kind === 'inbox');
+  const listW = hasPane ? Math.floor(contentW * 0.45) : contentW;
+  const paneW = contentW - listW;
+  const activeTab = tabIdFor(r, state.stack);
+  const { tabs, hidden } = data ? visibleTabs(data, Date.now(), contentW, activeTab) : { tabs: [], hidden: 0 };
 
   const threads = openIssue ? state.threads[openIssue] : undefined;
   const detail = useMemo(() => {
@@ -153,7 +162,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
     return issue ? detailLines(issue, data, threads ?? [], contentW, state.syncedAt ?? Date.now()) : null;
   }, [data, openIssue, threads, contentW, state.syncedAt]);
 
-  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current };
+  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, tabs };
   const contexts = contextsFor(state);
 
   const handleKey = (input: string, key: Key) => {
@@ -200,33 +209,45 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
       <Box flexDirection="column" width={columns} height={rows}>
         <BootScreen s={state} width={columns} height={rows - 2} />
         <ToastLine toast={state.toast} width={columns} />
-        <Footer s={state} contexts={contexts} width={columns} target={targetLabel(bl)} />
+        <Footer s={state} left={footerLeft(contexts, 0)} width={columns} target={targetLabel(bl)} />
       </Box>
     );
   }
 
   const now = Date.now();
-  const r = state.route;
-  const screen = r.kind === 'issue' ? <DetailScreen s={state} lines={detail} width={contentW} height={bodyH} />
-    : r.kind === 'inbox' ? <InboxScreen s={state} data={data} width={contentW} height={bodyH} now={now} />
+  const cursorIssue = targetIssue(state, now);
+  const inboxItem = r.kind === 'inbox' ? currentInboxItem(state, now) : undefined;
+  const list = r.kind === 'inbox' ? <InboxScreen s={state} data={data} width={listW} height={bodyH} now={now} />
     : r.kind === 'projects' ? <ProjectsScreen s={state} data={data} width={contentW} height={bodyH} />
-    : <ListScreen s={state} data={data} width={contentW} height={bodyH} now={now} />;
+    : r.kind === 'issue' ? <DetailScreen s={state} lines={detail} width={contentW} height={bodyH} />
+    : <ListScreen s={state} data={data} width={listW} height={bodyH} now={now} />;
+  const screen = hasPane
+    ? (
+      <Box flexDirection="row">
+        {list}
+        <DetailPane issue={cursorIssue} note={inboxItem ? inboxNote(inboxItem, paneW - 3, now) : undefined} data={data} width={paneW} height={bodyH} now={now} />
+      </Box>
+    )
+    : list;
   const right = r.kind === 'issue' && detail ? scrollLabel(state, detail.length, bodyH) : '';
 
   return (
     <Box flexDirection="column" width={columns} height={rows}>
-      <Box flexDirection="row" height={rows - 2}>
-        <Box flexDirection="column" width={mainW} paddingX={1}>
-          <LineView line={headerLine(state, data, contentW, right, now)} width={contentW} />
-          <LineView line={[]} width={contentW} />
-          <ScreenBoundary resetKey={routeKey(r)}>{screen}</ScreenBoundary>
-        </Box>
+      <Box paddingX={1}><LineView line={tabBarLine(state, data, tabs, hidden, activeTab, contentW, right)} width={contentW} /></Box>
+      <LineView line={[{ text: '─'.repeat(columns), color: theme.border }]} width={columns} />
+      <Box flexDirection="row" height={bodyH} paddingX={1}>
+        <ScreenBoundary resetKey={routeKey(r)}>{screen}</ScreenBoundary>
       </Box>
       <ToastLine toast={state.toast} width={columns} />
-      <Footer s={state} contexts={contexts} width={columns} target={targetLabel(bl)} />
+      <Footer s={state} left={footerLeft(contexts, tabs.length)} width={columns} target={targetLabel(bl)} />
       <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} />
     </Box>
   );
+}
+
+/** the footer's keys: the active contexts' hints from the keymap, "1-9" cut to the tabs there are */
+function footerLeft(contexts: Context[], tabCount: number) {
+  return hintSegs(hintsFor(contexts).map(h => (h.key === '1-9' && h.label === 'tabs' ? { ...h, key: `1-${Math.min(9, tabCount)}` } : h)));
 }
 
 function targetLabel(bl: Baseline): string {

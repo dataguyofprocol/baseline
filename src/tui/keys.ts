@@ -10,8 +10,8 @@ export type Context =
 
 export type CommandId =
   | 'quit' | 'backOrQuit' | 'back' | 'help' | 'search' | 'create' | 'refresh'
-  | 'nextView' | 'prevView' | 'gotoView'
-  | 'down' | 'up' | 'pageDown' | 'pageUp' | 'open'
+  | 'tab'
+  | 'down' | 'up' | 'open'
   | 'setState' | 'setPriority' | 'setAssignee' | 'setLabels' | 'setProject' | 'assignMe'
   | 'comment' | 'editTitle' | 'editDescription'
   | 'copyKey' | 'copyUrl' | 'copyBranch' | 'copyPrompt' | 'openBrowser' | 'startAgent'
@@ -38,31 +38,31 @@ export interface Binding {
 }
 
 const NAV: Context[] = ['list', 'inbox', 'projects'];
-const MOVE: Context[] = [...NAV, 'detail'];
 const ISSUE: Context[] = ['list', 'detail'];
 const EVERYWHERE: Context[] = ['global', 'boot', 'picker', 'multipicker', 'finder', 'compose', 'help', 'confirm'];
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 export const BINDINGS: Binding[] = [
-  { keys: ['j', 'down', 'ctrl+n'], display: 'j/k', label: 'move (scroll on the issue page)', short: 'move', when: MOVE, command: 'down', group: 'Move', hint: true },
-  { keys: ['k', 'up', 'ctrl+p'], label: 'up', when: MOVE, command: 'up', group: 'Move', partner: true },
-  { keys: ['ctrl+d', 'pagedown'], display: 'ctrl-d/u', label: 'half page down / up', when: MOVE, command: 'pageDown', group: 'Move' },
-  { keys: ['ctrl+u', 'pageup'], label: 'half page up', when: MOVE, command: 'pageUp', group: 'Move', partner: true },
+  { keys: ['j', 'down', 'ctrl+n'], display: '↑↓', label: 'move', when: NAV, command: 'down', group: 'Move', hint: true },
+  { keys: ['k', 'up', 'ctrl+p'], label: 'up', when: NAV, command: 'up', group: 'Move', partner: true },
+  { keys: ['j', 'down', 'ctrl+n'], display: '↑↓', label: 'scroll', when: ['detail'], command: 'down', group: 'Move', hint: true },
+  { keys: ['k', 'up', 'ctrl+p'], label: 'scroll up', when: ['detail'], command: 'up', group: 'Move', partner: true },
+  { keys: ['esc'], label: 'back', when: ['detail'], command: 'back', group: 'Move', hint: true },
   { keys: ['enter'], label: 'open', when: ['list', 'projects'], command: 'open', group: 'Move', hint: true },
   { keys: ['enter'], label: 'open + mark read', short: 'open', when: ['inbox'], command: 'open', group: 'Inbox', hint: true },
 
 
-  { keys: ['s'], label: 'status', when: ISSUE, command: 'setState', group: 'Issue', hint: true },
-  { keys: ['p'], label: 'priority', when: ISSUE, command: 'setPriority', group: 'Issue', hint: true },
-  { keys: ['a'], label: 'assignee', when: ISSUE, command: 'setAssignee', group: 'Issue', hint: true },
+  { keys: ['s'], label: 'status', when: ISSUE, command: 'setState', group: 'Issue' },
+  { keys: ['p'], label: 'priority', when: ISSUE, command: 'setPriority', group: 'Issue' },
+  { keys: ['a'], label: 'assignee', when: ISSUE, command: 'setAssignee', group: 'Issue' },
   { keys: ['i'], label: 'assign to me', when: ISSUE, command: 'assignMe', group: 'Issue' },
   { keys: ['l'], label: 'labels', when: ISSUE, command: 'setLabels', group: 'Issue' },
   { keys: ['P'], label: 'project', when: ISSUE, command: 'setProject', group: 'Issue' },
-  { keys: ['m'], label: 'comment', when: ISSUE, command: 'comment', group: 'Issue', hint: true },
+  { keys: ['m'], label: 'comment', when: ISSUE, command: 'comment', group: 'Issue' },
   { keys: ['r'], label: 'rename', when: ISSUE, command: 'editTitle', group: 'Issue' },
   { keys: ['e'], label: 'edit description in $EDITOR', when: ISSUE, command: 'editDescription', group: 'Issue' },
 
-  { keys: ['A'], label: 'start agent here', short: 'agent', when: ISSUE, command: 'startAgent', group: 'Copy and agents', hint: true },
+  { keys: ['A'], label: 'start agent here', short: 'agent', when: ISSUE, command: 'startAgent', group: 'Copy and agents' },
   { keys: ['H'], label: 'copy agent prompt', when: ISSUE, command: 'copyPrompt', group: 'Copy and agents' },
   { keys: ['y'], label: 'copy issue ID', when: ISSUE, command: 'copyKey', group: 'Copy and agents' },
   { keys: ['Y'], label: 'copy issue URL', when: ISSUE, command: 'copyUrl', group: 'Copy and agents' },
@@ -70,17 +70,15 @@ export const BINDINGS: Binding[] = [
   { keys: ['o'], label: 'open in browser', when: ISSUE, command: 'openBrowser', group: 'Copy and agents' },
 
 
-  { keys: ['r'], label: 'read/unread', when: ['inbox'], command: 'markRead', group: 'Inbox', hint: true },
-  { keys: ['R'], label: 'mark all read', when: ['inbox'], command: 'markAllRead', group: 'Inbox', hint: true },
+  { keys: ['r'], label: 'read/unread', when: ['inbox'], command: 'markRead', group: 'Inbox' },
+  { keys: ['R'], label: 'mark all read', when: ['inbox'], command: 'markAllRead', group: 'Inbox' },
 
-  { keys: [']'], display: '[ ]', label: 'next / previous view', when: ['global'], command: 'nextView', group: 'Go to' },
-  { keys: ['['], label: 'previous view', when: ['global'], command: 'prevView', group: 'Go to', partner: true },
-  { keys: DIGITS, display: '1-9', label: 'go to the nth sidebar view', when: ['global'], command: 'gotoView', group: 'Go to' },
+  { keys: DIGITS, display: '1-9', label: 'switch tabs', short: 'tabs', when: ['global'], command: 'tab', group: 'Go to', hint: true },
 
-  { keys: ['c'], label: 'new issue', when: ['global'], command: 'create', group: 'Workspace', hint: true },
-  { keys: ['/'], label: 'search', when: ['global'], command: 'search', group: 'Workspace', hint: true },
+  { keys: ['c'], label: 'new issue', when: ['global'], command: 'create', group: 'Workspace' },
+  { keys: ['/'], label: 'find', when: ['global'], command: 'search', group: 'Workspace', hint: true },
   { keys: ['ctrl+r'], label: 'refresh now', when: ['global'], command: 'refresh', group: 'Workspace' },
-  { keys: ['esc', 'backspace'], display: 'esc', label: 'back', when: ['global'], command: 'back', group: 'Workspace' },
+  { keys: ['esc'], display: 'esc', label: 'back', when: ['global'], command: 'back', group: 'Workspace' },
   { keys: ['?'], label: 'help', when: ['global'], command: 'help', group: 'Workspace', hint: true },
   { keys: ['q'], label: 'back / quit', when: ['global'], command: 'backOrQuit', group: 'Workspace' },
   { keys: ['ctrl+c'], label: 'quit', when: EVERYWHERE, command: 'quit', group: 'Workspace' },

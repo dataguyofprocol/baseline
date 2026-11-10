@@ -6,12 +6,12 @@ import { PRIORITY_LABELS, type Handoff, type Issue, type Priority } from '../cor
 import { openBrowser, osc52 } from '../cli/system.js';
 import type { CommandId } from './keys.js';
 import { agentCommand, agentCwd, agentEnv, editInEditor, runInTerminal } from './launch.js';
-import { inboxItems, isListRoute, listRowsFor, navIdFor, navItems, projectRows, selectableIds } from './model.js';
+import { inboxItems, isListRoute, listRowsFor, projectRows, selectableIds, type InboxItem, type Tab } from './model.js';
 import { cycleDraft, filteredOptions, newDraft, NONE, searchResults } from './overlays.js';
 import { listViewOf, routeKey, type Action, type PickerField, type TuiState } from './state.js';
 import { emptyField, fieldOf } from './textfield.js';
 
-export interface Layout { pageSize: number; detailMax: number; helpMax: number }
+export interface Layout { pageSize: number; detailMax: number; helpMax: number; tabs: Tab[] }
 
 export interface Ctx {
   state: TuiState;
@@ -49,10 +49,16 @@ export function targetIssue(s: TuiState, now: number): Issue | undefined {
   const id = cursorIds(s, now)[s.cursor[routeKey(s.route)] ?? 0];
   if (isListRoute(s.route)) return id ? s.data.issueById.get(id) : undefined;
   if (s.route.kind === 'inbox') {
-    const item = inboxItems(s.data, now).find(i => i.id === id);
+    const item = currentInboxItem(s, now);
     return item?.issueId ? s.data.issueById.get(item.issueId) : undefined;
   }
   return undefined;
+}
+
+export function currentInboxItem(s: TuiState, now: number): InboxItem | undefined {
+  if (!s.data || s.route.kind !== 'inbox') return undefined;
+  const items = inboxItems(s.data, now);
+  return items[Math.min(s.cursor.inbox ?? 0, Math.max(0, items.length - 1))];
 }
 
 async function write<T>(ctx: Ctx, opts: { issueId?: string; patch?: Partial<Issue>; run: () => Promise<T>; ok: (r: T) => string; after?: (r: T) => void }): Promise<T | undefined> {
@@ -192,13 +198,6 @@ function move(ctx: Ctx, delta: number): void {
   ctx.dispatch({ type: 'move', delta, count: cursorIds(s, ctx.now()).length });
 }
 
-function cycleView(ctx: Ctx, delta: number): void {
-  const items = navItems(ctx.state.data!, ctx.now());
-  const at = items.findIndex(n => n.id === navIdFor(ctx.state.route, ctx.state.stack));
-  const next = items[((at + delta) % items.length + items.length) % items.length];
-  ctx.dispatch({ type: 'switchView', route: next.route });
-}
-
 export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise<unknown> {
   const s = ctx.state, d = ctx.dispatch;
   const now = ctx.now();
@@ -220,16 +219,12 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'create':
       if (!data.teams.length) return toast(d, 'error', 'This workspace has no teams to file an issue in');
       return d({ type: 'openOverlay', overlay: { kind: 'compose', target: 'issue', field: 'title', input: emptyField, draft: newDraft(s, data) } });
-    case 'nextView': return cycleView(ctx, 1);
-    case 'prevView': return cycleView(ctx, -1);
-    case 'gotoView': {
-      const item = navItems(data, now)[Number(key) - 1];
-      return item ? d({ type: 'switchView', route: item.route }) : undefined;
+    case 'tab': {
+      const tab = ctx.layout.tabs[Number(key) - 1];
+      return tab ? d({ type: 'switchView', route: tab.route }) : undefined;
     }
     case 'down': return move(ctx, 1);
     case 'up': return move(ctx, -1);
-    case 'pageDown': return move(ctx, Math.max(1, Math.floor(ctx.layout.pageSize / 2)));
-    case 'pageUp': return move(ctx, -Math.max(1, Math.floor(ctx.layout.pageSize / 2)));
 
     case 'open': {
       const id = cursorIds(s, now)[s.cursor[routeKey(s.route)] ?? 0];

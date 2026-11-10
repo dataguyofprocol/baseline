@@ -6,7 +6,7 @@ import { theme } from './theme.js';
 
 function SegText({ seg }: { seg: Seg }) {
   return (
-    <Text color={seg.color} bold={seg.bold} dimColor={seg.dim} italic={seg.italic} underline={seg.underline} strikethrough={seg.strike} inverse={seg.inverse}>
+    <Text color={seg.color} backgroundColor={seg.bg} bold={seg.bold} dimColor={seg.dim} italic={seg.italic} underline={seg.underline} strikethrough={seg.strike} inverse={seg.inverse}>
       {seg.text}
     </Text>
   );
@@ -26,8 +26,11 @@ export function fitLine(line: Line, width: number): Line {
   return out;
 }
 
-export function LineView({ line, width }: { line: Line; width?: number }) {
-  const segs = width === undefined ? line : fitLine(line, width);
+/** `bg` fills the row behind every segment without its own; `dim` greys the row out behind an overlay */
+export function LineView({ line, width, bg, dim }: { line: Line; width?: number; bg?: string; dim?: boolean }) {
+  let segs = width === undefined ? line : fitLine(line, width);
+  if (bg) segs = segs.map(s => (s.bg ? s : { ...s, bg }));
+  if (dim) segs = segs.map(s => ({ ...s, color: s.color === theme.key ? theme.muted : s.color, dim: true, bg: s.bg === theme.keyBg ? undefined : s.bg }));
   return <Text wrap="truncate-end">{segs.length ? segs.map((s, i) => <SegText key={i} seg={s} />) : ' '}</Text>;
 }
 
