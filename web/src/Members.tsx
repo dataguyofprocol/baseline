@@ -219,6 +219,7 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
   const [teamIds, setTeamIds] = useState<string[]>(props.teamIds ?? snap.teams.filter(t => t.memberIds.includes(snap.currentUser.id)).map(t => t.id).slice(0, 1));
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<InviteResult[] | null>(null);
+  const [tab, setTab] = useState<'email' | 'link'>('email');
 
   const people = snap.users.filter(u => u.kind === 'human' && u.status === 'active');
   const byEmail = (email: string) => people.find(u => u.email.toLowerCase() === email.toLowerCase());
@@ -277,82 +278,167 @@ export function InviteModal(props: { onClose: () => void; onDone: () => Promise<
   const shareable = results?.filter(r => r.invite && r.emailed !== 'sent') ?? [];
   const allLinks = shareable.map(r => `${r.email}: ${r.invite!.link}`).join('\n');
 
+  const chosenTeams = snap.teams.filter(t => teamIds.includes(t.id));
+  const teamLine = chosenTeams.length ? listNames(chosenTeams.map(t => t.name)) : snap.workspace.name;
+  const firstName = snap.currentUser.name.split(' ')[0];
+  const sentCount = results?.filter(r => r.invite).length ?? 0;
+  const addedCount = results?.filter(r => r.status === 'added-to-teams').length ?? 0;
+
   return (
-    <Modal onClose={props.onClose} className="modal modal-create cy-modal">
-      <div className="cm-root" onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !results) { e.preventDefault(); void send(); } }}>
-        <div className="cm-header">
-          <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Invite to {snap.workspace.name}</span>
-          <span style={{ marginLeft: 'auto', display: 'flex' }}><button className="icon-btn" title="Close" aria-label="Close" onClick={props.onClose}><IconClose size={14} /></button></span>
-        </div>
+    <Modal onClose={props.onClose} className="modal inv-modal">
+      <div className="inv" onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !results && tab === 'email') { e.preventDefault(); void send(); } }}>
         {!results ? (
-          <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <div className="field-label">People</div>
-              <PeopleField people={people} teams={snap.teams.filter(t => teamIds.includes(t.id))} entries={entries} text={text}
-                onText={setText} onEntries={setEntries} onCommit={commit} />
-              <div className="field-help">
-                {onlyPeople && !teamIds.length ? 'They\'re already in the workspace. Choose a team to add them to.'
-                  : `People already in the workspace are added to the teams below. New addresses get an invite link${mail ? ' by email' : ' to send them yourself (email isn\'t set up on this server)'}${snap.workspace.signInMethods?.includes('google') ? ': they choose a password, or sign in with the Google account for that address.' : ', and choose a password.'}`}
+          <div className="inv-cols">
+            <div className="inv-main">
+              <div className="inv-head">
+                <div>
+                  <h2>Bring your people into {snap.workspace.name}</h2>
+                  <p>Baseline is better with the people you ship with. They'll start right next to you.</p>
+                </div>
+                <button className="icon-btn" title="Close" aria-label="Close" onClick={props.onClose}><IconClose size={14} /></button>
+              </div>
+              <div className="inv-tabs" role="tablist" aria-label="How to invite">
+                <button role="tab" aria-selected={tab === 'email'} className={tab === 'email' ? 'on' : undefined} onClick={() => setTab('email')}>By email</button>
+                <button role="tab" aria-selected={tab === 'link'} className={tab === 'link' ? 'on' : undefined} onClick={() => setTab('link')}>Share a link</button>
+              </div>
+              {tab === 'email' ? (
+                <div className="inv-form">
+                  <div>
+                    <div className="inv-label">People</div>
+                    <PeopleField people={people} teams={chosenTeams} entries={entries} text={text}
+                      onText={setText} onEntries={setEntries} onCommit={commit} />
+                    <div className="field-help">
+                      {onlyPeople && !teamIds.length ? 'They\'re already in the workspace. Choose a team to add them to.'
+                        : `Paste a list or a whole email thread. People already here are added to the teams below; new addresses get an invite${mail ? ' by email' : ' link to send yourself, since email isn\'t set up on this server'}.`}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="inv-label">Teams they join</div>
+                    <TeamToggles teams={snap.teams} selected={teamIds} onChange={setTeamIds} />
+                  </div>
+                  <div>
+                    <div className="inv-label">Access</div>
+                    <div className="inv-role">
+                      <div className="inv-seg" role="radiogroup" aria-label="Access">
+                        <button role="radio" aria-checked={!admin} className={!admin ? 'on' : undefined} onClick={() => setAdmin(false)}>Member</button>
+                        <button role="radio" aria-checked={admin} className={admin ? 'on' : undefined} disabled={!isAdmin} title={isAdmin ? 'For new people; it doesn\'t change anyone already here' : 'Only admins can invite admins'} onClick={() => setAdmin(true)}>Admin</button>
+                      </div>
+                      <span className="field-help" style={{ margin: 0 }}>{admin ? 'Can also change settings, members and GitHub.' : 'Can create, assign and move issues, and connect an agent.'}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : <InviteLinkTab teams={chosenTeams.length ? chosenTeams : snap.teams.slice(0, 1)} />}
+              <div className="inv-foot">
+                <span className="field-help" style={{ margin: 0 }}>{tab === 'email' ? (chosenTeams.length ? `Joining ${teamLine}` : 'Pick a team for people already here') : 'Anyone with the link lands on that team'}</span>
+                <span style={{ flex: 1 }} />
+                <button className="btn" onClick={props.onClose}>Cancel</button>
+                {tab === 'email' && (
+                  <button className="btn primary" disabled={busy || !sendable} onClick={send}>
+                    {busy ? (mail ? 'Sending…' : 'Creating…') : onlyPeople ? 'Add to team' + (teamIds.length === 1 ? '' : 's') : mail ? (pending.length > 1 ? `Send ${pending.length} invites` : 'Send invite') : 'Create invite links'}<span className="btn-kbd kbd">⌘↵</span>
+                  </button>
+                )}
               </div>
             </div>
-            <div>
-              <div className="field-label">Role</div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                <button className={`seg seg-fill ${!admin ? 'selected' : ''}`} onClick={() => setAdmin(false)}>Member</button>
-                <button className={`seg seg-fill ${admin ? 'selected' : ''}`} disabled={!isAdmin} title={isAdmin ? 'For new people; it doesn\'t change anyone already here' : 'Only admins can invite admins'} onClick={() => setAdmin(true)}>Admin</button>
+            <aside className="inv-preview" aria-label="What they'll get">
+              <div className="inv-label">What they'll get</div>
+              <div className={`inv-mail${busy ? ' flying' : ''}`}>
+                <div className="inv-mail-from"><span className="inv-mail-logo">{snap.workspace.name[0]?.toUpperCase()}</span>Baseline</div>
+                <div className="inv-mail-title">{firstName} invited you to work on {teamLine} at {snap.workspace.name}</div>
+                <div className="inv-mail-line">Join to see the team's issues and connect your own coding agent.</div>
+                <span className="inv-mail-btn">Join {snap.workspace.name}</span>
               </div>
-            </div>
-            <div>
-              <div className="field-label" style={{ marginBottom: 6 }}>Teams</div>
-              <TeamToggles teams={snap.teams} selected={teamIds} onChange={setTeamIds} />
-            </div>
+              <div className="field-help">When they join, they get their own short setup, and their agent's work shows under their name.</div>
+            </aside>
           </div>
         ) : (
-          <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {results.map(r => {
-              const u = r.userId ? snap.users.find(x => x.id === r.userId) : undefined;
-              const bad = r.status === 'invalid' || r.emailed === 'failed';
-              return (
-                <div key={r.userId ?? r.email} className="prop-row" style={ROW} data-invite-result={r.status}>
-                  <Avatar user={u ?? null} size={24} />
-                  <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-                    <span>{u?.name ?? r.email}</span>
-                    <span style={{ fontSize: 12, color: bad ? 'var(--danger)' : 'var(--text-dim)' }}>{describe(r)}</span>
-                  </span>
-                  {r.invite && <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={async () => toast({ title: await copyText(r.invite!.link) ? 'Invite link copied' : 'Couldn\'t copy the link' })}><IconLink size={12} /> Copy link</button>}
-                </div>
-              );
-            })}
-            {shareable.length > 0 && <>
-              <div className="field-help">Send each person their link yourself{shareable.length > 1 ? ', or copy them all into one message' : ''}. A link only lets in the address it was made for.</div>
-              {shareable.length > 1 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <textarea className="text-input mono" data-share-all readOnly rows={Math.min(6, shareable.length)} value={allLinks} style={{ fontSize: 12, height: 'auto', resize: 'none', padding: '6px 8px' }} onFocus={e => e.target.select()} />
-                  <div><button className="btn" onClick={async () => toast({ title: await copyText(allLinks) ? `${shareable.length} invite links copied` : 'Couldn\'t copy. Select the links and copy them' })}><IconCopy size={13} /> Copy all</button></div>
-                </div>
-              )}
-            </>}
+          <div className="inv-sent">
+            <div className="inv-sent-head">
+              <svg className="inv-pop" width="30" height="30" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6.5" fill="var(--brand)" /><path d="M4.3 7.2l1.8 1.8 3.6-3.9" fill="none" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              <div>
+                <h2>{sentCount > 0 ? (mail ? `${sentCount} invite${sentCount === 1 ? ' is' : 's are'} on the way` : `${sentCount} invite link${sentCount === 1 ? ' is' : 's are'} ready to share`) : addedCount > 0 ? `${addedCount} ${addedCount === 1 ? 'person' : 'people'} added` : 'Nothing new to send'}</h2>
+                <p className="field-help" style={{ margin: 0 }}>{mail ? 'They\'ll show up in Members the moment they join.' : 'Send each person their link. They\'ll show up in Members when they join.'}</p>
+              </div>
+              <button className="icon-btn" title="Close" aria-label="Close" onClick={props.onClose} style={{ marginLeft: 'auto' }}><IconClose size={14} /></button>
+            </div>
+            <div className="inv-results">
+              {results.map((r, i) => {
+                const u = r.userId ? snap.users.find(x => x.id === r.userId) : undefined;
+                const bad = r.status === 'invalid' || r.emailed === 'failed';
+                return (
+                  <div key={r.userId ?? r.email} className="inv-result" style={{ ['--i' as string]: i }} data-invite-result={r.status}>
+                    <Avatar user={u ?? null} size={24} />
+                    <span className="inv-result-name">{u?.name ?? r.email}</span>
+                    <span className={`inv-result-status${bad ? ' bad' : ''}`}>{describe(r)}</span>
+                    {r.invite && <button className="btn" style={{ height: 24, fontSize: 12 }} onClick={async () => toast({ title: await copyText(r.invite!.link) ? 'Invite link copied' : 'Couldn\'t copy the link' })}><IconLink size={12} /> Copy link</button>}
+                  </div>
+                );
+              })}
+            </div>
+            {shareable.length > 1 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div className="field-help">Or copy them all into one message. A link only lets in the address it was made for.</div>
+                <textarea className="text-input mono" data-share-all readOnly rows={Math.min(6, shareable.length)} value={allLinks} style={{ fontSize: 12, height: 'auto', resize: 'none', padding: '6px 8px' }} onFocus={e => e.target.select()} />
+                <div><button className="btn" onClick={async () => toast({ title: await copyText(allLinks) ? `${shareable.length} invite links copied` : 'Couldn\'t copy. Select the links and copy them' })}><IconCopy size={13} /> Copy all</button></div>
+              </div>
+            )}
+            {sentCount > 0 && (
+              <div>
+                <div className="inv-label">What happens next</div>
+                <ol className="inv-next">
+                  <li style={{ ['--i' as string]: 0 }}><span>01</span><b>They open the invite</b><em>They choose a password{snap.workspace.signInMethods?.includes('google') ? ' or use Google' : ''}, and they're in.</em></li>
+                  <li style={{ ['--i' as string]: 1 }}><span>02</span><b>They land on {chosenTeams[0]?.name ?? 'your team'}</b><em>With its issues and their own short setup.</em></li>
+                  <li style={{ ['--i' as string]: 2 }}><span>03</span><b>Give them something</b><em>Assign an issue the minute they show up in Members.</em></li>
+                </ol>
+              </div>
+            )}
+            <div className="inv-foot">
+              <button className="btn" onClick={() => { setResults(null); setEntries([]); setText(''); }}>Invite more</button>
+              <span style={{ flex: 1 }} />
+              <button className="btn primary" onClick={props.onClose}>Done</button>
+            </div>
           </div>
         )}
-        <div className="cm-footer">
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            {!results ? (
-              <>
-                <button className="btn" onClick={props.onClose}>Cancel</button>
-                <button className="btn primary" disabled={busy || !sendable} onClick={send}>
-                  {busy ? (mail ? 'Sending…' : 'Creating…') : onlyPeople ? 'Add to team' + (teamIds.length === 1 ? '' : 's') : mail ? 'Send invites' : 'Create invite links'}<span className="btn-kbd kbd">⌘↵</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <button className="btn" onClick={() => { setResults(null); setEntries([]); setText(''); }}>Invite more</button>
-                <button className="btn primary" onClick={props.onClose}>Done</button>
-              </>
-            )}
-          </div>
-        </div>
       </div>
     </Modal>
+  );
+}
+
+const listNames = (names: string[]) => names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+
+/** the invite dialog's link tab: each chosen team's join link, made here by an admin when it has none */
+function InviteLinkTab({ teams }: { teams: Team[] }) {
+  const snap = useApp(s => s.snap)!;
+  const toast = useApp(s => s.toast);
+  const isAdmin = snap.currentUser.admin;
+  const [links, setLinks] = useState<Record<string, TeamJoinLink | null> | null>(null);
+  const ids = teams.map(t => t.id).join();
+  const load = useCallback(async () => {
+    const got = await Promise.all(teams.map(async t => [t.id, (await api.teamJoinLink(t.id).catch(() => ({ joinLink: null }))).joinLink] as const));
+    setLinks(Object.fromEntries(got));
+  }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [load]);
+  const run = async (fn: () => Promise<unknown>) => { try { await fn(); await load(); } catch (err) { toast({ title: (err as Error).message }); } };
+  return (
+    <div className="inv-form">
+      <p className="field-help" style={{ margin: 0 }}>For Slack, a team chat, or when email isn't set up. Anyone who opens it can make an account and lands on that team.</p>
+      {!links ? <div className="field-help">Loading…</div> : teams.map(t => {
+        const l = links[t.id];
+        return (
+          <div key={t.id} className="inv-link" data-join-team={t.key}>
+            <div className="inv-label">{t.name}</div>
+            {l ? (
+              <div className="inv-link-row">
+                <input className="text-input mono" readOnly value={l.link} onFocus={e => e.target.select()} aria-label={`${t.name} join link`} />
+                <button className="btn primary" onClick={async () => toast({ title: await copyText(l.link) ? `${t.name} join link copied` : 'Couldn\'t copy. Select the link and copy it' })}><IconCopy size={12} /> Copy link</button>
+              </div>
+            ) : isAdmin ? (
+              <div className="inv-link-row"><span className="field-help" style={{ margin: 0, flex: 1 }}>No join link yet.</span><button className="btn" onClick={() => void run(() => api.createTeamJoinLink(t.id))}><IconLink size={12} /> Create link</button></div>
+            ) : <span className="field-help" style={{ margin: 0 }}>No join link yet. An admin can make one.</span>}
+            {l && isAdmin && <button className="inv-text-btn" onClick={() => void run(() => api.revokeTeamJoinLink(t.id))}>Shared it somewhere you shouldn't have? Turn it off</button>}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

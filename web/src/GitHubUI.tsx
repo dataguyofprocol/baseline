@@ -159,7 +159,7 @@ function GitHubPayoff({ summary, lastSyncAt, syncButton }: { summary: GithubSumm
 
 /* ================= access: a read-only token, or (laptop) the gh sign-in ================= */
 const TOKEN_PERMISSIONS = ['Metadata', 'Contents', 'Pull requests', 'Issues', 'Checks'];
-function GitHubAccess({ status, hosted, onChange }: { status: GitStatus; hosted: boolean; onChange: () => Promise<void> }) {
+export function GitHubAccess({ status, hosted, onChange, bare }: { status: GitStatus; hosted: boolean; onChange: () => Promise<void>; /** without its numbered heading (the setup flow has its own) */ bare?: boolean }) {
   const [token, setToken] = useState('');
   const [replacing, setReplacing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -174,7 +174,7 @@ function GitHubAccess({ status, hosted, onChange }: { status: GitStatus; hosted:
   const ghReady = !hosted && !t && status.source === 'login' && !!status.ghUser;
   return (
     <>
-      <div className="settings-h2">1. Access</div>
+      {!bare && <div className="settings-h2">1. Access</div>}
       {t && !replacing ? (
         <div className="field-row">
           <div>
@@ -216,7 +216,7 @@ function GitHubAccess({ status, hosted, onChange }: { status: GitStatus; hosted:
 }
 
 /* ================= the repositories Baseline syncs, each mapped to a team ================= */
-function GitHubRepos({ status, hosted, canRead, onChange, onAdded }: { status: GitStatus; hosted: boolean; canRead: boolean; onChange: () => Promise<void>; onAdded: () => Promise<void> }) {
+export function GitHubRepos({ status, hosted, canRead, onChange, onAdded, bare }: { status: GitStatus; hosted: boolean; canRead: boolean; onChange: () => Promise<void>; onAdded: () => Promise<void>; bare?: boolean }) {
   const snap = useApp(s => s.snap)!;
   const [available, setAvailable] = useState<string[] | null>(null);
   const [picking, setPicking] = useState(false);
@@ -236,7 +236,7 @@ function GitHubRepos({ status, hosted, canRead, onChange, onAdded }: { status: G
   const setTeam = async (repo: string, teamId: string) => { await api.setGithubRepoTeam(repo, teamId || null); await onChange(); };
   return (
     <>
-      <div className="settings-h2">2. Repositories</div>
+      {!bare && <div className="settings-h2">2. Repositories</div>}
       <div className="field-help" style={{ marginBottom: 8 }}>
         Pick the repositories to sync and the team each one's work belongs to.{!hosted && <> Locations (Settings › Coding tools) whose <code>origin</code> is on GitHub are synced too.</>}
         {status.lastError ? <span style={{ color: 'var(--danger)' }}> Last error: {status.lastError}</span> : ''}
