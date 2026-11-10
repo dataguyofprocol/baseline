@@ -202,8 +202,8 @@ function SheetView({ s, data, contexts, cols, rows, now, sheet, tmux }: Props & 
         return rightAlign(left, right ? [{ text: right, color: theme.muted }] : [], inner);
       });
       body = [
-        [{ text: 'branch  ', color: theme.muted }, ...(sheet.branch ? [{ text: sheet.branch.name, color: theme.accent }, { text: sheet.branch.exists ? '  exists, checked out' : '  new, from the default branch', color: theme.muted }] : [{ text: '…', color: theme.muted }]),
-          { text: '     status  ', color: theme.muted }, { text: `${st?.name ?? '?'} → ${st?.type === 'started' ? st.name : target?.name ?? 'In Progress'}, yours` }],
+        [{ text: 'branch  ', color: theme.muted }, ...(sheet.branch ? [{ text: sheet.branch.name, color: theme.accent }, { text: sheet.branch.exists ? '  exists; checked out' : '  new, from the default branch', color: theme.muted }] : [{ text: '…', color: theme.muted }])],
+        [{ text: 'status  ', color: theme.muted }, { text: `${st?.name ?? '?'} → ${st?.type === 'started' ? st.name : target?.name ?? 'In Progress'}, yours` }],
         [],
         ...list(rowsOut, sheet.cursor, 4),
       ];

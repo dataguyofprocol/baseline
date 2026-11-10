@@ -6,7 +6,7 @@ import { myThread, threadAsk } from './today.js';
 import type { TuiState } from './state.js';
 
 export type Context =
-  | 'global' | 'boot' | 'today' | 'list' | 'detail' | 'review'
+  | 'global' | 'boot' | 'today' | 'list' | 'detail' | 'review' | 'blocked'
   | 'menu' | 'picker' | 'multipicker' | 'finder' | 'compose' | 'compose-issue' | 'compose-select' | 'help'
   | 'sheet' | 'sheet-list' | 'sheet-start' | 'sheet-check' | 'sheet-text' | 'sheet-answer' | 'sheet-standup';
 
@@ -57,7 +57,7 @@ const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 export const BINDINGS: Binding[] = [
   { keys: ['down', 'j'], display: '↑↓', label: 'move', when: NAV, command: 'down', group: 'Move around', hint: true },
   { keys: ['up', 'k'], label: 'up', when: NAV, command: 'up', group: 'Move around', partner: true },
-  { keys: ['down', 'j'], display: '↑↓', label: 'scroll the issue page', short: 'scroll', when: ['detail'], command: 'down', group: 'Move around', hint: true, hideIn: ['review'] },
+  { keys: ['down', 'j'], display: '↑↓', label: 'scroll the issue page', short: 'scroll', when: ['detail'], command: 'down', group: 'Move around', hint: true, hideIn: ['review', 'blocked'] },
   { keys: ['up', 'k'], label: 'scroll up', when: ['detail'], command: 'up', group: 'Move around', partner: true },
   { keys: ['pagedown'], display: 'PgDn PgUp', label: 'page', when: PAGED, command: 'pageDown', group: 'Move around' },
   { keys: ['pageup'], label: 'page up', when: PAGED, command: 'pageUp', group: 'Move around', partner: true },
@@ -66,18 +66,19 @@ export const BINDINGS: Binding[] = [
   { keys: ['g', 'home'], display: 'g G', label: 'top, bottom (Home End too)', when: PAGED, command: 'top', group: 'Move around' },
   { keys: ['G', 'end'], label: 'bottom', when: PAGED, command: 'bottom', group: 'Move around', partner: true },
   { keys: ['enter'], label: 'go into the thing under the cursor, or take its next step', short: 'open', when: NAV, command: 'open', group: 'Move around', hint: true },
-  { keys: ['esc'], label: 'back one level; Today is never more than two presses away', short: 'back', when: ['detail', 'list'], command: 'back', group: 'Move around', hint: true, hideIn: ['review'] },
-  { keys: DIGITS, display: '1-9', label: 'a place: 1 is Today, then your teams', short: 'places', when: ['global'], command: 'tab', group: 'Move around', hint: true, hideIn: ['review'] },
-  { keys: ['/'], label: 'everything without a tab: any issue, projects, notifications, standup', short: 'find', when: ['global'], command: 'search', group: 'Find and views', hint: true, hideIn: ['review'] },
-  { keys: ['space'], label: 'every action here, each with its letter', short: 'actions', when: ISSUE, command: 'actions', group: 'Find and views', hint: true, hideIn: ['review'] },
-  { keys: ['?'], label: 'this help', short: 'help', when: ['global'], command: 'help', group: 'Find and views', hint: true, hideIn: ['review'] },
+  { keys: ['esc'], label: 'back one level; Today is never more than two presses away', short: 'back', when: ['detail', 'list'], command: 'back', group: 'Move around', hint: true, hideIn: ['review', 'blocked'] },
+  { keys: DIGITS, display: '1-9', label: 'a place: 1 is Today, then your teams', short: 'places', when: ['global'], command: 'tab', group: 'Move around', hint: true, hideIn: ['review', 'blocked'] },
+  { keys: ['/'], label: 'everything without a tab: any issue, projects, notifications, standup', short: 'find', when: ['global'], command: 'search', group: 'Find and views', hint: true, hideIn: ['review', 'blocked'] },
+  { keys: ['space'], label: 'every action here, each with its letter', short: 'actions', when: ISSUE, command: 'actions', group: 'Find and views', hint: true, hideIn: ['review', 'blocked'] },
+  { keys: ['?'], label: 'this help', short: 'help', when: ['global'], command: 'help', group: 'Find and views', hint: true, hideIn: ['review', 'blocked'] },
   { keys: ['esc'], label: 'back', when: ['global'], command: 'back', group: 'Move around' },
   { keys: ['q'], label: 'back, or quit from a tab', when: ['global'], command: 'backOrQuit', group: 'Move around' },
   { keys: ['ctrl+r'], label: 'refresh now', when: ['global'], command: 'refresh', group: 'Move around' },
   { keys: ['ctrl+c'], label: 'quit', when: EVERYWHERE, command: 'quit', group: 'Move around' },
 
-  { keys: ['d'], label: 'Done', when: ISSUE, command: 'done', group: 'Decide', hint: true, hintOnly: ['review'] },
-  { keys: ['b'], label: 'Send back, or answer a blocked agent', short: 'Send back', when: ISSUE, command: 'sendBack', group: 'Decide', hint: true, hintOnly: ['review'] },
+  { keys: ['b'], label: 'Answer and rerun', when: ['blocked'], command: 'sendBack', group: 'Decide', hint: true, partner: true },
+  { keys: ['d'], label: 'Done', when: ISSUE, command: 'done', group: 'Decide', hint: true, hintOnly: ['review', 'blocked'] },
+  { keys: ['b'], label: 'Send back, or answer a blocked agent', short: 'Send back', when: ISSUE, command: 'sendBack', group: 'Decide', hint: true, hintOnly: ['review', 'blocked'] },
   { keys: ['f'], label: 'File the agent\'s follow-ups', short: 'File follow-ups', when: ISSUE, command: 'followups', group: 'Decide', hint: true, hintOnly: ['review'] },
   { keys: ['r'], label: 'Done: mark read', when: ISSUE, command: 'markRead', group: 'Decide' },
 
@@ -85,16 +86,16 @@ export const BINDINGS: Binding[] = [
   { keys: ['a'], label: 'Assignee', when: ISSUE, command: 'setAssignee', group: 'Change an issue' },
   { keys: ['p'], label: 'Priority', when: ISSUE, command: 'setPriority', group: 'Change an issue' },
   { keys: ['l'], label: 'Labels', when: ISSUE, command: 'setLabels', group: 'Change an issue' },
-  { keys: ['m'], label: 'Comment', when: ISSUE, command: 'comment', group: 'Change an issue', hint: true, hintOnly: ['review'] },
+  { keys: ['m'], label: 'Comment', when: ISSUE, command: 'comment', group: 'Change an issue', hint: true, hintOnly: ['review', 'blocked'] },
   { keys: ['e'], label: 'Edit title or description', when: ISSUE, command: 'editMenu', group: 'Change an issue' },
   { keys: ['n'], label: 'New issue', when: ['global'], command: 'create', group: 'Change an issue' },
   { keys: ['u'], label: 'Undo the last change', when: ['global'], command: 'undo', group: 'Change an issue' },
 
-  { keys: ['w'], label: 'Work on it with an agent', short: 'Agent again', when: ISSUE, command: 'agentMenu', group: 'Agents and copying', hint: true, hintOnly: ['review'] },
+  { keys: ['w'], label: 'Work on it with an agent', short: 'Agent again', when: ISSUE, command: 'agentMenu', group: 'Agents and copying', hint: true, hintOnly: ['review', 'blocked'] },
   { keys: ['c'], label: 'Copy key, branch or link', when: ISSUE, command: 'copyMenu', group: 'Agents and copying' },
   { keys: ['o'], label: 'Open the PR, or the issue, in the browser', short: 'PR', when: ISSUE, command: 'openBrowser', group: 'Agents and copying', hint: true, hintOnly: ['review'] },
 
-  { keys: ['esc'], label: 'back', short: 'Today', when: ['review'], command: 'back', group: 'Move around', hint: true },
+  { keys: ['esc'], label: 'back', short: 'Today', when: ['review', 'blocked'], command: 'back', group: 'Move around', hint: true },
   { keys: ['ctrl+r'], label: 'retry', when: ['boot'], command: 'retry', group: 'Move around', hint: true },
   { keys: ['q'], label: 'quit', when: ['boot'], command: 'quit', group: 'Move around', hint: true },
 
@@ -165,7 +166,7 @@ export function keyName(input: string, key: Key): string {
 }
 
 /** the contexts active right now, most specific first; the first binding found in that order wins.
- *  `review`: the issue page of an issue an agent finished or got stuck on, whose footer is the decision keys */
+ *  `review`, `blocked`: the issue page of an issue an agent finished or got stuck on, whose footer is the decision keys */
 export function contextsFor(s: Pick<TuiState, 'status' | 'data' | 'overlay' | 'route'>, now = Date.now()): Context[] {
   if (!s.data) return ['boot'];
   const o = s.overlay;
@@ -188,7 +189,10 @@ export function contextsFor(s: Pick<TuiState, 'status' | 'data' | 'overlay' | 'r
     case 'none': break;
   }
   const r = s.route;
-  if (r.kind === 'issue' && threadAsk(myThread(s.data, r.issueId)) && !closedIssue(s.data, r.issueId)) return ['review', 'detail', 'global'];
+  if (r.kind === 'issue' && !closedIssue(s.data, r.issueId)) {
+    const ask = threadAsk(myThread(s.data, r.issueId));
+    if (ask) return [ask === 'blocked' ? 'blocked' : 'review', 'detail', 'global'];
+  }
   return [baseContext(r), 'global'];
 }
 

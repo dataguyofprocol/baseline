@@ -348,6 +348,7 @@ export function todayPaneLines(row: { kind: 'need'; row: NeedRow } | { kind: 'fl
     return [...paneHead(issue, data, w), ...agentPaneRows(issue, data, row.row.thread, w, now), [], row.pane ? keysLine(['enter', 'go to its tmux pane'], ['m', 'comment']) : keysLine(['enter', 'open'], ['m', 'comment'])].slice(0, height);
   }
   const note: Line[] = row.kind === 'next' ? [[{ text: 'Up next', color: theme.muted }, { text: ` · ${row.row.reason}` }, { text: '   enter starts it', color: theme.muted }], []]
+    : row.kind === 'flight' && row.pane ? [[{ text: 'Agent starting in a tmux pane', color: theme.ok }, { text: '  enter goes to it', color: theme.muted }], []]
     : row.kind === 'need' ? [[{ text: row.row.reason, color: theme.accent }, { text: ` · ${relTime(row.row.at, now)}`, color: theme.muted }], []] : [];
   return [...note, ...paneLines(issue, data, w, height - note.length, now, ui)];
 }
