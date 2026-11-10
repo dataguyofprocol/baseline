@@ -23,6 +23,7 @@ import { agentCommand, agentEnv, paneCommand, shellPreview } from '../src/tui/la
 import { findSections } from '../src/tui/commands.js';
 import { findItems, wordMatch } from '../src/tui/find.js';
 import { prepareStart } from '../src/tui/index.js';
+import { paneLines } from '../src/tui/detail.js';
 import { sessionPath, sessionWriter, targetId, workspaceDir, type SessionFile } from '../src/tui/session.js';
 import {
   CLOSED_TYPES, DEFAULT_VIEW, defaultExpanded, displayWidth, GROUP_BYS, inboxItems, listRowsFor, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
@@ -186,7 +187,14 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   const st = run(initialState(), { type: 'loaded', data, at: now });
   check('s on a list opens the status picker', lookup(['list', 'global'], 's')?.command === 'setState');
   check('j moves on lists and scrolls the issue page', lookup(['detail', 'global'], 'j')?.command === 'down' && lookup(['list', 'global'], 'j')?.command === 'down');
-  check('removed keys answer nothing: g, D, J, z, ctrl-b, ctrl-k', ['g', 'D', 'J', 'z', 'ctrl+b', 'ctrl+k', 'g i'].every(k => !lookup(['list', 'global'], k)));
+  check('removed keys answer nothing: D, J, z, ctrl-b, ctrl-k, and no g chord', ['D', 'J', 'z', 'ctrl+b', 'ctrl+k', 'g i', 'g g'].every(k => !lookup(['list', 'global'], k)) && BINDINGS.every(b => b.keys.every(k => !k.includes(' '))));
+  check('page keys work on lists and the issue page: PgDn, ctrl-d, g/Home, G/End', ['list', 'inbox', 'projects', 'detail'].every(c =>
+    lookup([c as Context, 'global'], 'pagedown')?.command === 'pageDown' && lookup([c as Context, 'global'], 'ctrl+d')?.command === 'halfDown' &&
+    ['g', 'home'].every(k => lookup([c as Context, 'global'], k)?.command === 'top') && ['G', 'end'].every(k => lookup([c as Context, 'global'], k)?.command === 'bottom')));
+  check('space stays the action menu; / keeps Home, End and ctrl-d for its caret', lookup(['list', 'global'], 'space')?.command === 'actions' &&
+    ['home', 'end', 'ctrl+d', 'ctrl+u', 'g'].every(k => !lookup(['finder'], k)) && lookup(['finder'], 'pagedown')?.command === 'overlayPageDown' && lookup(['picker'], 'end')?.command === 'overlayBottom');
+  const moveRows = helpSections().find(sec => sec.group === 'Move around')!.rows.map(r => `${r.key} ${r.label}`);
+  check('? lists the page keys under Move around', ['PgDn PgUp page', 'ctrl-d ctrl-u half page', 'g G top, bottom'].every(t => moveRows.some(r => r.startsWith(t))), moveRows.join(' | '));
   const help = helpSections().flatMap(sec => sec.rows.map(r => `${sec.group}|${r.key}|${r.label}`));
   check('the help overlay has no duplicate rows', new Set(help).size === help.length, help.filter((r, i) => help.indexOf(r) !== i).join(', '));
   const pickerState = run(st, { type: 'openOverlay', overlay: { kind: 'picker', field: 'priority', issueId: data.issues[0].id, query: emptyField, cursor: 0, selected: [] } });
@@ -424,9 +432,9 @@ class FakeStdin extends EventEmitter {
   await settle(3700);
   const body = (f: string) => f.split('\n').slice(0, -2).join('\n');
   const before = body(stdout.last);
-  for (const k of ['g', 'D', 'J', 'z', 'G']) stdin.press(k);
+  for (const k of ['D', 'J', 'z']) stdin.press(k);
   await settle(400);
-  check('removed keys (g, D, J, z, G) do nothing', body(stdout.last) === before && !stdout.last.includes('by priority'), body(stdout.last).split('\n').slice(0, 6).join('\n'));
+  check('removed keys (D, J, z) do nothing', body(stdout.last) === before && !stdout.last.includes('by priority'), body(stdout.last).split('\n').slice(0, 6).join('\n'));
 
   stdin.press('?');
   await waitFor('help card', f => f.includes('Baseline, in your terminal'));
@@ -534,6 +542,96 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
   rmSync(path);
   const none = cli(['context', '--db', dbPath]);
   check('`baseline context` with no state file exits 1 with a hint to run baseline', none.status === 1 && none.stderr.includes('Run `baseline`'), none.stderr);
+}
+
+{
+  // page keys end to end: a team list in a short terminal, then an issue with a 200-line description
+  const team = data.teams[0];
+  const longBody = Array.from({ length: 200 }, (_, i) => `- Line ${String(i + 1).padStart(3, '0')} of the long description`).join('\n');
+  const long = await bl.createIssue({ teamId: team.id, title: 'A very long read', description: longBody }, data.currentUser.id);
+  const live = await fetchData(bl);
+  const longKey = live.keyOf(long);
+
+  const pane = paneLines(live.issueById.get(long.id)!, live, 50, 24, now).map(l => l.map(x => x.text).join(''));
+  const roomy = paneLines({ ...live.issueById.get(long.id)!, description: 'Short.' }, live, 50, 40, now).map(l => l.map(x => x.text).join(''));
+  check('the detail pane says "more ↓ enter for the whole issue" only when it cuts the issue off', pane.includes('more ↓ enter for the whole issue') && !roomy.some(l => l.includes('more ↓')), pane.join('\n'));
+
+  const menu = run(initialState(), { type: 'loaded', data: live, at: now }, { type: 'openOverlay', overlay: { kind: 'menu', path: ['actions'], issueId: long.id, cursor: 1 } });
+  check('a page in an overlay stops at the ends instead of wrapping', run(menu, { type: 'overlayMove', delta: 99, count: 5, clamp: true }).overlay.kind === 'menu' &&
+    (run(menu, { type: 'overlayMove', delta: 99, count: 5, clamp: true }).overlay as { cursor: number }).cursor === 4 &&
+    (run(menu, { type: 'overlayMove', delta: -Infinity, count: 5, clamp: true }).overlay as { cursor: number }).cursor === 0);
+
+  const stdout = new FakeStdout();
+  stdout.columns = 80;
+  stdout.rows = 12;
+  const stdin = new FakeStdin();
+  const route = { kind: 'team' as const, teamId: team.id };
+  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, route }), {
+    stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream, debug: true, exitOnCtrlC: false, patchConsole: false,
+  });
+  const until = async (ok: () => boolean, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end && !ok()) await new Promise(r => setTimeout(r, 25)); return ok(); };
+  const page = stdout.rows - 4;
+  const rows = listRowsFor(route, live, DEFAULT_VIEW);
+  const canRest = rows.map(r => r.kind === 'issue' || r.selectable);
+  const first = canRest.indexOf(true), last = canRest.lastIndexOf(true);
+  // the drawn row a page lands on: the target, else the nearest row the cursor can rest on past it, else before it
+  const landing = (from: number, delta: number) => {
+    const t = Math.max(0, Math.min(rows.length - 1, from + delta));
+    for (let i = t; i >= 0 && i < rows.length; i += Math.sign(delta)) if (canRest[i]) return i;
+    for (let i = t; i >= 0 && i < rows.length; i -= Math.sign(delta)) if (canRest[i]) return i;
+    return from;
+  };
+  const shows = (i: number) => {
+    const r = rows[i];
+    const lines = stdout.last.split('\n');
+    return r.kind === 'issue' ? lines.some(l => l.includes('▌') && l.includes(`${live.keyOf(r.issue)} `)) : lines.some(l => l.includes(r.group.label) && l.includes('enter shows these'));
+  };
+  const what = (i: number) => (rows[i].kind === 'issue' ? live.keyOf((rows[i] as { issue: Issue }).issue) : 'a group header');
+  const frameBody = () => stdout.last.split('\n').slice(2, -2).join('\n');
+  check('(the team list is longer than two pages)', rows.length > page * 2, String(rows.length));
+  await until(() => shows(first));
+  check('a list opens with the cursor on its first row', shows(first), frameBody());
+
+  stdin.press('\x1b[6~');
+  const paged = landing(first, page);
+  check(`PgDn moves the list cursor a page (${what(first)} → ${what(paged)})`, await until(() => shows(paged)), frameBody());
+  stdin.press('\x1b[5~');
+  check('PgUp moves it back', await until(() => shows(first)), frameBody());
+  stdin.press('\x04');
+  const half = landing(first, Math.floor(page / 2));
+  check(`ctrl-d moves half a page (${what(first)} → ${what(half)})`, await until(() => shows(half)), frameBody());
+  stdin.press('\x1b[F');
+  check('End reaches the last row', await until(() => shows(last)), frameBody());
+  stdin.press('g');
+  check('g goes back to the top', await until(() => shows(first)), frameBody());
+  stdin.press('G');
+  check('G reaches the last row', await until(() => shows(last)), frameBody());
+  stdin.press('\x1b[H');
+  check('Home goes back to the top', await until(() => shows(first)), frameBody());
+
+  stdin.press('/');
+  await until(() => stdout.last.includes('› '));
+  stdin.press(longKey);
+  await until(() => stdout.last.includes(`${longKey}`) && stdout.last.includes('A very long read'));
+  stdin.press('\r');
+  const marker = () => stdout.last.split('\n')[0].trim().split(/\s+/).slice(-2).join(' ');
+  await until(() => stdout.last.includes('Description') || marker() === 'more ↓');
+  check('a long issue page shows "more ↓" at the right of the header', marker() === 'more ↓', stdout.last.split('\n')[0]);
+  const top = frameBody();
+  stdin.press('\x1b[6~');
+  await until(() => frameBody() !== top);
+  const pct1 = marker().split(' ').pop()!;
+  check('PgDn scrolls the issue page and the marker turns into a percentage', frameBody() !== top && /^\d+%$/.test(pct1), `${marker()}\n${frameBody()}`);
+  const p1 = frameBody();
+  stdin.press('\x04');
+  await until(() => frameBody() !== p1);
+  const pct2 = marker().split(' ').pop()!;
+  check('ctrl-d scrolls on by half a page', /^\d+%$/.test(pct2) && parseInt(pct2) > parseInt(pct1), `${pct1} → ${pct2}`);
+  stdin.press('G');
+  check('G reaches the end of the issue: the last line shows, the marker says end', await until(() => stdout.last.includes('Line 200') && marker().endsWith('end')), `${marker()}\n${frameBody()}`);
+  stdin.press('g');
+  check('g goes back to its top', await until(() => marker() === 'more ↓'), marker());
+  app.unmount();
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

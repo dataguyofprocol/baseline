@@ -5,7 +5,7 @@ import { agentPreview, helpSections, introLines, MENUS, rowLabel, SUBMENU } from
 import type { TuiData } from './data.js';
 import { hintsFor, type Context } from './keys.js';
 import { displayWidth, padEnd, truncate, type Line, type Seg } from './model.js';
-import { pickerLines } from './detail.js';
+import { floatingPickerRows, pickerLines } from './detail.js';
 import { draftChoices, draftValue, PICKER_TITLE } from './overlays.js';
 import { FIND_SUGGESTIONS, findItems } from './find.js';
 import { DRAFT_FIELDS, type Overlay, type TuiState } from './state.js';
@@ -33,11 +33,14 @@ function rightAlign(left: Seg[], right: Seg[], width: number): Line {
 
 /** every key, by task, in two columns when there is room */
 export function helpLines(width: number): Line[] {
-  const sections = helpSections().map(sec => [
-    [{ text: sec.group, bold: true, color: theme.accent }] as Line,
-    ...sec.rows.map((r): Line => [{ text: r.sub ? '  ' : '' }, { text: padEnd(r.key, r.sub ? 8 : 10), color: theme.key, bold: true }, { text: r.label, color: r.sub ? theme.muted : undefined }]),
-    [] as Line,
-  ]);
+  const sections = helpSections().map(sec => {
+    const keyW = Math.max(10, ...sec.rows.filter(r => !r.sub).map(r => displayWidth(r.key) + 2));
+    return [
+      [{ text: sec.group, bold: true, color: theme.accent }] as Line,
+      ...sec.rows.map((r): Line => [{ text: r.sub ? '  ' : '' }, { text: padEnd(r.key, r.sub ? keyW - 2 : keyW), color: theme.key, bold: true }, { text: r.label, color: r.sub ? theme.muted : undefined }]),
+      [] as Line,
+    ];
+  });
   if (width < 90) return sections.flat();
   const total = sections.reduce((n, s) => n + s.length, 0);
   const left: Line[] = [], right: Line[] = [];
@@ -57,7 +60,8 @@ function truncLine(l: Line, width: number): Line {
   return out;
 }
 
-interface Props { s: TuiState; data: TuiData; contexts: Context[]; cols: number; rows: number; now: number; onHelpMax: (n: number) => void; tabs: number; target: string }
+/** `onFindRows`: how many / results are on screen, which PgDn moves by */
+interface Props { s: TuiState; data: TuiData; contexts: Context[]; cols: number; rows: number; now: number; onHelpMax: (n: number) => void; onFindRows: (n: number) => void; tabs: number; target: string }
 
 export function OverlayView(p: Props) {
   const o = p.s.overlay;
@@ -79,7 +83,7 @@ function place(cols: number, rows: number, width: number, height: number) {
 /** the picker floating over the list, when no detail pane or issue page shows the field it changes */
 function PickerView({ data, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'picker' }> }) {
   const issue = data.issueById.get(o.issueId);
-  const lines = pickerLines(o, data, Math.min(44, cols - 4), Math.max(3, Math.min(9, rows - 10)), `${PICKER_TITLE[o.field]} · ${issue ? data.keyOf(issue) : ''}`);
+  const lines = pickerLines(o, data, Math.min(44, cols - 4), floatingPickerRows(rows), `${PICKER_TITLE[o.field]} · ${issue ? data.keyOf(issue) : ''}`);
   const width = lines[0].reduce((n, x) => n + displayWidth(x.text), 0);
   const { left, top } = place(cols, rows, width, lines.length);
   return (
@@ -90,7 +94,7 @@ function PickerView({ data, cols, rows, o }: Props & { o: Extract<Overlay, { kin
 }
 
 /** `/`: a prompt at the bottom with the results panel above it, over the lower part of the screen */
-function FindView({ s, data, cols, rows, now, o }: Props & { o: Extract<Overlay, { kind: 'find' }> }) {
+function FindView({ s, data, cols, rows, now, o, onFindRows }: Props & { o: Extract<Overlay, { kind: 'find' }> }) {
   const sections = findSections(s, o.query.value, now);
   const items = findItems(sections);
   const cursor = Math.min(o.cursor, Math.max(0, items.length - 1));
@@ -125,6 +129,7 @@ function FindView({ s, data, cols, rows, now, o }: Props & { o: Extract<Overlay,
   const selLine = Math.max(0, lines.findIndex(l => l.sel));
   const start = Math.max(0, Math.min(selLine - room + 3, lines.length - room));
   const shown = lines.slice(start, start + room);
+  onFindRows(shown.filter(l => l.at !== undefined).length);
   const top = rows - 2 - shown.length - 1;
   return (
     <Box position="absolute" left={0} top={top} flexDirection="column" width={cols}>
@@ -161,13 +166,15 @@ function ComposeView({ data, contexts, cols, rows, o }: Props & { o: Extract<Ove
   return <Modal title={o.target === 'comment' ? 'Comment' : 'Rename'} subtitle={key} rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
 }
 
+export const helpRows = (rows: number) => Math.max(3, rows - 6);
+
 /** the first-launch card; ? shows it again with every key below it, scrolled with ↑↓ */
 function HelpView({ data, cols, rows, o, onHelpMax, tabs, target }: Props & { o: Extract<Overlay, { kind: 'help' }> }) {
   const width = Math.min(cols - 2, o.intro ? 72 : 104);
   const inner = width - 4;
   const card = introLines(data, tabs, target, inner);
   const all = o.intro ? card : [...card.slice(0, -1), [{ text: '─'.repeat(inner), color: theme.border }], [], ...helpLines(inner)];
-  const room = Math.max(3, rows - 6);
+  const room = helpRows(rows);
   const max = Math.max(0, all.length - room);
   onHelpMax(max);
   const scroll = Math.min(o.scroll, max);

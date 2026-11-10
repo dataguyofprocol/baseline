@@ -104,6 +104,7 @@ const rightAlign = (left: Seg[], right: Seg[], width: number): Line => {
   return [...left, { text: ' '.repeat(Math.max(2, width - lw - rw)) }, ...right];
 };
 
+const MORE_LINE: Line = [{ text: 'more ↓ enter for the whole issue', color: theme.muted }];
 export const AGENT_LINE: Line = [keySeg('w'), { text: ' Work on it with an agent   ' }, keySeg('c'), { text: ' copy' }];
 
 /** the detail pane beside the list: the issue under the cursor cut to `height` rows. The fields and the agent line
@@ -111,8 +112,8 @@ export const AGENT_LINE: Line = [keySeg('w'), { text: ' Work on it with an agent
 export function paneLines(issue: Issue, data: TuiData, width: number, height: number, now: number, ui: IssueUi = {}): Line[] {
   const w = Math.max(12, width);
   const top: Line[] = [...headLines(issue, data, w, ui, 2), [], ...fieldBlock(issue, data, now, ui, [])];
-  const bottom: Line[] = [[], AGENT_LINE];
-  let room = height - top.length - bottom.length;
+  let room = height - top.length - 2;
+  let cut = false;
 
   const comments = data.comments.filter(c => c.issueId === issue.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const last = comments[comments.length - 1];
@@ -120,21 +121,28 @@ export function paneLines(issue: Issue, data: TuiData, width: number, height: nu
   if (last) {
     const author = data.userById.get(last.userId);
     commentBlock.push([{ text: author?.name ?? 'Someone', bold: true }, { text: ` · ${relTime(last.createdAt, now)}`, color: theme.muted }]);
-    commentBlock.push(...markdownLines(last.body, w - 2).slice(0, 2).map(l => [{ text: '  ' }, ...l]));
+    const body = markdownLines(last.body, w - 2);
+    if (body.length > 2) cut = true;
+    commentBlock.push(...body.slice(0, 2).map(l => [{ text: '  ' }, ...l]));
   }
   const lastChange = data.activity.find(a => a.issueId === issue.id && a.type !== 'commented');
-  const activityBlock: Line[] = lastChange ? [[], [{ text: 'Activity', color: theme.muted }], ...wrapSegs(activityLine(lastChange, data, now), w, '  ').slice(0, 2)] : [];
+  const changeLines = lastChange ? wrapSegs(activityLine(lastChange, data, now), w, '  ') : [];
+  if (changeLines.length > 2) cut = true;
+  const activityBlock: Line[] = lastChange ? [[], [{ text: 'Activity', color: theme.muted }], ...changeLines.slice(0, 2)] : [];
 
   const desc = issue.description.trim() ? markdownLines(issue.description, w) : [[{ text: 'No description', color: theme.muted, italic: true }] as Line];
   const middle: Line[] = [];
   const descRoom = Math.min(6, room - commentBlock.length - activityBlock.length - 1);
   if (room >= 2) {
     const n = Math.max(1, descRoom);
-    middle.push([], ...(desc.length > n ? [...desc.slice(0, Math.max(1, n - 1)), [{ text: '… enter for the whole issue', color: theme.muted }] as Line] : desc));
+    if (desc.length > n) cut = true;
+    middle.push([], ...desc.slice(0, n));
     room -= middle.length;
-  }
-  if (room >= commentBlock.length) { middle.push(...commentBlock); room -= commentBlock.length; }
-  if (room >= activityBlock.length) middle.push(...activityBlock);
+  } else if (issue.description.trim()) cut = true;
+  if (room >= commentBlock.length) { middle.push(...commentBlock); room -= commentBlock.length; } else if (last) cut = true;
+  if (room >= activityBlock.length) middle.push(...activityBlock); else cut = true;
+  // the page keys stay with the list, so a cut pane says where the rest is
+  const bottom: Line[] = [cut ? MORE_LINE : [], AGENT_LINE];
   return [...top, ...middle, ...bottom].slice(0, height);
 }
 
@@ -218,6 +226,10 @@ export function detailLines(issue: Issue, data: TuiData, threads: readonly WorkT
 
 /** a bordered dropdown: the filter, then numbered options (1-9 pick, the cursor row lit). `title` heads the border
  *  when it floats over the list instead of opening under a field */
+/** the options a dropdown shows at once; floating over a short terminal it shows fewer */
+export const PICKER_ROWS = 9;
+export const floatingPickerRows = (rows: number) => Math.max(3, Math.min(PICKER_ROWS, rows - 10));
+
 export function pickerLines(o: Extract<Overlay, { kind: 'picker' }>, data: TuiData, width: number, maxRows: number, title?: string): Line[] {
   const w = Math.max(16, Math.min(width, 40));
   const inner = w - 4;

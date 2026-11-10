@@ -10,11 +10,11 @@ export type Context =
 
 export type CommandId =
   | 'quit' | 'backOrQuit' | 'back' | 'help' | 'search' | 'refresh' | 'retry' | 'tab'
-  | 'down' | 'up' | 'open' | 'actions'
+  | 'down' | 'up' | 'pageDown' | 'pageUp' | 'halfDown' | 'halfUp' | 'top' | 'bottom' | 'open' | 'actions'
   | 'undo' | 'setState' | 'setPriority' | 'setAssignee' | 'setLabels' | 'setProject' | 'comment' | 'create'
   | 'editMenu' | 'editTitle' | 'editDescription'
   | 'agentMenu' | 'agentHere' | 'agentPane' | 'copyMenu' | 'copyKey' | 'copyUrl' | 'copyBranch' | 'copyPrompt' | 'openBrowser'
-  | 'overlayDown' | 'overlayUp' | 'overlayAccept' | 'overlayCancel' | 'overlayBack' | 'menuKey' | 'pickerToggle' | 'pickerPick'
+  | 'overlayDown' | 'overlayUp' | 'overlayPageDown' | 'overlayPageUp' | 'overlayTop' | 'overlayBottom' | 'overlayAccept' | 'overlayCancel' | 'overlayBack' | 'menuKey' | 'pickerToggle' | 'pickerPick'
   | 'composeNext' | 'composePrev' | 'composeCycleNext' | 'composeCyclePrev';
 
 /** the ? card's sections: keys by what you are trying to do, not by where you are */
@@ -40,6 +40,8 @@ export interface Binding {
 }
 
 const NAV: Context[] = ['list', 'inbox', 'projects'];
+/** where page keys work: a list moves its cursor, the issue page scrolls its text */
+const PAGED: Context[] = [...NAV, 'detail'];
 /** where there is an issue to act on: the list row, the inbox item's issue, the open issue */
 const ISSUE: Context[] = ['list', 'inbox', 'detail'];
 const EVERYWHERE: Context[] = ['global', 'boot', 'menu', 'picker', 'multipicker', 'finder', 'compose', 'help'];
@@ -50,6 +52,12 @@ export const BINDINGS: Binding[] = [
   { keys: ['up', 'k'], label: 'up', when: NAV, command: 'up', group: 'Move around', partner: true },
   { keys: ['down', 'j'], display: '↑↓', label: 'scroll the issue page', short: 'scroll', when: ['detail'], command: 'down', group: 'Move around', hint: true },
   { keys: ['up', 'k'], label: 'scroll up', when: ['detail'], command: 'up', group: 'Move around', partner: true },
+  { keys: ['pagedown'], display: 'PgDn PgUp', label: 'page', when: PAGED, command: 'pageDown', group: 'Move around' },
+  { keys: ['pageup'], label: 'page up', when: PAGED, command: 'pageUp', group: 'Move around', partner: true },
+  { keys: ['ctrl+d'], display: 'ctrl-d ctrl-u', label: 'half page', when: PAGED, command: 'halfDown', group: 'Move around' },
+  { keys: ['ctrl+u'], label: 'half page up', when: PAGED, command: 'halfUp', group: 'Move around', partner: true },
+  { keys: ['g', 'home'], display: 'g G', label: 'top, bottom (Home End too)', when: PAGED, command: 'top', group: 'Move around' },
+  { keys: ['G', 'end'], label: 'bottom', when: PAGED, command: 'bottom', group: 'Move around', partner: true },
   { keys: ['enter'], label: 'open the issue, or fold a group', short: 'open', when: NAV, command: 'open', group: 'Move around', hint: true },
   { keys: ['esc'], label: 'back', when: ['detail'], command: 'back', group: 'Move around', hint: true },
   { keys: DIGITS, display: '1-9', label: 'switch tabs', short: 'tabs', when: ['global'], command: 'tab', group: 'Move around', hint: true },
@@ -79,6 +87,11 @@ export const BINDINGS: Binding[] = [
 
   { keys: ['down'], display: '↑↓', label: 'choose', when: ['menu'], command: 'overlayDown', group: 'Overlay', hint: true },
   { keys: ['up'], label: 'up', when: ['menu'], command: 'overlayUp', group: 'Overlay', partner: true },
+  // / keeps Home/End (and ctrl-d/ctrl-u) for its caret; the picker never draws one, so its list takes them
+  { keys: ['pagedown'], label: 'page', when: ['menu', 'picker', 'finder', 'help'], command: 'overlayPageDown', group: 'Overlay' },
+  { keys: ['pageup'], label: 'page up', when: ['menu', 'picker', 'finder', 'help'], command: 'overlayPageUp', group: 'Overlay', partner: true },
+  { keys: ['home'], label: 'first', when: ['menu', 'picker', 'help'], command: 'overlayTop', group: 'Overlay' },
+  { keys: ['end'], label: 'last', when: ['menu', 'picker', 'help'], command: 'overlayBottom', group: 'Overlay', partner: true },
   { keys: ['enter'], label: 'do it', when: ['menu'], command: 'overlayAccept', group: 'Overlay', hint: true },
   { keys: ['backspace'], label: 'back', when: ['menu'], command: 'overlayBack', group: 'Overlay', hint: true },
   { keys: ['esc'], label: 'close', when: ['menu'], command: 'overlayCancel', group: 'Overlay', hint: true },

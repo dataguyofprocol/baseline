@@ -7,14 +7,15 @@ import { openBrowser, osc52 } from '../cli/system.js';
 import type { CommandId } from './keys.js';
 import { agentCommand, agentCwd, agentEnv, editInEditor, runInPane, runInTerminal } from './launch.js';
 import { MENUS, SUBMENU, type MenuCtx, type MenuId } from './menus.js';
-import { inboxItems, isListRoute, listRowsFor, projectRows, selectableIds, type InboxItem, type Tab } from './model.js';
+import { inboxItems, isListRoute, isSelectable, listRowsFor, projectRows, selectableIds, type InboxItem, type Tab } from './model.js';
 import type { FieldId } from './detail.js';
 import { findItems, findResults, type FindItem } from './find.js';
 import { cycleDraft, filteredOptions, newDraft, NONE } from './overlays.js';
 import { cursorRow, listViewOf, routeKey, type Action, type PickerField, type TuiState } from './state.js';
 import { emptyField, fieldOf } from './textfield.js';
 
-export interface Layout { pageSize: number; detailMax: number; helpMax: number; tabs: Tab[] }
+/** `pageSize`: the rows a list or the issue page shows; `overlayPage`: the rows the open picker, / or help shows */
+export interface Layout { pageSize: number; detailMax: number; helpMax: number; overlayPage: number; tabs: Tab[] }
 
 export interface Ctx {
   state: TuiState;
@@ -344,6 +345,33 @@ function move(ctx: Ctx, delta: number): void {
   ctx.dispatch({ type: 'move', delta, count: cursorIds(s, ctx.now()).length });
 }
 
+/** the rows a list draws, each with its cursor index, or null for a group header the cursor skips */
+function drawnRows(s: TuiState, now: number): Array<number | null> {
+  if (!s.data) return [];
+  if (!isListRoute(s.route)) return cursorIds(s, now).map((_, i) => i);
+  let n = 0;
+  return listRowsFor(s.route, s.data, listViewOf(s, s.route)).map(r => (isSelectable(r) ? n++ : null));
+}
+
+/** move by `delta` drawn rows: the issue page scrolls; a list's cursor lands on the nearest row it can rest on,
+ *  first past the target, else before it */
+function jump(ctx: Ctx, delta: number): void {
+  const s = ctx.state;
+  if (s.route.kind === 'issue') return ctx.dispatch({ type: 'scroll', delta, max: ctx.layout.detailMax });
+  const rows = drawnRows(s, ctx.now());
+  const count = rows.filter(r => r !== null).length;
+  if (!count) return;
+  const at = rows.indexOf(Math.min(s.cursor[routeKey(s.route)] ?? 0, count - 1));
+  const target = Math.max(0, Math.min(rows.length - 1, at + delta));
+  const ahead = delta > 0 ? rows.slice(target) : rows.slice(0, target + 1).reverse();
+  const behind = delta > 0 ? rows.slice(0, target).reverse() : rows.slice(target + 1);
+  const index = [...ahead, ...behind].find(r => r !== null);
+  if (index != null) ctx.dispatch({ type: 'moveTo', index });
+}
+
+/** a page of the issue page keeps its last line on screen, so the eye has somewhere to continue from */
+const pageOf = (ctx: Ctx) => (ctx.state.route.kind === 'issue' ? Math.max(1, ctx.layout.pageSize - 1) : ctx.layout.pageSize);
+
 export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise<unknown> {
   const s = ctx.state, d = ctx.dispatch;
   const now = ctx.now();
@@ -372,6 +400,12 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'undo': return undo(ctx);
     case 'down': return move(ctx, 1);
     case 'up': return move(ctx, -1);
+    case 'pageDown': return jump(ctx, pageOf(ctx));
+    case 'pageUp': return jump(ctx, -pageOf(ctx));
+    case 'halfDown': return jump(ctx, Math.max(1, Math.floor(ctx.layout.pageSize / 2)));
+    case 'halfUp': return jump(ctx, -Math.max(1, Math.floor(ctx.layout.pageSize / 2)));
+    case 'top': return jump(ctx, -Infinity);
+    case 'bottom': return jump(ctx, Infinity);
     case 'actions': {
       const row = cursorRow(s);
       if (row?.kind === 'group') return d({ type: 'toggleGroup', groupId: row.group.id });
@@ -437,6 +471,12 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
       const delta = cmd === 'overlayDown' ? 1 : -1;
       if (s.overlay.kind === 'help') return d({ type: 'helpScroll', delta, max: ctx.layout.helpMax });
       return d({ type: 'overlayMove', delta, count: overlayCount(ctx) });
+    }
+    case 'overlayPageDown': case 'overlayPageUp': case 'overlayTop': case 'overlayBottom': {
+      const page = cmd === 'overlayTop' || cmd === 'overlayBottom' ? Infinity : Math.max(1, ctx.layout.overlayPage);
+      const delta = cmd === 'overlayPageDown' || cmd === 'overlayBottom' ? page : -page;
+      if (s.overlay.kind === 'help') return d({ type: 'helpScroll', delta, max: ctx.layout.helpMax });
+      return d({ type: 'overlayMove', delta, count: overlayCount(ctx), clamp: true });
     }
     case 'overlayAccept': return accept(ctx);
     case 'overlayCancel': return d({ type: 'closeOverlay' });

@@ -6,13 +6,13 @@ import { copyToClipboard } from '../cli/system.js';
 import { currentInboxItem, errorText, handoff, runCommand, targetIssue, toast, type Ctx, type Layout } from './commands.js';
 import { menuTrail, MENUS } from './menus.js';
 import { fetchData, type TuiData } from './data.js';
-import { detailLines, pickerLines, type IssueUi } from './detail.js';
+import { detailLines, floatingPickerRows, PICKER_ROWS, pickerLines, type IssueUi } from './detail.js';
 import { contextsFor, hintsFor, keyName, lookup, takesText, type CommandId, type Context } from './keys.js';
 import { contextOf } from './context.js';
 import { displayWidth, isListRoute, tabIdFor, tildePath, visibleTabs, type GroupBy, type Line, type Preset, type Seg } from './model.js';
 import { filteredOptions, PICKER_TITLE } from './overlays.js';
 import type { SessionContext } from './session.js';
-import { OverlayView } from './overlay-views.js';
+import { helpRows, OverlayView } from './overlay-views.js';
 import { DetailPane, DetailScreen, Footer, hintSegs, inboxNote, InboxScreen, ListScreen, ProjectsScreen, scrollLabel, tabBarLine, ToastLine } from './screens.js';
 import { initialState, reducer, routeKey, type Action, type Route, type TuiState } from './state.js';
 import { editField, type TextField } from './textfield.js';
@@ -94,6 +94,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const writing = useRef(0);
   const suspended = useRef(false);
   const helpMax = useRef(0);
+  const findRows = useRef(0);
 
   const loadThreads = useCallback(async (issueId: string) => {
     try {
@@ -183,7 +184,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const saved = state.saved;
   const issueUi = (width: number, issueId: string | undefined): IssueUi => ({
     saved: saved && saved.issueId === issueId ? saved.field : null,
-    picker: inlineOn && data ? { field: inlineOn.field, lines: indent(pickerLines(inlineOn, data, width - 2, 9)) } : null,
+    picker: inlineOn && data ? { field: inlineOn.field, lines: indent(pickerLines(inlineOn, data, width - 2, PICKER_ROWS)) } : null,
     title: titleOn ? fieldBlock(titleOn.input, width, 'Issue title', 3).map(l => l.map(x => ({ ...x, bold: true }))) : null,
   });
   const pageUi = useMemo((): IssueUi => (data && openIssue ? issueUi(contentW, openIssue) : {}), [data, openIssue, inlineOn, titleOn, contentW, saved]);
@@ -194,7 +195,9 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   }, [data, openIssue, threads, contentW, state.syncedAt, pageUi]);
   const pinned = detail && pageUi.picker ? detail.indexOf(pageUi.picker.lines[0]) - 1 : undefined;
 
-  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, tabs };
+  const overlayPage = o.kind === 'picker' ? (inlineOn ? PICKER_ROWS : floatingPickerRows(rows)) : o.kind === 'help' ? helpRows(rows)
+    : o.kind === 'menu' ? MENUS[o.path[o.path.length - 1]].rows.length : 0;
+  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, overlayPage, tabs };
   const contexts = contextsFor(state);
 
   const handleKey = (input: string, key: Key) => {
@@ -204,7 +207,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
     const ctxs = contextsFor(s);
     const run = (command: CommandId, keyPressed: string) => {
       const ctx: Ctx = {
-        state: stateRef.current, dispatch, bl, actorId, layout: { ...layout, helpMax: helpMax.current }, refresh,
+        state: stateRef.current, dispatch, bl, actorId, layout: { ...layout, helpMax: helpMax.current, overlayPage: s.overlay.kind === 'find' ? findRows.current : layout.overlayPage }, refresh,
         beginWrite: () => {
           epoch.current++;
           writing.current++;
@@ -274,7 +277,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
       </Box>
       <ToastLine toast={state.toast} width={columns} />
       <Footer s={state} left={footerLeft(state, data, contexts, tabs.length)} width={columns} target={targetLabel(bl)} />
-      {inlineOn || titleOn ? null : <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} tabs={tabs.length} target={cardTarget(bl)} />}
+      {inlineOn || titleOn ? null : <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} onFindRows={n => { findRows.current = n; }} tabs={tabs.length} target={cardTarget(bl)} />}
     </Box>
   );
 }

@@ -104,7 +104,8 @@ export type Action =
   | { type: 'openOverlay'; overlay: Overlay }
   | { type: 'closeOverlay' }
   | { type: 'editInput'; input: TextField }
-  | { type: 'overlayMove'; delta: number; count: number }
+  /** ↑↓ wrap around; `clamp` (a page, the first or last row) stops at the ends */
+  | { type: 'overlayMove'; delta: number; count: number; clamp?: boolean }
   | { type: 'pickerToggle'; id: string }
   | { type: 'menuPush'; menu: MenuId }
   | { type: 'menuBack' }
@@ -231,7 +232,7 @@ export function reducer(s: TuiState, a: Action): TuiState {
       const o = s.overlay;
       if (o.kind !== 'find' && o.kind !== 'picker' && o.kind !== 'menu') return s;
       const n = Math.max(1, a.count);
-      return { ...s, overlay: { ...o, cursor: ((o.cursor + a.delta) % n + n) % n } };
+      return { ...s, overlay: { ...o, cursor: a.clamp ? clamp(o.cursor + a.delta, 0, n - 1) : ((o.cursor + a.delta) % n + n) % n } };
     }
     case 'pickerToggle': {
       const o = s.overlay;
