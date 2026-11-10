@@ -520,6 +520,10 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
 {
   const r = cli([], { BASELINE_DB: dbPath });
   check('bare `baseline` without a terminal prints help instead of opening the TUI', `${r.stdout}${r.stderr}`.includes('Usage: baseline') && !`${r.stdout}${r.stderr}`.includes('needs an interactive terminal'), r.stderr.slice(0, 200));
+  const fresh = cli(['--fresh', '--db', dbPath]);
+  check('`baseline --fresh` is `baseline tui --fresh` (no "unknown option"); without a terminal it says it needs one', fresh.status === 1 && fresh.stderr.includes('needs an interactive terminal') && !fresh.stderr.includes('unknown option'), fresh.stderr.slice(0, 200));
+  const help = cli(['--help']);
+  check('`baseline --help` still prints help', help.stdout.includes('Usage: baseline'), help.stderr.slice(0, 200));
 }
 
 {

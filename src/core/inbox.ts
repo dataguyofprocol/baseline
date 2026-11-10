@@ -1,7 +1,7 @@
 // The inbox as rows, not an event log: every notification about one issue merges into one row
 // that leads with the newest headline. Shared by GET /api/notifications and the web inbox, so
 // both count the same rows. Pure: no database, safe to import in the browser.
-import type { Notification } from './types.js';
+import type { Notification, NotificationType } from './types.js';
 
 export interface InboxRow {
   /** `issue:<id>`, or `n:<id>` for a notification about no issue (those never merge) */
@@ -37,3 +37,12 @@ export function inboxRows(list: readonly Notification[]): InboxRow[] {
 export function visibleNotifications(list: readonly Notification[], now = new Date().toISOString()): Notification[] {
   return list.filter(n => !n.snoozedUntil || n.snoozedUntil <= now);
 }
+
+/** notification kinds that ask something of you, rather than tell you something happened. An
+ *  assignment isn't one: the issue is already in progress or up next. */
+export const ASKS: readonly NotificationType[] = ['issueMentioned', 'issueReplied', 'issueReminder', 'slaBreached', 'agentFinished', 'agentBlocked', 'accessRequested'];
+/** …and the ones that do when their text says so: a PR waiting on your review, an agent that finished or is stuck */
+const ASKS_WHEN = /review|finished|blocked|needs? (you|your)|question/i;
+/** whether a notification belongs in "Needs you" (My work on the web, Today in the terminal) */
+export const needsYou = (n: Pick<Notification, 'type' | 'body'>) =>
+  ASKS.includes(n.type) || ((n.type === 'prActivity' || n.type === 'issueStatusChanged' || n.type === 'teamActivity') && ASKS_WHEN.test(n.body));

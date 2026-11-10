@@ -12,14 +12,8 @@ import { IssueRow } from './IssueViews.js';
 import { StateIcon, Avatar } from './pickers.js';
 import { Illustration } from './illustrations.js';
 import { IconCheck, IconChevronRight, IconInbox, IconTriage } from './icons.js';
-import type { Issue, Notification, NotificationType } from '../../src/core/types.js';
-
-/** notification kinds that ask something of you, rather than tell you something happened. An
- *  assignment isn't one: the issue is already in In progress or Up next below. */
-const ASKS: NotificationType[] = ['issueMentioned', 'issueReplied', 'issueReminder', 'slaBreached', 'agentFinished', 'agentBlocked', 'accessRequested'];
-/** …and the ones that do when their text says so: a PR waiting on your review, an agent that finished or is stuck */
-const ASKS_WHEN = /review|finished|blocked|needs? (you|your)|question/i;
-const needsYou = (n: Notification) => ASKS.includes(n.type) || ((n.type === 'prActivity' || n.type === 'issueStatusChanged' || n.type === 'teamActivity') && ASKS_WHEN.test(n.body));
+import type { Issue, Notification } from '../../src/core/types.js';
+import { needsYou } from '../../src/core/inbox.js';
 
 /** A greeting that knows the hour and the day of the week: one quiet line, no banner. */
 function greeting(first: string, d = new Date()): string {

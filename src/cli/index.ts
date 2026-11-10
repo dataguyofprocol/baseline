@@ -1462,9 +1462,20 @@ mountWorkflowCommands(program);
 const commandPath = (c: Command): string => c.parent?.parent ? `${commandPath(c.parent)} ${c.name()}` : c.name();
 program.hook('preAction', (_root, action) => setLegacyCommand(commandPath(action), action.opts().as as string | undefined));
 
+/** only the terminal UI's own flags (--fresh, --db, --as), so `baseline --fresh` means `baseline tui --fresh` */
+function tuiFlagsOnly(args: readonly string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '--fresh' || /^--(db|as)=./.test(a)) continue;
+    if ((a === '--db' || a === '--as') && args[i + 1] !== undefined && !args[i + 1]!.startsWith('-')) { i++; continue; }
+    return false;
+  }
+  return args.length > 0;
+}
 // bare `baseline` in a terminal is the TUI; piped or scripted, it keeps printing help
-const bare = process.argv.length === 2 && !!process.stdin.isTTY && !!process.stdout.isTTY;
-program.parseAsync(bare ? [...process.argv, 'tui'] : process.argv).catch((e: unknown) => {
+const rest = process.argv.slice(2);
+const bare = rest.length === 0 && !!process.stdin.isTTY && !!process.stdout.isTTY;
+program.parseAsync(bare || tuiFlagsOnly(rest) ? [...process.argv.slice(0, 2), 'tui', ...rest] : process.argv).catch((e: unknown) => {
   if (e instanceof BaselineError || e instanceof TargetError || e instanceof ResolveError) fail(e.message);
   throw e;
 });

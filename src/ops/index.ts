@@ -96,6 +96,33 @@ const rowOf = (snap: Pick<Snapshot, 'teams' | 'states' | 'users'>, i: Issue): z.
 
 // ---------------------------------------------------------------- reads
 
+export type NextWhy = 'in progress, yours' | 'Todo, yours' | 'current cycle, unassigned';
+
+/** next_issue's ranking, pure, so the terminal UI's Up next shows the same order: the person's issues in
+ *  progress, then their Todo by priority, then unassigned issues in their teams' current cycle; issues an
+ *  open issue blocks are left out. `teamIds` default: the person's teams (all teams when they're on none). */
+export function rankNextIssues(snap: Pick<Snapshot, 'issues' | 'states' | 'teams' | 'cycles' | 'relations' | 'currentUser'>, opts: { teamIds?: string[]; limit: number; now?: string }): { issues: Array<{ issue: Issue; why: NextWhy }>; blockedSkipped: number } {
+  const me = snap.currentUser.id;
+  const myTeams = opts.teamIds ?? (() => { const t = snap.teams.filter(x => x.memberIds.includes(me)).map(x => x.id); return t.length ? t : snap.teams.map(x => x.id); })();
+  const now = opts.now ?? new Date().toISOString();
+  const current = new Set(snap.cycles.filter(c => myTeams.includes(c.teamId) && !c.completedAt && c.startsAt <= now && now < c.endsAt).map(c => c.id));
+  const blocked = blockedIds(snap);
+  const open = snap.issues.filter(i => isOpen(snap, i) && myTeams.includes(i.teamId));
+  const byPriority = (a: Issue, b: Issue) => rank(a.priority) - rank(b.priority) || b.updatedAt.localeCompare(a.updatedAt);
+  const tiers: Array<[NextWhy, Issue[]]> = [
+    ['in progress, yours', open.filter(i => i.assigneeId === me && stateType(snap, i.stateId) === 'started').sort(byPriority)],
+    ['Todo, yours', open.filter(i => i.assigneeId === me && stateType(snap, i.stateId) === 'unstarted').sort(byPriority)],
+    ['current cycle, unassigned', open.filter(i => !i.assigneeId && !!i.cycleId && current.has(i.cycleId) && ['unstarted', 'backlog'].includes(stateType(snap, i.stateId) ?? '')).sort(byPriority)],
+  ];
+  const picked: Array<{ issue: Issue; why: NextWhy }> = [];
+  let blockedSkipped = 0;
+  for (const [why, list] of tiers) for (const i of list) {
+    if (blocked.has(i.id)) { blockedSkipped++; continue; }
+    if (picked.length < opts.limit) picked.push({ issue: i, why });
+  }
+  return { issues: picked, blockedSkipped };
+}
+
 export const nextIssue = defineOp({
   name: 'next_issue',
   title: 'What to work on next',
@@ -113,26 +140,9 @@ export const nextIssue = defineOp({
   effect: { kind: 'read' },
   async run({ bl }, input) {
     const snap = await bl.snapshot(['issues', 'states', 'teams', 'cycles', 'relations', 'users', 'currentUser']);
-    const me = snap.currentUser.id;
     const team = resolve.resolveTeam(snap, input.team, { required: true });
-    const myTeams = team ? [team.id] : (() => { const t = snap.teams.filter(x => x.memberIds.includes(me)).map(x => x.id); return t.length ? t : snap.teams.map(x => x.id); })();
-    const now = new Date().toISOString();
-    const current = new Set(snap.cycles.filter(c => myTeams.includes(c.teamId) && !c.completedAt && c.startsAt <= now && now < c.endsAt).map(c => c.id));
-    const blocked = blockedIds(snap);
-    const open = snap.issues.filter(i => isOpen(snap, i) && myTeams.includes(i.teamId));
-    const byPriority = (a: Issue, b: Issue) => rank(a.priority) - rank(b.priority) || b.updatedAt.localeCompare(a.updatedAt);
-    const tiers: Array<[string, Issue[]]> = [
-      ['in progress, yours', open.filter(i => i.assigneeId === me && stateType(snap, i.stateId) === 'started').sort(byPriority)],
-      ['Todo, yours', open.filter(i => i.assigneeId === me && stateType(snap, i.stateId) === 'unstarted').sort(byPriority)],
-      ['current cycle, unassigned', open.filter(i => !i.assigneeId && !!i.cycleId && current.has(i.cycleId) && ['unstarted', 'backlog'].includes(stateType(snap, i.stateId) ?? '')).sort(byPriority)],
-    ];
-    const picked: Array<z.infer<typeof IssueRow> & { why: string }> = [];
-    let skipped = 0;
-    for (const [why, list] of tiers) for (const i of list) {
-      if (blocked.has(i.id)) { skipped++; continue; }
-      if (picked.length < (input.limit ?? 3)) picked.push({ ...rowOf(snap, i), why });
-    }
-    return { issues: picked, blocked_skipped: skipped };
+    const r = rankNextIssues(snap, { teamIds: team ? [team.id] : undefined, limit: input.limit ?? 3 });
+    return { issues: r.issues.map(x => ({ ...rowOf(snap, x.issue), why: x.why })), blocked_skipped: r.blockedSkipped };
   },
   text: ({ issues, blocked_skipped }) => issues.length
     ? lines(...issues.map((i, n) => `${n + 1}. ${i.key} ${i.title} (${i.state}${i.priority === 'None' ? '' : `, ${i.priority} priority`}${i.why.includes('unassigned') ? ', unassigned in the current cycle' : ''})`), blocked_skipped ? `(${blocked_skipped} blocked issue(s) left out)` : null)
