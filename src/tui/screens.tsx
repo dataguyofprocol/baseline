@@ -248,7 +248,8 @@ export function ToastLine({ toast, width }: { toast: TuiState['toast']; width: n
   if (!toast) return <LineView line={[]} width={width} />;
   const icon = toast.tone === 'ok' ? '✓' : toast.tone === 'error' ? '✗' : '›';
   const color = toast.tone === 'ok' ? theme.ok : toast.tone === 'error' ? theme.error : theme.accent;
-  return <LineView line={[{ text: ` ${icon} `, color, bold: true }, { text: toast.text, color: toast.tone === 'error' ? theme.error : undefined }]} width={width} />;
+  return <LineView line={[{ text: ` ${icon} `, color, bold: true }, { text: toast.text, color: toast.tone === 'error' ? theme.error : undefined },
+    ...(toast.undo ? [{ text: '      ' }, keySeg('u'), { text: ' undo' }] : [])]} width={width} />;
 }
 
 function useTicker(ms: number, active = true): number {

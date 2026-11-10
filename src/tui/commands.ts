@@ -35,8 +35,8 @@ export interface Ctx {
 }
 
 let toastSeq = 0;
-export const toast = (dispatch: Dispatch<Action>, tone: 'ok' | 'error' | 'info', text: string) =>
-  dispatch({ type: 'toast', toast: { id: ++toastSeq, tone, text } });
+export const toast = (dispatch: Dispatch<Action>, tone: 'ok' | 'error' | 'info', text: string, undo = false) =>
+  dispatch({ type: 'toast', toast: { id: ++toastSeq, tone, text, undo } });
 
 export const errorText = (e: unknown) =>
   e instanceof BaselineError || e instanceof ResolveError ? e.message : e instanceof Error ? e.message : String(e);
@@ -64,7 +64,7 @@ export function currentInboxItem(s: TuiState, now: number): InboxItem | undefine
   return items[Math.min(s.cursor.inbox ?? 0, Math.max(0, items.length - 1))];
 }
 
-async function write<T>(ctx: Ctx, opts: { issueId?: string; patch?: Partial<Issue>; run: () => Promise<T>; ok: (r: T) => string; after?: (r: T) => void }): Promise<T | undefined> {
+async function write<T>(ctx: Ctx, opts: { issueId?: string; patch?: Partial<Issue>; run: () => Promise<T>; ok: (r: T) => string; after?: (r: T) => void; undo?: boolean }): Promise<T | undefined> {
   const end = ctx.beginWrite();
   if (opts.issueId && opts.patch) ctx.dispatch({ type: 'patchIssue', issueId: opts.issueId, patch: opts.patch });
   let result: T;
@@ -77,9 +77,9 @@ async function write<T>(ctx: Ctx, opts: { issueId?: string; patch?: Partial<Issu
     return undefined;
   }
   end();
-  toast(ctx.dispatch, 'ok', opts.ok(result));
-  await ctx.refresh();
   opts.after?.(result);
+  toast(ctx.dispatch, 'ok', opts.ok(result), opts.undo);
+  await ctx.refresh();
   return result;
 }
 
@@ -179,11 +179,48 @@ export function describeChange(field: FieldId, patch: Partial<Issue>, data: NonN
   }
 }
 
-/** one field change from this TUI, written ahead of the server's answer */
-export function change(ctx: Ctx, issue: Issue, field: FieldId, patch: Partial<Issue>): Promise<unknown> {
+const before = (issue: Issue, patch: Partial<Issue>): Partial<Issue> =>
+  Object.fromEntries(Object.keys(patch).map(k => [k, issue[k as keyof Issue]])) as Partial<Issue>;
+
+const sameValue = (a: unknown, b: unknown) =>
+  Array.isArray(a) && Array.isArray(b) ? [...a].sort().join() === [...b].sort().join() : a === b;
+
+/** one field change from this TUI, written ahead of the server's answer, then put on the undo stack */
+export async function change(ctx: Ctx, issue: Issue, field: FieldId, patch: Partial<Issue>): Promise<unknown> {
   const data = ctx.state.data!;
   const key = data.keyOf(issue);
-  return write(ctx, { issueId: issue.id, patch, run: () => ctx.bl.updateIssue(issue.id, patch, ctx.actorId), ok: () => `${key} ${describeChange(field, patch, data)}` });
+  const label = describeChange(field, patch, data);
+  const entry = { issueId: issue.id, key, field, before: before(issue, patch), after: patch, label };
+  const ok = await write(ctx, {
+    issueId: issue.id, patch, run: () => ctx.bl.updateIssue(issue.id, patch, ctx.actorId), ok: () => `${key} ${label}`, undo: true,
+    after: () => ctx.dispatch({ type: 'pushUndo', entry }),
+  });
+  if (ok) ctx.dispatch({ type: 'saved', issueId: issue.id, field, id: ++toastSeq });
+  return ok;
+}
+
+/** u: put back what the newest change replaced, unless someone has changed that field since */
+async function undo(ctx: Ctx): Promise<unknown> {
+  const top = ctx.state.undo[ctx.state.undo.length - 1];
+  if (!top) return toast(ctx.dispatch, 'info', 'Nothing to undo');
+  let now: Issue | undefined;
+  try { now = await ctx.bl.getIssue(top.issueId); } catch (e) { return toast(ctx.dispatch, 'error', errorText(e)); }
+  if (!now) {
+    ctx.dispatch({ type: 'popUndo' });
+    return toast(ctx.dispatch, 'error', `${top.key} is gone; nothing to undo there`);
+  }
+  const data = ctx.state.data!;
+  if (!Object.entries(top.after).every(([k, v]) => sameValue(now![k as keyof Issue], v))) {
+    return toast(ctx.dispatch, 'error', `Not undone: ${top.key} changed since (${describeChange(top.field, before(now, top.after), data)}). Undo only reverts what nobody has touched.`);
+  }
+  ctx.dispatch({ type: 'popUndo' });
+  const ok = await write(ctx, {
+    issueId: top.issueId, patch: top.before, run: () => ctx.bl.updateIssue(top.issueId, top.before, ctx.actorId),
+    ok: () => `Undone: ${top.key} ${describeChange(top.field, top.before, data)}`,
+  });
+  if (ok) ctx.dispatch({ type: 'saved', issueId: top.issueId, field: top.field, id: ++toastSeq });
+  else ctx.dispatch({ type: 'pushUndo', entry: top });
+  return ok;
 }
 
 /** what `/` is about: the issue under the cursor, its menu context, and the team a new issue would go to */
@@ -332,6 +369,7 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
       const tab = ctx.layout.tabs[Number(key) - 1];
       return tab ? d({ type: 'switchView', route: tab.route }) : undefined;
     }
+    case 'undo': return undo(ctx);
     case 'down': return move(ctx, 1);
     case 'up': return move(ctx, -1);
     case 'actions': {

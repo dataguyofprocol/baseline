@@ -142,6 +142,13 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   useEffect(() => { if (openIssue) void loadThreads(openIssue); }, [openIssue, loadThreads]);
 
   useEffect(() => {
+    if (!state.saved) return;
+    const id = state.saved.id;
+    const t = setTimeout(() => dispatch({ type: 'clearSaved', id }), 3000);
+    return () => clearTimeout(t);
+  }, [state.saved]);
+
+  useEffect(() => {
     if (!state.toast) return;
     const id = state.toast.id;
     const t = setTimeout(() => dispatch({ type: 'clearToast', id }), state.toast.tone === 'error' ? 7000 : 3500);
@@ -173,11 +180,13 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const inlineOn = o.kind === 'picker' && onScreen(o.issueId) ? o : null;
   // so does a title being edited: it is edited where it is shown
   const titleOn = o.kind === 'compose' && o.target === 'title' && onScreen(o.issueId) ? o : null;
-  const issueUi = (width: number): IssueUi => ({
+  const saved = state.saved;
+  const issueUi = (width: number, issueId: string | undefined): IssueUi => ({
+    saved: saved && saved.issueId === issueId ? saved.field : null,
     picker: inlineOn && data ? { field: inlineOn.field, lines: indent(pickerLines(inlineOn, data, width - 2, 9)) } : null,
     title: titleOn ? fieldBlock(titleOn.input, width, 'Issue title', 3).map(l => l.map(x => ({ ...x, bold: true }))) : null,
   });
-  const pageUi = useMemo((): IssueUi => (data && openIssue ? issueUi(contentW) : {}), [data, openIssue, inlineOn, titleOn, contentW]);
+  const pageUi = useMemo((): IssueUi => (data && openIssue ? issueUi(contentW, openIssue) : {}), [data, openIssue, inlineOn, titleOn, contentW, saved]);
   const detail = useMemo(() => {
     if (!data || !openIssue) return null;
     const issue = data.issueById.get(openIssue);
@@ -240,7 +249,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
 
   const now = Date.now();
   const dim = o.kind !== 'none';
-  const paneUi: IssueUi = openIssue ? {} : issueUi(paneW - 3);
+  const paneUi: IssueUi = openIssue ? {} : issueUi(paneW - 3, cursorIssue?.id);
   const inboxItem = r.kind === 'inbox' ? currentInboxItem(state, now) : undefined;
   const list = r.kind === 'inbox' ? <InboxScreen s={state} data={data} width={listW} height={bodyH} now={now} dim={dim} />
     : r.kind === 'projects' ? <ProjectsScreen s={state} data={data} width={contentW} height={bodyH} dim={dim} />

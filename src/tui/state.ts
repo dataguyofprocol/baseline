@@ -1,5 +1,6 @@
 // The whole app state and the one reducer that changes it.
 import type { Handoff, Issue, Priority } from '../core/types.js';
+import type { FieldId } from './detail.js';
 import type { MenuId } from './menus.js';
 import type { WorkThread } from '../core/work-types.js';
 import { patchIssue, type TuiData } from './data.js';
@@ -34,7 +35,12 @@ export type Overlay =
   /** the space menu; `path` is the submenus stepped into, `cursor` the row ↑↓ is on */
   | { kind: 'menu'; path: MenuId[]; issueId: string; cursor: number };
 
-export interface Toast { id: number; tone: 'ok' | 'error' | 'info'; text: string }
+/** `undo` offers u: the toast of a change that is on the undo stack */
+export interface Toast { id: number; tone: 'ok' | 'error' | 'info'; text: string; undo?: boolean }
+
+/** one field change made from this TUI, with what it replaced */
+export interface UndoEntry { issueId: string; key: string; field: FieldId; before: Partial<Issue>; after: Partial<Issue>; label: string }
+export const UNDO_LIMIT = 20;
 
 export interface TuiState {
   data: TuiData | null;
@@ -57,6 +63,10 @@ export interface TuiState {
   threads: Record<string, WorkThread[]>;
   /** per issue: its prompt, branch and link, fetched when a menu or / needs them */
   handoffs: Record<string, Handoff>;
+  /** newest last */
+  undo: UndoEntry[];
+  /** the field that just changed, marked ✓ saved for a moment */
+  saved: { issueId: string; field: FieldId; id: number } | null;
 }
 
 export const routeKey = (r: Route): string => {
@@ -73,7 +83,7 @@ export const isTopLevel = (r: Route) => r.kind === 'my' || r.kind === 'team' || 
 export function initialState(route: Route = { kind: 'my' }, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null } = {}): TuiState {
   return {
     data: null, route, stack, overlay: { kind: 'none' }, cursor: {}, expanded: {}, groupBy: start.groupBy ?? 'status', preset: start.preset ?? 'all', restoreCursor: start.cursorKey ?? null,
-    toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {}, handoffs: {},
+    toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {}, handoffs: {}, undo: [], saved: null,
   };
 }
 
@@ -98,6 +108,10 @@ export type Action =
   | { type: 'menuPush'; menu: MenuId }
   | { type: 'menuBack' }
   | { type: 'handoff'; issueId: string; handoff: Handoff }
+  | { type: 'pushUndo'; entry: UndoEntry }
+  | { type: 'popUndo' }
+  | { type: 'saved'; issueId: string; field: FieldId; id: number }
+  | { type: 'clearSaved'; id: number }
   | { type: 'composeField'; delta: number }
   | { type: 'composeDraft'; draft: Partial<IssueDraft> }
   | { type: 'helpScroll'; delta: number; max: number }
@@ -250,6 +264,10 @@ export function reducer(s: TuiState, a: Action): TuiState {
       if (o.kind !== 'menu') return s;
       return o.path.length > 1 ? { ...s, overlay: { ...o, path: o.path.slice(0, -1), cursor: 0 } } : { ...s, overlay: { kind: 'none' } };
     }
+    case 'pushUndo': return { ...s, undo: [...s.undo, a.entry].slice(-UNDO_LIMIT) };
+    case 'popUndo': return { ...s, undo: s.undo.slice(0, -1) };
+    case 'saved': return { ...s, saved: { issueId: a.issueId, field: a.field, id: a.id } };
+    case 'clearSaved': return s.saved?.id === a.id ? { ...s, saved: null } : s;
     case 'handoff': return { ...s, handoffs: { ...s.handoffs, [a.issueId]: a.handoff } };
     case 'threads': return { ...s, threads: { ...s.threads, [a.issueId]: a.threads } };
     case 'toast': return { ...s, toast: a.toast };

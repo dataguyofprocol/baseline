@@ -11,7 +11,7 @@ export type Context =
 export type CommandId =
   | 'quit' | 'backOrQuit' | 'back' | 'help' | 'search' | 'refresh' | 'retry' | 'tab'
   | 'down' | 'up' | 'open' | 'actions'
-  | 'setState' | 'setPriority' | 'setAssignee' | 'setLabels' | 'setProject' | 'comment' | 'create'
+  | 'undo' | 'setState' | 'setPriority' | 'setAssignee' | 'setLabels' | 'setProject' | 'comment' | 'create'
   | 'editMenu' | 'editTitle' | 'editDescription'
   | 'agentMenu' | 'agentHere' | 'agentPane' | 'copyMenu' | 'copyKey' | 'copyUrl' | 'copyBranch' | 'copyPrompt' | 'openBrowser'
   | 'overlayDown' | 'overlayUp' | 'overlayAccept' | 'overlayCancel' | 'overlayBack' | 'menuKey' | 'pickerToggle' | 'pickerPick'
@@ -68,6 +68,7 @@ export const BINDINGS: Binding[] = [
   { keys: ['m'], label: 'Comment', when: ISSUE, command: 'comment', group: 'Change an issue' },
   { keys: ['e'], label: 'Edit title or description', when: ISSUE, command: 'editMenu', group: 'Change an issue' },
   { keys: ['n'], label: 'New issue', when: ['global'], command: 'create', group: 'Change an issue' },
+  { keys: ['u'], label: 'Undo the last change', when: ['global'], command: 'undo', group: 'Change an issue' },
 
   { keys: ['w'], label: 'Work on it with an agent', when: ISSUE, command: 'agentMenu', group: 'Agents and copying' },
   { keys: ['c'], label: 'Copy key, branch or link', when: ISSUE, command: 'copyMenu', group: 'Agents and copying' },
