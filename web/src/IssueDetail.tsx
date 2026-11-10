@@ -32,6 +32,7 @@ import {
   IconArrowUp,
 } from './icons.js';
 import type { Issue, Comment } from '../../src/core/types.js';
+import { EmptyState } from './EmptyState.js';
 
 /* shared activity text builder */
 function useActivityText() {
@@ -882,17 +883,15 @@ function MissingIssue(props: { issueKey: string }) {
   if (found === undefined) return null;
   if (!found) return <NotFound what="Issue" detail={`${props.issueKey} doesn’t exist, or was deleted permanently.`} back={{ label: 'Go to my issues', to: '/my-issues' }} />;
   return (
-    <div className="empty-state">
-      <div className="empty-title">{props.issueKey.toUpperCase()} is {found.where === 'trash' ? 'in the trash' : 'archived'}</div>
-      <div className="empty-desc">{found.issue.title}</div>
-      <div className="empty-actions">
+    <EmptyState kind="holding" word={found.where === 'trash' ? 'Trash' : 'Archive'} illo={found.where === 'trash' ? 'trash' : 'archive'}
+      title={<>{props.issueKey.toUpperCase()} is {found.where === 'trash' ? 'in the trash' : 'archived'}</>} desc={found.issue.title}
+      actions={<>
         <button className="btn primary" onClick={async () => {
           if (found.where === 'trash') await api.restoreIssue(found.issue.id); else await api.unarchiveIssue(found.issue.id);
           await useApp.getState().bootstrap();
         }}>{found.where === 'trash' ? 'Restore issue' : 'Unarchive issue'}</button>
         <button className="btn secondary" onClick={() => navigate(-1)}>Go back</button>
-      </div>
-    </div>
+      </>} />
   );
 }
 

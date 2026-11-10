@@ -10,10 +10,10 @@ import { api } from './api.js';
 import { TopBar } from './AppShell.js';
 import { IssueRow } from './IssueViews.js';
 import { StateIcon, Avatar } from './pickers.js';
-import { Illustration } from './illustrations.js';
 import { IconCheck, IconChevronRight, IconInbox, IconTriage } from './icons.js';
 import type { Issue, Notification } from '../../src/core/types.js';
 import { needsYou } from '../../src/core/inbox.js';
+import { EmptyState } from './EmptyState.js';
 
 /** A greeting that knows the hour and the day of the week: one quiet line, no banner. */
 function greeting(first: string, d = new Date()): string {
@@ -172,12 +172,9 @@ export function MyWorkPage() {
           )}
         </header>
         {nothing && (
-          <div className="empty-state" style={{ minHeight: 0, padding: '48px 0 24px' }}>
-            <Illustration name="inbox" small />
-            <div className="empty-title">Nothing on your plate</div>
-            <div className="empty-desc">Issues assigned to you, and anything that needs your answer, show up here across all your teams.</div>
-            {myTeam && <div className="empty-actions"><button className="btn secondary" onClick={() => navigate(`/team/${myTeam.key}/active`)}>See what {myTeam.name} is working on</button></div>}
-          </div>
+          <EmptyState kind="done" size="pane" className="mw-empty" illo="inbox" title="Nothing on your plate"
+            desc="Issues assigned to you, and anything that needs your answer, show up here across all your teams."
+            actions={myTeam && <button className="btn secondary" onClick={() => navigate(`/team/${myTeam.key}/active`)}>See what {myTeam.name} is working on</button>} />
         )}
         {!nothing && section('Needs you', asks.length + triage.length, <>
           {asks.map(ns => {

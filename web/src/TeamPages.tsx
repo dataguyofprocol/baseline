@@ -14,7 +14,7 @@ import { useMenu } from './ui.js';
 import { IconCheck, IconClose, IconDuplicate, IconClock, IconRestore, IconSearch, IconPlus, IconFilter, IconDisplay } from './icons.js';
 import type { Issue, ViewFilters } from '../../src/core/types.js';
 import { InitiativeIcon } from './Initiatives.js';
-import { Illustration } from './illustrations.js';
+import { EmptyState } from './EmptyState.js';
 
 interface TriagePrefs { filters: ViewFilters; orderBy: 'oldest' | 'newest' | 'priority'; showSnoozed: boolean }
 const DEFAULT_TRIAGE: TriagePrefs = { filters: {}, orderBy: 'oldest', showSnoozed: false };
@@ -86,16 +86,13 @@ export function TriagePage() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
         <TopBar crumbs={[{ label: team.name, icon: teamDisplayIcon(team), to: `/team/${team.key}/overview`, muted: true }, { label: 'Triage' }]} />
-        <div className="empty-state">
-          <Illustration name="triage" />
-          <div className="empty-title">Triage is off for {team.name}</div>
-          <div className="empty-desc">With triage on, issues that agents and teammates file through the CLI land in a review queue before they reach the backlog.</div>
-          <div className="empty-actions">
+        <div className="content"><EmptyState kind="off" word="Triage" illo="triage" title={<>Triage is off for {team.name}</>}
+          desc="With triage on, issues that agents and teammates file through the CLI land in a review queue before they reach the backlog."
+          actions={<>
             {canLead
               ? <button className="btn primary" onClick={() => void exclusive(`triage-${team.id}`, async () => { await api.updateTeam(team.id, { triageEnabled: true }); await useApp.getState().bootstrap(); })}>Turn on triage</button>
               : <AskLine teamId={team.id} what={`Turn on triage for ${team.name}`} />}
-          </div>
-        </div>
+          </>} /></div>
       </div>
     );
   }
@@ -126,14 +123,10 @@ export function TriagePage() {
         )}
         <div className="content">
           {queue.length === 0 ? (
-            <div className="empty-state">
-              <Illustration name="triage" />
-              <div className="empty-title">{activeFilterCount(prefs.filters) ? 'No triage issues match' : 'Nothing to triage'}</div>
-              <div className="empty-actions">
-                {activeFilterCount(prefs.filters) ? <button className="btn secondary" onClick={() => patchPrefs({ filters: {} })}>Clear filters</button>
-                  : <button className="btn secondary" onClick={createTriage}><IconPlus size={12} /> Create triage issue</button>}
-              </div>
-            </div>
+            <EmptyState kind={activeFilterCount(prefs.filters) ? 'filtered' : 'done'} word={activeFilterCount(prefs.filters) ? 'No matches' : 'All clear'} illo="triage"
+              title={activeFilterCount(prefs.filters) ? 'No triage issues match' : 'Nothing to triage'}
+              actions={activeFilterCount(prefs.filters) ? <button className="btn secondary" onClick={() => patchPrefs({ filters: {} })}>Clear filters</button>
+                : <button className="btn secondary" onClick={createTriage}><IconPlus size={12} /> Create triage issue</button>} />
           ) : queue.map((i, n) => {
             const creator = snap.users.find(u => u.id === i.creatorId);
             return (
@@ -174,7 +167,7 @@ export function TriagePage() {
             )}
           </div>
         ) : (
-          <div className="empty-state"><Illustration name="issues" /><div className="empty-title">Nothing to review</div></div>
+          <EmptyState kind="done" word="All clear" illo="issues" title="Nothing to review" />
         )}
       </div>
     </div>
@@ -206,7 +199,7 @@ function useServerList(load: () => Promise<{ issues: Issue[] }>, deps: unknown[]
   const reload = () => { setFailed(false); void load().then(r => setIssues(r.issues), () => setFailed(true)); };
   useEffect(reload, [...deps, snapIssues]); // eslint-disable-line react-hooks/exhaustive-deps
   const placeholder = failed && issues === null
-    ? <div className="empty-state"><div className="empty-title">Couldn’t load this list</div><div className="empty-desc">Baseline didn’t answer. Check that the server is running.</div><div className="empty-actions"><button className="btn secondary" onClick={reload}>Try again</button></div></div>
+    ? <EmptyState kind="missing" title="Couldn’t load this list" desc="Baseline didn’t answer. Check that the server is running." actions={<button className="btn secondary" onClick={reload}>Try again</button>} />
     : null;
   return { issues, reload, placeholder };
 }
@@ -256,7 +249,7 @@ export function ArchivePage() {
       </div>
       <div className="content">
         {tab === 'issues' && (issues === null ? placeholder : issues.length === 0 ? (
-          <div className="empty-state"><Illustration name="archive" /><div className="empty-title">No archived issues</div><div className="empty-desc">Issues you archive in {team.name} (E) and closed issues the team’s auto-archive picks up are kept here. You can bring them back at any time.</div></div>
+          <EmptyState kind="holding" word="Archive" illo="archive" title="No archived issues" desc={<>Issues you archive in {team.name} (E) and closed issues the team’s auto-archive picks up are kept here. You can bring them back at any time.</>} />
         ) : (
           <div className="static-list">
             {issues.map(i => (
@@ -267,7 +260,7 @@ export function ArchivePage() {
           </div>
         ))}
         {tab === 'cycles' && (cycles.length === 0 ? (
-          <div className="empty-state"><div className="empty-title">No archived cycles</div><div className="empty-desc">Cycles move here once they end.</div></div>
+          <EmptyState kind="holding" word="Archive" illo="archive" title="No archived cycles" desc="Cycles move here once they end." />
         ) : (
           <div className="static-list">
             {cycles.map(c => (
@@ -279,7 +272,7 @@ export function ArchivePage() {
           </div>
         ))}
         {tab === 'deleted' && (deleted === null ? deletedPlaceholder : gone.length === 0 ? (
-          <div className="empty-state"><Illustration name="trash" /><div className="empty-title">Nothing deleted recently</div><div className="empty-desc">Deleted issues stay here until you restore them or delete them for good.</div></div>
+          <EmptyState kind="holding" word="Deleted" illo="trash" title="Nothing deleted recently" desc="Deleted issues stay here until you restore them or delete them for good." />
         ) : (
           <div className="static-list">
             {gone.map(i => (
@@ -308,7 +301,7 @@ export function TrashPage() {
       ) : undefined} />
       <div className="content">
         {issues === null ? placeholder : issues.length === 0 ? (
-          <div className="empty-state"><Illustration name="trash" /><div className="empty-title">Trash is empty</div><div className="empty-desc">Deleted issues stay here until you restore them or delete them for good.</div></div>
+          <EmptyState kind="holding" word="Trash" illo="trash" title="Trash is empty" desc="Deleted issues stay here until you restore them or delete them for good." />
         ) : (
           <div className="static-list">
             <div className="static-head">{issues.length} deleted issue{issues.length === 1 ? '' : 's'}</div>
@@ -402,7 +395,7 @@ export function SearchPage() {
         {tab === 'issues' && words.length > 0 && <ListToolbar opts={opts} onDisplay={displayBtn.open} />}
       </div>
       {!words.length ? (
-        <div className="content"><div className="empty-state"><Illustration name="search" /><div className="empty-title">Search</div><div className="empty-desc">Find issues, projects, initiatives, and documents</div></div></div>
+        <div className="content"><EmptyState kind="first" word="Search" illo="search" title="Search" desc="Find issues, projects, initiatives, and documents" /></div>
       ) : tab === 'issues' ? (
         <IssueListBody issues={issues} opts={opts} patch={patch} reset={reset} multiTeam
           displayAnchor={displayBtn.anchor} closeDisplay={displayBtn.close} emptyHideCreate
@@ -418,7 +411,7 @@ export function SearchPage() {
               <span className="sr-at">{relTime(r.at).replace(/ ago$/, "")}</span>
             </button>
           ))}
-          {!rows.length && <div className="empty-state no-anim"><div className="empty-title">No results</div><div className="empty-desc">Nothing matches “{q.trim()}”.</div></div>}
+          {!rows.length && <EmptyState kind="filtered" className="no-anim" illo="search" title="No results" desc={<>Nothing matches “{q.trim()}”.</>} />}
         </div>
       )}
     </div>

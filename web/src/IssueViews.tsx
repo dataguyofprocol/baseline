@@ -14,7 +14,7 @@ import { IconFilter, IconChevronDown, IconChevronRight, IconPlus, IconClose, Ico
 import { slaState, SlaBadge } from './AutomationUI.js';
 import { issuePrList, issuePrState, prSummary, PrIcon } from './GitHubUI.js';
 import { teamScale, pointsOf, type Issue, type Priority, type ViewFilters, type GroupBy, type OrderBy, type FilterCondition, type FilterGroup } from '../../src/core/types.js';
-import { Illustration } from './illustrations.js';
+import { EmptyState } from './EmptyState.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 
@@ -1349,18 +1349,20 @@ export function GroupedList(props: {
     if (props.emptyHidden && !hiddenByFilters) return null;
     return (
       <>
-        <div className="empty-state">
-          {/* line-art illustration, as on Linear's empty views */}
-          <Illustration name="issues" />
-          <div className="empty-title">{hiddenByFilters ? 'No matching issues' : props.emptyTitle ?? 'All issues'}</div>
-          <div className="empty-desc">{hiddenByFilters ? 'No issues match the current filters.' : props.emptyDesc ?? 'All issues is the place where you can see all your team’s work in one view. Once you have created issues for this team, they will show up here.'}</div>
-          <div className="empty-actions">
+        {/* filtered: the work is there, hidden. Otherwise a list with a create button is waiting for its
+            first issue; one without (a label, a person, search) is just a place issues will show up */}
+        <EmptyState
+          kind={hiddenByFilters ? 'filtered' : !props.emptyHideCreate && props.teamId ? 'first' : 'holding'}
+          word={hiddenByFilters ? 'No matches' : props.emptyTitle ? undefined : 'Issues'}
+          illo="issues"
+          title={hiddenByFilters ? 'No matching issues' : props.emptyTitle ?? 'All issues'}
+          desc={hiddenByFilters ? 'No issues match the current filters.' : props.emptyDesc ?? 'All issues is the place where you can see all your team’s work in one view. Once you have created issues for this team, they will show up here.'}
+          actions={<>
             {hiddenByFilters > 0 && props.onClearFilters && <button className="btn secondary" onClick={props.onClearFilters}>Clear filters</button>}
             {!hiddenByFilters && !props.emptyHideCreate && props.teamId && (
               <button className="btn primary" onClick={() => openCreate({ teamId: props.teamId, ...props.createDefaults })}>Create new issue <span className="btn-kbd kbd">C</span></button>
             )}
-          </div>
-        </div>
+          </>} />
       </>
     );
   }

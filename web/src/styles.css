@@ -3179,3 +3179,60 @@ fieldset.admin-locked a { pointer-events: auto; }
 .cmt.landed { animation: bl-fade-up 320ms var(--ease) both, bl-flash 1200ms ease-out 200ms both; border-radius: 8px; }
 /* under the greeting, My work's empty state flows below it instead of covering the page */
 .mw .empty-state { position: relative; inset: auto; }
+
+/* ---------- empty states on the line (EmptyState.tsx) ----------
+   The module's title, copy, buttons and illustration sit under a rule that runs the width of the
+   pane; a faded word names the module or state above it; the register dot's place says the kind. */
+.empty-state.es { container-type: inline-size; padding: 0; --es-col: min(440px, calc(100% - 32px)); --es-x: calc((100% - var(--es-col)) / 2); }
+/* beats the older `.empty-state > *` 360px column: the word and body share one column, the line runs the pane */
+.empty-state.es > .es-word, .empty-state.es > .es-body { width: var(--es-col); margin-left: auto; margin-right: auto; }
+.empty-state.es > .es-line { width: auto; }
+.empty-state.es.es-pane > .es-line { width: var(--es-col); margin: 0 auto; }
+.es-word {
+  width: var(--es-col); margin: 0 auto; padding-bottom: 0.1em; overflow: hidden; white-space: nowrap; text-overflow: clip;
+  font-family: var(--font-display); font-size: clamp(40px, 9cqi, 64px); font-weight: 620; letter-spacing: -0.05em; line-height: 0.8;
+  color: color-mix(in srgb, var(--text-primary) 13%, transparent);
+  animation: es-word 800ms var(--ease) 80ms both;
+}
+.es-line { position: relative; height: 1.5px; align-self: stretch; --es-at: var(--es-x); }
+.es-line::before { content: ''; position: absolute; inset: 0; background: var(--rule); transform-origin: left; animation: es-draw 1s var(--ease) both; }
+.es-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0; background: var(--brand-register); }
+.es-dot { position: absolute; top: -6px; left: var(--es-at); width: 13px; height: 13px; margin-left: -6.5px; border-radius: 50%; background: var(--bg-main); }
+.es-dot::after { content: ''; position: absolute; left: 2.5px; top: 2.5px; width: 8px; height: 8px; box-sizing: border-box; border-radius: 50%; background: var(--text-secondary); }
+.es-first .es-dot::after, .es-done .es-dot::after { background: var(--brand-register); }
+.es-off .es-dot::after { background: transparent; border: 1.5px solid var(--text-secondary); }
+.es-filtered .es-line::before { background: repeating-linear-gradient(to right, var(--rule) 0, var(--rule) 6px, transparent 6px, transparent 11px); }
+/* broken: the rule stops short of the column and picks up again past it */
+.es-missing .es-line::before { background: linear-gradient(to right, var(--rule) 0, var(--rule) calc(var(--es-x) + 120px), transparent calc(var(--es-x) + 120px), transparent calc(var(--es-x) + 168px), var(--rule) calc(var(--es-x) + 168px)); }
+/* caught up: the dot runs from the column's start to its end, filling the line behind it */
+.es-done .es-line { --es-at: calc(100% - var(--es-x)); }
+.es-done .es-fill { width: var(--es-at); animation: es-fill 1.3s var(--ease) 300ms both; }
+.es-done .es-dot { animation: es-run 1.3s var(--ease) 300ms both; }
+.es-dot .burst { left: 50%; top: 50%; }
+.es-body { width: var(--es-col); margin: 0 auto; display: flex; gap: 20px; align-items: flex-start; padding-top: 22px; animation: bl-fade-up 500ms var(--ease) 300ms both; }
+.es-illo { flex: none; position: relative; }
+.es-illo .illo { margin: 0; }
+.es-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.empty-state.es .empty-title, .empty-state.es .empty-desc, .empty-state.es .empty-actions { animation: none; }
+.empty-state.es .empty-desc { margin-bottom: 0; }
+.empty-state.es .empty-actions { margin-top: 18px; }
+/* a pane, or any container too narrow for the word: title over a hairline, the line keeps to the column */
+.es-pane .es-line { width: var(--es-col); margin: 0 auto; --es-x: 0px; }
+.es-pane.es-done .es-line { --es-at: 100%; }
+@container (max-width: 520px) {
+  .es-word { display: none; }
+  .empty-state.es > .es-line { width: var(--es-col); margin: 0 auto; --es-x: 0px; }
+  .es-done .es-line { --es-at: 100%; }
+}
+@container (max-width: 380px) { .es-body { flex-direction: column; gap: 14px; } }
+@keyframes es-word { from { opacity: 0; transform: translateY(0.3em); } to { opacity: 1; transform: none; } }
+@keyframes es-draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes es-fill { from { width: 0; } }
+@keyframes es-run { from { left: var(--es-x); } }
+.empty-state.es.no-anim *, .empty-state.es.no-anim *::before { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .es-word, .es-line::before, .es-fill, .es-dot, .es-body { animation: none !important; }
+}
+/* My work: the caught-up state flows under the greeting */
+.mw-empty.es { min-height: 0; padding: 48px 0 24px; }
+.empty-state.es .empty-actions:empty { display: none; }

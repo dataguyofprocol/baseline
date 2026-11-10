@@ -11,7 +11,7 @@ import {
   IconInbox, IconMyIssues, IconDrafts, IconInitiative, IconViews, IconTeam, IconMembers, IconChevronDown,
 } from './icons.js';
 import { SIDEBAR_DEFAULTS, type SidebarVisibility, type Team } from '../../src/core/types.js';
-import { Illustration } from './illustrations.js';
+import { EmptyState } from './EmptyState.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 const refresh = () => useApp.getState().bootstrap();
@@ -155,7 +155,7 @@ export function DraftsPage() {
       <TopBar crumbs={[{ label: 'Drafts' }]} />
       <div className="content">
         {!drafts.length ? (
-          <div className="empty-state"><Illustration name="drafts" /><div className="empty-title">No active drafts</div><div className="empty-desc">"Save draft" in the new-issue modal keeps an issue here until you finish it.</div></div>
+          <EmptyState kind="holding" word="Drafts" illo="drafts" title="No active drafts" desc={<>"Save draft" in the new-issue modal keeps an issue here until you finish it.</>} />
         ) : (
           <div className="static-list">
             {drafts.map(d => {

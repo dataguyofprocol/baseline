@@ -11,7 +11,7 @@ import { useViewPrefs, DEFAULT_VIEW_OPTIONS, type ViewOptions } from './IssueVie
 import { IssueListBody, ListToolbar, TeamMissingRedirect } from './Views.js';
 import { IconCycle, IconMore, IconTrash, IconEdit, IconChevronDown, IconBox, IconTag, IconPanel, IconPlus, IconEstimate, IconCalendar, IconClose } from './icons.js';
 import type { Issue, ActivityItem, Snapshot, Cycle, Priority } from '../../src/core/types.js';
-import { Illustration } from './illustrations.js';
+import { EmptyState } from './EmptyState.js';
 
 const DAY = 86400000;
 type Snap = Snapshot;
@@ -206,12 +206,9 @@ function CyclesOff() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
       <TopBar crumbs={[{ label: 'Cycles' }]} />
-      <div className="empty-state">
-        <Illustration name="cycles" />
-        <div className="empty-title">Cycles are off in this workspace</div>
-        <div className="empty-desc">Cycles time-box a team’s work into short windows. {admin ? 'Turn them on in Settings › Features.' : 'An admin can turn them on in Settings › Features.'}</div>
-        {admin && <div className="empty-actions"><Link className="btn secondary" to="/settings/features">Open Features</Link></div>}
-      </div>
+      <div className="content"><EmptyState kind="off" word="Cycles" illo="cycles" title="Cycles are off in this workspace"
+        desc={<>Cycles time-box a team’s work into short windows. {admin ? 'Turn them on in Settings › Features.' : 'An admin can turn them on in Settings › Features.'}</>}
+        actions={admin && <Link className="btn secondary" to="/settings/features">Open Features</Link>} /></div>
     </div>
   );
 }
@@ -239,15 +236,12 @@ function CyclesList() {
         more={<><MenuItem icon={<IconPlus size={14} />} label="New cycle" onClick={() => setCreating(true)} /><MenuItem label="Cycle settings" onClick={() => navigate(`/settings/team/${team.key}`)} /></>} />
       <div className="content">
         {cycles.length === 0 ? (
-          <div className="empty-state">
-            <Illustration name="cycles" />
-            <div className="empty-title">No cycles yet</div>
-            <div className="empty-desc">Cycles are time-boxed iterations for {team.name}. Create one, or turn on automation in the team's settings and they'll be scheduled for you.</div>
-            <div className="empty-actions">
+          <EmptyState kind="first" word="Cycles" illo="cycles" title="No cycles yet"
+            desc={<>Cycles are time-boxed iterations for {team.name}. Create one, or turn on automation in the team's settings and they'll be scheduled for you.</>}
+            actions={<>
               <button className="btn primary" onClick={() => setCreating(true)}>Create cycle</button>
               <button className="btn secondary" onClick={() => navigate(`/settings/team/${team.key}`)}>Cycle settings</button>
-            </div>
-          </div>
+            </>} />
         ) : (
           <div className="cy-timeline">
             {cycles.map(c => {

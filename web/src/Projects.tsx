@@ -21,9 +21,9 @@ import {
   IconBox, IconTag, IconCycle, IconTeam, IconBell, IconViews, IconInitiative,
 } from './icons.js';
 import { UPDATE_CADENCE_LABELS, type Project, type ProjectStatus, type ProjectHealth, type Priority, type Issue, type SavedView, type UpdateCadence } from '../../src/core/types.js';
-import { Illustration } from './illustrations.js';
 import { nextLabelColor } from './labelColors.js';
 import { UpdateBody } from './UpdateBody.js';
+import { EmptyState } from './EmptyState.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 
@@ -553,12 +553,9 @@ export function ProjectsPage({ startWithCreate = false, savedView }: { startWith
       {displayMenu.anchor && <ProjectDisplayMenu anchor={displayMenu.anchor} onClose={displayMenu.close} opts={opts} patch={patch} />}
       <div className="content">
         {snap.projects.length === 0 ? (
-          <div className="empty-state">
-            <Illustration name="projects" />
-            <div className="empty-title">Projects</div>
-            <div className="empty-desc">Projects are larger units of work with a clear outcome, such as a new feature you want to ship. They can be shared across multiple teams and are comprised of issues and optional documents.</div>
-            <div className="empty-actions"><button className="btn primary" onClick={() => setCreating(true)}>Create new project</button></div>
-          </div>
+          <EmptyState kind="first" word="Projects" illo="projects" title="Projects"
+            desc="Projects are larger units of work with a clear outcome, such as a new feature you want to ship. They can be shared across multiple teams and are comprised of issues and optional documents."
+            actions={<button className="btn primary" onClick={() => setCreating(true)}>Create new project</button>} />
         ) : opts.layout === 'board' ? (
           <ProjectBoard groups={opts.groupBy === 'none' ? groupProjects(visible, 'status', snap) : groups} groupBy={opts.groupBy === 'none' ? 'status' : opts.groupBy} onCreate={st => { setCreateStatus(st); setCreating(true); }} />
         ) : (
@@ -657,7 +654,7 @@ function ProjectList(props: { groups: ProjGroup[]; display: ProjDisplay; grouped
           </div>
         );
       })}
-      {props.groups.every(g => !g.projects.length) && <div className="empty-state"><div className="empty-title">No projects match</div><div className="empty-desc">Try clearing filters or showing closed projects.</div></div>}
+      {props.groups.every(g => !g.projects.length) && <EmptyState kind="filtered" word="No matches" illo="projects" title="No projects match" desc="Try clearing filters or showing closed projects." />}
     </div>
   );
 }

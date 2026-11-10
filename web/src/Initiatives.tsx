@@ -24,6 +24,7 @@ import {
 } from './icons.js';
 import { initiativeKey, PRIORITY_LABELS, UPDATE_CADENCE_LABELS, type DateResolution, type Initiative, type InitiativeStatus, type InitiativeUpdate, type Priority, type ProjectHealth, type Project, type UpdateCadence } from '../../src/core/types.js';
 import { UpdateBody } from './UpdateBody.js';
+import { EmptyState } from './EmptyState.js';
 
 type Snap = NonNullable<ReturnType<typeof useApp.getState>['snap']>;
 const refresh = () => useApp.getState().bootstrap();
@@ -346,12 +347,9 @@ export function InitiativesPage() {
       )}
       <div className="content">
         {!snap.initiatives.length ? (
-          <div className="empty-state">
-            <Illustration name="initiatives" />
-            <div className="empty-title">Initiatives</div>
-            <div className="empty-desc">Initiatives are larger, strategic product efforts that set the direction of your company. They are comprised of all projects that align with the goals of the initiative and allow you to monitor their progress at scale.</div>
-            <div className="empty-actions"><button className="btn primary" onClick={() => setCreating(true)}>Create new initiative <span className="btn-keys"><span className="kbd">N</span>then<span className="kbd">I</span></span></button></div>
-          </div>
+          <EmptyState kind="first" word="Initiatives" illo="initiatives" title="Initiatives"
+            desc="Initiatives are larger, strategic product efforts that set the direction of your company. They are comprised of all projects that align with the goals of the initiative and allow you to monitor their progress at scale."
+            actions={<button className="btn primary" onClick={() => setCreating(true)}>Create new initiative <span className="btn-keys"><span className="kbd">N</span>then<span className="kbd">I</span></span></button>} />
         ) : (
           <div className="ini-table" style={{ ['--ini-grid' as string]: grid }}>
             <div className="ini-head"><span>Name</span>{cols.map(([k, l]) => <span key={k}>{l}</span>)}</div>
@@ -595,7 +593,8 @@ export function InitiativePage() {
     };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
   }, [ini?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!ini) return <div className="empty-state"><Illustration name="initiatives" small /><div className="empty-title">Initiative not found</div><div className="empty-desc">It may have been deleted.</div><div className="empty-actions"><button className="btn secondary" onClick={() => navigate('/initiatives')}>Back to initiatives</button></div></div>;
+  if (!ini) return <EmptyState kind="missing" word="Not found" illo="initiatives" title="Initiative not found" desc="It may have been deleted."
+    actions={<button className="btn secondary" onClick={() => navigate('/initiatives')}>Back to initiatives</button>} />;
   const chain: Initiative[] = [];
   for (let p = snap.initiatives.find(i => i.id === ini.parentId); p && !chain.includes(p); p = snap.initiatives.find(i => i.id === p!.parentId)) chain.unshift(p);
   const projects = rollupProjects(snap, ini);

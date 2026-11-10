@@ -19,10 +19,10 @@ import {
   IconEmoji, IconDoc, IconExternal, IconLink,
 } from './icons.js';
 import { notifyCategory, type Notification, type NotificationType, type NotifyCategory, type Snapshot } from '../../src/core/types.js';
-import { Illustration } from './illustrations.js';
 import { inboxRows } from '../../src/core/inbox.js';
 import { plainText } from '../../src/core/mentions.js';
 import { toggleSubscription } from './actions.js';
+import { EmptyState } from './EmptyState.js';
 
 /* Linear's inbox: notifications on the left (newest first, one row per issue), the issue on
    the right. U toggles read, ⌫ deletes, H snoozes, ⇧⌫ deletes everything read. Snoozed
@@ -292,20 +292,14 @@ export function InboxPage() {
         )}
         <div className="content">
           {rows.length === 0 && (prefs.types.length > 0 || prefs.from.length > 0) && snap.notifications.length > 0 ? (
-            <div className="empty-state">
-              <div className="empty-title">No notifications match these filters</div>
-              <div className="empty-desc">{snap.notifications.length} notification{snap.notifications.length === 1 ? ' is' : 's are'} hidden by the type or sender filter.</div>
-              <div className="empty-actions"><button className="btn secondary" onClick={() => patchPrefs({ types: [], from: [] })}>Clear filters</button></div>
-            </div>
+            <EmptyState kind="filtered" word="No matches" illo="inbox" title="No notifications match these filters"
+              desc={<>{snap.notifications.length} notification{snap.notifications.length === 1 ? ' is' : 's are'} hidden by the type or sender filter.</>}
+              actions={<button className="btn secondary" onClick={() => patchPrefs({ types: [], from: [] })}>Clear filters</button>} />
           ) : rows.length === 0 ? (
-            <div className="empty-state">
-              <span className="empty-illo">
-                <Illustration name="inbox" />
-                {emptiedNow && <Burst count={12} reach={46} />}
-              </span>
-              <div className="empty-title">{emptiedNow ? 'Inbox zero' : 'You’re all caught up'}</div>
-              <div className="empty-desc">{emptiedNow ? 'Everything is read and cleared away. Enjoy the quiet.' : 'Assignments, mentions, comments and status changes on issues you follow land here.'}</div>
-            </div>
+            <EmptyState kind="done" word={emptiedNow ? 'Inbox zero' : 'Caught up'} illo="inbox"
+              dot={emptiedNow && <Burst count={12} reach={46} />}
+              title={emptiedNow ? 'Inbox zero' : 'You’re all caught up'}
+              desc={emptiedNow ? 'Everything is read and cleared away. Enjoy the quiet.' : 'Assignments, mentions, comments and status changes on issues you follow land here.'} />
           ) : sectioned.map(({ r: row, sec }, k) => {
             const n = row.lead;
             const header = sec && (k === 0 || sectioned[k - 1].sec !== sec) ? sec : null;
@@ -364,11 +358,8 @@ export function InboxPage() {
       </div>
       <div className="inbox-preview">
         {openRow ? <ProjectNotice n={openRow.lead} /> : selectedIssue ? <IssueDetail key={selectedIssue.id} issue={selectedIssue} /> : (
-          <div className="empty-state">
-            <Illustration name="inbox" small />
-            <div className="empty-title">{rows.length ? 'No notification selected' : 'Nothing to preview'}</div>
-            {rows.length > 0 && <div className="empty-desc"><span className="kbd">J</span> <span className="kbd">K</span> to move · <span className="kbd">U</span> read/unread · <span className="kbd">⌫</span> delete · <span className="kbd">H</span> snooze</div>}
-          </div>
+          <EmptyState kind="holding" size="pane" illo="inbox" title={rows.length ? 'No notification selected' : 'Nothing to preview'}
+            desc={rows.length > 0 && <><span className="kbd">J</span> <span className="kbd">K</span> to move · <span className="kbd">U</span> read/unread · <span className="kbd">⌫</span> delete · <span className="kbd">H</span> snooze</>} />
         )}
       </div>
 

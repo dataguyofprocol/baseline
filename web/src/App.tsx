@@ -33,7 +33,7 @@ import { SignIn, SignedInInvite } from './SignIn.js';
 import { api } from './api.js';
 import { Logo } from './Logo.js';
 import { reducedMotion } from './motion.js';
-import { Illustration } from './illustrations.js';
+import { EmptyState } from './EmptyState.js';
 
 function keyOfIssue(issue: Issue) {
   return `${useApp.getState().snap?.teams.find(t => t.id === issue.teamId)?.key}-${issue.number}`;
@@ -357,12 +357,10 @@ function InboxRedirect() {
 function NotFoundPage() {
   const navigate = useNavigate();
   return (
-    <div className="content"><div className="empty-state">
-      <Illustration name="search" />
-      <div className="empty-title">Not found</div>
-      <div className="empty-desc">There’s no page at this address.</div>
-      <div className="empty-actions"><button className="btn secondary" onClick={() => navigate('/inbox')}>Go to inbox</button></div>
-    </div></div>
+    <div className="content">
+      <EmptyState kind="missing" word="Not found" illo="search" title="Not found" desc="There’s no page at this address."
+        actions={<button className="btn secondary" onClick={() => navigate('/inbox')}>Go to inbox</button>} />
+    </div>
   );
 }
 

@@ -6,6 +6,7 @@ import { useApp } from './store.js';
 import { api } from './api.js';
 import { IconClose, IconCheck, IconChevronRight } from './icons.js';
 import { reducedMotion } from './motion.js';
+import { EmptyState } from './EmptyState.js';
 
 /* ---------------- dropdown menu ---------------- */
 export interface MenuCtx {
@@ -644,10 +645,9 @@ export function Via({ userId }: { userId: string | null }) {
 /** one "not found" treatment for every entity page: what's missing, why, and a way back */
 export function NotFound(props: { what: string; detail?: string; back: { label: string; to: string } }) {
   return (
-    <div className="content"><div className="empty-state">
-      <div className="empty-title">{props.what} not found</div>
-      <div className="empty-desc">{props.detail ?? 'It may have been deleted, or the link is wrong.'}</div>
-      <div className="empty-actions"><Link className="btn secondary" to={props.back.to}>{props.back.label}</Link></div>
-    </div></div>
+    <div className="content">
+      <EmptyState kind="missing" word="Not found" illo="search" title={`${props.what} not found`} desc={props.detail ?? 'It may have been deleted, or the link is wrong.'}
+        actions={<Link className="btn secondary" to={props.back.to}>{props.back.label}</Link>} />
+    </div>
   );
 }

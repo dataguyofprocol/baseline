@@ -11,7 +11,7 @@ import { ProjectsPage, countProjectView, describeProjectView } from './Projects.
 import { StateIcon, teamDisplayIcon, Avatar } from './pickers.js';
 import { IconFilter, IconDisplay, IconStar, IconMore, IconTrash, IconEdit, IconViews, IconBell, IconCheck } from './icons.js';
 import type { SavedView, ViewFilters, Issue } from '../../src/core/types.js';
-import { Illustration } from './illustrations.js';
+import { EmptyState } from './EmptyState.js';
 
 /** the right-toolbar filter icon opens the filter menu anchored to itself */
 export function openFilterMenu(e: React.MouseEvent) {
@@ -114,11 +114,8 @@ export function IssueListBody(props: {
           />
         ) : boardIssues.length === 0 && Object.keys(opts.filters ?? {}).length > 0 && props.issues.length > 0 ? (
           // the list says "N hidden by filters"; a board filtered to nothing used to look empty
-          <div className="empty-state">
-            <div className="empty-title">No matching issues</div>
-            <div className="empty-desc">No issues match the current filters.</div>
-            <div className="empty-actions"><button className="btn secondary" onClick={() => patch({ filters: {} })}>Clear filters</button></div>
-          </div>
+          <EmptyState kind="filtered" word="No matches" illo="issues" title="No matching issues" desc="No issues match the current filters."
+            actions={<button className="btn secondary" onClick={() => patch({ filters: {} })}>Clear filters</button>} />
         ) : (
           <Board
             issues={boardIssues}
@@ -355,7 +352,7 @@ function MyActivity() {
     return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   };
   let last = '';
-  if (!items.length) return <div className="content"><div className="empty-state"><Illustration name="activity" /><div className="empty-title">No activity yet</div><div className="empty-desc">Changes you make to issues show up here.</div></div></div>;
+  if (!items.length) return <div className="content"><EmptyState kind="holding" word="Activity" illo="activity" title="No activity yet" desc="Changes you make to issues show up here." /></div>;
   return (
     <div className="content">
       <div className="my-activity">
@@ -450,14 +447,9 @@ export function ViewsIndexPage({ kind = 'issues' }: { kind?: 'issues' | 'project
       </div>
       <div className="content">
         {snap.views.length === 0 ? (
-          <div className="empty-state">
-            <Illustration name="views" />
-            <div className="empty-title">Views</div>
-            <div className="empty-desc">{kind === 'projects' ? 'Save project filters, groupings and layouts, like a roadmap, a team’s portfolio or at-risk work, and come back to them.' : 'Create views to save filters and groupings you return to.'}</div>
-            <div className="empty-actions">
-              <button className="btn primary" onClick={createView}>New view</button>
-            </div>
-          </div>
+          <EmptyState kind="first" word="Views" illo="views" title="Views"
+            desc={kind === 'projects' ? 'Save project filters, groupings and layouts, like a roadmap, a team’s portfolio or at-risk work, and come back to them.' : 'Create views to save filters and groupings you return to.'}
+            actions={<button className="btn primary" onClick={createView}>New view</button>} />
         ) : (
           <div style={{ padding: '0 16px' }}>
             <div className="view-grid proj-head">
