@@ -142,15 +142,15 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   const gone = run(s1, { type: 'loaded', data: buildData({ ...data, issues: data.issues.filter(i => i.id !== issue.id) }), at: now + 2 });
   check('an open issue that disappears goes back with a note', gone.route.kind === 'my' && gone.toast?.tone === 'info');
 
-  const picker = run(s0, { type: 'openOverlay', overlay: { kind: 'picker', field: 'state', issueId: issue.id, input: emptyField, cursor: 0, selected: [] } });
+  const picker = run(s0, { type: 'openOverlay', overlay: { kind: 'picker', field: 'state', issueId: issue.id, query: emptyField, cursor: 0, selected: [] } });
   check('opening a picker sets the overlay', picker.overlay.kind === 'picker');
   const wrapped = run(picker, { type: 'overlayMove', delta: -1, count: 5 });
   check('picker movement wraps around', wrapped.overlay.kind === 'picker' && wrapped.overlay.cursor === 4);
   const filtered = run(wrapped, { type: 'editInput', input: fieldOf('do') });
-  check('typing a filter resets the picker cursor', filtered.overlay.kind === 'picker' && filtered.overlay.cursor === 0 && filtered.overlay.input.value === 'do');
+  check('typing a filter resets the picker cursor', filtered.overlay.kind === 'picker' && filtered.overlay.cursor === 0 && filtered.overlay.query.value === 'do');
   check('closing returns to no overlay', run(filtered, { type: 'closeOverlay' }).overlay.kind === 'none');
 
-  const labels = run(s0, { type: 'openOverlay', overlay: { kind: 'picker', field: 'labels', issueId: issue.id, input: emptyField, cursor: 0, selected: ['l1'] } }, { type: 'pickerToggle', id: 'l2' }, { type: 'pickerToggle', id: 'l1' });
+  const labels = run(s0, { type: 'openOverlay', overlay: { kind: 'picker', field: 'labels', issueId: issue.id, query: emptyField, cursor: 0, selected: ['l1'] } }, { type: 'pickerToggle', id: 'l2' }, { type: 'pickerToggle', id: 'l1' });
   check('the labels picker toggles a set', labels.overlay.kind === 'picker' && labels.overlay.selected.join() === 'l2');
 
   const draft = newDraft({ route: { kind: 'team', teamId: team.id }, stack: [] }, data);
@@ -163,7 +163,7 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('shift-tab from the title wraps to the last field', compose.overlay.kind === 'compose' && compose.overlay.target === 'issue' && compose.overlay.field === 'project');
 
   const opts = pickerOptions('assignee', issue, data);
-  check('the assignee picker offers me first and unassign last', opts[0].id === data.currentUser.id && opts[0].hint === 'me' && opts[opts.length - 1].label === 'No assignee');
+  check('the assignee picker offers Me first and unassign last', opts[0].id === data.currentUser.id && opts[0].label === 'Me' && opts[opts.length - 1].label === 'No assignee');
   check('routeKey separates routes of the same kind', routeKey({ kind: 'team', teamId: 'a' }) !== routeKey({ kind: 'team', teamId: 'b' }));
 
   const firstGroup = groupIssues(issuesForRoute({ kind: 'my' }, data), data)[0];
@@ -186,7 +186,7 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('removed keys answer nothing: g, D, J, z, ctrl-b, ctrl-k', ['g', 'D', 'J', 'z', 'ctrl+b', 'ctrl+k', 'g i'].every(k => !lookup(['list', 'global'], k)));
   const help = helpSections().flatMap(sec => sec.rows.map(r => `${sec.group}|${r.key}|${r.label}`));
   check('the help overlay has no duplicate rows', new Set(help).size === help.length, help.filter((r, i) => help.indexOf(r) !== i).join(', '));
-  const pickerState = run(st, { type: 'openOverlay', overlay: { kind: 'picker', field: 'priority', issueId: data.issues[0].id, input: emptyField, cursor: 0, selected: [] } });
+  const pickerState = run(st, { type: 'openOverlay', overlay: { kind: 'picker', field: 'priority', issueId: data.issues[0].id, query: emptyField, cursor: 0, selected: [] } });
   check('a picker: digits always pick, every other letter filters',
     lookup(contextsFor(pickerState), '3')?.command === 'pickerPick' && lookup(contextsFor(run(pickerState, { type: 'editInput', input: fieldOf('h') })), '3')?.command === 'pickerPick' &&
     lookup(contextsFor(pickerState), 'j') === undefined && lookup(contextsFor(pickerState), 'q') === undefined);
@@ -257,7 +257,7 @@ class FakeStdin extends EventEmitter {
   const target = data.issueById.get(selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[0])!;
   const next = data.states.filter(s => s.teamId === target.teamId && s.id !== target.stateId).sort((a, b) => a.position - b.position).find(s => s.type === 'completed')!;
   stdin.press('s');
-  await waitFor('status picker', f => f.includes('Change status'));
+  await waitFor('status picker', f => f.includes(`Status for ${data.keyOf(target)}`) && /│ s Status .*▾/.test(f));
   stdin.press(next.name);
   await waitFor('filtered picker', f => f.includes(`› ${next.name}`));
   stdin.press('\r');
@@ -305,7 +305,7 @@ class FakeStdin extends EventEmitter {
   const live = await fetchData(fresh);
   const pick = live.issueById.get(selectableIds({ kind: 'my' }, live, DEFAULT_VIEW, now)[0])!;
   stdin.press('kkkkkkkkkkkkkp');
-  await waitFor('priority picker', f => f.includes('Set priority'));
+  await waitFor('priority picker', f => f.includes('Priority for'));
   stdin.press('4');
   await waitFor('priority toast', f => f.includes(`${live.keyOf(pick)} → Low`));
   check('a digit in a picker picks that option (p 4 → Low)', (await fresh.getIssue(pick.id))?.priority === 4);

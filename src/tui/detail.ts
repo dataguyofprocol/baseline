@@ -2,7 +2,9 @@
 import { PRIORITY_LABELS, type ActivityItem, type Issue } from '../core/types.js';
 import type { WorkThread } from '../core/work-types.js';
 import type { TuiData } from './data.js';
-import { activityText, displayWidth, dueLabel, markdownLines, padEnd, relTime, tildePath, truncate, wrap, wrapSegs, type Line, type Seg } from './model.js';
+import { activityText, displayWidth, dueLabel, highlight, markdownLines, padEnd, relTime, tildePath, truncate, wrap, wrapSegs, type Line, type Seg } from './model.js';
+import { filteredOptions } from './overlays.js';
+import type { Overlay } from './state.js';
 import { keySeg, priorityMark, STATE_ICON, theme } from './theme.js';
 
 const none: Seg = { text: '—', color: theme.muted };
@@ -23,7 +25,7 @@ export interface IssueUi { saved?: FieldId | null; picker?: { field: FieldId; li
 
 const LABEL_W = 12;
 
-export function fieldRows(issue: Issue, data: TuiData): FieldRow[] {
+export function fieldRows(issue: Issue, data: TuiData, now: number): FieldRow[] {
   const state = data.stateById.get(issue.stateId);
   const pm = priorityMark(issue.priority);
   const assignee = issue.assigneeId ? data.userById.get(issue.assigneeId) : undefined;
@@ -33,39 +35,41 @@ export function fieldRows(issue: Issue, data: TuiData): FieldRow[] {
     { field: 'assignee', key: 'a', label: 'Assignee', value: assignee ? [{ text: assignee.name }] : [{ text: 'Unassigned', color: theme.muted }] },
     { field: 'priority', key: 'p', label: 'Priority', value: [{ text: `${pm.text} `, color: pm.color }, { text: PRIORITY_LABELS[issue.priority], ...(issue.priority === 0 ? { color: theme.muted } : {}) }] },
     { field: 'labels', key: 'l', label: 'Labels', value: labels.length ? labels.flatMap((l, i) => [{ text: `${i ? '  ' : ''}●`, color: l.color }, { text: ` ${l.name}` }]) : [{ text: 'none', color: theme.muted }] },
+    { field: 'project', key: null, label: 'Project', value: projectValue(issue, data, now) },
   ];
+}
+
+function projectValue(issue: Issue, data: TuiData, now: number): Seg[] {
+  const project = issue.projectId ? data.projectById.get(issue.projectId) : undefined;
+  const due = issue.dueDate ? dueLabel(issue.dueDate, now) : undefined;
+  const dueSeg: Seg[] = due ? [{ text: `${project ? ' · ' : ''}due ${due.text}`, color: due.tone === 'overdue' ? theme.error : theme.muted }] : [];
+  return [...(project ? [{ text: project.name, color: theme.muted }] : due ? [] : [{ text: 'none', color: theme.muted }]), ...dueSeg];
 }
 
 const saved: Seg = { text: '   ✓ saved', color: theme.ok, bold: true };
 
 function fieldLine(r: FieldRow, ui: IssueUi): Line {
   const open = ui.picker?.field === r.field;
-  return [...(r.key ? [keySeg(r.key), { text: ' ' }] : [{ text: '  ' }]), { text: padEnd(r.label, LABEL_W), bold: open },
+  return [...(r.key ? [keySeg(r.key), { text: ' ' }] : [{ text: '  ' }]), { text: padEnd(r.label, LABEL_W), bold: open, ...(r.key || open ? {} : { color: theme.muted }) },
     ...r.value, ...(open ? [{ text: '  ▾', color: theme.accent }] : []), ...(ui.saved === r.field ? [saved] : [])];
 }
 
 const greyed = (l: Line): Line => l.map(x => ({ ...x, color: theme.muted, bg: undefined, bold: false }));
 
+
 /** the field rows, with an open picker drawn under its field and the rows below it greyed out */
-function fieldBlock(issue: Issue, data: TuiData, ui: IssueUi, extra: Line[]): Line[] {
+function fieldBlock(issue: Issue, data: TuiData, now: number, ui: IssueUi, extra: Line[]): Line[] {
   const out: Line[] = [];
   let below = false;
-  for (const r of fieldRows(issue, data)) {
+  for (const r of fieldRows(issue, data, now)) {
     out.push(below ? greyed(fieldLine(r, ui)) : fieldLine(r, ui));
     if (ui.picker?.field === r.field) { out.push(...ui.picker.lines); below = true; }
   }
   return [...out, ...(below ? extra.map(greyed) : extra)];
 }
 
-function dimRow(label: string, value: Seg[], mark = false): Line {
-  return [{ text: '  ' }, { text: padEnd(label, LABEL_W), color: theme.muted }, ...value.map(x => ({ ...x, color: x.color ?? theme.muted })), ...(mark ? [saved] : [])];
-}
-
-function projectRow(issue: Issue, data: TuiData, now: number, ui: IssueUi): Line {
-  const project = issue.projectId ? data.projectById.get(issue.projectId) : undefined;
-  const due = issue.dueDate ? dueLabel(issue.dueDate, now) : undefined;
-  const dueSeg: Seg[] = due ? [{ text: `${project ? ' · ' : ''}due ${due.text}`, color: due.tone === 'overdue' ? theme.error : theme.muted }] : [];
-  return dimRow('Project', [...(project ? [{ text: project.name }] : due ? [] : [{ text: 'none' }]), ...dueSeg], ui.saved === 'project');
+function dimRow(label: string, value: Seg[]): Line {
+  return [{ text: '  ' }, { text: padEnd(label, LABEL_W), color: theme.muted }, ...value.map(x => ({ ...x, color: x.color ?? theme.muted }))];
 }
 
 /** the rarely-set fields, on the full page only, each only when it has a value */
@@ -106,7 +110,7 @@ export const AGENT_LINE: Line = [keySeg('w'), { text: ' Work on it with an agent
  *  always show; the description, the latest comment and the last change share what is left */
 export function paneLines(issue: Issue, data: TuiData, width: number, height: number, now: number, ui: IssueUi = {}): Line[] {
   const w = Math.max(12, width);
-  const top: Line[] = [...headLines(issue, data, w, ui, 2), [], ...fieldBlock(issue, data, ui, [projectRow(issue, data, now, ui)])];
+  const top: Line[] = [...headLines(issue, data, w, ui, 2), [], ...fieldBlock(issue, data, now, ui, [])];
   const bottom: Line[] = [[], AGENT_LINE];
   let room = height - top.length - bottom.length;
 
@@ -157,7 +161,7 @@ function threadLines(t: WorkThread, data: TuiData, width: number, now: number): 
 
 export function detailLines(issue: Issue, data: TuiData, threads: readonly WorkThread[], width: number, now: number, ui: IssueUi = {}): Line[] {
   const w = Math.max(20, width);
-  const lines: Line[] = [...headLines(issue, data, w, ui, 99), [], ...fieldBlock(issue, data, ui, [projectRow(issue, data, now, ui), ...moreRows(issue, data)])];
+  const lines: Line[] = [...headLines(issue, data, w, ui, 99), [], ...fieldBlock(issue, data, now, ui, moreRows(issue, data))];
   lines.push([], [keySeg('m'), { text: ' comment   ' }, keySeg('e'), { text: ' edit   ' }, ...AGENT_LINE, { text: '   ' }, keySeg('o'), { text: ' browser' }]);
 
   lines.push(...section('Description', w));
@@ -208,4 +212,59 @@ export function detailLines(issue: Issue, data: TuiData, threads: readonly WorkT
   }
   lines.push([]);
   return lines;
+}
+
+// ---------- the picker, drawn under its field ----------
+
+/** a bordered dropdown: the filter, then numbered options (1-9 pick, the cursor row lit). `title` heads the border
+ *  when it floats over the list instead of opening under a field */
+export function pickerLines(o: Extract<Overlay, { kind: 'picker' }>, data: TuiData, width: number, maxRows: number, title?: string): Line[] {
+  const w = Math.max(16, Math.min(width, 40));
+  const inner = w - 4;
+  const options = filteredOptions(o, data);
+  const multi = o.field === 'labels';
+  const cursor = Math.min(o.cursor, Math.max(0, options.length - 1));
+  const room = Math.max(1, maxRows);
+  const start = Math.max(0, Math.min(cursor - room + 1, options.length - room));
+  const edge = (l: Line, bg?: string): Line => {
+    const fitted = fitTo(l, inner);
+    return [{ text: '│ ', color: theme.border }, ...(bg ? fitted.map(x => ({ ...x, bg })) : fitted), { text: ' │', color: theme.border }];
+  };
+  const head = title ? truncate(` ${title} `, w - 4) : '';
+  const rows: Line[] = options.slice(start, start + room).map(({ option, match }, n) => {
+    const at = start + n;
+    const on = o.selected.includes(option.id);
+    const left: Seg[] = [{ text: at < 9 ? `${at + 1}  ` : '   ', color: theme.key, bold: true },
+      ...(multi ? [{ text: on ? '◉ ' : '○ ', color: on ? theme.accent : theme.muted }] : []),
+      ...(option.icon ? [{ ...option.icon, text: `${option.icon.text.trim() || '·'} ` }] : []),
+      ...highlight(option.label, match.indices).map(r => ({ text: r.text, bold: at === cursor || r.hit, ...(r.hit ? { color: theme.accent } : {}) }))];
+    const right: Seg[] = !multi && option.current ? [{ text: 'current', color: theme.muted }] : option.hint ? [{ text: option.hint, color: theme.muted }] : [];
+    return edge(spread(left, right, inner), at === cursor ? theme.selBg : undefined);
+  });
+  return [
+    [{ text: `╭─${head}${'─'.repeat(Math.max(0, w - 3 - displayWidth(head)))}╮`, color: theme.border }],
+    edge([{ text: '› ', color: theme.accent }, ...(o.query.value ? [{ text: o.query.value }, { text: ' ', inverse: true }] : [{ text: 'type to filter', color: theme.muted }])]),
+    edge([]),
+    ...(rows.length ? rows : [edge([{ text: 'No matches', color: theme.muted }])]),
+    [{ text: `╰${'─'.repeat(w - 2)}╯`, color: theme.border }],
+  ];
+}
+
+function fitTo(l: Line, width: number): Line {
+  const out: Line = [];
+  let used = 0;
+  for (const x of l) {
+    const t = truncate(x.text, width - used);
+    if (!t) break;
+    out.push({ ...x, text: t });
+    used += displayWidth(t);
+  }
+  return used < width ? [...out, { text: ' '.repeat(width - used) }] : out;
+}
+
+function spread(left: Seg[], right: Seg[], width: number): Line {
+  const rw = right.reduce((n, x) => n + displayWidth(x.text), 0);
+  const l = fitTo(left, Math.max(1, width - rw - (rw ? 1 : 0))).filter((x, i, all) => i < all.length - 1 || x.text.trim() || !rw);
+  const lw = l.reduce((n, x) => n + displayWidth(x.text), 0);
+  return [...l, { text: ' '.repeat(Math.max(0, width - lw - rw)) }, ...right];
 }

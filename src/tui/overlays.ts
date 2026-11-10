@@ -2,8 +2,8 @@
 import { PRIORITY_LABELS, type Issue, type Priority } from '../core/types.js';
 import type { TuiData } from './data.js';
 import { fuzzyFilter, type FuzzyMatch, type Seg } from './model.js';
-import type { DraftField, IssueDraft, Overlay, PickerField, Route, TuiState } from './state.js';
-import { priorityGlyph, STATE_ICON, theme } from './theme.js';
+import type { DraftField, IssueDraft, Overlay, PickerField, TuiState } from './state.js';
+import { priorityMark, STATE_ICON, theme } from './theme.js';
 
 export const NONE = '__none__';
 
@@ -11,12 +11,7 @@ export interface Option { id: string; label: string; icon?: Seg; hint?: string; 
 
 const PRIORITY_ORDER: Priority[] = [1, 2, 3, 4, 0];
 
-export function pickerOptions(field: PickerField, issue: Issue | undefined, data: TuiData, route?: Route): Option[] {
-  if (field === 'team') {
-    return data.teams.map(t => ({
-      id: t.id, label: t.name, hint: t.key, icon: { text: '■', color: t.color }, current: route?.kind === 'team' && route.teamId === t.id, search: `${t.key} ${t.name}`,
-    }));
-  }
+export function pickerOptions(field: PickerField, issue: Issue | undefined, data: TuiData): Option[] {
   if (!issue) return [];
   switch (field) {
     case 'state':
@@ -24,16 +19,13 @@ export function pickerOptions(field: PickerField, issue: Issue | undefined, data
         id: s.id, label: s.name, icon: { text: STATE_ICON[s.type], color: s.color }, current: s.id === issue.stateId, search: s.name,
       }));
     case 'priority':
-      return PRIORITY_ORDER.map(p => {
-        const g = priorityGlyph(p);
-        return { id: String(p), label: PRIORITY_LABELS[p], icon: { text: g.text, color: g.color }, current: p === issue.priority, search: PRIORITY_LABELS[p] };
-      });
+      return PRIORITY_ORDER.map(p => ({ id: String(p), label: PRIORITY_LABELS[p], icon: priorityMark(p), current: p === issue.priority, search: PRIORITY_LABELS[p] }));
     case 'assignee': {
       const me = data.currentUser;
       const others = data.users.filter(u => u.id !== me.id && u.status !== 'suspended')
         .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'human' ? -1 : 1));
       return [
-        { id: me.id, label: `${me.name}`, hint: 'me', icon: { text: '●', color: me.color }, current: issue.assigneeId === me.id, search: `me ${me.name}` },
+        { id: me.id, label: 'Me', hint: me.name, icon: { text: '●', color: me.color }, current: issue.assigneeId === me.id, search: `me ${me.name}` },
         ...others.map(u => ({ id: u.id, label: u.name, hint: u.kind === 'agent' ? 'agent' : undefined, icon: { text: '●', color: u.color }, current: issue.assigneeId === u.id, search: u.name })),
         { id: NONE, label: 'No assignee', hint: 'unassign', icon: { text: '○', color: theme.muted }, current: !issue.assigneeId, search: 'unassign none no assignee' },
       ];
@@ -53,13 +45,11 @@ export function pickerOptions(field: PickerField, issue: Issue | undefined, data
   }
 }
 
-export function filteredOptions(o: Extract<Overlay, { kind: 'picker' }>, data: TuiData, route?: Route): Array<{ option: Option; match: FuzzyMatch }> {
-  const issue = o.issueId ? data.issueById.get(o.issueId) : undefined;
-  if (o.issueId && !issue) return [];
-  return fuzzyFilter(pickerOptions(o.field, issue, data, route), o.input.value, x => x.search).map(({ item, match }) => ({ option: item, match }));
+export function filteredOptions(o: Extract<Overlay, { kind: 'picker' }>, data: TuiData): Array<{ option: Option; match: FuzzyMatch }> {
+  return fuzzyFilter(pickerOptions(o.field, data.issueById.get(o.issueId), data), o.query.value, x => x.search).map(({ item, match }) => ({ option: item, match }));
 }
 
-export const PICKER_TITLE: Record<PickerField, string> = { state: 'Change status', priority: 'Set priority', assignee: 'Assign to', labels: 'Labels', project: 'Move to project', team: 'Switch team' };
+export const PICKER_TITLE: Record<PickerField, string> = { state: 'Status', priority: 'Priority', assignee: 'Assignee', labels: 'Labels', project: 'Project' };
 
 // ---------- search ----------
 
@@ -100,7 +90,7 @@ export function draftChoices(field: Exclude<DraftField, 'title'>, draft: IssueDr
     case 'team': return data.teams.map(t => ({ id: t.id, label: `${t.name} (${t.key})`, icon: { text: '■', color: t.color } }));
     case 'state': return data.states.filter(st => st.teamId === draft.teamId).sort((a, b) => a.position - b.position)
       .map(st => ({ id: st.id, label: st.name, icon: { text: STATE_ICON[st.type], color: st.color } }));
-    case 'priority': return PRIORITY_ORDER.map(p => ({ id: String(p), label: PRIORITY_LABELS[p], icon: { text: priorityGlyph(p).text, color: priorityGlyph(p).color } }));
+    case 'priority': return PRIORITY_ORDER.map(p => ({ id: String(p), label: PRIORITY_LABELS[p], icon: priorityMark(p) }));
     case 'assignee': return [
       { id: NONE, label: 'No assignee', icon: { text: '○', color: theme.muted } },
       ...data.users.filter(u => u.status !== 'suspended').map(u => ({ id: u.id, label: u.id === data.currentUser.id ? `${u.name} (me)` : u.name, icon: { text: '●', color: u.color } })),

@@ -278,15 +278,18 @@ export function hintSegs(hints: Array<{ key: string; label: string }>): Seg[] {
 /** one line: what the keys do here on the left (cut to fit), the sync state on the right */
 export function Footer({ s, left, width, target }: { s: TuiState; left: Seg[]; width: number; target: string }) {
   const frame = useTicker(s.syncing ? 80 : 1000);
-  const right: Seg[] = [...syncLabel(s, frame), { text: `  ${target}`, color: theme.muted }];
+  // an open overlay's footer is only its own keys
+  const right: Seg[] = s.overlay.kind !== 'none' ? [] : [...syncLabel(s, frame), { text: `  ${target}`, color: theme.muted }];
   const rightW = right.reduce((n, x) => n + displayWidth(x.text), 0) + 1;
   const segs: Seg[] = [{ text: ' ' }];
   let used = 1;
-  for (const seg of left) {
-    const w = displayWidth(seg.text);
+  for (let i = 0; i < left.length; i++) {
+    const seg = left[i];
+    // a key chip goes only with its label
+    const w = displayWidth(seg.text) + (seg.bg === theme.keyBg && left[i + 1] ? displayWidth(left[i + 1].text) : 0);
     if (used + w > width - rightW - 1) break;
     segs.push(seg);
-    used += w;
+    used += displayWidth(seg.text);
   }
   return <LineView line={[...segs, { text: ' '.repeat(Math.max(1, width - used - rightW)) }, ...right, { text: ' ' }]} width={width} />;
 }

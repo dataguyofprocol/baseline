@@ -33,8 +33,10 @@ export interface Binding {
   hint?: boolean;
   /** the footer's shorter label */
   short?: string;
-  /** the help overlay shows it through the row above (j/k, gg/G, [ ]) */
+  /** the help overlay shows it through the row above (j/k) */
   partner?: boolean;
+  /** contexts whose footer leaves it out although it works there */
+  hideIn?: Context[];
 }
 
 const NAV: Context[] = ['list', 'inbox', 'projects'];
@@ -86,9 +88,9 @@ export const BINDINGS: Binding[] = [
   { keys: ['r', 'ctrl+r'], label: 'retry', when: ['boot'], command: 'retry', group: 'Workspace', hint: true },
   { keys: ['q'], label: 'quit', when: ['boot'], command: 'quit', group: 'Workspace', hint: true },
 
-  { keys: DIGITS, display: '1-9', label: 'pick the nth', short: 'pick', when: ['picker'], command: 'pickerPick', group: 'Pickers', hint: true },
-  { keys: ['down', 'ctrl+n', 'ctrl+j'], display: '↑↓', label: 'move', when: ['picker', 'finder'], command: 'overlayDown', group: 'Pickers', hint: true },
+  { keys: ['down', 'ctrl+n', 'ctrl+j'], display: '↑↓', label: 'choose', when: ['picker', 'finder'], command: 'overlayDown', group: 'Pickers', hint: true },
   { keys: ['up', 'ctrl+p'], label: 'up', when: ['picker', 'finder'], command: 'overlayUp', group: 'Pickers', partner: true },
+  { keys: DIGITS, display: '1-9', label: 'pick the nth', short: 'pick', when: ['picker'], command: 'pickerPick', group: 'Pickers', hint: true, hideIn: ['multipicker'] },
   { keys: ['space'], label: 'toggle', when: ['multipicker'], command: 'pickerToggle', group: 'Pickers', hint: true },
   { keys: ['enter'], label: 'apply', when: ['picker'], command: 'overlayAccept', group: 'Pickers', hint: true },
   { keys: ['enter'], label: 'open', when: ['finder'], command: 'overlayAccept', group: 'Pickers', hint: true },
@@ -170,12 +172,11 @@ export const keyLabel = (b: Binding) => b.display ?? b.keys.filter(k => !['down'
 export function hintsFor(contexts: readonly Context[]): Array<{ key: string; label: string }> {
   const seen = new Set<string>();
   const out: Array<{ key: string; label: string }> = [];
-  for (const ctx of contexts) {
-    for (const b of BINDINGS) {
-      if (!b.hint || !b.when.includes(ctx) || seen.has(b.command)) continue;
-      seen.add(b.command);
-      out.push({ key: keyLabel(b), label: b.short ?? b.label });
-    }
+  for (const b of BINDINGS) {
+    if (!b.hint || !b.when.some(c => contexts.includes(c)) || seen.has(b.command)) continue;
+    if (b.when.every(c => !contexts.includes(c) || b.hideIn?.some(h => contexts.includes(h)))) continue;
+    seen.add(b.command);
+    out.push({ key: keyLabel(b), label: b.short ?? b.label });
   }
   return out;
 }

@@ -16,7 +16,7 @@ export type Route =
   | { kind: 'project'; projectId: string }
   | { kind: 'issue'; issueId: string };
 
-export type PickerField = 'state' | 'priority' | 'assignee' | 'labels' | 'project' | 'team';
+export type PickerField = 'state' | 'priority' | 'assignee' | 'labels' | 'project';
 
 export interface IssueDraft { teamId: string; stateId: string; priority: Priority; assigneeId: string | null; projectId: string | null }
 export const DRAFT_FIELDS = ['title', 'team', 'state', 'priority', 'assignee', 'project'] as const;
@@ -26,8 +26,8 @@ export type Overlay =
   | { kind: 'none' }
   | { kind: 'help'; scroll: number }
   | { kind: 'search'; input: TextField; cursor: number }
-  /** issueId is null for pickers that aren't about an issue (the team switcher) */
-  | { kind: 'picker'; field: PickerField; issueId: string | null; input: TextField; cursor: number; selected: string[] }
+  /** `selected` is the labels picker's set */
+  | { kind: 'picker'; field: PickerField; issueId: string; query: TextField; cursor: number; selected: string[] }
   | { kind: 'compose'; target: 'issue'; field: DraftField; input: TextField; draft: IssueDraft }
   | { kind: 'compose'; target: 'comment' | 'title'; issueId: string; input: TextField }
   | { kind: 'confirm'; action: 'agent'; issueId: string; command: string[]; cwd: string; note: string | null };
@@ -197,7 +197,8 @@ export function reducer(s: TuiState, a: Action): TuiState {
     case 'closeOverlay': return { ...s, overlay: { kind: 'none' } };
     case 'editInput': {
       const o = s.overlay;
-      if (o.kind === 'search' || o.kind === 'picker') return { ...s, overlay: { ...o, input: a.input, cursor: a.input.value === o.input.value ? o.cursor : 0 } };
+      if (o.kind === 'search') return { ...s, overlay: { ...o, input: a.input, cursor: a.input.value === o.input.value ? o.cursor : 0 } };
+      if (o.kind === 'picker') return { ...s, overlay: { ...o, query: a.input, cursor: a.input.value === o.query.value ? o.cursor : 0 } };
       if (o.kind === 'compose') return { ...s, overlay: { ...o, input: a.input } };
       return s;
     }

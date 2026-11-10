@@ -1,13 +1,15 @@
 // The centered boxes: pickers, search, compose forms, help and the agent confirm.
+import { Box } from 'ink';
 import type { TuiData } from './data.js';
 import { helpSections, hintsFor, type Context } from './keys.js';
 import { shellPreview } from './launch.js';
 import { displayWidth, highlight, padEnd, tildePath, truncate, type Line, type Seg } from './model.js';
-import { draftChoices, draftValue, filteredOptions, PICKER_TITLE, searchResults } from './overlays.js';
+import { pickerLines } from './detail.js';
+import { draftChoices, draftValue, PICKER_TITLE, searchResults } from './overlays.js';
 import { useWindow } from './screens.js';
 import { DRAFT_FIELDS, type Overlay, type TuiState } from './state.js';
 import { STATE_ICON, theme } from './theme.js';
-import { fieldBlock, fieldSegs, Modal } from './ui.js';
+import { fieldBlock, fieldSegs, LineView, Modal } from './ui.js';
 
 const BAR: Seg = { text: '▍', color: theme.accent };
 
@@ -75,26 +77,17 @@ function useListWindow<T>(key: string, items: T[], cursor: number, room: number,
   return items.slice(start, start + room).map((t, i) => render(t, start + i === cursor));
 }
 
-function PickerView({ s, data, contexts, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'picker' }> }) {
-  const issue = o.issueId ? data.issueById.get(o.issueId) : undefined;
-  const options = filteredOptions(o, data, s.route);
-  const numbered = true;
-  const multi = o.field === 'labels';
-  const room = Math.max(3, Math.min(12, rows - 10));
-  const height = Math.min(options.length || 1, room) + 6;
-  const { width, left, top } = place(cols, rows, 56, height);
-  const inner = width - 4;
-  const cursor = Math.min(o.cursor, Math.max(0, options.length - 1));
-  const body = useListWindow(`picker:${o.field}`, options, cursor, room, ({ option, match }, selected) => {
-    const mark: Seg[] = multi ? [{ text: o.selected.includes(option.id) ? '◉ ' : '○ ', color: o.selected.includes(option.id) ? theme.accent : theme.muted }] : [];
-    const right: Seg[] = !multi && option.current ? [{ text: '✓ current', color: theme.ok }] : option.hint ? [{ text: option.hint, color: theme.muted }] : [];
-    const n = options.findIndex(x => x.option === option);
-    const digit: Seg[] = numbered ? [{ text: n < 9 ? `${n + 1} ` : '  ', color: theme.muted }] : [];
-    return rightAlign([selected ? BAR : { text: ' ' }, { text: ' ' }, ...digit, ...mark, ...(option.icon ? [option.icon, { text: ' ' }] : []), ...withMatches(option.label, match.indices, 0, selected ? { bold: true } : {})], right, inner);
-  });
-  const placeholder = multi ? 'type to filter labels, 1-9 to toggle…' : 'type to filter, 1-9 to pick…';
-  const lines: Line[] = [[{ text: '› ', color: theme.accent }, ...fieldSegs(o.input, inner - 2, placeholder)], [], ...(options.length ? body : [[{ text: '  No matches', color: theme.muted }]])];
-  return <Modal title={PICKER_TITLE[o.field]} subtitle={issue ? data.keyOf(issue) : undefined} rows={lines} width={width} left={left} top={top} footer={hintLine(contexts)} />;
+/** the picker floating over the list, when no detail pane or issue page shows the field it changes */
+function PickerView({ data, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'picker' }> }) {
+  const issue = data.issueById.get(o.issueId);
+  const lines = pickerLines(o, data, Math.min(44, cols - 4), Math.max(3, Math.min(9, rows - 10)), `${PICKER_TITLE[o.field]} · ${issue ? data.keyOf(issue) : ''}`);
+  const width = lines[0].reduce((n, x) => n + displayWidth(x.text), 0);
+  const { left, top } = place(cols, rows, width, lines.length);
+  return (
+    <Box position="absolute" left={left} top={top} flexDirection="column" width={width}>
+      {lines.map((l, i) => <LineView key={i} line={l} width={width} />)}
+    </Box>
+  );
 }
 
 function SearchView({ data, contexts, cols, rows, o }: Props & { o: Extract<Overlay, { kind: 'search' }> }) {

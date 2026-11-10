@@ -4,11 +4,12 @@ import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useStat
 import type { Baseline } from '../client/index.js';
 import { copyToClipboard } from '../cli/system.js';
 import { currentInboxItem, errorText, runCommand, targetIssue, toast, type Ctx, type Layout } from './commands.js';
-import { fetchData } from './data.js';
-import { detailLines } from './detail.js';
+import { fetchData, type TuiData } from './data.js';
+import { detailLines, pickerLines, type IssueUi } from './detail.js';
 import { contextsFor, hintsFor, keyName, lookup, takesText, type CommandId, type Context } from './keys.js';
 import { contextOf } from './context.js';
-import { displayWidth, isListRoute, tabIdFor, visibleTabs, type GroupBy, type Line, type Preset } from './model.js';
+import { displayWidth, isListRoute, tabIdFor, visibleTabs, type GroupBy, type Line, type Preset, type Seg } from './model.js';
+import { filteredOptions, PICKER_TITLE } from './overlays.js';
 import type { SessionContext } from './session.js';
 import { OverlayView } from './overlay-views.js';
 import { DetailPane, DetailScreen, Footer, hintSegs, inboxNote, InboxScreen, ListScreen, ProjectsScreen, scrollLabel, tabBarLine, ToastLine } from './screens.js';
@@ -55,7 +56,7 @@ class ScreenBoundary extends Component<{ children: ReactNode; resetKey: string }
 
 function currentField(s: TuiState): TextField | null {
   const o = s.overlay;
-  return o.kind === 'search' || o.kind === 'picker' || o.kind === 'compose' ? o.input : null;
+  return o.kind === 'picker' ? o.query : o.kind === 'search' || o.kind === 'compose' ? o.input : null;
 }
 
 function BootScreen({ s, width, height }: { s: TuiState; width: number; height: number }) {
@@ -156,11 +157,20 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const { tabs, hidden } = data ? visibleTabs(data, Date.now(), contentW, activeTab) : { tabs: [], hidden: 0 };
 
   const threads = openIssue ? state.threads[openIssue] : undefined;
+  const o = state.overlay;
+  const cursorIssue = data ? targetIssue(state, Date.now()) : undefined;
+  // a picker opens under its field wherever that field is on screen: the detail pane, or the issue page
+  const inlineOn = o.kind === 'picker' && ((hasPane && cursorIssue?.id === o.issueId) || openIssue === o.issueId) ? o : null;
+  const pageUi = useMemo((): IssueUi => {
+    if (!data || !openIssue) return {};
+    return { picker: inlineOn ? { field: inlineOn.field, lines: indent(pickerLines(inlineOn, data, contentW - 2, 9)) } : null };
+  }, [data, openIssue, inlineOn, contentW]);
   const detail = useMemo(() => {
     if (!data || !openIssue) return null;
     const issue = data.issueById.get(openIssue);
-    return issue ? detailLines(issue, data, threads ?? [], contentW, state.syncedAt ?? Date.now()) : null;
-  }, [data, openIssue, threads, contentW, state.syncedAt]);
+    return issue ? detailLines(issue, data, threads ?? [], contentW, state.syncedAt ?? Date.now(), pageUi) : null;
+  }, [data, openIssue, threads, contentW, state.syncedAt, pageUi]);
+  const pinned = detail && pageUi.picker ? detail.indexOf(pageUi.picker.lines[0]) - 1 : undefined;
 
   const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, tabs };
   const contexts = contextsFor(state);
@@ -209,23 +219,24 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
       <Box flexDirection="column" width={columns} height={rows}>
         <BootScreen s={state} width={columns} height={rows - 2} />
         <ToastLine toast={state.toast} width={columns} />
-        <Footer s={state} left={footerLeft(contexts, 0)} width={columns} target={targetLabel(bl)} />
+        <Footer s={state} left={footerLeft(state, null, contexts, 0)} width={columns} target={targetLabel(bl)} />
       </Box>
     );
   }
 
   const now = Date.now();
-  const cursorIssue = targetIssue(state, now);
+  const dim = o.kind !== 'none';
+  const paneUi: IssueUi = { picker: inlineOn && !openIssue ? { field: inlineOn.field, lines: indent(pickerLines(inlineOn, data, paneW - 5, 9)) } : null };
   const inboxItem = r.kind === 'inbox' ? currentInboxItem(state, now) : undefined;
-  const list = r.kind === 'inbox' ? <InboxScreen s={state} data={data} width={listW} height={bodyH} now={now} />
-    : r.kind === 'projects' ? <ProjectsScreen s={state} data={data} width={contentW} height={bodyH} />
-    : r.kind === 'issue' ? <DetailScreen s={state} lines={detail} width={contentW} height={bodyH} />
-    : <ListScreen s={state} data={data} width={listW} height={bodyH} now={now} />;
+  const list = r.kind === 'inbox' ? <InboxScreen s={state} data={data} width={listW} height={bodyH} now={now} dim={dim} />
+    : r.kind === 'projects' ? <ProjectsScreen s={state} data={data} width={contentW} height={bodyH} dim={dim} />
+    : r.kind === 'issue' ? <DetailScreen s={state} lines={detail} width={contentW} height={bodyH} pinned={pinned} />
+    : <ListScreen s={state} data={data} width={listW} height={bodyH} now={now} dim={dim} />;
   const screen = hasPane
     ? (
       <Box flexDirection="row">
         {list}
-        <DetailPane issue={cursorIssue} note={inboxItem ? inboxNote(inboxItem, paneW - 3, now) : undefined} data={data} width={paneW} height={bodyH} now={now} />
+        <DetailPane issue={cursorIssue} note={inboxItem ? inboxNote(inboxItem, paneW - 3, now) : undefined} data={data} width={paneW} height={bodyH} now={now} ui={paneUi} />
       </Box>
     )
     : list;
@@ -239,15 +250,40 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
         <ScreenBoundary resetKey={routeKey(r)}>{screen}</ScreenBoundary>
       </Box>
       <ToastLine toast={state.toast} width={columns} />
-      <Footer s={state} left={footerLeft(contexts, tabs.length)} width={columns} target={targetLabel(bl)} />
-      <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} />
+      <Footer s={state} left={footerLeft(state, data, contexts, tabs.length)} width={columns} target={targetLabel(bl)} />
+      {inlineOn ? null : <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} />}
     </Box>
   );
 }
 
-/** the footer's keys: the active contexts' hints from the keymap, "1-9" cut to the tabs there are */
-function footerLeft(contexts: Context[], tabCount: number) {
-  return hintSegs(hintsFor(contexts).map(h => (h.key === '1-9' && h.label === 'tabs' ? { ...h, key: `1-${Math.min(9, tabCount)}` } : h)));
+const indent = (lines: Line[]): Line[] => lines.map(l => [{ text: '  ' }, ...l]);
+
+/** what an open overlay is about, bold at the start of the footer */
+function overlayTitle(s: TuiState, data: TuiData | null): string {
+  const o = s.overlay;
+  const key = (id: string) => { const i = data?.issueById.get(id); return i ? data!.keyOf(i) : ''; };
+  switch (o.kind) {
+    case 'picker': return `${PICKER_TITLE[o.field]} for ${key(o.issueId)}`;
+    case 'search': return 'Find';
+    case 'compose': return o.target === 'issue' ? 'New issue' : o.target === 'comment' ? `Comment on ${key(o.issueId)}` : `Rename ${key(o.issueId)}`;
+    case 'help': return 'Keys';
+    case 'confirm': return `Agent on ${key(o.issueId)}`;
+    case 'none': return '';
+  }
+}
+
+/** the footer's keys: the active contexts' hints from the keymap, after the open overlay's title; "1-9" is cut to
+ *  the tabs or options there are */
+function footerLeft(s: TuiState, data: TuiData | null, contexts: Context[], tabCount: number): Seg[] {
+  const o = s.overlay;
+  const options = o.kind === 'picker' && data ? filteredOptions(o, data).length : 0;
+  const hints = hintsFor(contexts).map(h => {
+    if (h.key !== '1-9') return h;
+    const n = Math.min(9, o.kind === 'picker' ? options : tabCount);
+    return { ...h, key: n > 1 ? `1-${n}` : '1', label: o.kind === 'picker' && o.field === 'labels' ? 'toggle' : h.label };
+  });
+  const title = overlayTitle(s, data);
+  return [...(title ? [{ text: title, bold: true }, { text: '   ' }] : []), ...hintSegs(hints)];
 }
 
 function targetLabel(bl: Baseline): string {

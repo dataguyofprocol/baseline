@@ -100,19 +100,15 @@ function copy(ctx: Ctx, text: string, what: string): void {
 function openPicker(ctx: Ctx, field: PickerField): void {
   const issue = targetIssue(ctx.state, ctx.now());
   if (!issue) return toast(ctx.dispatch, 'info', 'Select an issue first');
-  ctx.dispatch({ type: 'openOverlay', overlay: { kind: 'picker', field, issueId: issue.id, input: emptyField, cursor: 0, selected: field === 'labels' ? [...issue.labelIds] : [] } });
+  ctx.dispatch({ type: 'openOverlay', overlay: { kind: 'picker', field, issueId: issue.id, query: emptyField, cursor: 0, selected: field === 'labels' ? [...issue.labelIds] : [] } });
 }
 
 function applyPicker(ctx: Ctx): Promise<unknown> | void {
   const s = ctx.state, data = s.data!;
   const o = s.overlay;
   if (o.kind !== 'picker') return;
-  const chosen = filteredOptions(o, data, s.route)[o.cursor]?.option;
-  if (o.field === 'team') {
-    ctx.dispatch({ type: 'closeOverlay' });
-    return chosen ? ctx.dispatch({ type: 'switchView', route: { kind: 'team', teamId: chosen.id } }) : undefined;
-  }
-  const issue = o.issueId ? data.issueById.get(o.issueId) : undefined;
+  const chosen = filteredOptions(o, data)[o.cursor]?.option;
+  const issue = data.issueById.get(o.issueId);
   if (!issue) return ctx.dispatch({ type: 'closeOverlay' });
   const key = data.keyOf(issue);
   ctx.dispatch({ type: 'closeOverlay' });
@@ -186,7 +182,7 @@ async function accept(ctx: Ctx): Promise<unknown> {
 function overlayCount(ctx: Ctx): number {
   const s = ctx.state, data = s.data!, o = s.overlay;
   switch (o.kind) {
-    case 'picker': return filteredOptions(o, data, s.route).length;
+    case 'picker': return filteredOptions(o, data).length;
     case 'search': return searchResults(o.input.value, data).length;
     default: return 0;
   }
@@ -316,13 +312,13 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'pickerToggle': {
       const o = s.overlay;
       if (o.kind !== 'picker') return;
-      const opt = filteredOptions(o, data, s.route)[o.cursor]?.option;
+      const opt = filteredOptions(o, data)[o.cursor]?.option;
       return opt ? d({ type: 'pickerToggle', id: opt.id }) : undefined;
     }
     case 'pickerPick': {
       const o = s.overlay;
       const n = Number(key) - 1;
-      if (o.kind !== 'picker' || !filteredOptions(o, data, s.route)[n]) return;
+      if (o.kind !== 'picker' || !filteredOptions(o, data)[n]) return;
       const picked = { ...o, cursor: n };
       d({ type: 'overlayMove', delta: n - o.cursor, count: overlayCount(ctx) });
       if (o.field === 'labels') return runCommand('pickerToggle', { ...ctx, state: { ...s, overlay: picked } }, key);
