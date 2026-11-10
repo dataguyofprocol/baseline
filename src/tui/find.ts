@@ -36,7 +36,7 @@ export interface FindItem {
 export interface FindSection { title: string; items: FindItem[] }
 
 /** shown under an empty prompt, as things to type */
-export const FIND_SUGGESTIONS = ['done', 'assign …', 'agent', 'new …'];
+export const FIND_SUGGESTIONS = ['standup', 'projects', 'notifications', 'assign …', 'new …'];
 
 const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 
@@ -105,7 +105,10 @@ function viewActions(s: Pick<TuiState, 'route' | 'groupBy' | 'preset'>, data: Tu
     for (const g of GROUP_BYS) if (g !== s.groupBy) out.push({ id: `group:${g}`, label: g === 'none' ? 'No grouping' : `Group ${GROUP_MODES[g].label}`, search: `group by ${g} view none`, run: { view: { groupBy: g } } });
     for (const p of PRESETS) if (p !== s.preset) out.push({ id: `show:${p}`, label: `Show ${PRESET_LABEL[p].toLowerCase()} issues`, search: `show ${p} view filter`, run: { view: { preset: p } } });
   }
-  if (s.route.kind === 'inbox') out.push({ id: 'readall', label: 'Mark every notification read', search: 'mark all read inbox notifications', run: { markAllRead: true } });
+  out.push({ id: 'standup', label: 'Standup: what you did since yesterday', search: 'standup what did i do yesterday activity', key: undefined, run: { command: 'standup' } });
+  out.push({ id: 'projects', label: 'Projects', search: 'projects all list progress', run: { command: 'projects' } });
+  out.push({ id: 'notifications', label: 'All notifications', search: 'notifications inbox all', run: { command: 'notifications' } });
+  out.push({ id: 'readall', label: 'Mark every notification read', search: 'mark all read inbox notifications', run: { markAllRead: true } });
   allTabs(data, now).forEach(t => out.push({ id: `go:${t.id}`, label: `Go to ${t.label}`, search: `go to tab ${t.label}`, run: { route: t.route } }));
   for (const p of data.projects) out.push({ id: `go:project:${p.id}`, label: `Go to project ${p.name}`, search: `go to project ${p.name}`, run: { route: { kind: 'project', projectId: p.id } } });
   return out;

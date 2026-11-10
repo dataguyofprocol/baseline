@@ -34,7 +34,7 @@ export interface NeedRow {
   count: number;
 }
 
-export interface FlightRow { id: string; issue: Issue; thread: WorkThread | null; pane: string | null; at: string }
+export interface FlightRow { id: string; issue: Issue; thread: WorkThread | null; at: string }
 export interface NextRow { id: string; issue: Issue; reason: string; why: NextWhy }
 export interface DoneRow { id: string; issue: Issue; at: string }
 
@@ -130,7 +130,7 @@ export function needRows(data: TuiData, now: number): NeedRow[] {
 }
 
 /** the Needs you rows the issue page can open: the ones about an issue */
-export const issueNeeds = (data: TuiData, now: number) => needRows(data, now).filter((r): r is NeedRow & { issue: Issue } => !!r.issue);
+export const issueNeeds = (data: TuiData, now: number) => todayModel(data, now).needs.filter((r): r is NeedRow & { issue: Issue } => !!r.issue);
 
 /** the open agent thread on an issue (the agent is working on it now) */
 export function activeThread(data: TuiData, issueId: string): WorkThread | null {
@@ -139,13 +139,13 @@ export function activeThread(data: TuiData, issueId: string): WorkThread | null 
 }
 
 /** In flight: my started issues, without the ones already in Needs you; agent work first, then by recency */
-export function flightRows(data: TuiData, needs: readonly NeedRow[], panes: Readonly<Record<string, string>> = {}): FlightRow[] {
+export function flightRows(data: TuiData, needs: readonly NeedRow[]): FlightRow[] {
   const me = data.currentUser.id;
   const asked = new Set(needs.map(n => n.issue?.id).filter(Boolean));
   return data.issues.filter(i => i.assigneeId === me && stateType(data, i) === 'started' && !asked.has(i.id)).map(i => {
     const thread = activeThread(data, i.id);
-    return { id: i.id, issue: i, thread, pane: panes[i.id] ?? null, at: thread?.updatedAt ?? i.updatedAt };
-  }).sort((a, b) => Number(!!b.thread || !!b.pane) - Number(!!a.thread || !!a.pane) || b.at.localeCompare(a.at));
+    return { id: i.id, issue: i, thread, at: thread?.updatedAt ?? i.updatedAt };
+  }).sort((a, b) => Number(!!b.thread) - Number(!!a.thread) || b.at.localeCompare(a.at));
 }
 
 /** "due Thu" within the week, "due today", "overdue"; null further out */
@@ -172,7 +172,7 @@ export function nextReason(i: Issue, why: NextWhy, data: TuiData, now: number): 
   const nowIso = new Date(now).toISOString();
   const cycle = i.cycleId ? data.cycles.find(c => c.id === i.cycleId) : undefined;
   if (cycle && !cycle.completedAt && cycle.startsAt <= nowIso && nowIso < cycle.endsAt) return why === 'current cycle, unassigned' ? 'in this cycle, unassigned' : 'in this cycle';
-  return why === 'Todo, yours' ? 'your Todo' : why;
+  return why === 'Todo, yours' ? 'Todo' : 'unassigned';
 }
 
 /** Up next: next_issue's ranking (the same function the op runs), without what is already started or needs you */
@@ -192,9 +192,17 @@ export function doneRows(data: TuiData, now: number): DoneRow[] {
     .sort((a, b) => b.at.localeCompare(a.at));
 }
 
-export function todayModel(data: TuiData, now: number, panes: Readonly<Record<string, string>> = {}): TodayModel {
+const cache = new WeakMap<TuiData, { minute: number; model: TodayModel }>();
+
+/** the model for this data, worked out once a minute per fetch (the tabs, the cursor and the screen all ask) */
+export function todayModel(data: TuiData, now: number): TodayModel {
+  const minute = Math.floor(now / 60_000);
+  const hit = cache.get(data);
+  if (hit && hit.minute === minute) return hit.model;
   const needs = needRows(data, now);
-  return { needs, flight: flightRows(data, needs, panes), next: nextRows(data, needs, now), done: doneRows(data, now) };
+  const model = { needs, flight: flightRows(data, needs), next: nextRows(data, needs, now), done: doneRows(data, now) };
+  cache.set(data, { minute, model });
+  return model;
 }
 
 export type TodayRow =

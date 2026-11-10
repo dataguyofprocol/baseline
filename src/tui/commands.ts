@@ -5,18 +5,23 @@ import type { Dispatch } from 'react';
 import { BaselineError, ResolveError, type Baseline } from '../client/index.js';
 import { PRIORITY_LABELS, type Handoff, type Issue, type Priority } from '../core/types.js';
 import { openBrowser, osc52 } from '../cli/system.js';
+import { localRepo } from '../cli/repo.js';
+import { myActivity, startIssue } from '../ops/index.js';
+import { OpError, runOp, type LocalRepo, type OpContext } from '../ops/operation.js';
 import type { CommandId } from './keys.js';
-import { agentCommand, agentCwd, agentEnv, editInEditor, runInPane, runInTerminal } from './launch.js';
+import { agentCommand, agentCwd, agentEnv, branchExists, editInEditor, focusPane, runInPane, runInTerminal } from './launch.js';
 import { MENUS, SUBMENU, type MenuCtx, type MenuId } from './menus.js';
-import { inboxItems, isListRoute, isSelectable, listRowsFor, projectRows, selectableIds, type InboxItem, type Tab } from './model.js';
+import { isListRoute, isSelectable, listRowsFor, notificationRows, projectRows, selectableIds, type Tab } from './model.js';
 import type { FieldId } from './detail.js';
 import { findItems, findResults, type FindItem } from './find.js';
 import { cycleDraft, filteredOptions, newDraft, NONE } from './overlays.js';
-import { cursorRow, listViewOf, routeKey, type Action, type PickerField, type TuiState } from './state.js';
+import { cursorRow, doneOpen, listViewOf, RERUN_CHOICES, routeKey, START_CHOICES, type Action, type PickerField, type Sheet, type TuiState, type UndoEntry } from './state.js';
 import { emptyField, fieldOf } from './textfield.js';
+import { DONE_GROUP, followupsOf, issueNeeds, myThread, prOf, threadAsk, todayModel, todayRows, type NeedRow, type TodayRow } from './today.js';
 
 /** `pageSize`: the rows a list or the issue page shows; `overlayPage`: the rows the open picker, / or help shows */
-export interface Layout { pageSize: number; detailMax: number; helpMax: number; overlayPage: number; tabs: Tab[] }
+/** `detailStart`: where the issue page sits before it is scrolled (a mention opens at its comment) */
+export interface Layout { pageSize: number; detailMax: number; detailStart?: number; helpMax: number; overlayPage: number; tabs: Tab[] }
 
 export interface Ctx {
   state: TuiState;
@@ -34,6 +39,12 @@ export interface Ctx {
   clipboard: (text: string) => boolean;
   exit: () => void;
   now: () => number;
+  /** the git repo an issue starts in (its branch is checked out there); tests pass one that touches no repo */
+  repo?: (cwd: string) => LocalRepo;
+  /** told the tmux pane an agent was started in, to remember it across sessions */
+  onPane?: (issueId: string, paneId: string) => void;
+  /** whether a new tmux pane is possible (default: $TMUX is set) */
+  tmux?: boolean;
 }
 
 let toastSeq = 0;
@@ -41,29 +52,39 @@ export const toast = (dispatch: Dispatch<Action>, tone: 'ok' | 'error' | 'info',
   dispatch({ type: 'toast', toast: { id: ++toastSeq, tone, text, undo } });
 
 export const errorText = (e: unknown) =>
-  e instanceof BaselineError || e instanceof ResolveError ? e.message : e instanceof Error ? e.message : String(e);
+  e instanceof BaselineError || e instanceof ResolveError || e instanceof OpError ? e.message : e instanceof Error ? e.message : String(e);
+
+const inTmux = (ctx: Pick<Ctx, 'tmux'>) => ctx.tmux ?? !!process.env.TMUX;
 
 function cursorIds(s: TuiState, now: number): string[] {
   return s.data ? selectableIds(s.route, s.data, listViewOf(s, s.route), now) : [];
+}
+
+/** the Today row under the cursor */
+export function todayRow(s: TuiState, now: number): TodayRow | undefined {
+  if (!s.data || s.route.kind !== 'today') return undefined;
+  const rows = todayRows(todayModel(s.data, now), doneOpen(s));
+  return rows[Math.min(s.cursor[routeKey(s.route)] ?? 0, Math.max(0, rows.length - 1))];
 }
 
 /** the issue a command acts on: the open issue, or the row under the cursor */
 export function targetIssue(s: TuiState, now: number): Issue | undefined {
   if (!s.data) return undefined;
   if (s.route.kind === 'issue') return s.data.issueById.get(s.route.issueId);
-  const id = cursorIds(s, now)[s.cursor[routeKey(s.route)] ?? 0];
-  if (isListRoute(s.route)) return id ? s.data.issueById.get(id) : undefined;
-  if (s.route.kind === 'inbox') {
-    const item = currentInboxItem(s, now);
-    return item?.issueId ? s.data.issueById.get(item.issueId) : undefined;
+  if (s.route.kind === 'today') {
+    const r = todayRow(s, now);
+    return !r || r.kind === 'doneHeader' ? undefined : r.kind === 'need' ? r.row.issue ?? undefined : r.row.issue;
   }
-  return undefined;
+  const id = cursorIds(s, now)[s.cursor[routeKey(s.route)] ?? 0];
+  return isListRoute(s.route) && id ? s.data.issueById.get(id) : undefined;
 }
 
-export function currentInboxItem(s: TuiState, now: number): InboxItem | undefined {
-  if (!s.data || s.route.kind !== 'inbox') return undefined;
-  const items = inboxItems(s.data, now);
-  return items[Math.min(s.cursor.inbox ?? 0, Math.max(0, items.length - 1))];
+/** the Needs you row about an issue, and where it sits in the list */
+function needOf(s: TuiState, issueId: string, now: number): { row: NeedRow; index: number } | undefined {
+  if (!s.data) return undefined;
+  const rows = issueNeeds(s.data, now);
+  const index = rows.findIndex(r => r.issue.id === issueId);
+  return index < 0 ? undefined : { row: rows[index]!, index };
 }
 
 async function write<T>(ctx: Ctx, opts: { issueId?: string; patch?: Partial<Issue>; run: () => Promise<T>; ok: (r: T) => string; after?: (r: T) => void; undo?: boolean }): Promise<T | undefined> {
@@ -112,10 +133,10 @@ export function agentWhere(issue: Issue, data: NonNullable<TuiState['data']>) {
   return agentCwd(location?.path);
 }
 
-export function menuCtxFor(s: TuiState, issueId: string, now: number): MenuCtx | undefined {
+export function menuCtxFor(s: TuiState, issueId: string, now: number, tmux = !!process.env.TMUX): MenuCtx | undefined {
   const issue = s.data?.issueById.get(issueId);
   if (!s.data || !issue) return undefined;
-  return { issue, data: s.data, handoff: s.handoffs[issueId], env: process.env, where: agentWhere(issue, s.data), now };
+  return { issue, data: s.data, handoff: s.handoffs[issueId], env: tmux ? process.env : { ...process.env, TMUX: '' }, where: agentWhere(issue, s.data), now };
 }
 
 function openMenu(ctx: Ctx, menu: MenuId): void {
@@ -130,9 +151,9 @@ function openMenu(ctx: Ctx, menu: MenuId): void {
 function runMenuRow(ctx: Ctx, key: string | null): Promise<unknown> | void {
   const s = ctx.state, o = s.overlay;
   if (o.kind !== 'menu') return;
-  const menu = MENUS[o.path[o.path.length - 1]];
+  const menu = MENUS[o.path[o.path.length - 1]!];
   const row = key === null ? menu.rows[o.cursor] : menu.rows.find(r => r.key === key);
-  const mc = menuCtxFor(s, o.issueId, ctx.now());
+  const mc = menuCtxFor(s, o.issueId, ctx.now(), inTmux(ctx));
   if (!row || !mc) return;
   const ok = row.enabled?.(mc) ?? true;
   if (ok !== true) return toast(ctx.dispatch, 'info', ok);
@@ -142,24 +163,37 @@ function runMenuRow(ctx: Ctx, key: string | null): Promise<unknown> | void {
   return runCommand(row.command, { ...ctx, state: { ...s, overlay: { kind: 'none' } } }, row.key);
 }
 
-async function startAgent(ctx: Ctx, i: Issue, where: 'here' | 'pane'): Promise<unknown> {
+/** runs the agent on an issue: in a tmux split beside this one (remembered, so enter on In flight goes back to it), or here.
+ *  `note`: the person's answer to the question the agent stopped on, added to its prompt */
+async function startAgent(ctx: Ctx, i: Issue, where: 'here' | 'pane', note?: string): Promise<{ ok: boolean; message: string }> {
   const data = ctx.state.data!;
   const h = await handoff(ctx, i);
-  if (!h) return;
+  if (!h) return { ok: false, message: `no handoff for ${data.keyOf(i)}` };
   const key = data.keyOf(i);
-  const cmd = agentCommand(h.prompt);
+  const prompt = note ? `${h.prompt}\n\nYou stopped on a question on ${key}. The person answered (also posted as a comment on ${key}):\n\n${note}\n\nCarry on from where you left off.` : h.prompt;
+  const cmd = agentCommand(prompt);
   const at = agentWhere(i, data);
   if (where === 'pane') {
-    if (!process.env.TMUX) return toast(ctx.dispatch, 'info', 'A new pane needs tmux. Run baseline inside tmux, or press w h to run the agent here.');
+    if (!inTmux(ctx)) return { ok: false, message: 'a new pane needs tmux. Run baseline inside tmux, or run the agent here.' };
     const r = runInPane(cmd, { cwd: at.cwd, target: ctx.bl.target, issueKey: key });
-    return toast(ctx.dispatch, r.ok ? 'ok' : 'error', r.ok ? `${key}: ${basename(cmd[0])} started in a tmux pane beside this one` : r.message);
+    if (r.ok && r.paneId) {
+      ctx.dispatch({ type: 'pane', issueId: i.id, paneId: r.paneId });
+      ctx.onPane?.(i.id, r.paneId);
+    }
+    return r.ok ? { ok: true, message: `${basename(cmd[0]!)} started in a tmux pane beside this one` } : r;
   }
   let result = { ok: false, message: '' };
   await ctx.suspend(() => {
     result = runInTerminal(cmd, { cwd: at.cwd, env: agentEnv(ctx.bl.target, key), banner: `baseline › ${key}: ${cmd[0]} in ${at.cwd} (exit it to return to the TUI)` });
   });
-  toast(ctx.dispatch, result.ok ? 'ok' : 'error', `${key}: ${result.message}`);
-  return ctx.refresh();
+  return result;
+}
+
+async function agentCommandRun(ctx: Ctx, i: Issue, where: 'here' | 'pane'): Promise<unknown> {
+  const key = ctx.state.data!.keyOf(i);
+  const r = await startAgent(ctx, i, where);
+  toast(ctx.dispatch, r.ok ? 'ok' : 'error', `${key}: ${r.message}`);
+  return where === 'here' ? ctx.refresh() : undefined;
 }
 
 function openPicker(ctx: Ctx, field: PickerField): void {
@@ -187,14 +221,15 @@ const before = (issue: Issue, patch: Partial<Issue>): Partial<Issue> =>
 const sameValue = (a: unknown, b: unknown) =>
   Array.isArray(a) && Array.isArray(b) ? [...a].sort().join() === [...b].sort().join() : a === b;
 
+const undoEntry = (issue: Issue, field: FieldId, patch: Partial<Issue>, data: NonNullable<TuiState['data']>): UndoEntry =>
+  ({ issueId: issue.id, key: data.keyOf(issue), field, before: before(issue, patch), after: patch, label: describeChange(field, patch, data) });
+
 /** one field change from this TUI, written ahead of the server's answer, then put on the undo stack */
 export async function change(ctx: Ctx, issue: Issue, field: FieldId, patch: Partial<Issue>): Promise<unknown> {
   const data = ctx.state.data!;
-  const key = data.keyOf(issue);
-  const label = describeChange(field, patch, data);
-  const entry = { issueId: issue.id, key, field, before: before(issue, patch), after: patch, label };
+  const entry = undoEntry(issue, field, patch, data);
   const ok = await write(ctx, {
-    issueId: issue.id, patch, run: () => ctx.bl.updateIssue(issue.id, patch, ctx.actorId), ok: () => `${key} ${label}`, undo: true,
+    issueId: issue.id, patch, run: () => ctx.bl.updateIssue(issue.id, patch, ctx.actorId), ok: () => `${entry.key} ${entry.label}`, undo: true,
     after: () => ctx.dispatch({ type: 'pushUndo', entry }),
   });
   if (ok) ctx.dispatch({ type: 'saved', issueId: issue.id, field, id: ++toastSeq });
@@ -224,6 +259,214 @@ async function undo(ctx: Ctx): Promise<unknown> {
   else ctx.dispatch({ type: 'pushUndo', entry: top });
   return ok;
 }
+
+// ---------- decisions: they take the item off Needs you, and the issue page moves on to the next one ----------
+
+interface Step { field: FieldId; patch: Partial<Issue> }
+
+/** One decision on an issue: its Needs you notifications marked read (optimistically, so the row leaves at once),
+ *  then the writes, one toast, one refetch. On the issue page of an item that needed you, the next item opens. */
+async function decide(ctx: Ctx, issue: Issue, opts: { change?: Step; run?: () => Promise<string | void>; text: (extra: string) => string }): Promise<boolean> {
+  const s = ctx.state, data = s.data!, now = ctx.now();
+  const need = needOf(s, issue.id, now);
+  const ids = need?.row.notificationIds ?? [];
+  // only an issue page opened from Needs you walks on to the next item
+  const onPage = s.route.kind === 'issue' && s.route.issueId === issue.id && !!s.route.needs;
+  const end = ctx.beginWrite();
+  if (ids.length) ctx.dispatch({ type: 'markRead', ids, read: true });
+  const entry = opts.change ? undoEntry(issue, opts.change.field, opts.change.patch, data) : null;
+  if (opts.change) ctx.dispatch({ type: 'patchIssue', issueId: issue.id, patch: opts.change.patch });
+  let extra = '';
+  try {
+    if (opts.change) await ctx.bl.updateIssue(issue.id, opts.change.patch, ctx.actorId);
+    extra = (await opts.run?.()) ?? '';
+    await Promise.all(ids.map(id => ctx.bl.markNotificationRead(id, true)));
+  } catch (e) {
+    end();
+    toast(ctx.dispatch, 'error', errorText(e));
+    await ctx.refresh();
+    return false;
+  }
+  end();
+  if (entry) {
+    ctx.dispatch({ type: 'pushUndo', entry });
+    ctx.dispatch({ type: 'saved', issueId: issue.id, field: entry.field, id: ++toastSeq });
+  }
+  if (onPage && need) ctx.dispatch({ type: 'advance', index: need.index, at: now });
+  toast(ctx.dispatch, 'ok', opts.text(extra), !!entry);
+  await ctx.refresh();
+  return true;
+}
+
+const completedState = (data: NonNullable<TuiState['data']>, teamId: string) =>
+  data.states.filter(st => st.teamId === teamId && st.type === 'completed').sort((a, b) => a.position - b.position)[0];
+/** where sent-back work goes: the team's first started state that isn't In Review */
+const workingState = (data: NonNullable<TuiState['data']>, teamId: string) =>
+  data.states.filter(st => st.teamId === teamId && st.type === 'started' && st.name.trim().toLowerCase() !== 'in review').sort((a, b) => a.position - b.position)[0];
+
+function doneStep(data: NonNullable<TuiState['data']>, issue: Issue): Step | undefined {
+  const st = completedState(data, issue.teamId);
+  return st && st.id !== issue.stateId ? { field: 'state', patch: { stateId: st.id } } : undefined;
+}
+
+async function markDone(ctx: Ctx, issue: Issue): Promise<unknown> {
+  const data = ctx.state.data!;
+  const key = data.keyOf(issue);
+  const step = doneStep(data, issue);
+  if (!step && !needOf(ctx.state, issue.id, ctx.now())) return toast(ctx.dispatch, 'info', `${key} is done already`);
+  return decide(ctx, issue, { change: step, text: () => `${key} Done` });
+}
+
+function openNote(ctx: Ctx, purpose: 'comment' | 'reply' | 'sendBack' | 'answer', issue: Issue, parentId: string | null = null, to: string | null = null): void {
+  ctx.dispatch({ type: 'openOverlay', overlay: { kind: 'sheet', sheet: { type: 'note', purpose, issueId: issue.id, input: emptyField, parentId, to, rerun: inTmux(ctx) ? 0 : 1 } } });
+}
+
+/** b: send finished work back with a note, or (an agent blocked on a question) answer it and run it again */
+function sendBack(ctx: Ctx, issue: Issue): void {
+  const ask = threadAsk(myThread(ctx.state.data!, issue.id));
+  openNote(ctx, ask === 'blocked' ? 'answer' : 'sendBack', issue);
+}
+
+/** m: a comment; on a mention it is the reply */
+function comment(ctx: Ctx, issue: Issue): void {
+  const need = needOf(ctx.state, issue.id, ctx.now());
+  if (need?.row.kind === 'mention') {
+    const c = need.row.commentId ? ctx.state.data!.comments.find(x => x.id === need.row.commentId) : undefined;
+    const to = ctx.state.data!.userById.get(c?.userId ?? need.row.actorId ?? '')?.name.split(/\s+/)[0] ?? null;
+    return openNote(ctx, 'reply', issue, c ? c.parentId ?? c.id : null, to);
+  }
+  openNote(ctx, 'comment', issue);
+}
+
+async function submitNote(ctx: Ctx, sheet: Extract<Sheet, { type: 'note' }>): Promise<unknown> {
+  const s = ctx.state, data = s.data!;
+  const issue = data.issueById.get(sheet.issueId);
+  if (!issue) return ctx.dispatch({ type: 'closeOverlay' });
+  const key = data.keyOf(issue);
+  const text = sheet.input.value.trim();
+  if (!text) return toast(ctx.dispatch, 'error', sheet.purpose === 'answer' ? 'Type your answer first, or esc to cancel' : 'Type a note first, or esc to cancel');
+  ctx.dispatch({ type: 'closeOverlay' });
+  const closed: Ctx = { ...ctx, state: { ...s, overlay: { kind: 'none' } } };
+  const post = async () => { await ctx.bl.addComment(issue.id, ctx.actorId, text, sheet.parentId); };
+  const need = needOf(s, issue.id, ctx.now());
+  switch (sheet.purpose) {
+    case 'comment':
+      // a comment on something that asked you (a mention, a reply) answers it
+      if (need && need.row.kind !== 'review' && need.row.kind !== 'blocked') return decide(closed, issue, { run: post, text: () => `Commented on ${key}` });
+      return write(closed, { run: post, ok: () => `Commented on ${key}` });
+    case 'reply':
+      return decide(closed, issue, { run: post, text: () => `Replied on ${key}${sheet.to ? ` to ${sheet.to}` : ''}` });
+    case 'sendBack': {
+      const st = workingState(data, issue.teamId);
+      const step = st && st.id !== issue.stateId ? { field: 'state' as const, patch: { stateId: st.id } } : undefined;
+      return decide(closed, issue, { change: step, run: post, text: () => `${key} sent back${step ? ` to ${st!.name}` : ''}, with your note` });
+    }
+    case 'answer': {
+      const how = RERUN_CHOICES[sheet.rerun] ?? 'comment';
+      let rerun: { ok: boolean; message: string } | null = null;
+      return decide(closed, issue, {
+        run: async () => {
+          await post();
+          if (how !== 'comment') rerun = await startAgent(closed, issue, how, text);
+        },
+        text: () => {
+          const r = rerun as { ok: boolean; message: string } | null;
+          return r ? (r.ok ? `Answered ${key}; ${r.message}` : `Answered ${key}, but the agent didn't start: ${r.message}`) : `Answered ${key} in a comment`;
+        },
+      });
+    }
+  }
+}
+
+/** f: the follow-ups the agent noted, to tick and file */
+function openFollowups(ctx: Ctx, issue: Issue): void {
+  const drafts = followupsOf(ctx.state.data!, issue.id);
+  if (!drafts.length) return toast(ctx.dispatch, 'info', `The agent noted no follow-ups on ${ctx.state.data!.keyOf(issue)}`);
+  // the first is ticked, so f enter files it and closes the issue (the mockup's "file one follow-up")
+  ctx.dispatch({ type: 'openOverlay', overlay: { kind: 'sheet', sheet: { type: 'followups', issueId: issue.id, ids: drafts.map(d => d.id), ticked: [drafts[0]!.id], cursor: 0 } } });
+}
+
+/** enter on the follow-ups sheet: file the ticked drafts (the create-from-draft path agents use), then Done */
+async function fileFollowups(ctx: Ctx, sheet: Extract<Sheet, { type: 'followups' }>): Promise<unknown> {
+  const data = ctx.state.data!;
+  const issue = data.issueById.get(sheet.issueId);
+  if (!issue) return ctx.dispatch({ type: 'closeOverlay' });
+  ctx.dispatch({ type: 'closeOverlay' });
+  const drafts = data.drafts.filter(d => sheet.ticked.includes(d.id));
+  const key = data.keyOf(issue);
+  return decide({ ...ctx, state: { ...ctx.state, overlay: { kind: 'none' } } }, issue, {
+    change: doneStep(data, issue),
+    run: async () => {
+      const filed: string[] = [];
+      for (const d of drafts) {
+        const r = await ctx.bl.createAgentIssue({ session: null, teamId: d.teamId, draftId: d.id }, ctx.actorId);
+        filed.push(data.keyOf(r.issue));
+      }
+      return filed.length ? ` · ${filed.length} follow-up${filed.length === 1 ? '' : 's'} filed as ${filed.join(', ')}` : '';
+    },
+    text: extra => `${key} Done${extra}`,
+  });
+}
+
+async function markRead(ctx: Ctx, issue: Issue): Promise<unknown> {
+  const key = ctx.state.data!.keyOf(issue);
+  if (!needOf(ctx.state, issue.id, ctx.now())) return toast(ctx.dispatch, 'info', `Nothing about ${key} is waiting on you`);
+  return decide(ctx, issue, { text: () => `${key} marked read` });
+}
+
+// ---------- starting work ----------
+
+/** enter on Up next: the start sheet, with the branch it will use */
+function openStart(ctx: Ctx, issue: Issue): void {
+  const s = ctx.state;
+  const cwd = agentWhere(issue, s.data!).cwd;
+  const cursor = inTmux(ctx) ? 0 : 1;
+  const sheet = (h: Handoff | undefined): Sheet => ({ type: 'start', issueId: issue.id, cursor, branch: h ? { name: h.branchName, exists: !!branchExists(cwd, h.branchName) } : null });
+  ctx.dispatch({ type: 'openOverlay', overlay: { kind: 'sheet', sheet: sheet(s.handoffs[issue.id]) } });
+  if (!s.handoffs[issue.id]) {
+    void handoff(ctx, issue, true).then(h => { if (h) ctx.dispatch({ type: 'setSheet', sheet: sheet(h) }); });
+  }
+}
+
+/** the start sheet's choice: start the issue the way `baseline work` does (start_issue: In Progress, yours, its
+ *  branch checked out), then the agent in a pane, here, the prompt copied, or nothing more */
+async function startFromSheet(ctx: Ctx, sheet: Extract<Sheet, { type: 'start' }>, index: number): Promise<unknown> {
+  const data = ctx.state.data!;
+  const issue = data.issueById.get(sheet.issueId);
+  if (!issue) return ctx.dispatch({ type: 'closeOverlay' });
+  const choice = START_CHOICES[index];
+  if (!choice) return;
+  if (choice === 'pane' && !inTmux(ctx)) return toast(ctx.dispatch, 'info', 'A new pane needs tmux. Run baseline inside tmux, or pick 2 to run it here.');
+  ctx.dispatch({ type: 'closeOverlay' });
+  const closed: Ctx = { ...ctx, state: { ...ctx.state, overlay: { kind: 'none' } } };
+  const key = data.keyOf(issue);
+  const cwd = agentWhere(issue, data).cwd;
+  const opCtx: OpContext = { bl: ctx.bl, actor: { kind: 'person' }, session: null, surface: 'cli', local: (ctx.repo ?? localRepo)(cwd) };
+  const end = ctx.beginWrite();
+  let out: Awaited<ReturnType<typeof startIssue.run>>;
+  try {
+    out = await runOp(startIssue, opCtx, { issue: key });
+  } catch (e) {
+    end();
+    toast(ctx.dispatch, 'error', errorText(e));
+    return ctx.refresh();
+  }
+  end();
+  const git = out.git.status === 'manual' ? `branch ${out.branch}: ${out.git.note ?? `run ${out.git.command}`}` : `on ${out.branch}`;
+  const started = `${out.already_started ? `${key} was started already` : `Started ${key}`} (${out.state}, ${git})`;
+  await ctx.refresh();
+  if (choice === 'copy') {
+    const h = await handoff(closed, issue);
+    if (h) { ctx.terminal(osc52(h.prompt)); ctx.clipboard(h.prompt); }
+    return toast(ctx.dispatch, 'ok', `${started}; prompt copied`);
+  }
+  if (choice === 'none') return toast(ctx.dispatch, 'ok', started);
+  const r = await startAgent(closed, issue, choice);
+  toast(ctx.dispatch, r.ok ? 'ok' : 'error', r.ok ? `${started}; ${r.message}` : `${started}, but ${r.message}`);
+  if (choice === 'here') await ctx.refresh();
+}
+
+// ---------- / ----------
 
 /** what `/` is about: the issue under the cursor, its menu context, and the team a new issue would go to */
 export function findCtx(s: TuiState, now: number) {
@@ -260,7 +503,7 @@ async function runFind(ctx: Ctx, item: FindItem): Promise<unknown> {
 }
 
 async function markAllRead(ctx: Ctx): Promise<unknown> {
-  const n = inboxItems(ctx.state.data!, ctx.now()).filter(i => i.unread).length;
+  const n = notificationRows(ctx.state.data!, ctx.now()).filter(i => i.unread).length;
   if (!n) return toast(ctx.dispatch, 'info', 'Nothing unread');
   const end = ctx.beginWrite();
   ctx.dispatch({ type: 'markRead', ids: 'all', read: true });
@@ -270,6 +513,19 @@ async function markAllRead(ctx: Ctx): Promise<unknown> {
   } catch (e) { toast(ctx.dispatch, 'error', errorText(e)); } finally { end(); }
   return ctx.refresh();
 }
+
+/** the standup text, the same `baseline standup` prints */
+async function openStandup(ctx: Ctx): Promise<void> {
+  ctx.dispatch({ type: 'openOverlay', overlay: { kind: 'sheet', sheet: { type: 'standup', text: null, error: null } } });
+  try {
+    const out = await runOp(myActivity, { bl: ctx.bl, actor: { kind: 'person' }, session: null, surface: 'cli' }, {});
+    ctx.dispatch({ type: 'setSheet', sheet: { type: 'standup', text: myActivity.text(out, 'cli'), error: null } });
+  } catch (e) {
+    ctx.dispatch({ type: 'setSheet', sheet: { type: 'standup', text: null, error: errorText(e) } });
+  }
+}
+
+// ---------- overlays ----------
 
 function applyPicker(ctx: Ctx): Promise<unknown> | void {
   const s = ctx.state, data = s.data!;
@@ -292,6 +548,29 @@ function applyPicker(ctx: Ctx): Promise<unknown> | void {
   }
 }
 
+async function acceptSheet(ctx: Ctx, sheet: Sheet): Promise<unknown> {
+  const data = ctx.state.data!, now = ctx.now();
+  switch (sheet.type) {
+    case 'start': return startFromSheet(ctx, sheet, sheet.cursor);
+    case 'note': return submitNote(ctx, sheet);
+    case 'followups': return fileFollowups(ctx, sheet);
+    case 'standup':
+      ctx.dispatch({ type: 'closeOverlay' });
+      return sheet.text ? copy(ctx, sheet.text, 'the standup') : undefined;
+    case 'projects': {
+      const p = projectRows(data)[sheet.cursor];
+      return p ? ctx.dispatch({ type: 'navigate', route: { kind: 'project', projectId: p.id } }) : ctx.dispatch({ type: 'closeOverlay' });
+    }
+    case 'notifications': {
+      const row = notificationRows(data, now)[sheet.cursor];
+      if (!row) return ctx.dispatch({ type: 'closeOverlay' });
+      if (row.issueId) return ctx.dispatch({ type: 'navigate', route: { kind: 'issue', issueId: row.issueId } });
+      if (row.notification.projectId && data.projectById.has(row.notification.projectId)) return ctx.dispatch({ type: 'navigate', route: { kind: 'project', projectId: row.notification.projectId } });
+      return toast(ctx.dispatch, 'info', row.body || 'Nothing to open for this notification');
+    }
+  }
+}
+
 async function accept(ctx: Ctx): Promise<unknown> {
   const s = ctx.state, data = s.data!, o = s.overlay;
   switch (o.kind) {
@@ -300,6 +579,7 @@ async function accept(ctx: Ctx): Promise<unknown> {
       const item = findItems(findSections(s, o.query.value, ctx.now()))[o.cursor];
       return item ? runFind(ctx, item) : undefined;
     }
+    case 'sheet': return acceptSheet(ctx, o.sheet);
     case 'compose': {
       const text = o.input.value.trim();
       if (o.target === 'issue') {
@@ -314,12 +594,6 @@ async function accept(ctx: Ctx): Promise<unknown> {
       }
       const issue = data.issueById.get(o.issueId);
       if (!issue) return ctx.dispatch({ type: 'closeOverlay' });
-      const key = data.keyOf(issue);
-      if (o.target === 'comment') {
-        if (!text) return toast(ctx.dispatch, 'error', 'Type a comment first, or esc to cancel');
-        ctx.dispatch({ type: 'closeOverlay' });
-        return write(ctx, { run: () => ctx.bl.addComment(issue.id, ctx.actorId, text, null), ok: () => `Commented on ${key}` });
-      }
       if (!text) return toast(ctx.dispatch, 'error', 'A title can\'t be empty');
       ctx.dispatch({ type: 'closeOverlay' });
       if (text === issue.title) return;
@@ -335,14 +609,21 @@ function overlayCount(ctx: Ctx): number {
   switch (o.kind) {
     case 'picker': return filteredOptions(o, data).length;
     case 'find': return findItems(findSections(s, o.query.value, ctx.now())).length;
-    case 'menu': return MENUS[o.path[o.path.length - 1]].rows.length;
+    case 'menu': return MENUS[o.path[o.path.length - 1]!].rows.length;
+    case 'sheet': switch (o.sheet.type) {
+      case 'start': return START_CHOICES.length;
+      case 'followups': return o.sheet.ids.length;
+      case 'projects': return projectRows(data).length;
+      case 'notifications': return notificationRows(data, ctx.now()).length;
+      default: return 0;
+    }
     default: return 0;
   }
 }
 
 function move(ctx: Ctx, delta: number): void {
   const s = ctx.state;
-  if (s.route.kind === 'issue') return ctx.dispatch({ type: 'scroll', delta, max: ctx.layout.detailMax });
+  if (s.route.kind === 'issue') return ctx.dispatch({ type: 'scroll', delta, max: ctx.layout.detailMax, from: ctx.layout.detailStart });
   ctx.dispatch({ type: 'move', delta, count: cursorIds(s, ctx.now()).length });
 }
 
@@ -358,7 +639,7 @@ function drawnRows(s: TuiState, now: number): Array<number | null> {
  *  first past the target, else before it */
 function jump(ctx: Ctx, delta: number): void {
   const s = ctx.state;
-  if (s.route.kind === 'issue') return ctx.dispatch({ type: 'scroll', delta, max: ctx.layout.detailMax });
+  if (s.route.kind === 'issue') return ctx.dispatch({ type: 'scroll', delta, max: ctx.layout.detailMax, from: ctx.layout.detailStart });
   const rows = drawnRows(s, ctx.now());
   const count = rows.filter(r => r !== null).length;
   if (!count) return;
@@ -372,6 +653,29 @@ function jump(ctx: Ctx, delta: number): void {
 
 /** a page of the issue page keeps its last line on screen, so the eye has somewhere to continue from */
 const pageOf = (ctx: Ctx) => (ctx.state.route.kind === 'issue' ? Math.max(1, ctx.layout.pageSize - 1) : ctx.layout.pageSize);
+
+const toggleDone = (ctx: Ctx) => ctx.dispatch({ type: 'toggleGroup', groupId: DONE_GROUP });
+
+/** enter on Today: go into the row, or take its next step */
+function openToday(ctx: Ctx, row: TodayRow): unknown {
+  const s = ctx.state, data = s.data!, d = ctx.dispatch, now = ctx.now();
+  switch (row.kind) {
+    case 'need': {
+      const r = row.row;
+      if (r.issue) return d({ type: 'openNeed', issueId: r.issue.id, at: now });
+      if (r.kind === 'triage' && r.teamId) return d({ type: 'switchView', route: { kind: 'team', teamId: r.teamId } });
+      return toast(d, 'info', r.text || 'Nothing to open for this one');
+    }
+    case 'flight': {
+      const pane = s.panes[row.id];
+      if (pane && focusPane(pane)) return toast(d, 'ok', `${data.keyOf(row.row.issue)}: switched to its tmux pane`);
+      return d({ type: 'navigate', route: { kind: 'issue', issueId: row.id } });
+    }
+    case 'next': return openStart(ctx, row.row.issue);
+    case 'doneHeader': return toggleDone(ctx);
+    case 'done': return d({ type: 'navigate', route: { kind: 'issue', issueId: row.id } });
+  }
+}
 
 export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise<unknown> {
   const s = ctx.state, d = ctx.dispatch;
@@ -387,7 +691,7 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
   };
 
   switch (cmd) {
-    case 'backOrQuit': return s.stack.length ? d({ type: 'back' }) : ctx.exit();
+    case 'backOrQuit': return s.stack.length || s.route.kind !== 'today' ? d({ type: 'back' }) : ctx.exit();
     case 'back': return d({ type: 'back' });
     case 'help': return d({ type: 'openOverlay', overlay: { kind: 'help', scroll: 0 } });
     case 'search': return d({ type: 'openOverlay', overlay: { kind: 'find', query: emptyField, cursor: 0 } });
@@ -410,6 +714,7 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'actions': {
       const row = cursorRow(s);
       if (row?.kind === 'group') return d({ type: 'toggleGroup', groupId: row.group.id });
+      if (s.route.kind === 'today' && todayRow(s, now)?.kind === 'doneHeader') return toggleDone(ctx);
       return openMenu(ctx, 'actions');
     }
     case 'editMenu': case 'agentMenu': case 'copyMenu': return openMenu(ctx, SUBMENU[cmd]!);
@@ -417,34 +722,28 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'overlayBack': return d({ type: 'menuBack' });
 
     case 'open': {
+      if (s.route.kind === 'today') {
+        const row = todayRow(s, now);
+        return row ? openToday(ctx, row) : undefined;
+      }
       const id = cursorIds(s, now)[s.cursor[routeKey(s.route)] ?? 0];
-      if (!id) return;
-      if (isListRoute(s.route)) {
-        const row = listRowsFor(s.route, data, listViewOf(s, s.route)).find(r => r.id === id);
-        if (row?.kind === 'group') return d({ type: 'toggleGroup', groupId: row.group.id });
-        return d({ type: 'navigate', route: { kind: 'issue', issueId: id } });
-      }
-      if (s.route.kind === 'projects') {
-        const p = projectRows(data).find(r => r.id === id);
-        return p ? d({ type: 'navigate', route: { kind: 'project', projectId: p.id } }) : undefined;
-      }
-      if (s.route.kind === 'inbox') {
-        const item = inboxItems(data, now).find(i => i.id === id);
-        if (!item) return;
-        if (item.unread) markRead(ctx, [item.id], true);
-        if (item.issueId) return d({ type: 'navigate', route: { kind: 'issue', issueId: item.issueId } });
-        if (item.notification.projectId && data.projectById.has(item.notification.projectId)) return d({ type: 'navigate', route: { kind: 'project', projectId: item.notification.projectId } });
-        return toast(d, 'info', item.body || 'Nothing to open for this notification');
-      }
-      return;
+      if (!id || !isListRoute(s.route)) return;
+      const row = listRowsFor(s.route, data, listViewOf(s, s.route)).find(r => r.id === id);
+      if (row?.kind === 'group') return d({ type: 'toggleGroup', groupId: row.group.id });
+      return d({ type: 'navigate', route: { kind: 'issue', issueId: id } });
     }
+
+    case 'done': return needIssue(i => markDone(ctx, i));
+    case 'sendBack': return needIssue(i => sendBack(ctx, i));
+    case 'followups': return needIssue(i => openFollowups(ctx, i));
+    case 'markRead': return needIssue(i => markRead(ctx, i));
 
     case 'setState': return openPicker(ctx, 'state');
     case 'setPriority': return openPicker(ctx, 'priority');
     case 'setAssignee': return openPicker(ctx, 'assignee');
     case 'setLabels': return openPicker(ctx, 'labels');
     case 'setProject': return openPicker(ctx, 'project');
-    case 'comment': return needIssue(i => d({ type: 'openOverlay', overlay: { kind: 'compose', target: 'comment', issueId: i.id, input: emptyField } }));
+    case 'comment': return needIssue(i => comment(ctx, i));
     case 'editTitle': return needIssue(i => d({ type: 'openOverlay', overlay: { kind: 'compose', target: 'title', issueId: i.id, input: fieldOf(i.title) } }));
     case 'editDescription': return needIssue(async i => {
       let result: ReturnType<typeof editInEditor> = { text: null, error: null };
@@ -460,13 +759,22 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
     case 'copyBranch': return needIssue(async i => { const h = await handoff(ctx, i); if (h) copy(ctx, h.branchName, `branch ${h.branchName}`); });
     case 'copyPrompt': return needIssue(async i => { const h = await handoff(ctx, i); if (h) copy(ctx, h.prompt, `agent prompt for ${h.key}`); });
     case 'openBrowser': return needIssue(async i => {
+      const pr = prOf(data, i.id);
+      if (pr) {
+        openBrowser(pr.url);
+        return toast(d, 'ok', `Opened ${data.keyOf(i)}'s PR #${pr.number} in the browser`);
+      }
       const h = await handoff(ctx, i);
       if (!h) return;
       openBrowser(h.url);
       toast(d, 'ok', `Opened ${h.key} in the browser${ctx.bl.target.kind === 'local' ? ' (needs `baseline serve` running)' : ''}`);
     });
-    case 'agentHere': return needIssue(i => startAgent(ctx, i, 'here'));
-    case 'agentPane': return needIssue(i => startAgent(ctx, i, 'pane'));
+    case 'agentHere': return needIssue(i => agentCommandRun(ctx, i, 'here'));
+    case 'agentPane': return needIssue(i => agentCommandRun(ctx, i, 'pane'));
+
+    case 'standup': return openStandup(ctx);
+    case 'projects': return d({ type: 'openOverlay', overlay: { kind: 'sheet', sheet: { type: 'projects', cursor: 0 } } });
+    case 'notifications': return d({ type: 'openOverlay', overlay: { kind: 'sheet', sheet: { type: 'notifications', cursor: 0 } } });
 
     case 'overlayDown': case 'overlayUp': {
       const delta = cmd === 'overlayDown' ? 1 : -1;
@@ -503,19 +811,44 @@ export async function runCommand(cmd: CommandId, ctx: Ctx, key: string): Promise
       if (o.kind !== 'compose' || o.target !== 'issue' || o.field === 'title') return;
       return d({ type: 'composeDraft', draft: cycleDraft(o.field, o.draft, cmd === 'composeCycleNext' ? 1 : -1, data) });
     }
+
+    case 'sheetPick': {
+      const o = s.overlay;
+      if (o.kind !== 'sheet' || o.sheet.type !== 'start') return;
+      const n = Number(key) - 1;
+      return startFromSheet(ctx, o.sheet, n);
+    }
+    case 'sheetToggle': {
+      const o = s.overlay;
+      if (o.kind !== 'sheet' || o.sheet.type !== 'followups') return;
+      const id = o.sheet.ids[o.sheet.cursor];
+      if (!id) return;
+      const ticked = o.sheet.ticked.includes(id) ? o.sheet.ticked.filter(x => x !== id) : [...o.sheet.ticked, id];
+      return d({ type: 'setSheet', sheet: { ...o.sheet, ticked } });
+    }
+    case 'sheetRerun': {
+      const o = s.overlay;
+      if (o.kind !== 'sheet' || o.sheet.type !== 'note') return;
+      // without tmux there is no new pane to run it in
+      const order = inTmux(ctx) ? [0, 1, 2] : [1, 2];
+      const at = order.indexOf(o.sheet.rerun);
+      return d({ type: 'setSheet', sheet: { ...o.sheet, rerun: order[(at + 1) % order.length]! } });
+    }
+    case 'sheetEditor': {
+      const o = s.overlay;
+      if (o.kind !== 'sheet' || o.sheet.type !== 'note') return;
+      const sheet = o.sheet;
+      const i = data.issueById.get(sheet.issueId);
+      let result: ReturnType<typeof editInEditor> = { text: null, error: null };
+      await ctx.suspend(() => { result = editInEditor(sheet.input.value, i ? data.keyOf(i) : 'note'); });
+      if (result.error) return toast(d, 'error', result.error);
+      const text = result.text?.replace(/\s+$/, '');
+      return text === undefined ? undefined : d({ type: 'setSheet', sheet: { ...sheet, input: fieldOf(text) } });
+    }
+    case 'sheetCopy': {
+      const o = s.overlay;
+      if (o.kind !== 'sheet' || o.sheet.type !== 'standup' || !o.sheet.text) return;
+      return copy(ctx, o.sheet.text, 'the standup');
+    }
   }
 }
-
-async function markRead(ctx: Ctx, ids: string[], read: boolean): Promise<void> {
-  const end = ctx.beginWrite();
-  ctx.dispatch({ type: 'markRead', ids, read });
-  try {
-    await Promise.all(ids.map(id => ctx.bl.markNotificationRead(id, read)));
-  } catch (e) {
-    toast(ctx.dispatch, 'error', errorText(e));
-  } finally {
-    end();
-  }
-  await ctx.refresh();
-}
-

@@ -3,17 +3,17 @@ import { render } from 'ink';
 import { format } from 'node:util';
 import { connect, resolve, type Baseline } from '../client/index.js';
 import { App, type AppProps } from './App.js';
-import { readSession, restoreFrom, sessionPath, sessionWriter, takeFirstLaunch, targetId, workspaceDir } from './session.js';
+import { readPanes, readSession, rememberPane, restoreFrom, sessionPath, sessionWriter, takeFirstLaunch, targetId, workspaceDir } from './session.js';
 
 export interface TuiOptions { db?: string; as?: string; issue?: string; fresh?: boolean }
 
-/** where the TUI opens: the issue asked for, else where the last session in this directory left off, else My work */
+/** where the TUI opens: the issue asked for, else where the last session in this directory left off, else Today */
 export async function prepareStart(bl: Baseline, opts: Pick<TuiOptions, 'issue' | 'fresh'>, workspace = workspaceDir()): Promise<Pick<AppProps, 'route' | 'stack' | 'start'>> {
   const intro = takeFirstLaunch();
   if (opts.issue) {
     const issue = await bl.getByKey(opts.issue);
     if (!issue) throw new resolve.ResolveError(`Unknown issue ${opts.issue}`);
-    return { route: { kind: 'issue', issueId: issue.id }, stack: [{ kind: 'my' }], ...(intro ? { start: { intro } } : {}) };
+    return { route: { kind: 'issue', issueId: issue.id }, stack: [{ kind: 'today' }], ...(intro ? { start: { intro } } : {}) };
   }
   const saved = opts.fresh ? null : readSession(workspace, targetId(bl.target));
   if (!saved) return intro ? { start: { intro } } : {};
@@ -37,7 +37,8 @@ export async function runTui(opts: TuiOptions): Promise<void> {
   const saved = { log: console.log, info: console.info, warn: console.warn, error: console.error };
   for (const k of Object.keys(saved) as Array<keyof typeof saved>) console[k] = (...args: unknown[]) => { held.push(format(...args)); };
 
-  const app = render(<App bl={bl} actorId={actorId} {...start} onContext={writer.update} />, {
+  const panes = readPanes(target);
+  const app = render(<App bl={bl} actorId={actorId} {...start} panes={panes} onPane={(issueId, paneId) => rememberPane(target, issueId, paneId)} onContext={writer.update} />, {
     alternateScreen: true,
     exitOnCtrlC: false,
     patchConsole: false,

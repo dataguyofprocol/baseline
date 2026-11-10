@@ -1,9 +1,11 @@
 // Pure view-model: what each screen shows, computed from TuiData. No Ink, no I/O, so it is testable.
 import { homedir } from 'node:os';
 import stringWidth from 'string-width';
-import { PRIORITY_LABELS, STATE_TYPE_LABELS, type ActivityItem, type Issue, type Notification, type NotificationType, type Priority, type Project, type ProjectStatus, type WorkflowStateType } from '../core/types.js';
+import { PRIORITY_LABELS, STATE_TYPE_LABELS, type ActivityItem, type Issue, type Notification, type NotificationType, type Priority, type Project, type ProjectStatus, type WorkflowState, type WorkflowStateType } from '../core/types.js';
+import { inboxRows, visibleNotifications } from '../core/inbox.js';
 import { plainMentions } from '../core/mentions.js';
 import type { TuiData } from './data.js';
+import { DONE_GROUP, todayModel, todayRows } from './today.js';
 import type { Route } from './state.js';
 import { priorityGlyph, STATE_ICON } from './theme.js';
 
@@ -118,13 +120,18 @@ export function dueLabel(due: string, now: number): { text: string; tone: 'overd
 
 /** Linear's list order; triage first because it is waiting on a decision */
 export const STATE_ORDER: WorkflowStateType[] = ['triage', 'started', 'unstarted', 'backlog', 'completed', 'canceled'];
+/** a status group: a state type, or 'review' for the started state named In Review (the one an agent's
+ *  finished work moves to), which a team list shows first */
+export type StatusGroup = WorkflowStateType | 'review';
+const STATUS_ORDER: StatusGroup[] = ['review', ...STATE_ORDER];
+export const isReviewState = (st: Pick<WorkflowState, 'type' | 'name'> | undefined) => st?.type === 'started' && st.name.trim().toLowerCase() === 'in review';
+export const statusGroupOf = (st: WorkflowState | undefined): StatusGroup => (isReviewState(st) ? 'review' : st?.type ?? 'backlog');
 export const CLOSED_TYPES: ReadonlySet<WorkflowStateType> = new Set(['completed', 'canceled']);
 
-export const isListRoute = (r: Route): r is Extract<Route, { kind: 'my' | 'team' | 'project' }> => r.kind === 'my' || r.kind === 'team' || r.kind === 'project';
+export const isListRoute = (r: Route): r is Extract<Route, { kind: 'team' | 'project' }> => r.kind === 'team' || r.kind === 'project';
 
 export function issuesForRoute(route: Route, data: TuiData): Issue[] {
   switch (route.kind) {
-    case 'my': return data.issues.filter(i => i.assigneeId === data.currentUser.id);
     case 'team': return data.issuesByTeam.get(route.teamId) ?? [];
     case 'project': return data.issues.filter(i => i.projectId === route.projectId);
     default: return [];
@@ -170,9 +177,14 @@ const lastIfEmpty = (a: string, b: string) => Number(!a) - Number(!b);
 export const GROUP_MODES: Record<GroupBy, GroupMode> = {
   status: {
     label: 'by status',
-    key: (i, d) => d.stateById.get(i.stateId)?.type ?? 'backlog',
-    order: (a, b) => STATE_ORDER.indexOf(a as WorkflowStateType) - STATE_ORDER.indexOf(b as WorkflowStateType),
-    header: (key, issues, d) => ({ icon: [{ text: STATE_ICON[key as WorkflowStateType], color: d.stateById.get(issues[0]?.stateId ?? '')?.color }], label: STATE_TYPE_LABELS[key as WorkflowStateType] }),
+    key: (i, d) => statusGroupOf(d.stateById.get(i.stateId)),
+    order: (a, b) => STATUS_ORDER.indexOf(a as StatusGroup) - STATUS_ORDER.indexOf(b as StatusGroup),
+    header: (key, issues, d) => {
+      const st = d.stateById.get(issues[0]?.stateId ?? '');
+      return key === 'review'
+        ? { icon: [{ text: STATE_ICON.started, color: st?.color }], label: st?.name ?? 'In Review' }
+        : { icon: [{ text: STATE_ICON[key as WorkflowStateType], color: st?.color }], label: STATE_TYPE_LABELS[key as WorkflowStateType] };
+    },
     folded: key => CLOSED_TYPES.has(key as WorkflowStateType),
   },
   assignee: {
@@ -236,7 +248,8 @@ export function groupIssues(issues: readonly Issue[], data: GroupData, groupBy: 
 
 export const defaultExpanded = (groupId: string): boolean => {
   const at = groupId.indexOf(':');
-  return !GROUP_MODES[groupId.slice(0, at) as GroupBy].folded(groupId.slice(at + 1));
+  const mode = GROUP_MODES[groupId.slice(0, at) as GroupBy];
+  return mode ? !mode.folded(groupId.slice(at + 1)) : false;
 };
 
 export type ListRow =
@@ -269,7 +282,7 @@ export function rowIdFor(rows: readonly ListRow[], issueId: string): string | un
   return rows.find(r => r.kind === 'group' && r.selectable && r.group.issues.some(i => i.id === issueId))?.id;
 }
 
-// ---------- inbox ----------
+// ---------- notifications (from /) ----------
 
 const VERBS: Record<NotificationType, string> = {
   issueAssignedToYou: 'assigned you', issueAssigned: 'assigned', issueCommented: 'commented', issueMentioned: 'mentioned you',
@@ -282,9 +295,12 @@ const VERBS: Record<NotificationType, string> = {
 };
 const BODY_HAS_ID: ReadonlySet<NotificationType> = new Set(['initiativeUpdateReminder', 'teamMemberAdded', 'docChanged', 'accessRequested']);
 
-export interface InboxItem {
+/** one row per issue (the web inbox's rows): the newest headline, how many it merges, unread while any is */
+export interface NotificationRow {
   id: string;
   notification: Notification;
+  ids: string[];
+  count: number;
   unread: boolean;
   who: string;
   verb: string;
@@ -294,26 +310,22 @@ export interface InboxItem {
   issueId: string | null;
 }
 
-export function inboxItems(data: TuiData, now: number): InboxItem[] {
-  return data.notifications
-    .filter(n => !n.snoozedUntil || Date.parse(n.snoozedUntil) <= now)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map(n => {
-      const issue = n.issueId ? data.issueById.get(n.issueId) : undefined;
-      const project = n.projectId ? data.projectById.get(n.projectId) : undefined;
-      const body = plainMentions(BODY_HAS_ID.has(n.type) ? n.body.replace(/^[^|]*\|/, '') : n.body).replace(/\s+/g, ' ').trim();
-      return {
-        id: n.id, notification: n, unread: !n.readAt,
-        who: n.actorId ? data.userById.get(n.actorId)?.name ?? 'Someone' : 'Baseline',
-        verb: VERBS[n.type] ?? n.type,
-        subject: issue?.title ?? project?.name ?? body,
-        key: issue ? data.keyOf(issue) : null,
-        body, issueId: issue?.id ?? null,
-      };
-    });
+export function notificationRows(data: TuiData, now: number): NotificationRow[] {
+  return inboxRows(visibleNotifications(data.notifications, new Date(now).toISOString())).map(r => {
+    const n = r.lead;
+    const issue = n.issueId ? data.issueById.get(n.issueId) : undefined;
+    const project = n.projectId ? data.projectById.get(n.projectId) : undefined;
+    const body = plainMentions(BODY_HAS_ID.has(n.type) ? n.body.replace(/^[^|]*\|/, '') : n.body).replace(/\s+/g, ' ').trim();
+    return {
+      id: r.key, notification: n, ids: r.ids, count: r.count, unread: r.unread,
+      who: n.actorId ? data.userById.get(n.actorId)?.name ?? 'Someone' : 'Baseline',
+      verb: VERBS[n.type] ?? n.type,
+      subject: issue?.title ?? project?.name ?? body,
+      key: issue ? data.keyOf(issue) : null,
+      body, issueId: issue?.id ?? null,
+    };
+  });
 }
-
-export const unreadCount = (data: TuiData, now: number) => inboxItems(data, now).filter(i => i.unread).length;
 
 // ---------- projects ----------
 
@@ -350,41 +362,39 @@ export interface Tab { id: string; label: string; route: Route; count: number | 
 
 export const openIssue = (data: Pick<TuiData, 'stateById'>) => (i: Issue) => !CLOSED_TYPES.has(data.stateById.get(i.stateId)?.type ?? 'backlog');
 
-/** My work, Inbox, every team, Projects */
+/** Today, then every team */
 export function allTabs(data: TuiData, now: number): Tab[] {
   return [
-    { id: 'my', label: 'My work', route: { kind: 'my' }, count: data.issues.filter(i => i.assigneeId === data.currentUser.id && openIssue(data)(i)).length },
-    { id: 'inbox', label: 'Inbox', route: { kind: 'inbox' }, count: unreadCount(data, now) || null },
+    { id: 'today', label: 'Today', route: { kind: 'today' }, count: todayModel(data, now).needs.length || null },
     ...data.teams.map((t): Tab => ({ id: `team:${t.id}`, label: t.name, route: { kind: 'team', teamId: t.id }, count: null })),
-    { id: 'projects', label: 'Projects', route: { kind: 'projects' }, count: null },
   ];
 }
 
 export const tabText = (t: Tab, n: number) => `${n} ${t.label}${t.count ? ` ${t.count}` : ''}`;
 export const TAB_GAP = 3;
 
-/** the tabs that fit in `width` and in the digits 1-9: My work, Inbox and Projects always, teams in order while they fit
+/** the tabs that fit in `width` and in the digits 1-9: Today always, teams in order while they fit
  *  (the active team kept in), and how many teams were left out (reachable through /) */
 export function visibleTabs(data: TuiData, now: number, width: number, activeId: string | null): { tabs: Tab[]; hidden: number } {
   const all = allTabs(data, now);
   const teams = all.filter(t => t.route.kind === 'team');
-  const fixed = all.filter(t => t.route.kind !== 'team');
+  const today = all[0]!;
   const more = (n: number) => (n ? displayWidth(`+${n} more · /`) + TAB_GAP : 0);
   const widthOf = (ts: Tab[]) => ts.reduce((w, t, i) => w + displayWidth(tabText(t, i + 1)) + 2 + TAB_GAP, 0);
-  let shown = teams.slice(0, 9 - fixed.length);
-  const build = (ts: Tab[]) => [fixed[0], fixed[1], ...ts, fixed[2]];
+  let shown = teams.slice(0, 8);
+  const build = (ts: Tab[]) => [today, ...ts];
   while (shown.length && widthOf(build(shown)) + more(teams.length - shown.length) > width) shown = shown.slice(0, -1);
   const active = teams.find(t => t.id === activeId);
   if (active && !shown.includes(active) && shown.length) shown = [...shown.slice(0, -1), active];
   return { tabs: build(shown), hidden: teams.length - shown.length };
 }
 
-/** which tab a route belongs to (an issue or project belongs to whatever it was opened from) */
+/** which tab a route belongs to (an issue belongs to whatever it was opened from; a project from / to none) */
 export function tabIdFor(route: Route, stack: readonly Route[]): string | null {
   for (const r of [route, ...[...stack].reverse()]) {
-    if (r.kind === 'my' || r.kind === 'inbox' || r.kind === 'projects') return r.kind;
+    if (r.kind === 'today') return 'today';
     if (r.kind === 'team') return `team:${r.teamId}`;
-    if (r.kind === 'project') return 'projects';
+    if (r.kind === 'project') return null;
   }
   return null;
 }
@@ -394,8 +404,7 @@ export function tabIdFor(route: Route, stack: readonly Route[]): string | null {
 /** the ids the cursor moves over on a route, in order; the reducer keeps the cursor on the same id across refetches */
 export function selectableIds(route: Route, data: TuiData, view: ListView, now: number): string[] {
   if (isListRoute(route)) return listRowsFor(route, data, view).filter(isSelectable).map(r => r.id);
-  if (route.kind === 'inbox') return inboxItems(data, now).map(i => i.id);
-  if (route.kind === 'projects') return projectRows(data).map(p => p.id);
+  if (route.kind === 'today') return todayRows(todayModel(data, now), view.isExpanded(DONE_GROUP)).map(r => r.id);
   return [];
 }
 

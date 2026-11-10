@@ -55,18 +55,36 @@ export function runInTerminal(cmd: readonly string[], opts: { cwd: string; env: 
   return { ok: r.status === 0, message: r.signal ? `${cmd[0]} stopped (${r.signal})` : `${cmd[0]} exited${r.status ? ` with code ${r.status}` : ''}` };
 }
 
-/** the tmux command that runs `cmd` in a split beside this pane, pointed at the same target agentEnv uses */
+/** the tmux command that runs `cmd` in a split beside this pane, pointed at the same target agentEnv uses;
+ *  it prints the new pane's id, so the TUI can go back to it */
 export function paneCommand(cmd: readonly string[], opts: { cwd: string; target: Target; issueKey: string }): string[] {
   const vars = { BASELINE_ISSUE: opts.issueKey, ...targetEnv(opts.target) };
   const env = Object.entries(vars).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
-  return ['tmux', 'split-window', '-h', '-c', opts.cwd, ...env, ...cmd];
+  return ['tmux', 'split-window', '-h', '-P', '-F', '#{pane_id}', '-c', opts.cwd, ...env, ...cmd];
 }
 
-export function runInPane(cmd: readonly string[], opts: { cwd: string; target: Target; issueKey: string }): RunResult {
+export function runInPane(cmd: readonly string[], opts: { cwd: string; target: Target; issueKey: string }): RunResult & { paneId?: string } {
   const argv = paneCommand(cmd, opts);
-  const r = spawnSync(argv[0], argv.slice(1), { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+  const r = spawnSync(argv[0]!, argv.slice(1), { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
   if (r.error) return { ok: false, message: `Couldn't run tmux: ${r.error.message}` };
-  return r.status === 0 ? { ok: true, message: 'started' } : { ok: false, message: `tmux split-window failed: ${(r.stderr || '').trim() || `exit ${r.status}`}` };
+  const paneId = (r.stdout || '').trim();
+  return r.status === 0 ? { ok: true, message: 'started', ...(/^%\d+$/.test(paneId) ? { paneId } : {}) } : { ok: false, message: `tmux split-window failed: ${(r.stderr || '').trim() || `exit ${r.status}`}` };
+}
+
+/** brings a tmux pane this TUI started to the front (its window, then the pane); false when it is gone */
+export function focusPane(paneId: string): boolean {
+  const alive = spawnSync('tmux', ['display-message', '-p', '-t', paneId, '#{pane_id}'], { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' });
+  if (alive.status !== 0 || alive.stdout.trim() !== paneId) return false;
+  spawnSync('tmux', ['select-window', '-t', paneId], { stdio: 'ignore' });
+  return spawnSync('tmux', ['select-pane', '-t', paneId], { stdio: 'ignore' }).status === 0;
+}
+
+/** whether `branch` exists in the git repo at `cwd` (locally or on origin); null outside a repo */
+export function branchExists(cwd: string, branch: string): boolean | null {
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' });
+  if (top.status !== 0) return null;
+  const has = (ref: string) => spawnSync('git', ['show-ref', '--verify', '--quiet', ref], { cwd, stdio: 'ignore' }).status === 0;
+  return has(`refs/heads/${branch}`) || has(`refs/remotes/origin/${branch}`);
 }
 
 /** opens `text` in $VISUAL / $EDITOR and returns what was saved, or null when the editor failed */

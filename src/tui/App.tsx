@@ -3,17 +3,19 @@ import { Box, Text, useApp, useInput, useStdout, useWindowSize, type Key } from 
 import { Component, useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import type { Baseline } from '../client/index.js';
 import { copyToClipboard } from '../cli/system.js';
-import { currentInboxItem, errorText, handoff, runCommand, targetIssue, toast, type Ctx, type Layout } from './commands.js';
+import { errorText, handoff, runCommand, targetIssue, todayRow, toast, type Ctx, type Layout } from './commands.js';
 import { menuTrail, MENUS } from './menus.js';
 import { fetchData, type TuiData } from './data.js';
-import { detailLines, floatingPickerRows, PICKER_ROWS, pickerLines, type IssueUi } from './detail.js';
+import { detailLayout, floatingPickerRows, PICKER_ROWS, pickerLines, todayPaneLines, type IssueUi } from './detail.js';
 import { contextsFor, hintsFor, keyName, lookup, takesText, type CommandId, type Context } from './keys.js';
 import { contextOf } from './context.js';
 import { displayWidth, isListRoute, tabIdFor, tildePath, visibleTabs, type GroupBy, type Line, type Preset, type Seg } from './model.js';
 import { filteredOptions, PICKER_TITLE } from './overlays.js';
 import type { SessionContext } from './session.js';
 import { helpRows, OverlayView } from './overlay-views.js';
-import { DetailPane, DetailScreen, Footer, hintSegs, inboxNote, InboxScreen, ListScreen, ProjectsScreen, scrollLabel, tabBarLine, ToastLine } from './screens.js';
+import { DetailPane, DetailScreen, Footer, hintSegs, ListScreen, scrollLabel, tabBarLine, TodayScreen, ToastLine } from './screens.js';
+import { issueNeeds } from './today.js';
+import type { LocalRepo } from '../ops/operation.js';
 import { initialState, reducer, routeKey, type Action, type Route, type TuiState } from './state.js';
 import { editField, type TextField } from './textfield.js';
 import { SPINNER, theme } from './theme.js';
@@ -35,6 +37,15 @@ export interface AppProps {
   clipboard?: (text: string) => boolean;
   /** ms between background refetches; agents write to the same database from other processes */
   pollMs?: number;
+  /** tmux panes this TUI started agents in (issue → pane id), and where a new one is remembered */
+  panes?: Record<string, string>;
+  onPane?: (issueId: string, paneId: string) => void;
+  /** the git repo an issue starts in; tests pass one that touches no repo */
+  repo?: (cwd: string) => LocalRepo;
+  /** whether new tmux panes are possible (default: $TMUX is set) */
+  tmux?: boolean;
+  /** the In flight spinner turns (tests switch it off so frames stay still) */
+  animate?: boolean;
 }
 
 class ScreenBoundary extends Component<{ children: ReactNode; resetKey: string }, { error: Error | null; key: string }> {
@@ -57,7 +68,7 @@ class ScreenBoundary extends Component<{ children: ReactNode; resetKey: string }
 
 function currentField(s: TuiState): TextField | null {
   const o = s.overlay;
-  return o.kind === 'picker' || o.kind === 'find' ? o.query : o.kind === 'compose' ? o.input : null;
+  return o.kind === 'picker' || o.kind === 'find' ? o.query : o.kind === 'compose' ? o.input : o.kind === 'sheet' && o.sheet.type === 'note' ? o.sheet.input : null;
 }
 
 function BootScreen({ s, width, height }: { s: TuiState; width: number; height: number }) {
@@ -80,8 +91,8 @@ function BootScreen({ s, width, height }: { s: TuiState; width: number; height: 
   );
 }
 
-export function App({ bl, actorId, route, stack, start, onContext, clipboard = copyToClipboard, pollMs = 4000 }: AppProps) {
-  const [state, dispatchToReact] = useReducer(reducer, undefined, () => initialState(route, stack, start));
+export function App({ bl, actorId, route, stack, start, onContext, clipboard = copyToClipboard, pollMs = 4000, panes, onPane, repo, tmux, animate = true }: AppProps) {
+  const [state, dispatchToReact] = useReducer(reducer, undefined, () => initialState(route, stack, { ...start, panes }));
   const stateRef = useRef(state);
   stateRef.current = state;
   // keys replayed from one chunk can arrive before React renders, so the ref runs the reducer itself
@@ -167,8 +178,8 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const contentW = Math.max(20, columns - 2);
   const bodyH = Math.max(1, rows - 4);
   const r = state.route;
-  const hasPane = wide && (isListRoute(r) || r.kind === 'inbox');
-  const listW = hasPane ? Math.floor(contentW * 0.45) : contentW;
+  const hasPane = wide && (isListRoute(r) || r.kind === 'today');
+  const listW = hasPane ? Math.floor(contentW * (r.kind === 'today' ? 0.55 : 0.45)) : contentW;
   const paneW = contentW - listW;
   const activeTab = tabIdFor(r, state.stack);
   const { tabs, hidden } = data ? visibleTabs(data, Date.now(), contentW, activeTab) : { tabs: [], hidden: 0 };
@@ -188,17 +199,25 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
     title: titleOn ? fieldBlock(titleOn.input, width, 'Issue title', 3).map(l => l.map(x => ({ ...x, bold: true }))) : null,
   });
   const pageUi = useMemo((): IssueUi => (data && openIssue ? issueUi(contentW, openIssue) : {}), [data, openIssue, inlineOn, titleOn, contentW, saved]);
-  const detail = useMemo(() => {
+  const focusComment = r.kind === 'issue' ? r.focusComment : undefined;
+  const layoutOf = useMemo(() => {
     if (!data || !openIssue) return null;
     const issue = data.issueById.get(openIssue);
-    return issue ? detailLines(issue, data, threads ?? [], contentW, state.syncedAt ?? Date.now(), pageUi) : null;
-  }, [data, openIssue, threads, contentW, state.syncedAt, pageUi]);
+    return issue ? detailLayout(issue, data, threads ?? data.threads.get(openIssue) ?? [], contentW, state.syncedAt ?? Date.now(), { ...pageUi, focusComment }) : null;
+  }, [data, openIssue, threads, contentW, state.syncedAt, pageUi, focusComment]);
+  // a page opened at a comment can scroll that comment up to the top, clear of the reply sheet below it
+  const detail = layoutOf ? (focusComment ? [...layoutOf.lines, ...Array.from({ length: Math.max(0, rows - 8) }, (): Line => [])] : layoutOf.lines) : null;
+  // a mention opens scrolled to its comment (a little above it), until you scroll yourself
+  const focusAt = focusComment && layoutOf ? layoutOf.anchors[focusComment] : undefined;
+  const detailStart = focusAt !== undefined ? Math.max(0, focusAt - 4) : 0;
   const pinned = detail && pageUi.picker ? detail.indexOf(pageUi.picker.lines[0]) - 1 : undefined;
 
   const overlayPage = o.kind === 'picker' ? (inlineOn ? PICKER_ROWS : floatingPickerRows(rows)) : o.kind === 'help' ? helpRows(rows)
     : o.kind === 'menu' ? MENUS[o.path[o.path.length - 1]].rows.length : 0;
-  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, helpMax: helpMax.current, overlayPage, tabs };
+  const layout: Layout = { pageSize: bodyH, detailMax: detail ? Math.max(0, detail.length - bodyH) : 0, detailStart, helpMax: helpMax.current, overlayPage, tabs };
   const contexts = contextsFor(state);
+  const needs = data ? issueNeeds(data, Date.now()) : [];
+  const needAt = r.kind === 'issue' ? needs.findIndex(n => n.issue.id === r.issueId) : -1;
 
   const handleKey = (input: string, key: Key) => {
     if (suspended.current) return;
@@ -222,6 +241,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
         clipboard,
         exit: () => exit(),
         now: () => Date.now(),
+        repo, onPane, tmux,
       };
       runCommand(command, ctx, keyPressed).catch(e => toast(dispatch, 'error', errorText(e)));
     };
@@ -253,20 +273,24 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
   const now = Date.now();
   const dim = o.kind !== 'none';
   const paneUi: IssueUi = openIssue ? {} : issueUi(paneW - 3, cursorIssue?.id);
-  const inboxItem = r.kind === 'inbox' ? currentInboxItem(state, now) : undefined;
-  const list = r.kind === 'inbox' ? <InboxScreen s={state} data={data} width={listW} height={bodyH} now={now} dim={dim} />
-    : r.kind === 'projects' ? <ProjectsScreen s={state} data={data} width={contentW} height={bodyH} dim={dim} />
-    : r.kind === 'issue' ? <DetailScreen s={state} lines={detail} width={contentW} height={bodyH} pinned={pinned} />
+  const tRow = r.kind === 'today' ? todayRow(state, now) : undefined;
+  const list = r.kind === 'today' ? <TodayScreen s={state} data={data} width={listW} height={bodyH} now={now} dim={dim} animate={animate} />
+    : r.kind === 'issue' ? <DetailScreen s={state} lines={detail} width={contentW} height={bodyH} pinned={pinned} start={detailStart} />
     : <ListScreen s={state} data={data} width={listW} height={bodyH} now={now} dim={dim} />;
+  // a picker or a title being edited opens in the pane's field rows, so the pane shows the plain issue then
+  const paneLinesFor = !inlineOn && !titleOn && tRow && tRow.kind !== 'doneHeader' && tRow.kind !== 'done'
+    ? todayPaneLines(tRow.kind === 'flight' ? { kind: 'flight', row: tRow.row, pane: !!state.panes[tRow.id] } : tRow, data, paneW - 3, bodyH, now, paneUi)
+    : undefined;
   const screen = hasPane
     ? (
       <Box flexDirection="row">
         {list}
-        <DetailPane issue={cursorIssue} note={inboxItem ? inboxNote(inboxItem, paneW - 3, now) : undefined} data={data} width={paneW} height={bodyH} now={now} ui={paneUi} />
+        <DetailPane issue={tRow?.kind === 'doneHeader' ? undefined : cursorIssue} lines={paneLinesFor} data={data} width={paneW} height={bodyH} now={now} ui={paneUi} />
       </Box>
     )
     : list;
-  const right = r.kind === 'issue' && detail ? scrollLabel(state, detail.length, bodyH) : '';
+  const needLabel = needAt >= 0 && (r.kind === 'issue' && r.needs) ? `${needAt + 1} of ${needs.length} needs you` : '';
+  const right = [needLabel, r.kind === 'issue' && detail ? scrollLabel(state, detail.length, bodyH, detailStart) : ''].filter(Boolean).join('   ');
 
   return (
     <Box flexDirection="column" width="100%" height={rows} overflow="hidden">
@@ -277,7 +301,7 @@ export function App({ bl, actorId, route, stack, start, onContext, clipboard = c
       </Box>
       <ToastLine toast={state.toast} width={columns} />
       <Footer s={state} left={footerLeft(state, data, contexts, tabs.length)} width={columns} target={targetLabel(bl)} />
-      {inlineOn || titleOn ? null : <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} onFindRows={n => { findRows.current = n; }} tabs={tabs.length} target={cardTarget(bl)} />}
+      {inlineOn || titleOn ? null : <OverlayView s={state} data={data} contexts={contexts} cols={columns} rows={rows} now={now} onHelpMax={n => { helpMax.current = n; }} onFindRows={n => { findRows.current = n; }} tabs={tabs.length} target={cardTarget(bl)} tmux={tmux ?? !!process.env.TMUX} />}
     </Box>
   );
 }
@@ -291,9 +315,9 @@ function overlayTitle(s: TuiState, data: TuiData | null): string {
   switch (o.kind) {
     case 'picker': return `${PICKER_TITLE[o.field]} for ${key(o.issueId)}`;
     case 'find': return 'Find';
-    case 'compose': return o.target === 'issue' ? 'New issue' : o.target === 'comment' ? `Comment on ${key(o.issueId)}` : `Rename ${key(o.issueId)}`;
+    case 'compose': return o.target === 'issue' ? 'New issue' : `Rename ${key(o.issueId)}`;
     case 'help': return o.intro ? '' : 'Keys';
-    case 'menu': case 'none': return '';
+    case 'menu': case 'none': case 'sheet': return '';
   }
 }
 

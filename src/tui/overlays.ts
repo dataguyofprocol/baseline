@@ -58,7 +58,7 @@ export function defaultStateId(data: TuiData, teamId: string): string {
   return (states.find(s => s.type === 'unstarted') ?? states[0])?.id ?? '';
 }
 
-/** a new issue starts where you are: this team or project, assigned to you on My work so it shows up there */
+/** a new issue starts where you are: this team or project, assigned to you on Today so it shows up there */
 export function newDraft(s: Pick<TuiState, 'route' | 'stack'>, data: TuiData): IssueDraft {
   const fromRoute = [s.route, ...[...s.stack].reverse()];
   const issueRoute = fromRoute.find(r => r.kind === 'issue');
@@ -68,7 +68,7 @@ export function newDraft(s: Pick<TuiState, 'route' | 'stack'>, data: TuiData): I
   const projectId = projectRoute?.kind === 'project' ? projectRoute.projectId : null;
   const project = projectId ? data.projectById.get(projectId) : undefined;
   const teamId = teamRoute?.kind === 'team' ? teamRoute.teamId : viewed?.teamId ?? project?.teamId ?? data.teams[0]?.id ?? '';
-  const onMine = fromRoute.some(r => r.kind === 'my') && !teamRoute && !projectRoute;
+  const onMine = fromRoute.some(r => r.kind === 'today') && !teamRoute && !projectRoute;
   return { teamId, stateId: defaultStateId(data, teamId), priority: 0, assigneeId: onMine ? data.currentUser.id : null, projectId };
 }
 

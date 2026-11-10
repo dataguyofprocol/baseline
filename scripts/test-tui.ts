@@ -17,7 +17,7 @@ import { seedWorkspace } from '../src/core/seed.js';
 import type { Issue, WorkflowStateType } from '../src/core/types.js';
 import { App } from '../src/tui/App.js';
 import { buildData, fetchData, type TuiData } from '../src/tui/data.js';
-import { BINDINGS, contextsFor, lookup, type Context } from '../src/tui/keys.js';
+import { BINDINGS, contextsFor, hintsFor, lookup, takesText, type Context } from '../src/tui/keys.js';
 import { helpSections, MENUS, menuTrail, rowLabel } from '../src/tui/menus.js';
 import { agentCommand, agentEnv, paneCommand, shellPreview } from '../src/tui/launch.js';
 import { findSections } from '../src/tui/commands.js';
@@ -26,13 +26,13 @@ import { prepareStart } from '../src/tui/index.js';
 import { paneLines } from '../src/tui/detail.js';
 import { sessionPath, sessionWriter, targetId, workspaceDir, type SessionFile } from '../src/tui/session.js';
 import {
-  CLOSED_TYPES, DEFAULT_VIEW, defaultExpanded, displayWidth, GROUP_BYS, inboxItems, listRowsFor, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
-  markdownLines, selectableIds, sortIssues, truncate, wrap,
+  CLOSED_TYPES, DEFAULT_VIEW, defaultExpanded, displayWidth, GROUP_BYS, notificationRows, listRowsFor, listGroups, fuzzyFilter, fuzzyMatch, groupIssues, issuesForRoute, lineWidth, listRows,
+  markdownLines, selectableIds, sortIssues, statusGroupOf, truncate, wrap,
 } from '../src/tui/model.js';
 import { cycleDraft, newDraft, pickerOptions } from '../src/tui/overlays.js';
 import { nextIssue } from '../src/ops/index.js';
 import { runOp } from '../src/ops/operation.js';
-import { DONE_GROUP, followupsOf, prOf, todayModel, todayRows } from '../src/tui/today.js';
+import { DONE_GROUP, followupsOf, issueNeeds, prOf, todayModel, todayRows } from '../src/tui/today.js';
 import { seedMorning } from './tui-fixture.js';
 import { cursorRow, initialState, listViewOf, reducer, routeKey, type Action, type TuiState } from '../src/tui/state.js';
 import { editField, emptyField, fieldOf } from '../src/tui/textfield.js';
@@ -59,19 +59,22 @@ const bl = await connect({ db: dbPath });
 const data = await fetchData(bl);
 const now = Date.now();
 const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
+/** the list most tests run on: the first team's */
+const TEAM = { kind: 'team' as const, teamId: data.teams[0]!.id };
+const TEAM_KEY = `team:${data.teams[0]!.id}`;
 
 {
   const base = data.issues[0];
   const fake = ([1, 0, 4, 2, 3] as const).map((priority, n) => ({ ...base, id: `x${n}`, number: 900 + n, priority, sortOrder: n }));
   check('sortIssues: urgent, high, medium, low, then no priority', sortIssues(fake).map(i => i.priority).join() === '1,2,3,4,0', sortIssues(fake).map(i => i.priority).join());
 
-  const mine = issuesForRoute({ kind: 'my' }, data);
-  check('My work holds exactly the current user\'s issues', mine.length > 0 && mine.every(i => i.assigneeId === data.currentUser.id));
+  const mine = issuesForRoute(TEAM, data);
+  check('a team list holds exactly that team\'s issues', mine.length > 0 && mine.every(i => i.teamId === TEAM.teamId));
   const groups = groupIssues(mine, data);
   const order = groups.map(g => g.key as WorkflowStateType);
   check('groups follow Linear order: In Progress before Todo before Backlog, closed last',
     order.indexOf('started') < order.indexOf('unstarted') && order.indexOf('unstarted') < order.indexOf('backlog') && order.slice(-2).every(t => CLOSED_TYPES.has(t)), order.join());
-  check('every issue lands in the group of its state type', groups.every(g => g.issues.every(i => typeOf(i) === g.key)));
+  check('every issue lands in the group of its state type (In Review apart)', groups.every(g => g.issues.every(i => statusGroupOf(data.stateById.get(i.stateId)) === g.key)));
   check('status group headers carry the state color', groups.every(g => g.issues.length > 0 && /^#/.test(g.icon[0]?.color ?? '')));
   for (const by of GROUP_BYS) {
     const gs = groupIssues(mine, data, by);
@@ -84,7 +87,7 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   const byAssignee = groupIssues(data.issues, data, 'assignee').map(g => g.label);
   check('by assignee: me first, No assignee last', byAssignee[0].endsWith('(me)') && byAssignee[byAssignee.length - 1] === 'No assignee', byAssignee.join());
   check('no grouping: one group, no header rows', listRows(groupIssues(mine, data, 'none'), defaultExpanded).every(r => r.kind === 'issue'));
-  const active = listRowsFor({ kind: 'my' }, data, { ...DEFAULT_VIEW, preset: 'active' }).filter(r => r.kind === 'issue');
+  const active = listRowsFor(TEAM, data, { ...DEFAULT_VIEW, preset: 'active' }).filter(r => r.kind === 'issue');
   check('the Active preset shows only started and unstarted issues', active.length > 0 && active.every(r => r.kind === 'issue' && ['started', 'unstarted'].includes(typeOf(r.issue))));
 
   const rows = listRows(groups, defaultExpanded);
@@ -92,7 +95,7 @@ const typeOf = (i: Issue) => data.stateById.get(i.stateId)!.type;
   check('Done starts collapsed: its header shows, its issues do not', !!doneRow && !rows.some(r => r.kind === 'issue' && typeOf(r.issue) === 'completed'));
   const open = listRows(groups, () => true);
   check('expanding shows the closed issues', open.some(r => r.kind === 'issue' && typeOf(r.issue) === 'completed'));
-  const ids = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now);
+  const ids = selectableIds(TEAM, data, DEFAULT_VIEW, now);
   check('the cursor skips open group headers but stops on collapsed ones', !ids.includes('group:status:started') && ids.includes('group:status:completed'));
 
   check('fuzzy: a subsequence matches across words', !!fuzzyMatch('cmdk', 'Cmd+K fuzzy search scoring'));
@@ -150,6 +153,35 @@ const mdata = await fetchData(mbl);
   check('the PR and the follow-up drafts are in the TUI\'s data', prOf(mdata, morning.review)?.number === 41 && followupsOf(mdata, morning.review).length === 2);
 }
 
+// ---------- the reducer's side of the morning: opening what needs you, deciding, moving on ----------
+{
+  const st = run(initialState(), { type: 'loaded', data: mdata, at: now });
+  const needs = issueNeeds(mdata, now);
+  const reviewIdx = needs.findIndex(r => r.issue.id === morning.review);
+  const opened = run(st, { type: 'openNeed', issueId: morning.review, at: now });
+  check('enter on a Needs you row opens its issue page, counted as needs you, with Today behind it', opened.route.kind === 'issue' && opened.route.needs === true && opened.stack.map(r => r.kind).join() === 'today');
+  check('…a review page, whose footer is the decision keys d b f', contextsFor(opened).join() === 'review,detail,global' && hintsFor(contextsFor(opened)).slice(0, 3).map(h => h.key).join(' ') === 'd b f', hintsFor(contextsFor(opened)).map(h => h.key).join(' '));
+  const decided = run(opened, { type: 'markRead', ids: needs[reviewIdx]!.notificationIds, read: true }, { type: 'advance', index: reviewIdx, at: now });
+  const left = issueNeeds(decided.data!, now);
+  check('after a decision the page moves on to the item now in its place, Today still one esc away', left.length === needs.length - 1 && decided.route.kind === 'issue' && decided.route.issueId === left[Math.min(reviewIdx, left.length - 1)]!.issue.id && decided.stack.map(r => r.kind).join() === 'today');
+  const mention = run(st, { type: 'openNeed', issueId: morning.mention, at: now });
+  check('a mention opens at its comment with the reply sheet already open', mention.route.kind === 'issue' && mention.route.focusComment === morning.mentionCommentId &&
+    mention.overlay.kind === 'sheet' && mention.overlay.sheet.type === 'note' && mention.overlay.sheet.purpose === 'reply' && mention.overlay.sheet.parentId === morning.mentionCommentId);
+  const cleared = run(opened, { type: 'markRead', ids: 'all', read: true }, { type: 'advance', index: 0, at: now });
+  check('when nothing needs you any more, a decision lands back on Today', cleared.route.kind === 'today' && cleared.stack.length === 0);
+  const typed = run(mention, { type: 'editInput', input: fieldOf('Per account') });
+  check('typing goes into the note sheet', typed.overlay.kind === 'sheet' && typed.overlay.sheet.type === 'note' && typed.overlay.sheet.input.value === 'Per account');
+  check('esc closes a sheet without saving', run(typed, { type: 'closeOverlay' }).overlay.kind === 'none' && lookup(contextsFor(typed), 'esc')?.command === 'overlayCancel');
+  check('a note sheet takes letters as text (d is not Done there)', takesText(typed) && lookup(contextsFor(typed), 'd') === undefined && lookup(contextsFor(typed), 'enter')?.command === 'overlayAccept');
+  const start = run(st, { type: 'setSheet', sheet: { type: 'start', issueId: morning.review, cursor: 0, branch: null } }, { type: 'overlayMove', delta: -1, count: 4 });
+  check('the start sheet moves over its four ways to start; 1-4 pick one', start.overlay.kind === 'sheet' && start.overlay.sheet.type === 'start' && start.overlay.sheet.cursor === 3 && lookup(contextsFor(start), '4')?.command === 'sheetPick');
+  const team = { kind: 'team' as const, teamId: mdata.issueById.get(morning.review)!.teamId };
+  const groups = listGroups(team, mdata, DEFAULT_VIEW);
+  check('a team list shows In Review first, apart from In Progress', groups[0]?.label === 'In Review' && groups[0].issues.some(i => i.id === morning.review) && groups.some(g => g.label === 'In Progress'), groups.map(g => g.label).join());
+  const notes = notificationRows(mdata, now);
+  check('the notifications list is one row per issue (the old inbox repeated them)', new Set(notes.map(n => n.id)).size === notes.length && (notes.find(n => n.issueId === morning.review)?.count ?? 0) >= 2);
+}
+
 {
   const typed = 'hello world'.split('').reduce((f, ch) => editField(f, ch, ch)!, emptyField);
   check('typing inserts at the cursor', typed.value === 'hello world' && typed.cursor === 11);
@@ -162,30 +194,32 @@ const mdata = await fetchData(mbl);
 }
 
 {
-  const s0 = run(initialState(), { type: 'loaded', data, at: now });
+  const s0 = run(initialState(TEAM), { type: 'loaded', data, at: now });
   check('loading data marks the app ready', s0.status === 'ready' && s0.data === data && s0.syncedAt === now);
-  const issue = issuesForRoute({ kind: 'my' }, data)[0];
+  check('the TUI opens on Today', initialState().route.kind === 'today');
+  const issue = issuesForRoute(TEAM, data)[0];
   const s1 = run(s0, { type: 'navigate', route: { kind: 'issue', issueId: issue.id } });
-  check('navigate pushes the previous route', s1.route.kind === 'issue' && s1.stack.length === 1 && s1.stack[0].kind === 'my');
-  check('back pops it', run(s1, { type: 'back' }).route.kind === 'my' && run(s1, { type: 'back' }).stack.length === 0);
-  check('back on a top-level screen stays put', run(s0, { type: 'back' }).route.kind === 'my');
+  check('navigate pushes the previous route', s1.route.kind === 'issue' && s1.stack.length === 1 && s1.stack[0].kind === 'team');
+  check('back pops it', run(s1, { type: 'back' }).route.kind === 'team' && run(s1, { type: 'back' }).stack.length === 0);
+  check('esc on a team list goes to Today, and Today stays put: Today is never more than two presses away',
+    run(s0, { type: 'back' }).route.kind === 'today' && run(s1, { type: 'back' }, { type: 'back' }).route.kind === 'today' && run(s0, { type: 'back' }, { type: 'back' }).route.kind === 'today');
   const team = data.teams[0];
   check('switching views clears the stack', run(s1, { type: 'switchView', route: { kind: 'team', teamId: team.id } }).stack.length === 0);
 
-  const count = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now).length;
+  const count = selectableIds(TEAM, data, DEFAULT_VIEW, now).length;
   const moved = run(s0, { type: 'move', delta: 3, count }, { type: 'move', delta: 999, count });
-  check('moving clamps to the last row', moved.cursor.my === count - 1);
-  check('moving up clamps to the first row', run(moved, { type: 'move', delta: -999, count }).cursor.my === 0);
+  check('moving clamps to the last row', moved.cursor[TEAM_KEY] === count - 1);
+  check('moving up clamps to the first row', run(moved, { type: 'move', delta: -999, count }).cursor[TEAM_KEY] === 0);
 
   const at2 = run(s0, { type: 'move', delta: 2, count });
-  const idAt2 = selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[2];
+  const idAt2 = selectableIds(TEAM, data, DEFAULT_VIEW, now)[2];
   const urgent: Issue = { ...issue, id: 'i_new_urgent', number: 999, priority: 1, sortOrder: -1, stateId: data.issueById.get(idAt2)!.stateId };
   const grown: TuiData = buildData({ ...data, issues: [urgent, ...data.issues] });
   const after = run(at2, { type: 'loaded', data: grown, at: now + 1 });
-  check('a refetch that inserts a row above keeps the cursor on the same issue', selectableIds({ kind: 'my' }, grown, DEFAULT_VIEW, now)[after.cursor.my] === idAt2);
+  check('a refetch that inserts a row above keeps the cursor on the same issue', selectableIds(TEAM, grown, DEFAULT_VIEW, now)[after.cursor[TEAM_KEY]!] === idAt2);
 
   const gone = run(s1, { type: 'loaded', data: buildData({ ...data, issues: data.issues.filter(i => i.id !== issue.id) }), at: now + 2 });
-  check('an open issue that disappears goes back with a note', gone.route.kind === 'my' && gone.toast?.tone === 'info');
+  check('an open issue that disappears goes back with a note', gone.route.kind === 'team' && gone.toast?.tone === 'info');
 
   const picker = run(s0, { type: 'openOverlay', overlay: { kind: 'picker', field: 'state', issueId: issue.id, query: emptyField, cursor: 0, selected: [] } });
   check('opening a picker sets the overlay', picker.overlay.kind === 'picker');
@@ -200,7 +234,7 @@ const mdata = await fetchData(mbl);
 
   const draft = newDraft({ route: { kind: 'team', teamId: team.id }, stack: [] }, data);
   check('a new issue defaults to the team in view', draft.teamId === team.id && draft.assigneeId === null);
-  check('on My work a new issue is assigned to me', newDraft({ route: { kind: 'my' }, stack: [] }, data).assigneeId === data.currentUser.id);
+  check('on Today a new issue is assigned to me', newDraft({ route: { kind: 'today' }, stack: [] }, data).assigneeId === data.currentUser.id);
   const otherTeam = data.teams[1];
   const switched = cycleDraft('team', draft, 1, data);
   check('changing the team resets the state to that team\'s', switched.teamId === otherTeam.id && data.stateById.get(switched.stateId!)?.teamId === otherTeam.id);
@@ -211,11 +245,11 @@ const mdata = await fetchData(mbl);
   check('the assignee picker offers Me first and unassign last', opts[0].id === data.currentUser.id && opts[0].label === 'Me' && opts[opts.length - 1].label === 'No assignee');
   check('routeKey separates routes of the same kind', routeKey({ kind: 'team', teamId: 'a' }) !== routeKey({ kind: 'team', teamId: 'b' }));
 
-  const firstGroup = groupIssues(issuesForRoute({ kind: 'my' }, data), data)[0];
+  const firstGroup = groupIssues(issuesForRoute(TEAM, data), data)[0];
   const folded = run(s0, { type: 'toggleGroup', groupId: firstGroup.id });
   check('folding a group puts the cursor on its header', cursorRow(folded)?.id === `group:${firstGroup.id}` &&
-    !listRowsFor({ kind: 'my' }, data, listViewOf(folded, { kind: 'my' })).some(r => r.kind === 'issue' && firstGroup.issues.some(i => i.id === r.id)));
-  check('toggling again unfolds it', run(folded, { type: 'toggleGroup', groupId: firstGroup.id }).expanded[`my|${firstGroup.id}`] === true);
+    !listRowsFor(TEAM, data, listViewOf(folded, TEAM)).some(r => r.kind === 'issue' && firstGroup.issues.some(i => i.id === r.id)));
+  check('toggling again unfolds it', run(folded, { type: 'toggleGroup', groupId: firstGroup.id }).expanded[`${TEAM_KEY}|${firstGroup.id}`] === true);
 }
 
 {
@@ -229,7 +263,7 @@ const mdata = await fetchData(mbl);
   check('s on a list opens the status picker', lookup(['list', 'global'], 's')?.command === 'setState');
   check('j moves on lists and scrolls the issue page', lookup(['detail', 'global'], 'j')?.command === 'down' && lookup(['list', 'global'], 'j')?.command === 'down');
   check('removed keys answer nothing: D, J, z, ctrl-b, ctrl-k, and no g chord', ['D', 'J', 'z', 'ctrl+b', 'ctrl+k', 'g i', 'g g'].every(k => !lookup(['list', 'global'], k)) && BINDINGS.every(b => b.keys.every(k => !k.includes(' '))));
-  check('page keys work on lists and the issue page: PgDn, ctrl-d, g/Home, G/End', ['list', 'inbox', 'projects', 'detail'].every(c =>
+  check('page keys work on lists and the issue page: PgDn, ctrl-d, g/Home, G/End', ['list', 'today', 'detail'].every(c =>
     lookup([c as Context, 'global'], 'pagedown')?.command === 'pageDown' && lookup([c as Context, 'global'], 'ctrl+d')?.command === 'halfDown' &&
     ['g', 'home'].every(k => lookup([c as Context, 'global'], k)?.command === 'top') && ['G', 'end'].every(k => lookup([c as Context, 'global'], k)?.command === 'bottom')));
   check('space stays the action menu; / keeps Home, End and ctrl-d for its caret', lookup(['list', 'global'], 'space')?.command === 'actions' &&
@@ -249,8 +283,8 @@ const mdata = await fetchData(mbl);
 }
 
 {
-  const st = run(initialState(), { type: 'loaded', data, at: now });
-  const target = data.issueById.get(selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[0])!;
+  const st = run(initialState(TEAM), { type: 'loaded', data, at: now });
+  const target = data.issueById.get(selectableIds(TEAM, data, DEFAULT_VIEW, now)[0])!;
   const key = data.keyOf(target);
   check('words must each start a word: "done" finds Done, "one" does not', wordMatch('done', 'Move CORE-4 to Done') !== null && wordMatch('one', 'Move CORE-4 to Done') === null);
   const items = (q: string) => findItems(findSections(st, q, now));
@@ -266,8 +300,8 @@ const mdata = await fetchData(mbl);
 
   const todo = data.states.find(x => x.teamId === target.teamId && x.type === 'unstarted' && x.id !== target.stateId)!;
   check('the cursor follows its issue into another group, even before it has moved', cursorRow(run(st, { type: 'patchIssue', issueId: target.id, patch: { stateId: todo.id } }))?.id === target.id);
-  check('the space menu has the list\'s own letters: s a p l m e w c o n', MENUS.actions.rows.map(r => r.key).join(' ') === 's a p l m e w c o n');
-  check('…and each of them works on the list without space', MENUS.actions.rows.every(r => lookup(['list', 'global'], r.key)?.command === r.command));
+  check('the space menu has the letters that work here: s a p l m e d b f r w c o n', MENUS.actions.rows.map(r => r.key).join(' ') === 's a p l m e d b f r w c o n');
+  check('…and each of them works on Today, a list and the issue page without space', ['today', 'list', 'detail'].every(c => MENUS.actions.rows.every(r => lookup([c as Context, 'global'], r.key)?.command === r.command)));
   check('the agent menu: h here, n new pane, p prompt, b branch', MENUS.agent.rows.map(r => `${r.key}:${r.command}`).join() === 'h:agentHere,n:agentPane,p:copyPrompt,b:copyBranch');
   const mc = { issue: target, data, handoff: undefined, env: {}, where: { cwd: '/x', note: null }, now };
   const pane = MENUS.agent.rows.find(r => r.key === 'n')!;
@@ -277,7 +311,7 @@ const mdata = await fetchData(mbl);
   const menu = run(st, { type: 'openOverlay', overlay: { kind: 'menu', path: ['actions'], issueId: target.id, cursor: 0 } }, { type: 'menuPush', menu: 'agent' });
   check('backspace steps out of a submenu, then closes the menu', menu.overlay.kind === 'menu' && run(menu, { type: 'menuBack' }).overlay.kind === 'menu' && run(menu, { type: 'menuBack' }, { type: 'menuBack' }).overlay.kind === 'none');
   check('paneCommand splits tmux beside this pane in the issue\'s directory', paneCommand(['claude', 'go'], { cwd: '/w', target: { kind: 'local', dbPath: '/d.db', source: 'flag' }, issueKey: 'CORE-1' }).join(' ') ===
-    'tmux split-window -h -c /w -e BASELINE_ISSUE=CORE-1 -e BASELINE_DB=/d.db -e BASELINE_URL= -e BASELINE_TOKEN= claude go');
+    'tmux split-window -h -P -F #{pane_id} -c /w -e BASELINE_ISSUE=CORE-1 -e BASELINE_DB=/d.db -e BASELINE_URL= -e BASELINE_TOKEN= claude go');
   const paneEnv = (target: Parameters<typeof paneCommand>[1]['target']) => paneCommand(['a'], { cwd: '/w', target, issueKey: 'K-1' }).filter((_, i, a) => a[i - 1] === '-e');
   check('a tmux pane gets the database even when BASELINE_DB chose it, since splits don\'t inherit this process\'s environment',
     paneEnv({ kind: 'local', dbPath: '/env.db', source: 'env' }).includes('BASELINE_DB=/env.db'));
@@ -291,7 +325,7 @@ const mdata = await fetchData(mbl);
   check('the undo stack keeps the newest 20', stacked.undo.length === 20 && stacked.undo[19].issueId === 'i24' && stacked.undo[0].issueId === 'i5');
   check('popping undo drops the newest', run(stacked, { type: 'popUndo' }).undo[18].issueId === 'i23');
   const help = helpSections().map(sec => sec.group);
-  check('help is grouped by task', help.join() === 'Move around,Change an issue,Agents and copying,Find and views');
+  check('help is grouped by task', help.join() === 'Move around,Decide,Change an issue,Agents and copying,Find and views');
   check('help lists each submenu\'s letters under its key', helpSections().some(sec => sec.rows.some(r => r.key === 'w h')));
 }
 
@@ -341,30 +375,29 @@ class FakeStdin extends EventEmitter {
   const settle = (ms = 250) => new Promise(r => setTimeout(r, ms));
 
   const copied: string[] = [];
-  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, clipboard: (t: string) => { copied.push(t); return true; } }), {
+  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, route: TEAM, animate: false, tmux: false, clipboard: (t: string) => { copied.push(t); return true; } }), {
     stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream,
     debug: true, exitOnCtrlC: false, patchConsole: false,
   });
   const fresh = await connect({ db: dbPath });
 
-  const mine = issuesForRoute({ kind: 'my' }, data);
-  const openKeys = mine.filter(i => !CLOSED_TYPES.has(typeOf(i))).map(i => data.keyOf(i));
-  await waitFor('My work', f => f.includes('1 My work') && f.includes(openKeys[0]));
+  const teamName = data.teams[0]!.name;
+  const firstKeys = selectableIds(TEAM, data, DEFAULT_VIEW, now).slice(0, 5).map(id => data.issueById.get(id)).filter((i): i is Issue => !!i).map(i => data.keyOf(i));
+  await waitFor('the team list', f => f.includes(`2 ${teamName}`) && f.includes(firstKeys[0]!));
   const frame = stdout.last;
-  check('My work renders every open issue assigned to me', openKeys.every(k => frame.includes(k)), openKeys.filter(k => !frame.includes(k)).join(', '));
+  check('a team list renders its issues', firstKeys.every(k => frame.includes(k)), firstKeys.filter(k => !frame.includes(k)).join(', '));
   check('group headers render with counts', /In Progress\s+\d+/.test(frame) && /Todo\s+\d+/.test(frame));
-  check('the tab bar numbers My work, Inbox, each team and Projects', new RegExp(`1 My work \\d+\\s+2 Inbox.*3 ${data.teams[0].name}\\s+4 ${data.teams[1].name}\\s+5 Projects`).test(frame), frame.split('\n')[0]);
-  check('the footer is one line: ↑↓ move, enter open, 1-5 tabs, / find, space all actions, ? help', /↑↓ move\s+enter open\s+1-5 tabs\s+\/ find\s+space all actions\s+\? help/.test(frame), frame.split('\n').slice(-2).join('\n'));
+  check('the tab bar numbers Today, then each team; no Inbox or Projects tab', new RegExp(`1 Today( \\d+)?\\s+2 ${teamName}\\s+3 ${data.teams[1]!.name}`).test(frame) && !/Inbox|Projects|My work/.test(frame.split('\n')[0]!), frame.split('\n')[0]);
+  check('the footer is one line: ↑↓ move, enter open, esc back, 1-3 places, / find, space actions, ? help', /↑↓ move\s+enter open\s+esc back\s+1-3 places\s+\/ find\s+space actions\s+\? help/.test(frame), frame.split('\n').slice(-2).join('\n'));
   check('the detail pane shows the issue under the cursor with a key on each field', /│ s Status/.test(frame) && /│ a Assignee/.test(frame) && /│ p Priority/.test(frame) && /│ l Labels/.test(frame) && /│ w Work on it with an agent\s+c copy/.test(frame));
 
-  const inbox = inboxItems(data, now);
-  stdin.press('2');
-  await waitFor('Inbox', f => f.includes(inbox[0].subject.slice(0, 20)) && f.includes(`${inbox[0].who} ${inbox[0].verb}`));
-  check('2 goes to the Inbox, and the pane shows the selected notification and its issue', stdout.last.includes(inbox[0].subject.slice(0, 20)) && /│ s Status/.test(stdout.last));
   stdin.press('1');
-  await waitFor('My work again', f => f.includes(openKeys[0]) && /◐ In Progress/.test(f));
+  await waitFor('Today', f => /Needs you\s+\d+/.test(f) && /In flight\s+\d+/.test(f) && /Up next\s+\d+/.test(f));
+  check('1 goes to Today: Needs you, In flight, Up next', /Needs you/.test(stdout.last));
+  stdin.press('2');
+  await waitFor('the team again', f => f.includes(firstKeys[0]!) && /◐ In Progress/.test(f));
 
-  const target = data.issueById.get(selectableIds({ kind: 'my' }, data, DEFAULT_VIEW, now)[0])!;
+  const target = data.issueById.get(selectableIds(TEAM, data, DEFAULT_VIEW, now)[0])!;
   const key = data.keyOf(target);
   const states = pickerOptions('state', target, data);
   const third = states[2];
@@ -398,7 +431,7 @@ class FakeStdin extends EventEmitter {
   await waitFor('refreshed', f => new RegExp(`│ s Status\\s+\\S+ ${other.label}`).test(f));
 
   stdin.press(' ');
-  await waitFor('space menu', f => f.includes('space › _') && f.includes('waiting for the next key: s a p l m e w c o n'));
+  await waitFor('space menu', f => f.includes('space › _') && f.includes('waiting for the next key: s a p l m e d b f r w c o n'));
   check('space opens the action menu: the issue on top and a letter per row', stdout.last.includes(`${key}  ${target.title}`) && /│ s  Status\s/.test(stdout.last) && /│ w  Work on it with an agent/.test(stdout.last));
   stdin.press('s');
   await waitFor('status picker from the menu', f => f.includes(`Status for ${key}`));
@@ -430,7 +463,7 @@ class FakeStdin extends EventEmitter {
   await waitFor('created from find', f => f.includes('Created') && f.includes('Foo from find'));
   check('/ new Foo creates the issue', (await fresh.listIssues({ query: 'Foo from find' })).length === 1);
 
-  const opened = mine.find(i => i.id !== target.id && !CLOSED_TYPES.has(typeOf(i)))!;
+  const opened = issuesForRoute(TEAM, data).find(i => i.id !== target.id && !CLOSED_TYPES.has(typeOf(i)))!;
   stdin.press('/');
   await waitFor('find for a key', f => f.includes('try typing'));
   stdin.press(data.keyOf(opened));
@@ -448,7 +481,7 @@ class FakeStdin extends EventEmitter {
   check('m → a comment is saved on the open issue, and offers no undo', (await fresh.snapshot(['comments'])).comments.some(c => c.issueId === opened.id && c.body === 'Reviewed from the terminal') && !stdout.last.includes('u undo'));
 
   stdin.press('\x1b');
-  await waitFor('back to the list', f => f.includes('1 My work') && !f.includes('── Description'));
+  await waitFor('back to the list', f => f.includes(`2 ${teamName}`) && !f.includes('── Description'));
   stdin.press('n');
   await waitFor('new issue form', f => f.includes('New issue'));
   stdin.press('Filed from the TUI test');
@@ -456,9 +489,9 @@ class FakeStdin extends EventEmitter {
   stdin.press('\r');
   await waitFor('created toast', f => f.includes('Created') && f.includes('Filed from the TUI test'));
   const created = (await fresh.listIssues({ query: 'Filed from the TUI test' }))[0];
-  check('n → enter creates the issue, assigned to me from My work', !!created && created.assigneeId === data.currentUser.id);
+  check('n → enter creates the issue in the team in view', !!created && created.teamId === TEAM.teamId);
 
-  const liveIds = selectableIds({ kind: 'my' }, await fetchData(fresh), DEFAULT_VIEW, now);
+  const liveIds = selectableIds(TEAM, await fetchData(fresh), DEFAULT_VIEW, now);
   const secondTitle = (await fresh.getIssue(liveIds[1]))!.title;
   stdin.press(`${'k'.repeat(20)}j\r`);
   await waitFor('burst opens the second issue', f => f.includes('── Description') && f.includes(secondTitle));
@@ -467,7 +500,7 @@ class FakeStdin extends EventEmitter {
   await waitFor('list once more', f => !f.includes('── Description'));
 
   const live = await fetchData(fresh);
-  const pick = live.issueById.get(selectableIds({ kind: 'my' }, live, DEFAULT_VIEW, now)[0])!;
+  const pick = live.issueById.get(selectableIds(TEAM, live, DEFAULT_VIEW, now)[0])!;
   stdin.press(`${'k'.repeat(20)}p`);
   await waitFor('priority picker', f => f.includes('Priority for'));
   stdin.press('4');
@@ -495,19 +528,23 @@ class FakeStdin extends EventEmitter {
   await waitFor('help closed', f => !f.includes('Agents and copying'));
 
   stdin.press('q');
+  await waitFor('Today after q', f => /Needs you/.test(f));
+  check('q on a team goes back to Today', /Needs you/.test(stdout.last));
+  stdin.press('q');
   const exited = await Promise.race([app.waitUntilExit().then(() => true), new Promise(r => setTimeout(() => r(false), 3000))]);
-  check('q on a tab exits', exited === true);
+  check('q on Today exits', exited === true);
 }
 
 {
   const stdout = new FakeStdout();
   stdout.columns = 80;
   stdout.rows = 24;
-  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000 }), {
+  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, animate: false }), {
     stdout: stdout as unknown as NodeJS.WriteStream, stdin: new FakeStdin() as unknown as NodeJS.ReadStream, debug: true, exitOnCtrlC: false, patchConsole: false,
   });
   const until = async (ok: () => boolean, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end && !ok()) await new Promise(r => setTimeout(r, 25)); return ok(); };
-  await until(() => stdout.last.includes('1 My work') && /◐ In Progress/.test(stdout.last));
+  await until(() => stdout.last.includes('1 Today') && /Up next/.test(stdout.last));
+  check('at 80 columns no Today line is wider than the terminal', stdout.last.split('\n').every(l => displayWidth(l) <= 80));
   check('below 100 columns there is no detail pane, the list takes the width', !stdout.last.includes('s Status') && !stdout.last.includes(' │ '), stdout.last);
   app.unmount();
 }
@@ -518,7 +555,7 @@ class FakeStdin extends EventEmitter {
   stdout.rows = 30;
   // Ink follows resizes only on a terminal, and draws the frame it already has before React re-renders
   stdout.isTTY = true;
-  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000 }), {
+  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, route: TEAM }), {
     stdout: stdout as unknown as NodeJS.WriteStream, stdin: new FakeStdin() as unknown as NodeJS.ReadStream, exitOnCtrlC: false, patchConsole: false,
   });
   const until = async (ok: () => boolean, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end && !ok()) await new Promise(r => setTimeout(r, 25)); return ok(); };
@@ -544,7 +581,9 @@ class FakeStdin extends EventEmitter {
   });
   const end = Date.now() + 4000;
   while (Date.now() < end && !stdout.last.includes('Baseline, in your terminal')) await new Promise(r => setTimeout(r, 25));
-  check('…which shows the five keys and enter start', stdout.last.includes('Baseline, in your terminal') && stdout.last.includes('everything you can do with it') && /enter start/.test(stdout.last));
+  const card = stdout.last;
+  check('…which states the five rules: 1-9 a place, enter, esc, space, /; and enter start', card.includes('Baseline, in your terminal') && /1-3\s+a place: 1 is Today/.test(card) && /enter\s+go into the thing under the cursor/.test(card) &&
+    /esc\s+back one level; Today is never more than two presses away/.test(card) && /space\s+every action here/.test(card) && /\/\s+everything without a tab/.test(card) && card.includes('After a decision you land on the next thing that needs you') && /enter start/.test(card), card);
   app.unmount();
   check('the second start does not show it again', (await prepareStart(bl1, { fresh: true }, work)).start?.intro !== true);
   if (prev === undefined) delete process.env.BASELINE_TUI_STATE_DIR; else process.env.BASELINE_TUI_STATE_DIR = prev;
@@ -575,24 +614,24 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
   const read = (): SessionFile | null => (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as SessionFile : null);
   const until = async (ok: () => boolean, ms = 4000) => { const end = Date.now() + ms; while (Date.now() < end && !ok()) await new Promise(r => setTimeout(r, 25)); return ok(); };
 
-  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, onContext: writer.update }), {
+  const app = render(createElement(App, { bl: await connect({ db: dbPath }), pollMs: 60_000, route: TEAM, onContext: writer.update }), {
     stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream, debug: true, exitOnCtrlC: false, patchConsole: false,
   });
-  await until(() => stdout.last.includes('My work'));
+  await until(() => stdout.last.includes(`2 ${data.teams[0]!.name}`));
   stdin.press('jj');
   const live = await fetchData(await connect({ db: dbPath }));
-  const ids = selectableIds({ kind: 'my' }, live, DEFAULT_VIEW, Date.now());
+  const ids = selectableIds(TEAM, live, DEFAULT_VIEW, Date.now());
   const third = live.issueById.get(ids[2])!;
   const thirdKey = live.keyOf(third);
   await until(() => read()?.list?.cursorKey === thirdKey);
   const file = read();
-  check('moving the cursor writes the state file: route, list rows and the cursor key', file?.version === 1 && file.route.kind === 'my' && file.list?.cursorKey === thirdKey && file.list.rows.length > 2 && file.pid === process.pid, JSON.stringify(file?.list?.cursorKey));
+  check('moving the cursor writes the state file: route, list rows and the cursor key', file?.version === 1 && file.route.kind === 'team' && file.list?.cursorKey === thirdKey && file.list.rows.length > 2 && file.pid === process.pid, JSON.stringify(file?.list?.cursorKey));
 
   const ctx = cli(['context', '--db', dbPath]);
   const marked = ctx.stdout.split('\n').filter(l => l.includes('← cursor'));
   const position = (file?.list?.rows ?? []).findIndex(r => r.key === thirdKey) + 1;
   check('`baseline context` marks the cursor on the right row of the list', ctx.status === 0 && marked.length === 1 && marked[0].startsWith(`${position}. ${thirdKey} `), ctx.stdout + ctx.stderr);
-  check('`baseline context` says what is showing and that the TUI is open', ctx.stdout.includes('- Showing: My work') && ctx.stdout.includes(`pid ${process.pid}, open,`), ctx.stdout.split('\n')[0]);
+  check('`baseline context` says what is showing and that the TUI is open', ctx.stdout.includes(`- Showing: ${data.teams[0]!.name}`) && ctx.stdout.includes(`pid ${process.pid}, open,`), ctx.stdout.split('\n')[0]);
   const json = cli(['context', '--json', '--db', dbPath]);
   check('`baseline context --json` prints the file', json.status === 0 && JSON.parse(json.stdout).list.cursorKey === thirdKey && JSON.parse(json.stdout).open === true);
 
@@ -604,7 +643,7 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
 
   const bl2 = await connect({ db: dbPath });
   const start = await prepareStart(bl2, {}, workspace);
-  check('the next start reopens the same issue, grouping and list', start.route?.kind === 'issue' && start.route.issueId === third.id && start.stack?.[0]?.kind === 'my' && start.start?.groupBy === 'status');
+  check('the next start reopens the same issue, grouping and list', start.route?.kind === 'issue' && start.route.issueId === third.id && start.stack?.[0]?.kind === 'team' && start.start?.groupBy === 'status');
   check('--fresh skips the restore', Object.keys(await prepareStart(bl2, { fresh: true }, workspace)).length === 0);
   const out2 = new FakeStdout();
   const app2 = render(createElement(App, { bl: bl2, pollMs: 60_000, ...start }), {
@@ -705,6 +744,134 @@ const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
   check('G reaches the end of the issue: the last line shows, the marker says end', await until(() => stdout.last.includes('Line 200') && marker().endsWith('end')), `${marker()}\n${frameBody()}`);
   stdin.press('g');
   check('g goes back to its top', await until(() => marker() === 'more ↓'), marker());
+  app.unmount();
+}
+
+{
+  // the morning end to end: review CORE-4 and file a follow-up, answer the blocked agent, reply to Ada, start from Up next
+  const stdout = new FakeStdout();
+  stdout.rows = 40;
+  const stdin = new FakeStdin();
+  const waitFor = async (what: string, ok: (frame: string) => boolean, ms = 6000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { if (ok(stdout.last)) return true; await new Promise(r => setTimeout(r, 25)); }
+    check(`(timed out waiting for ${what})`, false, stdout.last);
+    return false;
+  };
+  const checkouts: string[] = [];
+  const copied: string[] = [];
+  const repo = () => ({ team: null, checkout: async (branch: string) => { checkouts.push(branch); return { status: 'manual' as const, branch, command: `git checkout -b ${branch}`, note: 'a test repo' }; } });
+  const app = render(createElement(App, { bl: await connect({ db: morningPath }), pollMs: 60_000, animate: false, tmux: false, repo, clipboard: (t: string) => { copied.push(t); return true; } }), {
+    stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream, debug: true, exitOnCtrlC: false, patchConsole: false,
+  });
+  const key = (id: string) => mdata.keyOf(mdata.issueById.get(id)!);
+  const snapNow = async () => fetchData(mbl);
+  await waitFor('Today', f => f.includes('Needs you') && f.includes(key(morning.review)));
+  const f0 = stdout.last;
+  const once = (re: RegExp) => f0.split('\n').filter(l => re.test(l)).length === 1;
+  check('Today lists each thing that needs me once: ✓ review, ✕ blocked, @ mention', once(new RegExp(`✓ ${key(morning.review)}\\s.*review`)) && once(new RegExp(`✕ ${key(morning.blocked)}\\s.*blocked`)) && once(new RegExp(`@ ${key(morning.mention)}\\s.*Ada`)), f0);
+  check('In flight shows the agent at work with did and left', new RegExp(`${key(morning.working)}\\s.*agent`).test(f0) && f0.includes('did list --json · left search flags'));
+  check('Up next shows the next issues with their reasons', /Up next\s+\d/.test(f0) && /Todo|due|blocks|in this cycle/.test(f0.split('Up next')[1] ?? ''));
+  check('the tab says how many things need me', /1 Today \d/.test(f0.split('\n')[0]!));
+
+  const needs = issueNeeds(mdata, now);
+  const idx = needs.findIndex(r => r.issue.id === morning.review);
+  stdin.press('j'.repeat(idx));
+  await waitFor('cursor on the review', f => /│ enter review\s+d Done\s+b Send back/.test(f));
+  check('the pane beside a review row shows the agent\'s summary, PR and what it noticed, and d/b/enter', /│ summary\s+Weighted prefix/.test(stdout.last) && /│ pr\s+#41 · open · checks ✓ · 3 commits/.test(stdout.last) && /│ noticed\s+2 follow-up drafts/.test(stdout.last));
+  stdin.press('\r');
+  await waitFor('review page', f => f.includes('What the agent did'));
+  check('enter opens the issue page at what the agent did, with "n of N needs you"', stdout.last.includes(`${idx + 1} of ${needs.length} needs you`) && stdout.last.includes('#41 Cmd+K scoring · open · checks ✓ · 3 commits') && stdout.last.includes('It also noticed'));
+
+  stdin.press('f');
+  await waitFor('follow-ups sheet', f => f.includes(`File follow-ups from ${key(morning.review)}`) && f.includes('enter files 1 follow-up'));
+  stdin.press('\r');
+  await waitFor('done toast', f => f.includes(`${key(morning.review)} Done · 1 follow-up filed as`) && f.includes('u undo'));
+  let live = await snapNow();
+  check('f enter files the ticked follow-up from its draft and moves the issue to Done', live.stateById.get(live.issueById.get(morning.review)!.stateId)?.type === 'completed' &&
+    live.drafts.filter(d => d.fromIssueId === morning.review).length === 1 && live.issues.some(i => i.title === followupsOf(mdata, morning.review)[0]!.title));
+  check('…and it left Needs you', !issueNeeds(live, Date.now()).some(r => r.issue.id === morning.review));
+
+  // auto-advance: the item now in the reviewed one's place opens without a key
+  const after = needs.filter(r => r.issue.id !== morning.review);
+  const plan = [after[Math.min(idx, after.length - 1)]!];
+  check(`after Done the next thing that needs me opens by itself (${key(plan[0]!.issue.id)})`, await waitFor('next item', f => new RegExp(`› ${key(plan[0]!.issue.id)}`).test(f.split('\n')[0]!) && /needs you/.test(f.split('\n')[0]!)));
+  for (let step = 0; step < 2; step++) {
+    const r = issueNeeds(await snapNow(), Date.now());
+    const id = (stdout.last.split('\n')[0]!.match(/› (\S+)/)?.[1]) ?? '';
+    const row = r.find(x => key(x.issue.id) === id);
+    if (!row) break;
+    if (row.kind === 'blocked') {
+      check('the blocked agent\'s page says what it asked', stdout.last.includes('The agent is blocked') && stdout.last.includes('SQLITE_BUSY'));
+      stdin.press('b');
+      await waitFor('answer sheet', f => f.includes(`Answer and rerun ${id}`));
+      stdin.press('Single writer queue. Keep retries out of the store layer.');
+      await waitFor('typed answer', f => f.includes('Single writer queue.'));
+      stdin.press('\t');
+      await new Promise(res => setTimeout(res, 60));
+      stdin.press('\r');
+      await waitFor('answered', f => f.includes(`Answered ${id} in a comment`));
+      live = await snapNow();
+      check('b, type, tab to "only post the comment", enter: the answer is a comment and the item leaves Needs you', live.comments.some(c => c.issueId === row.issue.id && c.body === 'Single writer queue. Keep retries out of the store layer.') &&
+        !issueNeeds(live, Date.now()).some(x => x.issue.id === row.issue.id));
+    } else if (row.kind === 'mention') {
+      await waitFor('reply sheet', f => f.includes(`Reply to Ada on ${id}`));
+      check('a mention opens at Ada\'s comment with the reply sheet open', stdout.last.includes('mentions you') && stdout.last.includes('should the theme persist'), stdout.last);
+      stdin.press('Per account, with the device setting as a fallback.');
+      await waitFor('typed reply', f => f.includes('Per account, with the device'));
+      stdin.press('\r');
+      await waitFor('replied', f => f.includes(`Replied on ${id} to Ada`));
+      live = await snapNow();
+      check('the reply is threaded under Ada\'s comment', live.comments.some(c => c.issueId === row.issue.id && c.parentId === morning.mentionCommentId && c.body.startsWith('Per account')));
+    }
+    await waitFor('moved on', f => !f.split('\n')[0]!.includes(`› ${id}`));
+  }
+  await waitFor('Today again', f => f.includes('Needs you') && f.includes('Up next'));
+  check('with nothing left that needs me, I land back on Today', /Needs you/.test(stdout.last) && !/needs you/.test(stdout.last.split('\n')[0]!) && !new RegExp(`@ ${key(morning.mention)}\\s`).test(stdout.last));
+
+  live = await snapNow();
+  const rows = todayRows(todayModel(live, Date.now()), false);
+  const nextAt = rows.findIndex(r => r.kind === 'next');
+  const next = rows[nextAt]!;
+  const nextKey = live.keyOf((next as { row: { issue: Issue } }).row.issue);
+  stdin.press('g');
+  if (nextAt) stdin.press('j'.repeat(nextAt));
+  await waitFor('cursor on Up next', f => new RegExp(`▌ \\S ${nextKey}\\s`).test(f));
+  stdin.press('\r');
+  await waitFor('start sheet', f => f.includes(`Start ${nextKey}`) && /→ In Progress, yours/.test(f));
+  check('the start sheet shows the branch and Todo → In Progress; without tmux, a pane needs tmux and here is the default', /branch\s+\S+/.test(stdout.last) && /needs tmux/.test(stdout.last) && /2 .*here.*default/.test(stdout.last));
+  stdin.press('4');
+  await waitFor('started', f => f.includes(`Started ${nextKey}`));
+  live = await snapNow();
+  const startedIssue = live.issues.find(i => live.keyOf(i) === nextKey)!;
+  check('4 starts it the way baseline work does: In Progress, mine, its branch checked out', live.stateById.get(startedIssue.stateId)?.type === 'started' && startedIssue.assigneeId === live.currentUser.id && checkouts.length === 1);
+
+  stdin.press('/');
+  await waitFor('find', f => f.includes('try typing'));
+  stdin.press('standup');
+  await waitFor('standup offer', f => f.includes('Standup: what you did since yesterday'));
+  stdin.press('\r');
+  await waitFor('standup sheet', f => /Since \d{4}-/.test(f));
+  stdin.press('c');
+  await waitFor('copied', f => f.includes('Copied the standup'));
+  check('/ standup shows what baseline standup prints, and c copies it', copied.some(t => t.startsWith('Since ') && t.includes(key(morning.review))));
+  stdin.press('\x1b');
+  await waitFor('sheet closed', f => !/Since \d{4}-/.test(f));
+
+  stdin.press('/');
+  await waitFor('find again', f => f.includes('try typing'));
+  stdin.press('notifications');
+  await waitFor('notifications offer', f => f.includes('All notifications'));
+  stdin.press('\r');
+  await waitFor('notifications sheet', f => /╭─ All notifications/.test(f));
+  const sheet = stdout.last.split('\n').filter(l => l.includes('│') && l.includes(`${key(morning.review)} `));
+  check('/ notifications lists one row per issue', sheet.length === 1, sheet.join('\n'));
+  stdin.press('\x1b');
+  await waitFor('sheet closed again', f => !/╭─ All notifications/.test(f));
+  stdin.press('2');
+  await waitFor('team', f => /2 Core/.test(f) && /In Progress\s+\d/.test(f));
+  stdin.press('\x1b');
+  check('esc from a team list is Today', await waitFor('today from team', f => /Needs you/.test(f)));
   app.unmount();
 }
 

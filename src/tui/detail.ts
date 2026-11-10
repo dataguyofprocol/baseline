@@ -6,6 +6,7 @@ import { activityText, displayWidth, dueLabel, highlight, markdownLines, padEnd,
 import { filteredOptions } from './overlays.js';
 import type { Overlay } from './state.js';
 import { keySeg, priorityMark, STATE_ICON, theme } from './theme.js';
+import { commitCount, followupsOf, myThread, prOf, threadAsk, type FlightRow, type NeedRow, type NextRow } from './today.js';
 
 const none: Seg = { text: '—', color: theme.muted };
 
@@ -147,9 +148,7 @@ export function paneLines(issue: Issue, data: TuiData, width: number, height: nu
 }
 
 function threadLines(t: WorkThread, data: TuiData, width: number, now: number): Line[] {
-  const agent = data.userById.get(t.agentId)?.name ?? 'Agent';
-  const person = t.personId !== t.agentId ? data.userById.get(t.personId)?.name : undefined;
-  const who = person ? `${agent} via ${person}` : agent;
+  const who = threadWho(t, data);
   const active = t.state.status === 'active';
   const status: Seg = active
     ? { text: '● working', color: theme.ok }
@@ -167,10 +166,71 @@ function threadLines(t: WorkThread, data: TuiData, width: number, now: number): 
   return lines;
 }
 
+/** who did the agent's work: "Claude Code via Parth" */
+export function threadWho(t: WorkThread, data: TuiData): string {
+  const agent = data.userById.get(t.agentId)?.name ?? 'Agent';
+  const person = t.personId !== t.agentId ? data.userById.get(t.personId)?.name.split(/\s+/)[0] : undefined;
+  return person ? `${agent} via ${person}` : agent;
+}
+
+const CHECKS: Record<string, Seg> = { success: { text: '✓', color: theme.ok }, failure: { text: '✕', color: theme.error }, pending: { text: '…', color: theme.warn } };
+
+/** the PR as one line: "#41 Cmd+K scoring · open · checks ✓ · 3 commits" */
+export function prSegs(issueId: string, data: TuiData, withTitle = true): Seg[] {
+  const pr = prOf(data, issueId);
+  if (!pr) return [];
+  const commits = commitCount(data, issueId);
+  const title = pr.title.replace(/^[A-Za-z][A-Za-z0-9]*-\d+\s+/, '');
+  return [{ text: `#${pr.number}${withTitle ? ` ${title}` : ''}`, color: theme.accent }, { text: ` · ${pr.state}` },
+    ...(pr.checks ? [{ text: ' · checks ' }, CHECKS[pr.checks]!] : []), ...(commits ? [{ text: ` · ${commits} commit${commits === 1 ? '' : 's'}` }] : [])];
+}
+
+const fieldRow = (label: string, width: number, color?: string) => (text: string | null): Line[] =>
+  text ? markdownLines(text, width - 12).map((l, i) => [{ text: i ? ' '.repeat(12) : `  ${padEnd(label, 10)}`, color: theme.muted }, ...(color ? l.map(x => ({ ...x, color })) : l)]) : [];
+
+/** the top of the issue page when an agent finished it for you or got stuck: what it did, its PR and what it noticed */
+function agentSection(issue: Issue, data: TuiData, t: WorkThread, ask: 'review' | 'blocked', width: number, now: number): Line[] {
+  const meta = `${threadWho(t, data)} · ${ask === 'blocked' ? 'asked' : 'finished'} ${relTime(t.state.status === 'finished' ? t.state.finishedAt : t.updatedAt, now, { ago: true })} · ${t.branch}`;
+  const out: Line[] = [...section(ask === 'blocked' ? 'The agent is blocked' : 'What the agent did', width), [{ text: truncate(meta, width), color: theme.muted }]];
+  if (ask === 'blocked') out.push(...fieldRow('blocked', width, theme.error)(t.progress.blocked ?? (t.state.status === 'finished' ? t.state.summary : null)));
+  else if (t.state.status === 'finished') out.push(...fieldRow('summary', width)(t.state.summary));
+  out.push(...fieldRow('did', width)(t.progress.did), ...fieldRow('left', width)(t.progress.left));
+  const pr = prSegs(issue.id, data);
+  if (pr.length) out.push([{ text: `  ${padEnd('pr', 10)}`, color: theme.muted }, ...pr]);
+  const drafts = followupsOf(data, issue.id);
+  if (drafts.length) {
+    out.push(...section('It also noticed', width, undefined, [{ text: `${drafts.length} follow-up draft${drafts.length === 1 ? '' : 's'}, not filed yet`, color: theme.muted }]));
+    drafts.forEach((d, i) => out.push([{ text: `  ${i + 1}  `, color: theme.muted }, { text: truncate(d.title, width - 5) }]));
+  }
+  return out;
+}
+
+/** the decision keys under an agent's work */
+export function reviewKeys(ask: 'review' | 'blocked', drafts: number): Line {
+  const k = (key: string, label: string): Seg[] => [keySeg(key), { text: ` ${label}   ` }];
+  return ask === 'blocked'
+    ? [...k('b', 'Answer and rerun'), ...k('d', 'Done'), ...k('w', 'Agent again'), ...k('m', 'Comment')]
+    : [...k('d', 'Done'), ...k('b', 'Send back'), ...(drafts ? k('f', 'File follow-ups') : []), ...k('w', 'Agent again'), ...k('o', 'PR'), ...k('m', 'Comment')];
+}
+
+/** the issue page as lines, and where each comment starts (so a mention opens scrolled to it) */
+export interface DetailLayout { lines: Line[]; anchors: Record<string, number> }
+
 export function detailLines(issue: Issue, data: TuiData, threads: readonly WorkThread[], width: number, now: number, ui: IssueUi = {}): Line[] {
+  return detailLayout(issue, data, threads, width, now, ui).lines;
+}
+
+export function detailLayout(issue: Issue, data: TuiData, threads: readonly WorkThread[], width: number, now: number, ui: IssueUi & { focusComment?: string } = {}): DetailLayout {
   const w = Math.max(20, width);
-  const lines: Line[] = [...headLines(issue, data, w, ui, 99), [], ...fieldBlock(issue, data, now, ui, moreRows(issue, data))];
-  lines.push([], [keySeg('m'), { text: ' comment   ' }, keySeg('e'), { text: ' edit   ' }, ...AGENT_LINE, { text: '   ' }, keySeg('o'), { text: ' browser' }]);
+  const anchors: Record<string, number> = {};
+  const lines: Line[] = [...headLines(issue, data, w, ui, 99)];
+  const state = data.stateById.get(issue.stateId)?.type;
+  const closed = state === 'completed' || state === 'canceled';
+  const mine = myThread({ ...data, threads: new Map([[issue.id, [...threads]]]) }, issue.id);
+  const ask = closed ? null : threadAsk(mine);
+  if (mine && ask) lines.push(...agentSection(issue, data, mine, ask, w, now));
+  lines.push([], ...fieldBlock(issue, data, now, ui, moreRows(issue, data)));
+  lines.push([], ask ? reviewKeys(ask, followupsOf(data, issue.id).length) : [keySeg('m'), { text: ' comment   ' }, keySeg('e'), { text: ' edit   ' }, ...AGENT_LINE, { text: '   ' }, keySeg('o'), { text: ' browser' }]);
 
   lines.push(...section('Description', w));
   lines.push(...(issue.description.trim() ? markdownLines(issue.description, w) : [[{ text: 'No description. e then d writes one in your editor.', color: theme.muted, italic: true }]]));
@@ -189,9 +249,11 @@ export function detailLines(issue: Issue, data: TuiData, threads: readonly WorkT
     }
   }
 
-  if (threads.length) {
-    lines.push(...section('Agent work', w, threads.length));
-    threads.forEach((t, i) => { if (i) lines.push([]); lines.push(...threadLines(t, data, w, now)); });
+  // the agent's work shown at the top isn't repeated here
+  const others = threads.filter(t => !(ask && t.id === mine?.id));
+  if (others.length) {
+    lines.push(...section('Agent work', w, others.length));
+    others.forEach((t, i) => { if (i) lines.push([]); lines.push(...threadLines(t, data, w, now)); });
   }
 
   const comments = data.comments.filter(c => c.issueId === issue.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -204,10 +266,16 @@ export function detailLines(issue: Issue, data: TuiData, threads: readonly WorkT
       const author = data.userById.get(c.userId);
       const via = c.viaUserId ? data.userById.get(c.viaUserId)?.name : undefined;
       if (i || c !== root) lines.push([]);
-      lines.push([{ text: `${indent}${c === root ? '' : '↳ '}` }, { text: author?.name ?? 'Someone', bold: true, color: author?.color },
+      anchors[c.id] = lines.length;
+      const focus = ui.focusComment === c.id;
+      const head: Line = [{ text: `${indent}${c === root ? '' : '↳ '}` }, { text: author?.name ?? 'Someone', bold: true, color: author?.color },
         ...(via ? [{ text: ` via ${via}`, color: theme.muted }] : []),
-        { text: `  ${relTime(c.createdAt, now, { ago: true })}${c.editedAt ? ' (edited)' : ''}${c.resolvedAt ? ' · resolved' : ''}`, color: theme.muted }]);
-      lines.push(...markdownLines(c.body, w - indent.length - 2).map(l => [{ text: `${indent}  ` }, ...l]));
+        { text: `  ${relTime(c.createdAt, now, { ago: true })}${c.editedAt ? ' (edited)' : ''}${c.resolvedAt ? ' · resolved' : ''}`, color: theme.muted },
+        ...(focus ? [{ text: '   mentions you', color: theme.accent }] : [])];
+      const body = markdownLines(c.body, w - indent.length - 2).map((l): Line => [{ text: `${indent}  ` }, ...l]);
+      // the comment a mention opened at is lit, like a row under the cursor
+      const lit = (l: Line): Line => (focus ? l.map(x => ({ ...x, bg: x.bg ?? theme.selBg })) : l);
+      lines.push(lit(head), ...body.map(lit));
     }
   });
 
@@ -219,7 +287,69 @@ export function detailLines(issue: Issue, data: TuiData, threads: readonly WorkT
     }
   }
   lines.push([]);
-  return lines;
+  return { lines, anchors };
+}
+
+// ---------- Today's detail pane ----------
+
+const paneHead = (issue: Issue, data: TuiData, w: number): Line[] => {
+  const st = data.stateById.get(issue.stateId);
+  const team = data.teamById.get(issue.teamId);
+  return [
+    rightAlign([{ text: `${data.keyOf(issue)} · ${team?.name ?? ''}`, color: theme.muted }], st ? [{ text: `${STATE_ICON[st.type]} `, color: st.color }, { text: st.name, color: theme.muted }] : [], w),
+    ...wrap(issue.title, w, { bold: true }).slice(0, 2),
+    [],
+  ];
+};
+
+const keysLine = (...pairs: Array<[string, string]>): Line => pairs.flatMap(([k, l], i) => [...(i ? [{ text: '   ' }] : []), keySeg(k), { text: ` ${l}` }]);
+
+/** the agent's work in a few rows: who and how it stands, then summary, did, left, PR and what it noticed */
+function agentPaneRows(issue: Issue, data: TuiData, t: WorkThread, w: number, now: number): Line[] {
+  const ask = threadAsk(t);
+  const status: Seg = ask === 'blocked' ? { text: 'blocked', color: theme.error } : ask === 'review' ? { text: t.state.status === 'finished' && t.state.outcome === 'done' ? 'done' : 'ready for review', color: theme.ok }
+    : { text: '● working', color: theme.ok };
+  const out: Line[] = [[{ text: threadWho(t, data), color: theme.muted }, { text: ' · ' }, status, ...(ask ? [] : [{ text: ` · ${relTime(t.updatedAt, now)}`, color: theme.muted }])]];
+  const field = (label: string, text: string | null, color?: string) => {
+    if (!text) return;
+    wrap(text, w - 9).slice(0, 2).forEach((l, i) => out.push([{ text: i ? ' '.repeat(9) : padEnd(label, 9), color: theme.muted }, ...(color ? l.map(x => ({ ...x, color })) : l)]));
+  };
+  if (ask === 'blocked') field('blocked', t.progress.blocked ?? (t.state.status === 'finished' ? t.state.summary : null), theme.error);
+  else if (t.state.status === 'finished') field('summary', t.state.summary);
+  field('did', t.progress.did);
+  field('left', t.progress.left);
+  const pr = prSegs(issue.id, data, false);
+  if (pr.length) out.push([{ text: padEnd('pr', 9), color: theme.muted }, ...pr]);
+  const drafts = followupsOf(data, issue.id).length;
+  if (drafts) out.push([{ text: padEnd('noticed', 9), color: theme.muted }, { text: `${drafts} follow-up draft${drafts === 1 ? '' : 's'}` }]);
+  return out;
+}
+
+/** what the pane beside Today shows for the row under the cursor: the agent's work and the keys that decide it for
+ *  a review or a blocked agent, the comment for a mention, an agent at work for In flight; else the issue as on a list */
+export function todayPaneLines(row: { kind: 'need'; row: NeedRow } | { kind: 'flight'; row: FlightRow; pane: boolean } | { kind: 'next'; row: NextRow }, data: TuiData, width: number, height: number, now: number, ui: IssueUi = {}): Line[] {
+  const w = Math.max(12, width);
+  const issue = row.row.issue;
+  if (!issue) {
+    const r = row.row as NeedRow;
+    return [[{ text: r.text, bold: true }], [], [{ text: r.kind === 'triage' ? 'enter opens the team, In Review and Triage first' : 'enter for more', color: theme.muted }]];
+  }
+  if (row.kind === 'need' && row.row.thread && (row.row.kind === 'review' || row.row.kind === 'blocked')) {
+    const keys = row.row.kind === 'blocked' ? keysLine(['enter', 'open'], ['b', 'Answer and rerun']) : keysLine(['enter', 'review'], ['d', 'Done'], ['b', 'Send back']);
+    return [...paneHead(issue, data, w), ...agentPaneRows(issue, data, row.row.thread, w, now), [], keys].slice(0, height);
+  }
+  if (row.kind === 'need' && row.row.kind === 'mention') {
+    const c = row.row.commentId ? data.comments.find(x => x.id === row.row.commentId) : undefined;
+    const who = data.userById.get(c?.userId ?? row.row.actorId ?? '')?.name ?? 'Someone';
+    const body = c ? markdownLines(c.body, w - 2).slice(0, 4).map((l): Line => [{ text: '  ' }, ...l]) : [];
+    return [...paneHead(issue, data, w), [{ text: who, bold: true }, { text: ` mentioned you · ${relTime(c?.createdAt ?? row.row.at, now)}`, color: theme.muted }], ...body, [], keysLine(['enter', 'reply'], ['r', 'Done: mark read'])].slice(0, height);
+  }
+  if (row.kind === 'flight' && row.row.thread) {
+    return [...paneHead(issue, data, w), ...agentPaneRows(issue, data, row.row.thread, w, now), [], row.pane ? keysLine(['enter', 'go to its tmux pane'], ['m', 'comment']) : keysLine(['enter', 'open'], ['m', 'comment'])].slice(0, height);
+  }
+  const note: Line[] = row.kind === 'next' ? [[{ text: 'Up next', color: theme.muted }, { text: ` · ${row.row.reason}` }, { text: '   enter starts it', color: theme.muted }], []]
+    : row.kind === 'need' ? [[{ text: row.row.reason, color: theme.accent }, { text: ` · ${relTime(row.row.at, now)}`, color: theme.muted }], []] : [];
+  return [...note, ...paneLines(issue, data, w, height - note.length, now, ui)];
 }
 
 // ---------- the picker, drawn under its field ----------

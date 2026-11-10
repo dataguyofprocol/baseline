@@ -7,6 +7,7 @@ import { BINDINGS, directBinding, keyLabel, type CommandId, type Task } from './
 import { agentCommand, shellPreview } from './launch.js';
 import { tildePath, type Line, type Seg } from './model.js';
 import { theme } from './theme.js';
+import { followupsOf, issueNeeds, myThread, threadAsk } from './today.js';
 
 export type MenuId = 'actions' | 'edit' | 'agent' | 'copy';
 
@@ -60,10 +61,14 @@ export const MENUS: Record<MenuId, Menu> = {
       direct('setLabels', 0, field('labels')),
       direct('comment', 0),
       direct('editMenu', 0),
-      direct('agentMenu', 1),
-      direct('copyMenu', 1),
-      direct('openBrowser', 1),
-      direct('create', 2),
+      { ...direct('done', 1), value: c => dim(c.data.states.find(st => st.teamId === c.issue.teamId && st.type === 'completed')?.name ?? 'Done') },
+      { ...direct('sendBack', 1), label: c => (threadAsk(myThread(c.data, c.issue.id)) === 'blocked' ? 'Answer and rerun the agent' : 'Send back') },
+      { ...direct('followups', 1), enabled: c => (followupsOf(c.data, c.issue.id).length ? true : `The agent noted no follow-ups on ${c.data.keyOf(c.issue)}`), value: c => dim(`${followupsOf(c.data, c.issue.id).length} drafts`) },
+      { ...direct('markRead', 1), enabled: c => (issueNeeds(c.data, c.now).some(r => r.issue.id === c.issue.id) ? true : 'Nothing about it is waiting on you') },
+      direct('agentMenu', 2),
+      direct('copyMenu', 2),
+      direct('openBrowser', 2),
+      direct('create', 3),
     ],
   },
   edit: {
@@ -120,7 +125,7 @@ export function menuTrail(path: readonly MenuId[]): string[] {
 
 // ---------- the ? card ----------
 
-const HELP_ORDER: Task[] = ['Move around', 'Change an issue', 'Agents and copying', 'Find and views'];
+const HELP_ORDER: Task[] = ['Move around', 'Decide', 'Change an issue', 'Agents and copying', 'Find and views'];
 
 export interface HelpRow { key: string; label: string; sub?: boolean }
 
@@ -139,31 +144,29 @@ export function helpSections(env: NodeJS.ProcessEnv = process.env): Array<{ grou
     if (sub) for (const r of MENUS[sub].rows) rows.push({ key: `${key} ${r.key}`, label: typeof r.label === 'string' ? r.label : r.label({ env } as MenuCtx), sub: true });
   }
   sections.get('Find and views')!.push(
-    { key: '/ then', label: '"group by priority", "show active", "assign ada", "new <title>"', sub: true },
+    { key: '/ then', label: '"standup", "projects", "notifications", "assign ada", "new <title>"', sub: true },
   );
   return [...sections].map(([group, rows]) => ({ group, rows }));
 }
 
-/** the first-launch card: the five keys that are enough to start, and why trying things is safe */
+/** the first-launch card: the five rules every key follows, and why trying things is safe */
 export function introLines(data: TuiData, tabs: number, target: string, width: number): Line[] {
   const first = data.currentUser.name.split(/\s+/)[0];
-  const key = (c: CommandId, fallback: string) => directBinding(c) ? keyLabel(directBinding(c)!) : fallback;
   const row = (k: string, text: string): Line => [{ text: k, color: theme.key, bold: true }, { text: ' '.repeat(Math.max(2, 8 - k.length)) }, { text }];
   const end: Line = [{ text: 'enter', color: theme.key, bold: true }, { text: ' start' }];
   const endW = 11;
   return [
     [{ text: 'Baseline, in your terminal', bold: true }],
-    [{ text: `These are the issues assigned to you, ${first}.`, color: theme.muted }],
+    [{ text: `Today is what needs you, ${first}, what's in flight and what to start next, across your teams.`, color: theme.muted }],
     [],
-    row(key('down', '↑↓'), 'move between issues'),
-    row('enter', 'open one'),
-    row(key('actions', 'space'), 'everything you can do with it'),
-    row(`1-${Math.min(9, tabs)}`, 'switch tabs: My work, Inbox, teams, Projects'),
-    row(key('search', '/'), 'find any issue, or type what to do'),
-    row(key('help', '?'), 'this card again, plus every key'),
+    row(tabs > 1 ? `1-${Math.min(9, tabs)}` : '1', 'a place: 1 is Today, then your teams'),
+    row('enter', 'go into the thing under the cursor, or take its next step'),
+    row('esc', 'back one level; Today is never more than two presses away'),
+    row('space', 'every action here, each with its letter'),
+    row('/', 'everything without a tab: any issue, projects, notifications, standup'),
     [],
-    [{ text: 'Every change shows ' }, { text: 'u', color: theme.key, bold: true }, { text: ' undo, so trying things is safe.' }],
-    [{ text: 'Agents next to you can run ', color: theme.muted }, { text: 'baseline context' }, { text: ' to see what you see.', color: theme.muted }],
+    [{ text: 'After a decision you land on the next thing that needs you.' }],
+    [{ text: 'Every change shows ' }, { text: 'u', color: theme.key, bold: true }, { text: ' undo, so trying things is safe. ' }, { text: '?', color: theme.key, bold: true }, { text: ' shows every key.' }],
     [],
     [...end, { text: ' '.repeat(Math.max(2, width - endW - target.length)) }, { text: target, color: theme.muted }],
   ];

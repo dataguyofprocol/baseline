@@ -4,25 +4,42 @@ import type { FieldId } from './detail.js';
 import type { MenuId } from './menus.js';
 import type { WorkThread } from '../core/work-types.js';
 import { patchIssue, type TuiData } from './data.js';
+import { DONE_GROUP, issueNeeds, type NeedRow } from './today.js';
 import {
   defaultExpanded, isListRoute, isSelectable, listGroups, listRowsFor, rowIdFor, selectableIds,
   type GroupBy, type ListRow, type ListView, type Preset,
 } from './model.js';
-import type { TextField } from './textfield.js';
+import { emptyField, type TextField } from './textfield.js';
 
+/** Today, a team's list, a project's list (from /), and the issue page. An issue page opened from Needs you
+ *  (`needs`) counts "n of N" and moves on to the next item after a decision; `focusComment` is where it opens */
 export type Route =
-  | { kind: 'my' }
+  | { kind: 'today' }
   | { kind: 'team'; teamId: string }
-  | { kind: 'inbox' }
-  | { kind: 'projects' }
   | { kind: 'project'; projectId: string }
-  | { kind: 'issue'; issueId: string };
+  | { kind: 'issue'; issueId: string; needs?: boolean; focusComment?: string };
 
 export type PickerField = 'state' | 'priority' | 'assignee' | 'labels' | 'project';
 
 export interface IssueDraft { teamId: string; stateId: string; priority: Priority; assigneeId: string | null; projectId: string | null }
 export const DRAFT_FIELDS = ['title', 'team', 'state', 'priority', 'assignee', 'project'] as const;
 export type DraftField = typeof DRAFT_FIELDS[number];
+
+/** the start sheet's options, in the order they are numbered */
+export const START_CHOICES = ['pane', 'here', 'copy', 'none'] as const;
+export type StartChoice = typeof START_CHOICES[number];
+/** how an answer to a blocked agent runs it again */
+export const RERUN_CHOICES = ['pane', 'here', 'comment'] as const;
+
+/** what rises from the bottom: anything typed or confirmed, and the lists / opens */
+export type Sheet =
+  | { type: 'start'; issueId: string; cursor: number; branch: { name: string; exists: boolean } | null }
+  /** a note: a comment (m), a reply to a mention, a send-back, or an answer to a blocked agent (`rerun` indexes RERUN_CHOICES) */
+  | { type: 'note'; purpose: 'comment' | 'reply' | 'sendBack' | 'answer'; issueId: string; input: TextField; parentId: string | null; to: string | null; rerun: number }
+  | { type: 'followups'; issueId: string; ids: string[]; ticked: string[]; cursor: number }
+  | { type: 'standup'; text: string | null; error: string | null }
+  | { type: 'projects'; cursor: number }
+  | { type: 'notifications'; cursor: number };
 
 export type Overlay =
   | { kind: 'none' }
@@ -32,7 +49,8 @@ export type Overlay =
   /** `selected` is the labels picker's set */
   | { kind: 'picker'; field: PickerField; issueId: string; query: TextField; cursor: number; selected: string[] }
   | { kind: 'compose'; target: 'issue'; field: DraftField; input: TextField; draft: IssueDraft }
-  | { kind: 'compose'; target: 'comment' | 'title'; issueId: string; input: TextField }
+  | { kind: 'compose'; target: 'title'; issueId: string; input: TextField }
+  | { kind: 'sheet'; sheet: Sheet }
   /** the space menu; `path` is the submenus stepped into, `cursor` the row ↑↓ is on */
   | { kind: 'menu'; path: MenuId[]; issueId: string; cursor: number };
 
@@ -68,6 +86,8 @@ export interface TuiState {
   undo: UndoEntry[];
   /** the field that just changed, marked ✓ saved for a moment */
   saved: { issueId: string; field: FieldId; id: number } | null;
+  /** issue → the tmux pane this TUI started its agent in */
+  panes: Record<string, string>;
 }
 
 export const routeKey = (r: Route): string => {
@@ -79,13 +99,31 @@ export const routeKey = (r: Route): string => {
   }
 };
 
-export const isTopLevel = (r: Route) => r.kind === 'my' || r.kind === 'team' || r.kind === 'inbox' || r.kind === 'projects';
+export const TODAY: Route = { kind: 'today' };
+export const isTopLevel = (r: Route) => r.kind === 'today' || r.kind === 'team';
 
-export function initialState(route: Route = { kind: 'my' }, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null; intro?: boolean } = {}): TuiState {
+export function initialState(route: Route = TODAY, stack: Route[] = [], start: { groupBy?: GroupBy; preset?: Preset; cursorKey?: string | null; intro?: boolean; panes?: Record<string, string> } = {}): TuiState {
   return {
     data: null, route, stack, overlay: start.intro ? { kind: 'help', scroll: 0, intro: true } : { kind: 'none' }, cursor: {}, expanded: {}, groupBy: start.groupBy ?? 'status', preset: start.preset ?? 'all', restoreCursor: start.cursorKey ?? null,
-    toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {}, handoffs: {}, undo: [], saved: null,
+    toast: null, status: 'loading', error: null, syncedAt: null, syncing: false, threads: {}, handoffs: {}, undo: [], saved: null, panes: start.panes ?? {},
   };
+}
+
+/** whether Today's "Done this week" is open */
+export const doneOpen = (s: Pick<TuiState, 'expanded'>) => s.expanded[expandKey(TODAY, DONE_GROUP)] ?? false;
+
+/** the issue page a Needs you row opens: at what the agent did, or (a mention) at the comment with the reply sheet open */
+export function openNeed(s: TuiState, row: NeedRow & { issue: Issue }, stack: Route[]): TuiState {
+  const route: Route = { kind: 'issue', issueId: row.issue.id, needs: true, ...(row.kind === 'mention' && row.commentId ? { focusComment: row.commentId } : {}) };
+  const cursor = { ...s.cursor };
+  delete cursor[routeKey(route)];
+  const reply = row.kind === 'mention' && s.data;
+  const parent = reply && row.commentId ? s.data!.comments.find(c => c.id === row.commentId) : undefined;
+  const to = reply ? s.data!.userById.get(parent?.userId ?? row.actorId ?? '')?.name.split(/\s+/)[0] ?? null : null;
+  const overlay: Overlay = reply
+    ? { kind: 'sheet', sheet: { type: 'note', purpose: 'reply', issueId: row.issue.id, input: emptyField, parentId: parent ? parent.parentId ?? parent.id : null, to, rerun: 0 } }
+    : { kind: 'none' };
+  return { ...s, route, stack, overlay, cursor };
 }
 
 export type Action =
@@ -97,7 +135,8 @@ export type Action =
   | { type: 'back' }
   | { type: 'move'; delta: number; count: number }
   | { type: 'moveTo'; index: number }
-  | { type: 'scroll'; delta: number; max: number }
+  /** `from`: where the page is before its first scroll */
+  | { type: 'scroll'; delta: number; max: number; from?: number }
   | { type: 'toggleGroup'; groupId: string }
   | { type: 'setView'; groupBy?: GroupBy; preset?: Preset }
   | { type: 'select'; issueId: string }
@@ -120,6 +159,11 @@ export type Action =
   | { type: 'patchIssue'; issueId: string; patch: Partial<Issue> }
   | { type: 'markRead'; ids: string[] | 'all'; read: boolean }
   | { type: 'threads'; issueId: string; threads: WorkThread[] }
+  /** after a decision on Needs you item `index`: open the item now at that place, or go back to Today when none is left */
+  | { type: 'advance'; index: number; at: number }
+  | { type: 'openNeed'; issueId: string; at: number }
+  | { type: 'setSheet'; sheet: Sheet }
+  | { type: 'pane'; issueId: string; paneId: string }
   | { type: 'toast'; toast: Toast }
   | { type: 'clearToast'; id: number };
 
@@ -204,7 +248,8 @@ export function reducer(s: TuiState, a: Action): TuiState {
     case 'switchView':
       return { ...s, stack: [], route: a.route, overlay: { kind: 'none' } };
     case 'back': {
-      if (!s.stack.length) return s;
+      // a team or project list goes back to Today, so Today is never more than two presses away
+      if (!s.stack.length) return s.route.kind === 'team' || s.route.kind === 'project' ? { ...s, route: TODAY, overlay: { kind: 'none' } } : s;
       const stack = s.stack.slice(0, -1);
       return { ...s, route: s.stack[s.stack.length - 1], stack, overlay: { kind: 'none' } };
     }
@@ -215,7 +260,7 @@ export function reducer(s: TuiState, a: Action): TuiState {
     case 'moveTo': return { ...s, cursor: { ...s.cursor, [routeKey(s.route)]: Math.max(0, a.index) } };
     case 'scroll': {
       const k = routeKey(s.route);
-      return { ...s, cursor: { ...s.cursor, [k]: clamp((s.cursor[k] ?? 0) + a.delta, 0, Math.max(0, a.max)) } };
+      return { ...s, cursor: { ...s.cursor, [k]: clamp((s.cursor[k] ?? a.from ?? 0) + a.delta, 0, Math.max(0, a.max)) } };
     }
     case 'toggleGroup': return fold(s, a.groupId);
     case 'setView': return relist(s, { ...s, groupBy: a.groupBy ?? s.groupBy, preset: a.preset ?? s.preset });
@@ -226,12 +271,17 @@ export function reducer(s: TuiState, a: Action): TuiState {
       const o = s.overlay;
       if (o.kind === 'find' || o.kind === 'picker') return { ...s, overlay: { ...o, query: a.input, cursor: a.input.value === o.query.value ? o.cursor : 0 } };
       if (o.kind === 'compose') return { ...s, overlay: { ...o, input: a.input } };
+      if (o.kind === 'sheet' && o.sheet.type === 'note') return { ...s, overlay: { kind: 'sheet', sheet: { ...o.sheet, input: a.input } } };
       return s;
     }
     case 'overlayMove': {
       const o = s.overlay;
-      if (o.kind !== 'find' && o.kind !== 'picker' && o.kind !== 'menu') return s;
       const n = Math.max(1, a.count);
+      if (o.kind === 'sheet' && 'cursor' in o.sheet) {
+        const cur = o.sheet.cursor;
+        return { ...s, overlay: { kind: 'sheet', sheet: { ...o.sheet, cursor: a.clamp ? clamp(cur + a.delta, 0, n - 1) : ((cur + a.delta) % n + n) % n } } };
+      }
+      if (o.kind !== 'find' && o.kind !== 'picker' && o.kind !== 'menu') return s;
       return { ...s, overlay: { ...o, cursor: a.clamp ? clamp(o.cursor + a.delta, 0, n - 1) : ((o.cursor + a.delta) % n + n) % n } };
     }
     case 'pickerToggle': {
@@ -274,6 +324,18 @@ export function reducer(s: TuiState, a: Action): TuiState {
     case 'clearSaved': return s.saved?.id === a.id ? { ...s, saved: null } : s;
     case 'handoff': return { ...s, handoffs: { ...s.handoffs, [a.issueId]: a.handoff } };
     case 'threads': return { ...s, threads: { ...s.threads, [a.issueId]: a.threads } };
+    case 'advance': {
+      if (!s.data) return s;
+      const rows = issueNeeds(s.data, a.at);
+      if (!rows.length) return { ...s, route: TODAY, stack: [], overlay: { kind: 'none' } };
+      return openNeed(s, rows[Math.min(Math.max(0, a.index), rows.length - 1)]!, [TODAY]);
+    }
+    case 'openNeed': {
+      const row = s.data ? issueNeeds(s.data, a.at).find(r => r.issue.id === a.issueId) : undefined;
+      return row ? openNeed(s, row, [...s.stack, s.route]) : s;
+    }
+    case 'setSheet': return { ...s, overlay: { kind: 'sheet', sheet: a.sheet } };
+    case 'pane': return { ...s, panes: { ...s.panes, [a.issueId]: a.paneId } };
     case 'toast': return { ...s, toast: a.toast };
     case 'clearToast': return s.toast?.id === a.id ? { ...s, toast: null } : s;
   }

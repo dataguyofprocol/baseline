@@ -17,7 +17,7 @@ export interface SessionContext {
   route: Route;
   /** the routes `esc` walks back through */
   stack: Route[];
-  /** "My work › CORE-4" */
+  /** "Today › CORE-4" */
   showing: string;
   openIssue: { key: string; title: string } | null;
   /** the list display options, restored on the next start */
@@ -153,18 +153,46 @@ export function contextMarkdown(f: SessionFile, opts: { now: number; alive: bool
 
 export interface Restored { route: Route; stack: Route[]; groupBy: GroupBy; preset: Preset; cursorKey: string | null }
 
-/** where to reopen, from a file whose ids are checked against what still exists; routes that vanished fall back to My work */
+/** where to reopen, from a file whose ids are checked against what still exists; routes that vanished (and the
+ *  My work, Inbox and Projects tabs of older versions) fall back to Today */
 export function restoreFrom(f: SessionFile, exists: { issue: (id: string) => boolean; team: (id: string) => boolean; project: (id: string) => boolean }): Restored {
   const ok = (r: Route | undefined): r is Route => !!r && (
-    r.kind === 'my' || r.kind === 'inbox' || r.kind === 'projects' ||
+    r.kind === 'today' ||
     (r.kind === 'team' && exists.team(r.teamId)) || (r.kind === 'project' && exists.project(r.projectId)) || (r.kind === 'issue' && exists.issue(r.issueId)));
-  const route = ok(f.route) ? f.route : { kind: 'my' as const };
-  const stack = route.kind === 'issue' ? (f.stack ?? []).filter(ok) : [];
+  const plain = (r: Route): Route => (r.kind === 'issue' ? { kind: 'issue', issueId: r.issueId } : r);
+  const route = ok(f.route) ? plain(f.route) : { kind: 'today' as const };
+  const stack = route.kind === 'issue' ? (f.stack ?? []).filter(ok).map(plain) : [];
   return {
     route,
-    stack: route.kind === 'issue' && !stack.length ? [{ kind: 'my' }] : stack,
+    stack: route.kind === 'issue' && !stack.length ? [{ kind: 'today' }] : stack,
     groupBy: GROUP_BYS.includes(f.display?.groupBy) ? f.display.groupBy : 'status',
     preset: PRESETS.includes(f.display?.preset) ? f.display.preset : 'all',
     cursorKey: f.list?.cursorKey ?? null,
   };
+}
+
+// ---------- tmux panes ----------
+
+const panesPath = (target: string, dir: string) => join(dir, `panes-${createHash('sha1').update(target).digest('hex').slice(0, 10)}.json`);
+
+/** issue → the tmux pane this TUI started its agent in, for this target */
+export function readPanes(target: string, dir = stateDir()): Record<string, string> {
+  try {
+    const raw = JSON.parse(readFileSync(panesPath(target, dir), 'utf8')) as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(raw).filter((e): e is [string, string] => typeof e[1] === 'string'));
+  } catch {
+    return {};
+  }
+}
+
+export function rememberPane(target: string, issueId: string, paneId: string, dir = stateDir()): void {
+  try {
+    mkdirSync(dir, { recursive: true });
+    const path = panesPath(target, dir);
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify({ ...readPanes(target, dir), [issueId]: paneId }, null, 2)}\n`);
+    renameSync(tmp, path);
+  } catch {
+    // a read-only home only loses the way back to the pane
+  }
 }

@@ -7,11 +7,12 @@ import type { TuiData } from './data.js';
 import type { IssueUi } from './detail.js';
 import { paneLines } from './detail.js';
 import {
-  displayWidth, dueLabel, GROUP_MODES, inboxItems, issuesForRoute, listRowsFor, padEnd, padStart, PRESET_LABEL,
-  progressBar, projectProgress, projectRows, relTime, TAB_GAP, tabText, truncate, wrap, type InboxItem, type Line, type ListRow, type Seg, type Tab,
+  displayWidth, dueLabel, GROUP_MODES, issuesForRoute, listRowsFor, padEnd, padStart, PRESET_LABEL,
+  projectProgress, relTime, TAB_GAP, tabText, truncate, type Line, type ListRow, type Seg, type Tab,
 } from './model.js';
-import { listViewOf, routeKey, type TuiState } from './state.js';
-import { HEALTH, keySeg, priorityMark, SPINNER, STATE_ICON, theme } from './theme.js';
+import { doneOpen, listViewOf, routeKey, type TuiState } from './state.js';
+import { prOf, todayModel, todayRows, type NeedKind, type TodayModel } from './today.js';
+import { keySeg, priorityMark, SPINNER, STATE_ICON, theme } from './theme.js';
 import { LineView } from './ui.js';
 
 const SELECT_BAR: Seg = { text: '▌ ', color: theme.accent };
@@ -51,16 +52,17 @@ function emptyState(width: number, height: number, title: string, hint: string):
 
 // ---------- issue list ----------
 
-interface Columns { key: number; title: number; state: boolean; assignee: boolean; due: boolean }
+interface Columns { key: number; title: number; state: boolean; assignee: boolean; due: boolean; pr: boolean }
 
 function listColumns(rows: ListRow[], data: TuiData, width: number, showAssignee: boolean, showState: boolean): Columns {
   const issues = rows.filter((r): r is Extract<ListRow, { kind: 'issue' }> => r.kind === 'issue').map(r => r.issue);
   const key = Math.max(6, ...issues.map(i => data.keyOf(i).length));
   let room = width - (2 + 2 + key + 2 + (showState ? 2 : 0));
   const take = (w: number) => { if (room - w - 2 >= 20) { room -= w + 2; return true; } return false; };
-  const due = issues.some(i => i.dueDate) ? take(8) : false;
   const assignee = showAssignee ? take(2) : false;
-  return { key, title: room, state: showState, assignee, due };
+  const pr = issues.some(i => prOf(data, i.id)) ? take(6) : false;
+  const due = issues.some(i => i.dueDate) ? take(8) : false;
+  return { key, title: room, state: showState, assignee, due, pr };
 }
 
 function issueLine(i: Issue, data: TuiData, cols: Columns, selected: boolean, now: number): Line {
@@ -73,6 +75,11 @@ function issueLine(i: Issue, data: TuiData, cols: Columns, selected: boolean, no
   if (cols.assignee) {
     const u = i.assigneeId ? data.userById.get(i.assigneeId) : undefined;
     line.push({ text: '  ' }, u ? { text: padEnd(u.initials, 2), color: u.color, bold: true } : { text: '··', color: '#4a4a4a' });
+  }
+  if (cols.pr) {
+    const pr = prOf(data, i.id);
+    const check: Seg = pr?.checks === 'success' ? { text: '✓', color: theme.ok } : pr?.checks === 'failure' ? { text: '✕', color: theme.error } : pr?.checks === 'pending' ? { text: '…', color: theme.warn } : { text: ' ' };
+    line.push({ text: '  ' }, ...(pr ? [{ text: padStart(`#${pr.number}`, 4), color: pr.state === 'open' ? theme.accent : theme.muted }, { text: ' ' }, check] : [{ text: '      ' }]));
   }
   if (cols.due) {
     const d = i.dueDate ? dueLabel(i.dueDate, now) : undefined;
@@ -99,13 +106,13 @@ export function ListScreen({ s, data, width, height, now, dim }: { s: TuiState; 
   if (cursorRow > 0 && rows[cursorRow - 1].kind === 'group' && !(rows[cursorRow - 1] as Extract<ListRow, { kind: 'group' }>).selectable) cursorRow--;
   const start = useWindow(routeKey(route), Math.max(0, cursorRow), height, rows.length);
   if (!issues.length) {
-    const empty = route.kind === 'my' ? ['Nothing assigned to you', 'n creates an issue, / finds one'] : route.kind === 'team' ? ['No issues in this team yet', 'n creates the first one'] : ['No issues in this project yet', 'n adds one'];
+    const empty = route.kind === 'team' ? ['No issues in this team yet', 'n creates the first one'] : ['No issues in this project yet', 'n adds one'];
     return <Lines lines={emptyState(width, height, empty[0], empty[1])} width={width} height={height} dim={dim} />;
   }
   if (!rows.length) {
     return <Lines lines={emptyState(width, height, `No ${PRESET_LABEL[s.preset].toLowerCase()} issues here`, 'type / show all to see the rest')} width={width} height={height} dim={dim} />;
   }
-  const cols = listColumns(rows, data, width, route.kind !== 'my', s.groupBy !== 'status');
+  const cols = listColumns(rows, data, width, true, s.groupBy !== 'status');
   const shown = rows.slice(start, start + height);
   const lines = shown.map(r => (r.kind === 'group' ? groupLine(r, r.id === selectedId) : issueLine(r.issue, data, cols, r.id === selectedId, now)));
   return <Lines lines={lines} width={width} height={height} sel={shown.findIndex(r => r.id === selectedId)} dim={dim} />;
@@ -114,10 +121,9 @@ export function ListScreen({ s, data, width, height, now, dim }: { s: TuiState; 
 // ---------- detail pane ----------
 
 /** the issue under the list cursor, beside the list; all from the snapshot, so moving the cursor costs no fetch */
-export function DetailPane({ issue, note, data, width, height, now, ui }: { issue: Issue | undefined; note?: Line[]; data: TuiData; width: number; height: number; now: number; ui?: IssueUi }) {
+export function DetailPane({ issue, lines: given, data, width, height, now, ui }: { issue: Issue | undefined; lines?: Line[]; data: TuiData; width: number; height: number; now: number; ui?: IssueUi }) {
   const inner = width - 3;
-  const head = note ?? [];
-  const lines: Line[] = issue ? [...head, ...paneLines(issue, data, inner, height - head.length, now, ui)] : head;
+  const lines: Line[] = given ?? (issue ? paneLines(issue, data, inner, height, now, ui) : []);
   const out = lines.slice(0, height);
   while (out.length < height) out.push([]);
   return (
@@ -132,81 +138,112 @@ export function DetailPane({ issue, note, data, width, height, now, ui }: { issu
   );
 }
 
-/** what the detail pane says above an inbox item's issue: who did what, when */
-export function inboxNote(it: InboxItem, width: number, now: number): Line[] {
-  return [
-    [{ text: it.unread ? '● ' : '  ', color: theme.accent }, { text: it.who, bold: true }, { text: ` ${it.verb} · ${relTime(it.notification.createdAt, now)}`, color: theme.muted }],
-    ...(it.issueId ? [] : wrap(it.body, width - 2).map(l => [{ text: '  ' }, ...l])),
-    [],
-  ];
-}
-
 // ---------- issue page ----------
 
-export function DetailScreen({ s, lines, width, height, pinned }: { s: TuiState; lines: Line[] | null; width: number; height: number; pinned?: number }) {
+/** `start`: where the page opens before you scroll it (a mention opens at its comment) */
+export function DetailScreen({ s, lines, width, height, pinned, start = 0 }: { s: TuiState; lines: Line[] | null; width: number; height: number; pinned?: number; start?: number }) {
   if (!lines) return <Lines lines={emptyState(width, height, 'Issue not found', 'esc to go back')} width={width} height={height} />;
   const max = Math.max(0, lines.length - height);
-  let scroll = Math.min(s.cursor[routeKey(s.route)] ?? 0, max);
+  let scroll = Math.min(s.cursor[routeKey(s.route)] ?? start, max);
   // an open picker is never scrolled out of view
   if (pinned !== undefined && (pinned < scroll || pinned >= scroll + height)) scroll = Math.min(max, Math.max(0, pinned - 2));
   return <Lines lines={lines.slice(scroll, scroll + height)} width={width} height={height} />;
 }
 
-export function scrollLabel(s: TuiState, total: number, height: number): string {
+export function scrollLabel(s: TuiState, total: number, height: number, start = 0): string {
   if (total <= height) return '';
-  const scroll = Math.min(s.cursor[routeKey(s.route)] ?? 0, total - height);
+  const scroll = Math.min(s.cursor[routeKey(s.route)] ?? start, total - height);
   return scroll === 0 ? 'more ↓' : scroll >= total - height ? 'end' : `${Math.round((scroll / (total - height)) * 100)}%`;
 }
 
-// ---------- inbox ----------
+// ---------- Today ----------
 
-export function InboxScreen({ s, data, width, height, now, dim }: { s: TuiState; data: TuiData; width: number; height: number; now: number; dim?: boolean }) {
-  const items = inboxItems(data, now);
-  const cursor = Math.min(s.cursor.inbox ?? 0, Math.max(0, items.length - 1));
-  const start = useWindow('inbox', cursor, height, items.length);
-  if (!items.length) return <Lines lines={emptyState(width, height, 'Inbox zero ✓', 'You\'re all caught up')} width={width} height={height} dim={dim} />;
-  const keyW = Math.max(6, ...items.map(i => i.key?.length ?? 0));
-  const flex = width - 2 - 2 - keyW - 2 - 2 - 4;
-  const whoW = flex >= 60 ? Math.min(30, Math.floor(flex * 0.35)) : 0;
-  const subjectW = flex - (whoW ? whoW + 2 : 0);
-  const lines = items.slice(start, start + height).map((it, n): Line => {
-    const selected = start + n === cursor;
-    const tone = it.unread ? {} : { color: theme.muted };
-    return [selected ? SELECT_BAR : NO_BAR, { text: it.unread ? '● ' : '  ', color: theme.accent },
-      { text: padEnd(it.key ?? '', keyW + 2), color: selected ? undefined : theme.muted, bold: selected },
-      { text: padEnd(it.subject, subjectW), bold: it.unread || selected, ...tone },
-      ...(whoW ? [{ text: '  ' }, { text: padEnd(`${it.who} ${it.verb}`, whoW), color: theme.muted }] : []),
-      { text: '  ' }, { text: padStart(relTime(it.notification.createdAt, now).replace('just now', 'now'), 4), color: theme.muted }];
-  });
-  return <Lines lines={lines} width={width} height={height} sel={cursor - start} dim={dim} />;
+const NEED_GLYPH: Record<NeedKind, Seg> = {
+  review: { text: '✓', color: theme.ok }, blocked: { text: '✕', color: theme.error }, mention: { text: '@', color: theme.accent },
+  pr: { text: '↗', color: theme.accent }, ask: { text: '•', color: theme.accent }, triage: { text: STATE_ICON.triage, color: theme.muted },
+};
+
+const age = (iso: string, now: number) => relTime(iso, now).replace('just now', 'now');
+
+/** Today as lines: Needs you, In flight (an agent's row has a second line: what it did and has left), Up next, and the
+ *  folded Done this week. `rowLine[i]` is the line of the i-th row the cursor can rest on */
+export function todayLines(m: TodayModel, data: TuiData, o: { width: number; now: number; frame: number; cursor: number; doneOpen: boolean; panes: Readonly<Record<string, string>> }): { lines: Line[]; rowLine: number[] } {
+  const { width, now } = o;
+  const rows = todayRows(m, o.doneOpen);
+  const lines: Line[] = [];
+  const rowLine: number[] = [];
+  const keyW = Math.max(6, ...rows.flatMap(r => (r.kind === 'doneHeader' || (r.kind === 'need' && !r.row.issue) ? [] : [data.keyOf(r.row.issue!).length])));
+  const reasons = [...m.needs.map(r => r.reason), ...m.flight.map(r => (r.thread || o.panes[r.id] ? 'agent' : 'you')), ...m.next.map(r => r.reason)];
+  const reasonW = Math.min(width < 60 ? 9 : 12, Math.max(5, ...reasons.map(r => displayWidth(r))));
+  const titleW = Math.max(8, width - 2 - 2 - (keyW + 2) - 2 - reasonW - 2 - 4);
+  let n = 0;
+  const head = (title: string, count: number) => lines.push([{ text: ' ' }, { text: title, bold: true }, { text: `  ${count}`, color: theme.muted }]);
+  const quiet = (text: string) => lines.push([{ text: `    ${text}`, color: theme.muted }]);
+  const row = (glyph: Seg, key: string, title: string, reason: Seg, at: string | null) => {
+    const sel = n === o.cursor;
+    rowLine.push(lines.length);
+    n++;
+    lines.push([sel ? SELECT_BAR : NO_BAR, glyph, { text: ' ' }, { text: padEnd(key, keyW + 2), color: sel ? undefined : theme.muted, bold: sel },
+      { text: padEnd(title, titleW), bold: sel }, { text: '  ' }, { ...reason, text: padEnd(reason.text, reasonW) }, { text: '  ' },
+      { text: padStart(at ? age(at, now) : '', 4), color: theme.muted }]);
+  };
+
+  head('Needs you', m.needs.length);
+  if (!m.needs.length) quiet('Nothing is waiting on you.');
+  for (const r of m.needs) {
+    const tone = r.kind === 'review' ? theme.ok : r.kind === 'blocked' ? theme.error : theme.muted;
+    row(NEED_GLYPH[r.kind], r.issue ? data.keyOf(r.issue) : '', r.issue?.title ?? r.text, { text: r.reason, color: tone }, r.at);
+  }
+  lines.push([]);
+  head('In flight', m.flight.length);
+  if (!m.flight.length) quiet('Nothing started. Up next has what to pick.');
+  for (const r of m.flight) {
+    const agent = !!r.thread || !!o.panes[r.id];
+    const st = data.stateById.get(r.issue.stateId);
+    row(agent ? { text: SPINNER[o.frame % SPINNER.length]!, color: theme.ok } : { text: STATE_ICON.started, color: st?.color ?? theme.warn },
+      data.keyOf(r.issue), r.issue.title, { text: agent ? 'agent' : 'you', color: theme.muted }, r.at);
+    if (agent) {
+      const p = r.thread?.progress;
+      const text = p && (p.did || p.left || p.blocked) ? [p.did && `did ${p.did}`, p.left && `left ${p.left}`, p.blocked && `blocked ${p.blocked}`].filter(Boolean).join(' · ')
+        : o.panes[r.id] ? 'starting · in a tmux pane' : 'starting';
+      lines.push([{ text: ' '.repeat(2 + 2 + keyW + 2 - 4) }, { text: '    ' }, { text: truncate(text.replace(/\s+/g, ' '), titleW + reasonW), color: theme.muted }]);
+    }
+  }
+  lines.push([]);
+  head('Up next', m.next.length);
+  if (!m.next.length) quiet('Nothing queued for you. / finds an issue, n files one.');
+  for (const r of m.next) {
+    const pm = priorityMark(r.issue.priority);
+    row({ text: pm.text, color: pm.color, bold: r.issue.priority === 1 }, data.keyOf(r.issue), r.issue.title, { text: r.reason, color: /due|overdue/.test(r.reason) ? theme.warn : theme.muted }, null);
+  }
+  if (m.done.length) {
+    lines.push([]);
+    const sel = n === o.cursor;
+    rowLine.push(lines.length);
+    n++;
+    lines.push([sel ? SELECT_BAR : NO_BAR, { text: o.doneOpen ? '▾ ' : '▸ ', color: theme.muted }, { text: 'Done this week', color: theme.muted, bold: sel }, { text: `  ${m.done.length}`, color: theme.muted },
+      ...(sel ? [{ text: `   enter ${o.doneOpen ? 'folds' : 'shows'} these`, color: theme.muted }] : [])]);
+    if (o.doneOpen) for (const r of m.done) {
+      const st = data.stateById.get(r.issue.stateId);
+      row({ text: st ? STATE_ICON[st.type] : '●', color: st?.color }, data.keyOf(r.issue), r.issue.title, { text: '' }, r.at);
+    }
+  }
+  return { lines, rowLine };
 }
 
-// ---------- projects ----------
-
-export function ProjectsScreen({ s, data, width, height, dim }: { s: TuiState; data: TuiData; width: number; height: number; dim?: boolean }) {
-  const rows = projectRows(data);
-  const cursor = Math.min(s.cursor.projects ?? 0, Math.max(0, rows.length - 1));
-  const start = useWindow('projects', cursor, height, rows.length);
-  if (!rows.length) return <Lines lines={emptyState(width, height, 'No projects yet', 'Create one in the web app or with `baseline project create`')} width={width} height={height} />;
-  const barW = width >= 90 ? 16 : 10;
-  const showLead = width >= 78, showTarget = width >= 96;
-  const nameW = Math.max(14, width - 2 - 2 - 2 - (barW + 5 + 6) - 2 - 9 - (showLead ? 16 : 0) - (showTarget ? 10 : 0));
-  const lines = rows.slice(start, start + height).map((r, n): Line => {
-    const selected = start + n === cursor;
-    const p = r.project;
-    const bar = progressBar(r.done, r.total, barW);
-    const pct = r.total ? Math.round((r.done / r.total) * 100) : 0;
-    const health = HEALTH[p.health];
-    const closed = p.status === 'completed' || p.status === 'canceled';
-    const line: Line = [selected ? SELECT_BAR : NO_BAR, { text: '◆ ', color: p.color }, { text: padEnd(p.name, nameW), bold: selected, ...(closed ? { color: theme.muted } : {}) },
-      { text: '  ' }, { text: bar.filled, color: p.color }, { text: bar.empty, color: '#3a3a3a' },
-      { text: ` ${padStart(`${pct}%`, 4)}` }, { text: ` ${padStart(`${r.done}/${r.total}`, 5)}`, color: theme.muted },
-      { text: '  ' }, closed ? { text: padEnd(p.status === 'completed' ? 'Completed' : 'Canceled', 9), color: theme.muted } : { text: padEnd(health.label, 9), color: health.color }];
-    if (showLead) line.push({ text: '  ' }, { text: padEnd(r.lead ?? '—', 14), color: theme.muted });
-    if (showTarget) line.push({ text: '  ' }, { text: padEnd(p.targetDate ? dueLabel(p.targetDate, Date.now()).text : '', 8), color: theme.muted });
-    return line;
-  });
-  return <Lines lines={lines} width={width} height={height} sel={cursor - start} dim={dim} />;
+/** Today. `animate`: the In flight spinner turns (tests switch it off, so frames stay still) */
+export function TodayScreen({ s, data, width, height, now, dim, animate = true }: { s: TuiState; data: TuiData; width: number; height: number; now: number; dim?: boolean; animate?: boolean }) {
+  const m = todayModel(data, now);
+  const spinning = animate && m.flight.some(r => r.thread || s.panes[r.id]);
+  const frame = useTicker(120, spinning);
+  const count = todayRows(m, doneOpen(s)).length;
+  const cursor = Math.min(s.cursor.today ?? 0, Math.max(0, count - 1));
+  const { lines, rowLine } = todayLines(m, data, { width, now, frame, cursor, doneOpen: doneOpen(s), panes: s.panes });
+  const at = rowLine[cursor] ?? 0;
+  // keep the section header in view above the first row of a section
+  const start = useWindow('today', at, height, lines.length);
+  const top = at - start < 2 && at < 3 ? 0 : start;
+  return <Lines lines={lines.slice(top, top + height)} width={width} height={height} sel={count ? at - top : -1} dim={dim} />;
 }
 
 // ---------- tabs, toast, footer ----------
@@ -222,7 +259,7 @@ function crumbs(s: TuiState, data: TuiData): string {
     }
     if (r.kind === 'issue') { const i = data.issueById.get(r.issueId); parts.push(i ? data.keyOf(i) : 'Issue'); }
   }
-  const view = s.route.kind === 'my' || s.route.kind === 'team' || s.route.kind === 'project'
+  const view = s.route.kind === 'team' || s.route.kind === 'project'
     ? [s.groupBy !== 'status' ? GROUP_MODES[s.groupBy].label : '', s.preset !== 'all' ? PRESET_LABEL[s.preset] : ''].filter(Boolean) : [];
   return [...parts.map(p => ` › ${p}`), ...view.map(v => ` · ${v}`)].join('');
 }
