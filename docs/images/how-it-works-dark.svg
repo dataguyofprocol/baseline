@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 392" width="920" height="392" role="img" aria-label="How Baseline works: your coding agent reports to Baseline through MCP tools and hooks; your team plans and reviews in the web app.">
+<rect x="30" y="24" width="228" height="220" rx="14" fill="#18181b" stroke="#2e2e33" stroke-width="1"/>
+<text x="52" y="60" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="17" font-weight="650" fill="#f3f1ec">Your terminal</text>
+<text x="52" y="82" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="13" fill="#9a9ca3">Claude Code, Codex or pi, and git</text>
+<rect x="48" y="95" width="192" height="24" rx="6" fill="#232327"/>
+<text x="58" y="112" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#f3f1ec">next_issue</text>
+<rect x="48" y="125" width="192" height="24" rx="6" fill="#232327"/>
+<text x="58" y="142" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#f3f1ec">start_issue</text>
+<rect x="48" y="155" width="192" height="24" rx="6" fill="#232327"/>
+<text x="58" y="172" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#f3f1ec">post_progress</text>
+<rect x="48" y="185" width="192" height="24" rx="6" fill="#232327"/>
+<text x="58" y="202" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#f3f1ec">finish_issue</text>
+<rect x="346" y="24" width="228" height="220" rx="14" fill="#23253a" stroke="#7c86e0" stroke-width="1.5"/>
+<text x="368" y="60" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="17" font-weight="650" fill="#f3f1ec">Baseline</text>
+<text x="368" y="82" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="13" fill="#9a9ca3">One Node server, one SQLite file</text>
+<rect x="364" y="95" width="192" height="24" rx="6" fill="#232327"/>
+<text x="374" y="112" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" fill="#f3f1ec">MCP server and hooks</text>
+<rect x="364" y="125" width="192" height="24" rx="6" fill="#232327"/>
+<text x="374" y="142" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" fill="#f3f1ec">REST API and CLI</text>
+<rect x="364" y="155" width="192" height="24" rx="6" fill="#232327"/>
+<text x="374" y="172" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" fill="#f3f1ec">Attributed, undoable writes</text>
+<rect x="364" y="185" width="192" height="24" rx="6" fill="#232327"/>
+<text x="374" y="202" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" fill="#f3f1ec">Read-only GitHub sync</text>
+<rect x="662" y="24" width="228" height="220" rx="14" fill="#18181b" stroke="#2e2e33" stroke-width="1"/>
+<text x="684" y="60" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="17" font-weight="650" fill="#f3f1ec">Your team</text>
+<text x="684" y="82" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="13" fill="#9a9ca3">The web app, updated live</text>
+<rect x="680" y="95" width="192" height="24" rx="6" fill="#232327"/>
+<text x="690" y="112" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" fill="#f3f1ec">My work: what needs you</text>
+<rect x="680" y="125" width="192" height="24" rx="6" fill="#232327"/>
+<text x="690" y="142" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" fill="#f3f1ec">Board, cycles, projects</text>
+<rect x="680" y="155" width="192" height="24" rx="6" fill="#232327"/>
+<text x="690" y="172" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" fill="#f3f1ec">Review the hand-off</text>
+<rect x="680" y="185" width="192" height="24" rx="6" fill="#232327"/>
+<text x="690" y="202" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12.5" fill="#f3f1ec">Triage and inbox</text>
+<line x1="266" y1="126" x2="332" y2="126" stroke="#4a4a50" stroke-width="1.5"/>
+<path d="M330,121 L338,126 L330,131" fill="none" stroke="#4a4a50" stroke-width="1.5"/>
+<line x1="272" y1="142" x2="338" y2="142" stroke="#4a4a50" stroke-width="1.5"/>
+<path d="M274,137 L266,142 L274,147" fill="none" stroke="#4a4a50" stroke-width="1.5"/>
+<text x="302.0" y="116" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11.5" fill="#9a9ca3">progress</text>
+<text x="302.0" y="164" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11.5" fill="#9a9ca3">context</text>
+<line x1="582" y1="126" x2="648" y2="126" stroke="#4a4a50" stroke-width="1.5"/>
+<path d="M646,121 L654,126 L646,131" fill="none" stroke="#4a4a50" stroke-width="1.5"/>
+<line x1="588" y1="142" x2="654" y2="142" stroke="#4a4a50" stroke-width="1.5"/>
+<path d="M590,137 L582,142 L590,147" fill="none" stroke="#4a4a50" stroke-width="1.5"/>
+<text x="618.0" y="116" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11.5" fill="#9a9ca3">live</text>
+<text x="618.0" y="164" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11.5" fill="#9a9ca3">decisions</text>
+<text x="69" y="294" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" letter-spacing="0.08em" fill="#9a9ca3">ONE ISSUE, END TO END</text>
+<rect x="69" y="314" width="112" height="46" rx="23" fill="#18181b" stroke="#7c86e0" stroke-width="1.2"/>
+<text x="125.0" y="335" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="600" fill="#f3f1ec">Start</text>
+<text x="125.0" y="351" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11" fill="#7c86e0">agent</text>
+<path d="M185,337 L199,337 M194,332 L199,337 L194,342" fill="none" stroke="#4a4a50" stroke-width="1.4"/>
+<rect x="203" y="314" width="112" height="46" rx="23" fill="#18181b" stroke="#7c86e0" stroke-width="1.2"/>
+<text x="259.0" y="335" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="600" fill="#f3f1ec">Split</text>
+<text x="259.0" y="351" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11" fill="#7c86e0">agent</text>
+<path d="M319,337 L333,337 M328,332 L333,337 L328,342" fill="none" stroke="#4a4a50" stroke-width="1.4"/>
+<rect x="337" y="314" width="112" height="46" rx="23" fill="#18181b" stroke="#7c86e0" stroke-width="1.2"/>
+<text x="393.0" y="335" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="600" fill="#f3f1ec">Progress</text>
+<text x="393.0" y="351" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11" fill="#7c86e0">agent</text>
+<path d="M453,337 L467,337 M462,332 L467,337 L462,342" fill="none" stroke="#4a4a50" stroke-width="1.4"/>
+<rect x="471" y="314" width="112" height="46" rx="23" fill="#18181b" stroke="#7c86e0" stroke-width="1.2"/>
+<text x="527.0" y="335" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="600" fill="#f3f1ec">Review</text>
+<text x="527.0" y="351" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11" fill="#7c86e0">agent</text>
+<path d="M587,337 L601,337 M596,332 L601,337 L596,342" fill="none" stroke="#4a4a50" stroke-width="1.4"/>
+<rect x="605" y="314" width="112" height="46" rx="23" fill="#18181b" stroke="#2e2e33" stroke-width="1.2"/>
+<text x="661.0" y="335" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="600" fill="#f3f1ec">Merge</text>
+<text x="661.0" y="351" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11" fill="#9a9ca3">you</text>
+<path d="M721,337 L735,337 M730,332 L735,337 L730,342" fill="none" stroke="#4a4a50" stroke-width="1.4"/>
+<rect x="739" y="314" width="112" height="46" rx="23" fill="#18181b" stroke="#2e2e33" stroke-width="1.2"/>
+<text x="795.0" y="335" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="600" fill="#f3f1ec">Done</text>
+<text x="795.0" y="351" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif" font-size="11" fill="#9a9ca3">GitHub</text>
+</svg>
