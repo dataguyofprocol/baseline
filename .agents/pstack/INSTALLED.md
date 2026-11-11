@@ -15,10 +15,9 @@ convention so ZCode, Codex, and friends all discover it.
 
 | Upstream path | This repo |
 | --- | --- |
-| `pstack/skills/<name>/` | `.agents/skills/<name>/` (all 58 skills, flat — standard discovery location) |
-| `pstack/docs/` (guide + `harness/`) | `.agents/pstack/docs/` |
+| `pstack/skills/<name>/` | `.agents/skills/<name>/` (56 of the 58 skills, flat — standard discovery location) |
+| `pstack/docs/harness/` | `.agents/pstack/docs/harness/` |
 | `pstack/agents/` (poteto-agent, comment-sicko) | `.agents/pstack/agents/` |
-| `pstack/automations/benny/` (Cursor-only) | `.agents/pstack/automations/benny/` (not flattened into `.agents/skills/`; benny's skills target Cursor Automations) |
 | `pstack/README.md`, `LICENSE`, `plugin.json` | `.agents/pstack/` |
 
 When a pstack skill says `<pstack>/skills/<name>/SKILL.md`, read
@@ -26,11 +25,23 @@ When a pstack skill says `<pstack>/skills/<name>/SKILL.md`, read
 subagent fields, models), read `.agents/pstack/docs/harness/claude-code.md`
 and map names to the current harness the same way.
 
+## Trimmed
+
+Left out on purpose (2026-11-11), because nothing in Baseline uses them; read them upstream:
+`skills/statechart` (TLA+ statecharts), `skills/make-bot-ui`, `docs/guide/`,
+`automations/benny/` (Cursor-only) and `assets/`. Links to them in the README and skills point
+upstream.
+
+`.agents/skills/verify-baseline/` is this repo's own skill, not pstack's.
+
 ## Updating
 
 ```sh
 git clone --depth 1 https://github.com/cursor/plugins /tmp/cursor-plugins
 cd <repo>
-rm -rf .agents/skills .agents/pstack/docs .agents/pstack/agents .agents/pstack/automations
-# then repeat the copy steps from the layout table above, and record the new commit + version here
+# replace every pstack skill except verify-baseline (this repo's own)
+find .agents/skills -mindepth 1 -maxdepth 1 ! -name verify-baseline -exec rm -rf {} +
+rm -rf .agents/pstack/docs .agents/pstack/agents
+# then repeat the copy steps from the layout table above, skip what Trimmed lists,
+# and record the new commit + version here
 ```
