@@ -4,7 +4,7 @@ import { useApp } from './store.js';
 import { api } from './api.js';
 import type { Issue, Priority, Team } from '../../src/core/types.js';
 import { PropertyMenu, type PropKind } from './propertyMenus.js';
-import { StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled, StatusTriage, PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconAgent, IconLoop, IconGithub, IconBlocks, IconBlocked, IconRelated, IconDuplicate } from './icons.js';
+import { StatusBacklog, StatusTodo, StatusStarted, StatusDone, StatusCanceled, StatusTriage, PrioNone, PrioUrgent, PrioHigh, PrioMedium, PrioLow, IconUser, IconAgent, IconLoop, IconGithub, IconClaude, IconBlocks, IconBlocked, IconRelated, IconDuplicate } from './icons.js';
 
 export function StateIcon({ type, color, size = 14, morph }: { type: string; color?: string; size?: number; morph?: boolean }) {
   const style = color ? { color: color.toLowerCase() === '#e2e2e2' ? 'var(--status-todo-ink)' : color } : undefined;
@@ -24,7 +24,7 @@ export function PriorityIcon({ priority, size = 14 }: { priority: Priority; size
   return <PrioNone size={size} style={{ color: 'var(--text-dim)' }} />;
 }
 
-const AGENT_GLYPHS: Record<string, typeof IconAgent> = { Agent: IconAgent, Automation: IconLoop, GitHub: IconGithub };
+const AGENT_GLYPHS: Record<string, typeof IconAgent> = { Agent: IconAgent, Automation: IconLoop, GitHub: IconGithub, 'Claude Code': IconClaude as typeof IconAgent };
 
 export function Avatar({ user, size = 20 }: { user?: { name: string; initials: string; color: string; kind?: 'human' | 'agent'; avatarUrl?: string | null } | null; size?: number }) {
   if (!user) {
