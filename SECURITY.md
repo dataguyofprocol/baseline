@@ -13,7 +13,9 @@ The `main` branch receives security fixes. Released tags will be supported on a 
 
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
-Email **security@baseline.local** (placeholder — replace before publishing) with:
+Use [**GitHub's private vulnerability reporting**](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-reviewing/privately-reporting-a-security-vulnerability): on this repository, click **Report a vulnerability** in the **Security** tab. Your report goes only to the maintainers, and GitHub keeps the discussion, advisories and (if warranted) CVE assignment in one place.
+
+Include:
 
 - A description of the issue and its impact
 - Steps to reproduce, or a proof-of-concept

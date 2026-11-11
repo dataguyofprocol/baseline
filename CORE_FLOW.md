@@ -35,7 +35,7 @@ The table shows each moment: what the engineer does, what Claude Code and git do
 |---|---|---|---|
 | Session starts | Opens Claude Code in a repo. | SessionStart hook asks Baseline about this repo and branch. | Injects 3–6 lines: "On branch `parth/core-12-fix-login-redirect` → CORE-12 *Fix login redirect* (In Progress, yours). Last progress: …. Also yours here: CORE-15 (Todo), CORE-18 (In Review)." Nothing on `main` with no open work. |
 | "What should I work on?" | Asks Claude. | Calls `next_issue`. | Returns the top 3 of: in progress and mine, then Todo assigned to me by priority, then unassigned in my teams' current cycle. Unblocked only. |
-| Picks an issue | "Let's do CORE-15", or runs `baseline work CORE-15` in the terminal. | `start_issue` checks out the branch (creating it from the default branch if new). | CORE-15 → In Progress, assigned to them if nobody is. The activity log shows "Claude Code via Parth started work". |
+| Picks an issue | "Let's do CORE-15", or runs `baseline work CORE-15` in the terminal. | `start_issue` checks out the branch (creating it from the default branch if new). | CORE-15 → In Progress, assigned to them if nobody is. The activity log shows "Claude Code via Ada started work". |
 | Asks for work with no key | "Fix the login redirect bug." | Calls `find_issues` over the whole team (no "me" filter), ranked by word match. | Match: Claude asks once: "Track this on CORE-31 *Login redirect loops*? (yes / new issue / don't track)". No match: Claude proposes a draft: "Create WEB issue *Fix login redirect after SSO*, priority none, assigned to you? (yes / edit / don't track)". It creates and starts the issue only on yes. |
 | Splits the work | (nothing) | Calls `create_sub_issues` when the plan has separable parts. | Sub-issues created under the started issue, same assignee and project, without asking. |
 | Works | Codes with Claude. | `post_progress` after meaningful steps. A Stop hook nudges it when there are new commits since the last post. | One progress note on the issue, rewritten in place. Nobody is notified. |
@@ -103,7 +103,7 @@ baseline connect claude          # once per repo, committed: .mcp.json + hooks +
 - With no login, every agent path fails with "Not connected to Baseline. Run `baseline login`." It never creates or seeds a local database.
 - `baseline doctor` prints the server, who you are, the repo → team mapping and whether hooks and MCP are live.
 - The allow-list covers the reversible writes (`start_issue`, `post_progress`, `create_sub_issues`, `propose_*`), so "post often" doesn't mean "click often".
-- Each tool writes as its own agent user, created on first use: "Claude Code via Parth".
+- Each tool writes as its own agent user, created on first use: "Claude Code via Ada".
 
 ### 2.4 Repo → team
 

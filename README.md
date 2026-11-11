@@ -2,6 +2,30 @@
 
 Local-first issue and project tracker in the Linear style. One SQLite file, drivable from the **web UI** or the **CLI** (the CLI is the coding-agent surface).
 
+**Demo** — a coding agent works an issue end to end: finds it, starts it on its own branch, files sub-issues, posts progress, and hands it off for review, while the tracker stays current for the person who opens the app (77 s, narrated):
+
+<details>
+<summary><img width="1920" height="1080" alt="demo-poster" src="https://github.com/user-attachments/assets/739becf6-c222-4e67-96d8-42baa91e7a32"></summary>
+
+https://github.com/user-attachments/assets/46c72046-dad7-42b8-9b9a-3cdfe003e780
+
+</details>
+
+**Status:** alpha. Everything documented here works and is covered by the regression suites, but the database schema and CLI are still free to change between releases.
+
+## Quick start
+
+Requires Node.js ≥ 22.13.
+
+```bash
+git clone https://github.com/dataguyofprocol/baseline
+cd baseline
+npm install
+npm run dev          # web app on :5183, API server on :7327, sample data
+```
+
+For a team server, skip to [Self-host with Docker](#self-host-with-docker). To drive Baseline from a coding agent, see [Connect Claude Code](#connect-claude-code-three-steps).
+
 ## Running locally
 
 Dev commands here (`npm run dev`, `dev:server`, `start`, `serve`, `cli`, `seed`) default to the
@@ -26,7 +50,7 @@ owner account and the workspace name. The token stops working once the owner exi
 | `BASELINE_PUBLIC_URL` | The address people open, e.g. `https://baseline.example.com`. Requests addressed to any other host, and writes from any other origin, are refused. |
 | `BASELINE_OWNER_EMAIL` | With Google sign-in: signing in with this Google account creates the first admin, and always keeps them an admin. |
 | `BASELINE_WORKSPACE_NAME` | Name of a new hosted workspace (default "Baseline"). |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Optional email for invites. `SMTP_PORT` defaults to 587, and `SMTP_FROM` (e.g. `Baseline <baseline@acme.dev>`) is required once `SMTP_HOST` is set. GCP blocks outbound port 25, so use 587 or 465. Without SMTP, invites still work: copy the link from Settings › Members. With SMTP, the sign-in screen also offers "Forgot your password?". |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Optional email for invites. `SMTP_PORT` defaults to 587, and `SMTP_FROM` (e.g. `Baseline <baseline@example.com>`) is required once `SMTP_HOST` is set. GCP blocks outbound port 25, so use 587 or 465. Without SMTP, invites still work: copy the link from Settings › Members. With SMTP, the sign-in screen also offers "Forgot your password?". |
 
 How hosted mode differs:
 - **A new hosted workspace starts empty**, with no sample data.

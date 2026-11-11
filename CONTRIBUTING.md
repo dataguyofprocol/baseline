@@ -18,7 +18,7 @@ Before opening a bug: search existing issues, run the latest commit, and confirm
 Requires Node.js ≥ 22.13.
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/dataguyofprocol/baseline
 cd baseline
 npm install
 npm run dev          # starts the server on :7327 and Vite on :5183

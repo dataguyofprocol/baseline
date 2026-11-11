@@ -1,6 +1,6 @@
 # Linear user journeys vs Baseline
 
-Every journey below was mapped against the live Linear workspace (parthline), then exercised
+Every journey below was mapped against a live Linear workspace, then exercised
 in the running Baseline app by a scripted harness that drives the UI the way a person does
 (key presses, clicks, typing, file picks) and checks the result on screen and in the data.
 **Check** names the harness row that passed in the last full run (bottom of this file).

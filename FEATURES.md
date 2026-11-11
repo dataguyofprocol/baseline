@@ -140,7 +140,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ ? opens the searchable cheatsheet (also in Settings › Keyboard shortcuts), one source for both
 
 ## 12. Non-UI (agentic core)
-- ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution; each coding tool writes as its own agent user, made on first use, and every agent write records the person it acted for ("Claude Code via Parth"); personal API keys for the REST API (`Authorization: Bearer <key>`, `baseline api-key create|list|revoke`); JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
+- ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution; each coding tool writes as its own agent user, made on first use, and every agent write records the person it acted for ("Claude Code via Ada"); personal API keys for the REST API (`Authorization: Bearer <key>`, `baseline api-key create|list|revoke`); JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
 
 ## Small moments (delight pass)
 The celebrations (bursts, the ring pop, inbox zero, milestones) play only when the moment happens in this tab, never because a page opened on a finished state. Everything respects reduced motion.
