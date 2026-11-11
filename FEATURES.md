@@ -1,6 +1,6 @@
 # Baseline feature spec (defines "done")
 
-Sources: user's reference video (60 frames catalogued, light theme, projects/initiatives promo) + live inspection of the logged-in Linear workspace (dark theme, screenshots in /tmp/linear-ref).
+Built against Linear's behaviour as the reference. JOURNEYS.md lists the harness check behind each journey.
 
 Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented · ⬜ not built (documented gap).
 
@@ -17,7 +17,6 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Team Home (team "…" › Team overview): Overview (icon, name, description, team resources), Documents, Members; right rail with members and Go to links
 - ✅ "+" beside Your teams opens Create a new team (name, identifier derived from it)
 - ✅ Team sub-items start with Home; Workspace has Initiatives, Projects and Views; Drafts shows when you have drafts
-- ✅ Customize sidebar (More › Customize sidebar): badge style (count / dot / none) and per-item Always show / Show when badged / Don't show; hidden items live in More
 - ✅ Teams and Members directory pages; Drafts page
 
 ## 2. Issues list
@@ -71,7 +70,6 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Cards (Linear layout): key + "› parent" for sub-issues + assignee; status icon + title; bordered chips for priority, cycle, project, sub-issue progress, labels, estimate, due; created date. Chips that repeat the column's grouping are omitted
 - ✅ Drag & drop: reorder within a column (sortOrder midpoint) and across columns (moves the group field)
 - ✅ Hidden columns panel: empty columns and Canceled (plus any you hide) move to a side panel with counts; rows accept drops and a click brings the column back
-- ✅ One agent identity per workspace ("Agent"): every agent write records the person it acted for ("Agent via Parth")
 - ✅ Rows (swimlanes) from sub-grouping, cards follow the display properties, estimate sums in column headers, card context menu, drag across lanes
 
 ## 6. Projects
@@ -85,8 +83,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Project statuses Backlog / Planned / In Progress / Paused / Completed / Canceled; summary; resources (links); Overview · Activity · Issues tabs; details panel (⌘I) with milestones and progress breakdown
 - ✅ Issues belong to milestones (rail, filter, grouping, CLI `--milestone`), milestone progress
 - ✅ Documents: "Add document or link…" in project and team resources; document page with the rich editor; `baseline doc`
-- ✅ Project labels (Settings › Projects › Labels) with groups whose labels are exclusive; Labels in the properties "…" menu (P then L), list chips, filter and display property
-- ✅ Named project statuses (Settings › Projects › Statuses): add, rename, recolour or delete statuses inside each category
+- ✅ Project labels: created from the label picker on a project; Labels in the properties "…" menu (P then L), list chips, filter and display property
 - ✅ Project bell: choose which project events reach your inbox (issue added, issue completed/canceled, description changes, new update) and the project's update schedule
 - ✅ Update schedule (Settings › Projects › Updates, or per project): next-due hint under the update card; leads get an inbox reminder when an update is due
 - ✅ Project updates summary in the inbox: daily / weekly (default) / off per person in Settings › Notifications; counts new updates on projects you lead, are a member of, or follow; the preview lists each update
@@ -111,9 +108,9 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Import & export: export JSON, import JSON (full restore), reset sample workspace
 - ✅ Account: Preferences (home view, first day of week, theme), Profile (name, email, avatar colour), Notifications (per kind)
 - ✅ Recurring issues per team (daily / weekly / every 2 weeks / monthly); any issue converts to one, or to a template, or to a project
-- ✅ Preferences: Underline links, Auto-assign to self (off by default, as in Linear), On move to started status assign to yourself
+- ✅ Preferences: Underline links, Auto-assign to self (on by default), On move to started status assign to yourself
 - ✅ Profile: picture upload, title, username (feeds `{username}` in branch names)
-- ✅ Notifications: Priority inbox + which kinds count as priority; Browser push by category (also from a background tab); reaction and document-change notifications
+- ✅ Notifications: per kind, a project updates summary, and browser notifications while Baseline is open in a tab (also in the background)
 - ✅ Team settings hub (Linear's layout): General (name, identifier, description, estimates with zero / extended / count-unestimated), Members, Issue labels, Templates, Recurring issues, Issue statuses, Workflows & automations (PR automations, auto-close parent / sub-issues / stale issues, auto-archive, re-order on status change), Triage, Cycles, Danger zone
 - ✅ Security & access: personal API keys (name, permissions, team limits, shown once, last used, revoke); Administration › API: who may create keys, every issued key, require a key from other devices
 - ✅ Per-team page: triage, estimate scale (none / exponential / fibonacci / linear / t-shirt), cycle automation (length, cooldown, upcoming, rollover), workflow, cycles
@@ -122,10 +119,9 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ Grouped Today / Yesterday / Earlier with counts
 - ✅ Rows: type icon (assignment arrow / comment bubble), actor avatar, bold refs, unread accent bar, hover mark-read/unread, mark all as read
 - ✅ Click opens the issue in split peek and marks read
-- Generated on: assignment to you, comments by others (self-comments don't notify)
 - ✅ Linear inbox: U read/unread, ⌫ delete, H snooze (with natural-language times), ⇧⌫ delete all read, row menu, filters (type, from), display (ordering, show snoozed, unread first)
 - ✅ Notifications follow subscriptions: status changes (e.g. an agent finishing), comments, replies, mentions, assignment, reminders
-- ✅ Priority inbox (assignments, mentions, replies and reminders first) and grouping by Focus
+- ✅ Priority inbox in the inbox's display options (agent work, assignments, mentions, comments, reminders and updates first) and grouping by Focus
 - ✅ SLAs (Settings › Issues › SLAs): rules by priority, label and team give issues a deadline; badges on rows and the rail, SLA filter, breach notifications
 - ✅ Loops (Settings › Loops): on issue created / label added / status changed / a schedule → comment, assign, label, move, file an issue, open in Claude Code; run log and Run now
 - ✅ GitHub (Settings › Integrations › GitHub): Linear's linking rules and magic words, per-team PR automations with branch rules, In Review state, PR and commit rows on issues, PR icon and filter, branch-name format. **Read-only by design**: nothing is ever written to GitHub (an allowlist in `git.ts` lets only read commands reach `gh` / `git`). Data comes from `gh` + `git log` for the tracked repos (picked in settings, plus a laptop's locations; polled every 2 min) and from **signed GitHub webhooks** (real time, no token: HMAC-verified, repeat deliveries dropped, delivery log in settings). A hosted server reads with an admin-pasted **read-only token** (a fine-grained token with Read-only permissions; a classic token with any write scope is refused, and the token never reaches the browser) and syncs the same way. One-way **GitHub Issues import** into a team's triage, optionally following new issues
@@ -144,7 +140,7 @@ Status marks: ✅ implemented & QA'd in the app · 🟡 partially implemented ·
 - ✅ ? opens the searchable cheatsheet (also in Settings › Keyboard shortcuts), one source for both
 
 ## 12. Non-UI (agentic core)
-- ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution for agent identities; personal API keys for the REST API (`Authorization: Bearer <key>`, `baseline api-key create|list|revoke`); JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
+- ✅ SQLite store (WAL); REST /api; CLI (issue create/list/update/comment/handoff/…, seed, serve) with `--as <user>` write attribution; each coding tool writes as its own agent user, made on first use, and every agent write records the person it acted for ("Claude Code via Parth"); personal API keys for the REST API (`Authorization: Bearer <key>`, `baseline api-key create|list|revoke`); JSON export/import; seeded sample workspace (3 projects, 2 teams, cycles, sub-issues, relations, milestones, due dates, estimates); undo toasts for destructive ops (soft delete + restore underneath)
 
 ## Small moments (delight pass)
 The celebrations (bursts, the ring pop, inbox zero, milestones) play only when the moment happens in this tab, never because a page opened on a finished state. Everything respects reduced motion.

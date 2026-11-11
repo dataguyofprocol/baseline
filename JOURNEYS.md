@@ -151,44 +151,17 @@ Status: ✅ matches Linear · — not part of this workspace's Linear (see the e
 | Team archive: Issues · Cycles · Recently deleted issues; Not found page | ✅ | 12.8 | |
 | Project board cards (status · priority · lead, issue count, + per column); an initiative's Projects tab timeline (caps months, day ticks, today pill, Today / zoom incl. Year) | ✅ | 12.9 | |
 
-## Side-by-side with Linear
-Each main page was screenshotted in the live Linear workspace and in Baseline at the same
-window size, and every difference that showed was fixed:
-
-| Page | What differed | Now |
-|---|---|---|
-| Team issues | team picker and a Cycles tab in the tab row; three-level breadcrumb; underlined tabs | Active · Backlog · All issues pills + new-view icon; `Team › Issues`; team bell |
-| Cycles | team tabs in the header, outlined coloured badges, "— capacity", date ranges | header is just "Cycles"; flat grey badges; capacity / success rings; dates only on the timeline |
-| Issue page | "…" at the far edge, bold title crumb, bordered rail, clock-shaped estimate and arrow-shaped cycle icons, bold activity names | "…" beside the title; Linear's triangle and play-circle icons; muted activity; send button on the composer |
-| Projects / project page | bordered "New project", "…" on list pages, monospace dates, bold names, "Projects ›" crumb, details panel open by default | Linear's text button, figures in the UI font, single crumb, panel closed until ⌘I |
-| My issues / lists | rule-line group headers, wrapping issue keys | filled group bands, keys on one line |
-| Sidebar | underline on the current page | filled row |
-| Settings | no search, no icons, "Account", bare rows and native selects; four preferences missing | search, icons, "Personal", carded rows with button-style menus; display names, emoticons, send comments on, font size, pointer cursors, app sidebar |
-| Triage | team crumb and a tab row | "Triage ☆" with filter / display; "Nothing to triage" + Create triage issue |
-| Create modal | heavy blurred backdrop, team name chip, filled square chips, assignee preset, grey disabled button with ⌘↵ | no backdrop, `CORE` chip, outlined pills, cycle as an icon chip, unassigned by default, purple-style pill button |
-| ⌘K palette | recent issues first, search icon, footer bar, 32px rows, Linear's commands missing | Linear's command list and grouping, multi-key hints (`N then P`), 46px rows, no footer; issues and projects appear as you type |
-| Filter / display / context menus | filter menu jumped above the button; dates as three items; bordered property chips; context menu at the row's edge with Milestone, Subscribe and Move to team at top level | below the button; Dates submenu; pill chips + ordering arrow; at the pointer, Linear's items and order |
-| Preferences, Profile, Notifications | three automation prefs, picture / title / username, the Inbox + Browser structure were missing; four inbox-type toggles Linear doesn't have | added; inbox gets everything, as Linear says; push categories decide what the browser shows |
-| Team settings | one long page | hub + subpages, as Linear |
-| Search, shortcuts, archive, drafts, members, teams | issue-only search under a "Search" crumb; centered shortcuts modal on `?`; archive without tabs; serif empty-state titles; pills for Joined / teams | query in the header with tabs; `?` help menu + ⌘/ drawer; archive tabs; plain empty-state titles; plain Joined, team icons, cycle / project counts |
-| Project board and timeline | progress chip, "No projects" placeholders; red Today line, segmented zoom on the left | Linear's card props + issue count, + per column; brand Today pill, Today button and zoom select on the right |
-| Initiatives | no filter or display options | filter by health / owner; ordering; nest sub-initiatives |
-| Security & access, Create API key, Administration › API | page was missing | same sections, form, permission list and team limits; Linear's Passkeys, Commit signing key and Authorized applications sections are left out (no sign-in, no OAuth apps) |
-
 ## Not built
-Asked about on 2026-10-16; you chose API keys and left these out:
-- **Slack notifications**, **connected accounts**, **SSO / passkeys / security policies**, **billing and usage**, **OAuth applications and outgoing webhooks**: they need accounts or a public server. GitHub is read-only: your own `gh` login (read commands only) plus *incoming* signed GitHub webhooks reached through a tunnel; Baseline never writes to GitHub.
+- **Slack notifications**, **SSO / passkeys**, **billing and usage**, **OAuth applications and outgoing webhooks**. GitHub is read-only: a read-only token or your own `gh` login (read commands only), plus *incoming* signed GitHub webhooks; Baseline never writes to GitHub.
 - **AI (Agent, AI & agents)**: Baseline hands work to Claude Code instead (Open in Claude Code, Loops).
 
 ## Last full run
-**110 of 110 checks passed** on 2026-10-16 in one run from a freshly seeded sample workspace
-(6.9 min, 81 routes visited with no console errors), including the second side-by-side pass
-(section 11, checks 12.1–12.10). Check 4.6 (comment threads) has failed intermittently before
-and did once in an earlier run today; it passed on its own straight after and in the clean
-run above. The CLI suite (179 checks), typecheck and production build pass.
+**101 of 101 checks passed** on 2026-11-11 in one run from a freshly seeded scratch workspace,
+with no page or console errors.
 
-The harness is `scripts/journey-harness.js`. To re-run it: reseed the dev sandbox
-(`npm run seed`), open the dev app, load the script in the browser console (paste it, or
-serve it and add a `<script>` tag), then `await __runAll()`. It returns one PASS / FAIL line
-per check, with what it saw. It writes test data, so only run it against the dev sandbox,
-never `~/.baseline/baseline.db`.
+The harness is `scripts/journey-harness.js`. Run it through the verify-baseline skill, which
+starts a throwaway instance on a scratch database and drives it in headless Chrome:
+`.claude/skills/verify-baseline/scripts/vb start`, then
+`node .claude/skills/verify-baseline/scripts/drive.mjs <run> harness <sections>`. Each check prints
+one PASS / FAIL line with what it saw. The harness writes test data, so never run it against
+`~/.baseline/baseline.db`.

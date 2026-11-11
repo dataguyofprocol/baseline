@@ -54,12 +54,9 @@ How hosted mode differs:
 
 `npm run test:auth` covers setup, password and Google sign-in, invites, reset links, domains and roles.
 
-**Production data:** the work DB was wiped of all seed/demo data on 2026-08-29. The workspace
-starts empty (create your team in Settings) and holds only real work. A database whose
-`meta` table is empty starts blank in the web app (a first-run flow names your team and offers
-the sample data) and seeded from the CLI, so never point dev tools or experiments at
-`~/.baseline/baseline.db`; deleting or resetting that file would lose your work.
-Pre-wipe backups: `~/.baseline/backups/`.
+**Your data:** a database whose `meta` table is empty starts blank in the web app (a first-run
+flow names your team and offers the sample data) and seeded from the CLI. Never point dev tools
+or experiments at `~/.baseline/baseline.db`; deleting or resetting that file loses your work.
 
 ## Self-host with Docker
 

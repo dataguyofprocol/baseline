@@ -50,7 +50,7 @@ Do not spawn anything else until setup is written and the model rule exists.
 
 Recon first, yourself, cheaply: `git ls-files`, `git status`, and a `subagent` call to `scout` (agent: `scout`, read-only) to return the tracked-file inventory grouped into slices with line counts and rough test coverage per slice. Brief the scout to report `PASS` / `ISSUES` / `BLOCKED` and the exact SHAs it looked at.
 
-Scope: **whole tracked repo, including root docs** (`src/`, `web/`, `bin/`, `scripts/`, `skills/`, `design-polish/`, `.github/`, and root markdown such as `TEAM_PLAN.md`, `FEATURES.md`, `JOURNEYS.md`, `DESIGN.md`). Exclude `node_modules/`, `dist/`, and any vendored or generated directory; list what you excluded.
+Scope: **whole tracked repo, including root docs** (`src/`, `web/`, `bin/`, `scripts/`, `skills/`, `.github/`, and root markdown such as `CORE_FLOW.md`, `FEATURES.md`, `JOURNEYS.md`, `DESIGN.md`). Exclude `node_modules/`, `dist/`, and any vendored or generated directory; list what you excluded.
 
 Then partition into N slices. Choose N so no slice exceeds about 1500 lines of hand-read code; prefer ~6–10 slices. Partition by directory or module, never split a single file across two workers. Record the base SHA once: `git rev-parse HEAD`.
 
@@ -62,9 +62,9 @@ Every brief stands alone and contains, verbatim:
 
 - The base SHA, and an instruction to report the SHA it audited.
 - Its exact slice (paths, and for docs the specific files).
-- These rules, quoted from the `no-comments` and `comment-sicko` skills at
+- These rules, quoted from the `no-comments` skill and the `comment-sicko` agent at
   `/Users/parthbatra/sideones/baseline-all/baseline/.agents/skills/no-comments/SKILL.md` and
-  `/Users/parthbatra/sideones/baseline-all/baseline/.agents/skills/comment-sicko/SKILL.md`:
+  `/Users/parthbatra/sideones/baseline-all/baseline/.agents/pstack/agents/comment-sicko.md`:
   hunt narration, banners, commented-out corpses, workaround sermons, lint and TypeScript suppressions, `IMPORTANT` / `do not remove` / `too risky` / `fine for now` markers, and dead code (unreachable branches, uncalled exports, unused params, unused files, stale docs). The keep-list is exactly: legal/license headers, comments forced by an external dependency, platform, vendor or protocol we cannot reshape, `// prettier-ignore`, lint suppressions whose rule is faulty or style-only, doc comments defining a public API contract, and issue/RFC links explaining a constraint code cannot express. When unsure whether a keep applies, the comment dies. Also read `.agents/skills/principle-*` where relevant and name the governing principle per finding.
 - **Read-only.** Do not edit, delete, or reformat anything. Run the existing test suite or typecheck for the slice only if it is cheap, and report the command and result.
 - **No fixes.** You are an auditor, not a cleaner.

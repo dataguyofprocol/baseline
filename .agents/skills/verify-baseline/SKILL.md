@@ -117,9 +117,8 @@ Kills only the server and harness pids recorded for that run (TERM, then KILL af
 ## Gotchas
 
 - Harness rows mutate data and assume fresh seed keys (`CORE-1`…). For clean results, start a new run per proof, or run sections in the order the harness lists them.
-- Harness rows `2.5` and `2.6` (file attachments) fail by design: commit `3cd386d` removed file attachments (images now live in SQLite). They are stale harness rows, not regressions.
 - CLI `search` matches titles and descriptions, not issue keys (`search CORE-3` finds nothing). The web `/search` page does match keys.
 - `issue create` without `--json` prints only the new key.
 - The first-run "name your team" screen appears only for a server started on an empty DB without seeding. `vb start` always seeds, so to verify first-run, start the server by hand on a scratch path under the run dir: `BASELINE_DB=<run>/instance/empty.db BASELINE_PORT=<free> node dist/server/index.js`. Kill that pid yourself.
 - Hosted mode starts when `BASELINE_PUBLIC_URL` is set (password sign-in; Google too with `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`). `vb` clears all three so runs stay local mode; `npm run test:auth` covers the hosted API. To drive hosted mode in the browser, start a server by hand on a scratch DB with `BASELINE_PUBLIC_URL=http://localhost:<port>` and read the setup token from its log.
-- `npm run test:cli` (179 CLI checks, own scratch DBs) and `npm run typecheck` complement this skill: run them for CLI or type-level changes. They do not replace a UI drive.
+- `npm run test:cli` (about 300 CLI checks, own scratch DBs) and `npm run typecheck` complement this skill: run them for CLI or type-level changes. They do not replace a UI drive.

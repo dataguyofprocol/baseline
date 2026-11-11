@@ -1,6 +1,6 @@
 # Baseline core flow
 
-Status: proposal, 2026-11-09. Builds on `PRODUCT_AUDIT.md` and the decisions recorded there (§5.3).
+Status: decided. This is how Baseline is meant to work: who it serves, the agent loop, the web app's jobs and what counts as core. Open questions are at the end.
 
 ## The product in one sentence
 
@@ -13,7 +13,7 @@ Who it's for, in order:
 
 Everything else (PMs, designers, stakeholders) can read the web app, but no flow is designed for them yet.
 
-## Fixed rules (from the decisions)
+## Fixed rules
 
 | Rule | Meaning in practice |
 |---|---|
@@ -29,22 +29,22 @@ Everything else (PMs, designers, stakeholders) can read the web app, but no flow
 
 ## 1. The engineer's day
 
-The table shows each moment: what the engineer does, what Claude Code and git do, and what Baseline does as a result. **Bold** marks behaviour that doesn't exist today.
+The table shows each moment: what the engineer does, what Claude Code and git do, and what Baseline does as a result.
 
 | Moment | The engineer | Claude Code / git | Baseline |
 |---|---|---|---|
-| **Session starts** | Opens Claude Code in a repo. | **SessionStart hook** asks Baseline about this repo and branch. | Injects 3–6 lines: "On branch `parth/core-12-fix-login-redirect` → CORE-12 *Fix login redirect* (In Progress, yours). Last progress: …. Also yours here: CORE-15 (Todo), CORE-18 (In Review)." Nothing on `main` with no open work. |
-| **"What should I work on?"** | Asks Claude. | Calls **`next_issue`**. | Returns the top 3 of: in progress and mine, then Todo assigned to me by priority, then unassigned in my teams' current cycle. Unblocked only. |
-| **Picks an issue** | "Let's do CORE-15", or runs **`baseline work CORE-15`** in the terminal. | `start_issue` **checks out the branch** (creating it from the default branch if new). | CORE-15 → In Progress, assigned to them if nobody is. The activity log shows "Claude Code via Parth started work". |
-| **Asks for work with no key** | "Fix the login redirect bug." | Calls **`find_issues`** over the whole team (no "me" filter), ranked by word match. | **Match:** Claude asks once: "Track this on CORE-31 *Login redirect loops*? (yes / new issue / don't track)". **No match:** Claude proposes a draft: "Create WEB issue *Fix login redirect after SSO*, priority none, assigned to you? (yes / edit / don't track)". It creates and starts the issue only on yes. |
-| **Splits the work** | (nothing) | Calls **`create_sub_issues`** when the plan has separable parts. | Sub-issues created under the started issue, same assignee and project, without asking. |
-| **Works** | Codes with Claude. | `post_progress` after meaningful steps. A **Stop hook** nudges it when there are new commits since the last post. | One progress note on the issue, rewritten in place. Nobody is notified. |
-| **Finds unrelated work** | (nothing) | Notes it with **`propose_followup`**, which stores a draft. | Nothing is created yet. Drafts are listed back at finish (see below). |
-| **Commits** | `git commit` (or Claude does). | **The branch ties commits to the issue.** No key needed in the message. | The commit appears on CORE-15. A bare key in a commit message is a reference, never a close. |
-| **Opens a PR** | `gh pr create` from the branch. | — | PR linked by branch. Status → In Review when review is requested (team automation, on by default once GitHub is linked). |
-| **Finishes** | "Ship it" / ends the session. | `finish_issue` (in_review / done / stopped). It **lists pending follow-up drafts** in the chat: "I also noticed 2 things. File them? 1. … 2. …" | In Review exists on every team. The issue owner gets **"Ready for your review"** in My work when the agent finished for someone else, or when there's no PR. Approved follow-ups go to Triage, or to Backlog when triage is off. |
-| **PR merges** | Merges on GitHub. | — | → Done. Parent → Done when its last sub-issue closes (on by default). |
-| **Standup** | Asks Claude "what did I do since yesterday?" or runs `baseline standup`. | Calls **`my_activity`**. | Issues started, progressed, finished, PRs opened and merged, follow-ups filed, as 5–8 lines ready to paste. |
+| Session starts | Opens Claude Code in a repo. | SessionStart hook asks Baseline about this repo and branch. | Injects 3–6 lines: "On branch `parth/core-12-fix-login-redirect` → CORE-12 *Fix login redirect* (In Progress, yours). Last progress: …. Also yours here: CORE-15 (Todo), CORE-18 (In Review)." Nothing on `main` with no open work. |
+| "What should I work on?" | Asks Claude. | Calls `next_issue`. | Returns the top 3 of: in progress and mine, then Todo assigned to me by priority, then unassigned in my teams' current cycle. Unblocked only. |
+| Picks an issue | "Let's do CORE-15", or runs `baseline work CORE-15` in the terminal. | `start_issue` checks out the branch (creating it from the default branch if new). | CORE-15 → In Progress, assigned to them if nobody is. The activity log shows "Claude Code via Parth started work". |
+| Asks for work with no key | "Fix the login redirect bug." | Calls `find_issues` over the whole team (no "me" filter), ranked by word match. | Match: Claude asks once: "Track this on CORE-31 *Login redirect loops*? (yes / new issue / don't track)". No match: Claude proposes a draft: "Create WEB issue *Fix login redirect after SSO*, priority none, assigned to you? (yes / edit / don't track)". It creates and starts the issue only on yes. |
+| Splits the work | (nothing) | Calls `create_sub_issues` when the plan has separable parts. | Sub-issues created under the started issue, same assignee and project, without asking. |
+| Works | Codes with Claude. | `post_progress` after meaningful steps. A Stop hook nudges it when there are new commits since the last post. | One progress note on the issue, rewritten in place. Nobody is notified. |
+| Finds unrelated work | (nothing) | Notes it with `propose_followup`, which stores a draft. | Nothing is created yet. Drafts are listed back at finish (see below). |
+| Commits | `git commit` (or Claude does). | The branch ties commits to the issue. No key needed in the message. | The commit appears on CORE-15. A bare key in a commit message is a reference, never a close. |
+| Opens a PR | `gh pr create` from the branch. | — | PR linked by branch. Status → In Review when review is requested (team automation, on by default once GitHub is linked). |
+| Finishes | "Ship it" / ends the session. | `finish_issue` (in_review / done / stopped). It lists pending follow-up drafts in the chat: "I also noticed 2 things. File them? 1. … 2. …" | In Review exists on every team. The issue owner gets "Ready for your review" in My work when the agent finished for someone else, or when there's no PR. Approved follow-ups go to Triage, or to Backlog when triage is off. |
+| PR merges | Merges on GitHub. | — | → Done. Parent → Done when its last sub-issue closes (on by default). |
+| Standup | Asks Claude "what did I do since yesterday?" or runs `baseline standup`. | Calls `my_activity`. | Issues started, progressed, finished, PRs opened and merged, follow-ups filed, as 5–8 lines ready to paste. |
 
 **What the engineer never does:** open the web app to move a status, retype what they did, or copy a key into a commit.
 
@@ -62,21 +62,21 @@ The same day, minus the PR rows: `finish_issue in_review` moves the issue to In 
 
 ### 2.1 Tools (v2)
 
-| Tool | Kind | Change from today |
+| Tool | Kind | What it does |
 |---|---|---|
-| `next_issue` | read | **new.** "What should I work on?" |
-| `find_issues` | read | **replaces `list_issues`' search use.** The whole team, ranked token match, says what it searched. `list_issues` stays for "mine". |
+| `next_issue` | read | "What should I work on?" |
+| `find_issues` | read | Searches the whole team, ranked by word match, and says what it searched. `list_issues` stays for "mine". |
 | `get_issue` | read | Text output includes sub-issues, blockers and links. |
-| `my_activity` | read | **new.** Standup, since a time. |
-| `propose_issue` | write (draft) | **new.** Stores a draft and returns it for the chat. Nothing is visible to the team. |
-| `create_issue` | write | **new.** Takes a `draft_id` (the person said yes) or explicit fields. The guide says to call it only after a yes. |
-| `start_issue` | write | Checks out the branch (or returns the exact command when it can't). Short output on repeat calls. Refuses quietly on someone else's started issue: it asks to take it over. |
-| `create_sub_issues` | write | **new.** Several titles under a started issue, no confirmation needed. |
-| `post_progress` | write | Unchanged (the best tool today). |
-| `propose_followup` | write (draft) | **replaces `file_followup`.** A draft listed at finish. Never fails on a team without triage. |
+| `my_activity` | read | Standup, since a time. |
+| `propose_issue` | write (draft) | Stores a draft and returns it for the chat. Nothing is visible to the team. |
+| `create_issue` | write | Takes a `draft_id` (the person said yes) or explicit fields. The guide says to call it only after a yes. |
+| `start_issue` | write | Checks out the branch (or returns the exact command when it can't). Short output on repeat calls. On someone else's started issue it asks to take it over. |
+| `create_sub_issues` | write | Several titles under a started issue, no confirmation needed. |
+| `post_progress` | write | One progress note on the issue, rewritten in place. |
+| `propose_followup` | write (draft) | A draft listed at finish. Never fails on a team without triage. (`file_followup` remains as an alias.) |
 | `finish_issue` | write | Returns pending drafts so the agent asks about them. In Review always exists. Notifies the owner. |
-| `draft_project_update` | write (draft) | Unchanged; adds titles. |
-| `undo` | revert | Receipts name the tool, not the CLI command. |
+| `draft_project_update` | write (draft) | Drafts a project update for a person to post. |
+| `undo` | revert | Reverts an operation by its `op_id`. |
 
 A note on "ask before creating": the confirmation lives in the conversation, not in Baseline. The guide says *"Never call `create_issue` without the person's yes in this conversation."* A draft keeps the exact text the person approved, so what they said yes to is what gets created.
 
@@ -90,16 +90,14 @@ Installed by `baseline connect claude`, in the committed `.claude/settings.json`
 | `UserPromptSubmit` | `baseline hook prompt` | When the session has no started issue and the prompt reads like a work request, adds one line: "No Baseline issue is active. If this is work to track, use find_issues first." Never blocks. |
 | `Stop` | `baseline hook stop` | When an issue is active and HEAD has commits newer than the last progress note, asks Claude to post progress (once per stop). Never loops. |
 
-The CLAUDE.md block shrinks to 5 lines; the hooks carry the behaviour.
-
-**Better packaging:** ship all of this as a Claude Code **plugin** (MCP server + hooks + skill in one install). `baseline connect claude` then adds the plugin for the repo instead of writing three files.
+The CLAUDE.md block stays short; the hooks carry the behaviour.
 
 ### 2.3 Setup: three steps, loud failure
 
 ```
-npm i -g baseline        # or npx; published, no clone and build
+npm install -g <package>         # not on npm yet: npm pack in this repo, then install the .tgz
 baseline login                   # opens the browser; stores the key; knows the server
-baseline connect claude          # once per repo, committed: plugin or .mcp.json + hooks + allow-list
+baseline connect claude          # once per repo, committed: .mcp.json + hooks + allow-list
 ```
 
 - With no login, every agent path fails with "Not connected to Baseline. Run `baseline login`." It never creates or seeds a local database.
@@ -175,22 +173,11 @@ Members see only controls they can use. Every refusal names who to ask and offer
 | Agent loop + timeline attribution | | Browser push categories |
 | ⌘K, keyboard, ⌘Z | | 10 of the 14 display properties |
 
-"Cut" means removed from the UI. The data stays in the database until we're sure.
+"Cut" means removed from the UI; the data stays in the database until we're sure. Not every cut has landed: SLAs, Loops and Initiatives can still be switched on in Settings › Features, and the inbox's display options still offer the priority inbox.
 
 ---
 
-## 7. Build order
-
-| Phase | What | Fixes (audit #) | Size |
-|---|---|---|---|
-| **0. Stop the bleeding** | No auto-seed from `mcp`/`agent`; In Review on every team; finish notifies the owner; follow-ups never fail; bare key in a commit = reference; branch binds commits; agent users per tool; inbox doesn't auto-read; mention notifies once; remove hosted local-mode wording and the Reset button; skill path | 1, 2, 6, 7, 10, 11, 21, 23 | small, ~1–2 days |
-| **1. Agent loop v2** | `next_issue`, `find_issues`, `propose_issue`/`create_issue`, `create_sub_issues`, `propose_followup`, `my_activity`; `start_issue` checks out the branch; hooks; `baseline work`, `standup`, `doctor`; plugin packaging; npm publish | 5, 8, 9 + the proactivity gap | medium, ~1 week |
-| **2. First runs + My work** | Hosted onboarding with invite and GitHub steps; join link; prefilled invite email; invitee welcome with GitHub username; My work as home; one-row-per-issue notifications | 3, 12–15, 18, 22, 25 | medium, ~1 week |
-| **3. Roles + slimming** | Team lead; hide what members can't use; "Ask <name>"; turn off or cut the niche list; lean issue rail and create modal; one sub-issue path | 4, 16, 17, 19, 20 | medium |
-
-Phase 0 is safe to start now. Phases 1 and 2 can run in parallel.
-
 ## Open points
-1. Whether `UserPromptSubmit` nudges feel helpful or naggy. Ship it behind a setting and read the result after a week.
-2. The package name for npm (`baseline`?).
-3. Plugin vs plain files for `connect claude`: the plugin is cleaner but adds a marketplace step. Recommendation: plugin, with plain files as a fallback.
+1. Whether `UserPromptSubmit` nudges feel helpful or naggy.
+2. Publishing to npm, and under which package name.
+3. Packaging `connect claude` as a Claude Code plugin (MCP server, hooks and skill in one install) instead of plain files. The plugin is cleaner but adds a marketplace step.
