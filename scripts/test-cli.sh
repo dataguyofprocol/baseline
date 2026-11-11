@@ -1045,7 +1045,7 @@ if [[ -z "$(ls -A "$EHOME")" ]]; then ok; else bad "nothing was written under an
 echo "=== agent loop v2: tools over the CLI ==="
 ABIN="node $PWD/bin/baseline.js"
 LDB="$WORK/loop.db"; BASELINE_DB="$LDB" $BIN team list >/dev/null 2>&1
-lb() { BASELINE_DB="$LDB" $BIN "$@"; }
+lb() { (cd "$WORK" && BASELINE_DB="$LDB" $ABIN "$@"); }
 jget() { node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{const d=JSON.parse(s);console.log(eval(process.argv[1]))})" "$1"; }
 LREPO="$WORK/loop-repo"; mkdir -p "$LREPO"
 (cd "$LREPO" && git init -q -b main . && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init)

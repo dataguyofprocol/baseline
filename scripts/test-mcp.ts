@@ -35,7 +35,7 @@ db0.close();
 async function session(clientName: string, env: Record<string, string> = {}, args = ['--db', dbPath]) {
   const transport = new StdioClientTransport({
     command: join(root, 'node_modules/.bin/tsx'), args: [join(root, 'src/cli/index.ts'), 'mcp', ...args],
-    env: { PATH: process.env.PATH ?? '', HOME: work, ...env }, stderr: 'pipe', cwd: root,
+    env: { PATH: process.env.PATH ?? '', HOME: work, ...env }, stderr: 'pipe', cwd: work,
   });
   const client = new Client({ name: clientName, version: '1.0.0' });
   await client.connect(transport);
